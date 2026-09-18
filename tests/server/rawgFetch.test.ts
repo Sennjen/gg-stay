@@ -92,6 +92,25 @@ describe('createRawgFetch', () => {
     expect(fetchJson).toHaveBeenCalledTimes(2)
   })
 
+  it('re-reads the clock before throttling a retry, instead of reusing a stale one', async () => {
+    const fetchJson = vi.fn()
+    const { deps, advance } = makeDeps({ fetchJson })
+    fetchJson
+      .mockImplementationOnce(async () => {
+        // Simulate a slow failed request: real time passes before we even
+        // get to decide whether to retry.
+        advance(2_000)
+        return { status: 502, body: null }
+      })
+      .mockResolvedValueOnce({ status: 200, body: { ok: 1 } })
+
+    expect(await createRawgFetch(deps)('games')).toEqual({ ok: 1 })
+    expect(fetchJson).toHaveBeenCalledTimes(2)
+    // The 250 ms slot has long since passed by the time of the retry, so the
+    // retry must not sleep at all.
+    expect(deps.sleep).not.toHaveBeenCalled()
+  })
+
   it('retries once on timeout, then throws TIMEOUT', async () => {
     const fetchJson = vi.fn().mockRejectedValue(timeoutError())
     const { deps } = makeDeps({ fetchJson })

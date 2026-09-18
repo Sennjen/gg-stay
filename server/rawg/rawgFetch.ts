@@ -70,9 +70,6 @@ function isTimeout(error: unknown): boolean {
 export function createRawgFetch(deps: RawgDeps): RawgFetch {
   let nextSlot = 0
 
-  // `now` is captured once per rawgFetch call (see below) rather than re-read
-  // here, so that concurrent calls each reserve their slot against the same
-  // reference point instead of one call's sleep skewing another's wait.
   async function throttle(now: number): Promise<void> {
     const slot = Math.max(now, nextSlot)
     nextSlot = slot + MIN_INTERVAL_MS
@@ -104,8 +101,17 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
   async function fetchWithRetry(url: string, now: number): Promise<unknown> {
     let lastError: unknown
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      // The first attempt reuses the `now` captured at the top of the logical
+      // call (see rawgFetch below) so that concurrent calls each reserve
+      // their throttle slot against a shared reference point. A retry
+      // attempt, however, happens strictly after real time has passed (the
+      // failed fetch, its timeout, etc.), so it must re-read the clock
+      // instead of reusing that stale value — otherwise throttle() would
+      // wait out a slot that has already elapsed, needlessly slowing down
+      // retries and dragging real throughput under the 4rps target.
+      const attemptNow = i === 0 ? now : deps.now()
       try {
-        return await attempt(url, now)
+        return await attempt(url, attemptNow)
       } catch (error) {
         lastError = error
         if (!isRetryable(error)) break
@@ -117,8 +123,11 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
   return async function rawgFetch(path, params) {
     // Capture `now` synchronously, before the first await, so concurrent
     // calls (e.g. Promise.all(...)) all reserve throttle slots against the
-    // same reference time instead of one call's simulated sleep bleeding
-    // into another's "current time".
+    // same reference point instead of one call's simulated sleep (in tests)
+    // or real elapsed time (in production) skewing another in-flight call's
+    // notion of "now". This is purely about keeping slot assignment
+    // deterministic across concurrent siblings — it is not a workaround for
+    // any production rate-limit bug.
     const now = deps.now()
 
     if (deps.fixtures) {
