@@ -1,0 +1,41 @@
+query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
+  games(filter: $filter, sort: $sort, page: $page, pageSize: $pageSize) {
+    total
+    page
+    pageSize
+    hasNext
+    indexedOnly
+    items {
+      id
+      slug
+      name
+      released
+      rating
+      metacritic
+      cover {
+        url
+      }
+      platforms {
+        id
+        slug
+        name
+      }
+      genres {
+        id
+        slug
+        name
+      }
+      price {
+        bestUah
+        discountPercent
+        isFree
+      }
+      localisation {
+        interface
+        subtitles
+        audio
+      }
+      madeInUkraine
+    }
+  }
+}

@@ -12,7 +12,7 @@ const config: CodegenConfig = {
       config: { ...shared, contextType: '../context#GraphQLContext' },
     },
     'app/graphql/__generated__/operations.ts': {
-      plugins: ['typescript', 'typescript-operations', 'typed-document-node'],
+      plugins: ['typescript-operations', 'typed-document-node'],
       config: shared,
     },
   },

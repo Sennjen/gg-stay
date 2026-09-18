@@ -1,0 +1,43 @@
+query Game($slug: String!) {
+  game(slug: $slug) {
+    id
+    slug
+    name
+    description
+    released
+    rating
+    ratingsCount
+    metacritic
+    playtime
+    ageRating
+    gameModes
+    website
+    cover {
+      url
+    }
+    platforms {
+      id
+      slug
+      name
+    }
+    genres {
+      id
+      slug
+      name
+    }
+    developers {
+      id
+      slug
+      name
+    }
+    publishers {
+      id
+      slug
+      name
+    }
+    stores {
+      store
+      url
+    }
+  }
+}
