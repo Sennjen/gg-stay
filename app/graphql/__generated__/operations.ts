@@ -1,16 +1,8 @@
 /** Internal type. DO NOT USE DIRECTLY. */
+type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
+/** Internal type. DO NOT USE DIRECTLY. */
 export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };
-export type Maybe<T> = T | null;
-export type InputMaybe<T> = Maybe<T>;
-/** All built-in and custom scalars, mapped to their actual values */
-export type Scalars = {
-  ID: { input: string; output: string; }
-  String: { input: string; output: string; }
-  Boolean: { input: boolean; output: boolean; }
-  Int: { input: number; output: number; }
-  Float: { input: number; output: number; }
-};
-
+import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-node/core';
 export type AgeRating =
   | 'PEGI3'
   | 'PEGI7'
@@ -18,70 +10,28 @@ export type AgeRating =
   | 'PEGI16'
   | 'PEGI18';
 
-export type Game = {
-  ageRating?: Maybe<AgeRating>;
-  cover?: Maybe<Image>;
-  description?: Maybe<Scalars['String']['output']>;
-  developers: Array<Taxonomy>;
-  gameModes: Array<GameMode>;
-  genres: Array<Taxonomy>;
-  id: Scalars['ID']['output'];
-  localisation?: Maybe<LocalisationInfo>;
-  madeInUkraine: Scalars['Boolean']['output'];
-  metacritic?: Maybe<Scalars['Int']['output']>;
-  name: Scalars['String']['output'];
-  platforms: Array<Taxonomy>;
-  playtime?: Maybe<Scalars['Int']['output']>;
-  publishers: Array<Taxonomy>;
-  rating?: Maybe<Scalars['Float']['output']>;
-  ratingsCount?: Maybe<Scalars['Int']['output']>;
-  released?: Maybe<Scalars['String']['output']>;
-  screenshots: Array<Image>;
-  similar: Array<GameCard>;
-  slug: Scalars['String']['output'];
-  stores: Array<StoreOffer>;
-  tags: Array<Taxonomy>;
-  website?: Maybe<Scalars['String']['output']>;
-};
-
-export type GameCard = {
-  cover?: Maybe<Image>;
-  genres: Array<Taxonomy>;
-  id: Scalars['ID']['output'];
-  localisation?: Maybe<LocalisationInfo>;
-  madeInUkraine: Scalars['Boolean']['output'];
-  metacritic?: Maybe<Scalars['Int']['output']>;
-  name: Scalars['String']['output'];
-  platforms: Array<Taxonomy>;
-  playtime?: Maybe<Scalars['Int']['output']>;
-  price?: Maybe<PriceSummary>;
-  rating?: Maybe<Scalars['Float']['output']>;
-  released?: Maybe<Scalars['String']['output']>;
-  slug: Scalars['String']['output'];
-};
-
 export type GameFilter = {
-  ageRating?: InputMaybe<Array<AgeRating>>;
-  developers?: InputMaybe<Array<Scalars['String']['input']>>;
-  free?: InputMaybe<Scalars['Boolean']['input']>;
-  gameModes?: InputMaybe<Array<GameMode>>;
-  genres?: InputMaybe<Array<Scalars['String']['input']>>;
-  madeInUkraine?: InputMaybe<Scalars['Boolean']['input']>;
-  metacriticMin?: InputMaybe<Scalars['Int']['input']>;
-  onSaleMinPercent?: InputMaybe<Scalars['Int']['input']>;
-  platforms?: InputMaybe<Array<Scalars['Int']['input']>>;
-  playtime?: InputMaybe<Playtime>;
+  ageRating?: Array<AgeRating> | null | undefined;
+  developers?: Array<string> | null | undefined;
+  free?: boolean | null | undefined;
+  gameModes?: Array<GameMode> | null | undefined;
+  genres?: Array<string> | null | undefined;
+  madeInUkraine?: boolean | null | undefined;
+  metacriticMin?: number | null | undefined;
+  onSaleMinPercent?: number | null | undefined;
+  platforms?: Array<number> | null | undefined;
+  playtime?: Playtime | null | undefined;
   /** Index-backed fields: accepted and ignored until the nightly index exists. */
-  priceMaxUah?: InputMaybe<Scalars['Int']['input']>;
-  publishers?: InputMaybe<Array<Scalars['String']['input']>>;
-  ratingMin?: InputMaybe<Scalars['Float']['input']>;
-  search?: InputMaybe<Scalars['String']['input']>;
-  stores?: InputMaybe<Array<Scalars['String']['input']>>;
-  tags?: InputMaybe<Array<Scalars['String']['input']>>;
-  ukrainianLocalisation?: InputMaybe<Localisation>;
-  upcoming?: InputMaybe<Scalars['Boolean']['input']>;
-  yearFrom?: InputMaybe<Scalars['Int']['input']>;
-  yearTo?: InputMaybe<Scalars['Int']['input']>;
+  priceMaxUah?: number | null | undefined;
+  publishers?: Array<string> | null | undefined;
+  ratingMin?: number | null | undefined;
+  search?: string | null | undefined;
+  stores?: Array<string> | null | undefined;
+  tags?: Array<string> | null | undefined;
+  ukrainianLocalisation?: Localisation | null | undefined;
+  upcoming?: boolean | null | undefined;
+  yearFrom?: number | null | undefined;
+  yearTo?: number | null | undefined;
 };
 
 export type GameMode =
@@ -89,15 +39,6 @@ export type GameMode =
   | 'MULTIPLAYER'
   | 'ONLINE_COOP'
   | 'SINGLE';
-
-export type GamePage = {
-  hasNext: Scalars['Boolean']['output'];
-  indexedOnly: Scalars['Boolean']['output'];
-  items: Array<GameCard>;
-  page: Scalars['Int']['output'];
-  pageSize: Scalars['Int']['output'];
-  total: Scalars['Int']['output'];
-};
 
 export type GameSort =
   | 'DISCOUNT_DESC'
@@ -110,75 +51,48 @@ export type GameSort =
   | 'RELEASED_ASC'
   | 'RELEASED_DESC';
 
-export type Image = {
-  height?: Maybe<Scalars['Int']['output']>;
-  url: Scalars['String']['output'];
-  width?: Maybe<Scalars['Int']['output']>;
-};
-
 export type Localisation =
   | 'ANY'
   | 'AUDIO'
   | 'INTERFACE'
   | 'SUBTITLES';
 
-export type LocalisationInfo = {
-  audio: Scalars['Boolean']['output'];
-  interface: Scalars['Boolean']['output'];
-  source: Scalars['String']['output'];
-  subtitles: Scalars['Boolean']['output'];
-};
-
 export type Playtime =
   | 'LONG'
   | 'MEDIUM'
   | 'SHORT';
 
-export type PriceSummary = {
-  bestStore: Scalars['String']['output'];
-  bestUah: Scalars['Int']['output'];
-  discountPercent: Scalars['Int']['output'];
-  isFree: Scalars['Boolean']['output'];
-  updatedAt: Scalars['String']['output'];
-};
-
-export type Query = {
-  developers: Array<Taxonomy>;
-  game?: Maybe<Game>;
-  games: GamePage;
-  genres: Array<Taxonomy>;
-  platforms: Array<Taxonomy>;
-};
+export type GameQueryVariables = Exact<{
+  slug: string;
+}>;
 
 
-export type QueryDevelopersArgs = {
-  search: Scalars['String']['input'];
-};
+export type GameQuery = { game: { id: string, slug: string, name: string, description: string | null, released: string | null, rating: number | null, ratingsCount: number | null, metacritic: number | null, playtime: number | null, ageRating: AgeRating | null, gameModes: Array<GameMode>, website: string | null, cover: { url: string } | null, platforms: Array<{ id: string, slug: string, name: string }>, genres: Array<{ id: string, slug: string, name: string }>, developers: Array<{ id: string, slug: string, name: string }>, publishers: Array<{ id: string, slug: string, name: string }>, stores: Array<{ store: string, url: string }> } | null };
+
+export type GamesQueryVariables = Exact<{
+  filter?: GameFilter | null | undefined;
+  sort?: GameSort | null | undefined;
+  page?: number | null | undefined;
+  pageSize?: number | null | undefined;
+}>;
 
 
-export type QueryGameArgs = {
-  slug: Scalars['String']['input'];
-};
+export type GamesQuery = { games: { total: number, page: number, pageSize: number, hasNext: boolean, indexedOnly: boolean, items: Array<{ id: string, slug: string, name: string, released: string | null, rating: number | null, metacritic: number | null, madeInUkraine: boolean, cover: { url: string } | null, platforms: Array<{ id: string, slug: string, name: string }>, genres: Array<{ id: string, slug: string, name: string }>, price: { bestUah: number, discountPercent: number, isFree: boolean } | null, localisation: { interface: boolean, subtitles: boolean, audio: boolean } | null }> } };
+
+export type CatalogTaxonomiesQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type QueryGamesArgs = {
-  filter?: InputMaybe<GameFilter>;
-  page?: InputMaybe<Scalars['Int']['input']>;
-  pageSize?: InputMaybe<Scalars['Int']['input']>;
-  sort?: InputMaybe<GameSort>;
-};
+export type CatalogTaxonomiesQuery = { genres: Array<{ id: string, slug: string, name: string }> };
 
-export type StoreOffer = {
-  discountPercent?: Maybe<Scalars['Int']['output']>;
-  priceUah?: Maybe<Scalars['Int']['output']>;
-  regularPriceUah?: Maybe<Scalars['Int']['output']>;
-  store: Scalars['String']['output'];
-  updatedAt?: Maybe<Scalars['String']['output']>;
-  url: Scalars['String']['output'];
-};
+export type DevelopersQueryVariables = Exact<{
+  search: string;
+}>;
 
-export type Taxonomy = {
-  id: Scalars['ID']['output'];
-  name: Scalars['String']['output'];
-  slug: Scalars['String']['output'];
-};
+
+export type DevelopersQuery = { developers: Array<{ id: string, slug: string, name: string }> };
+
+
+export const GameDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"Game"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"slug"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"game"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"slug"},"value":{"kind":"Variable","name":{"kind":"Name","value":"slug"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"released"}},{"kind":"Field","name":{"kind":"Name","value":"rating"}},{"kind":"Field","name":{"kind":"Name","value":"ratingsCount"}},{"kind":"Field","name":{"kind":"Name","value":"metacritic"}},{"kind":"Field","name":{"kind":"Name","value":"playtime"}},{"kind":"Field","name":{"kind":"Name","value":"ageRating"}},{"kind":"Field","name":{"kind":"Name","value":"gameModes"}},{"kind":"Field","name":{"kind":"Name","value":"website"}},{"kind":"Field","name":{"kind":"Name","value":"cover"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"url"}}]}},{"kind":"Field","name":{"kind":"Name","value":"platforms"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"genres"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"developers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"publishers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"stores"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"store"}},{"kind":"Field","name":{"kind":"Name","value":"url"}}]}}]}}]}}]} as unknown as DocumentNode<GameQuery, GameQueryVariables>;
+export const GamesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"Games"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"filter"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"GameFilter"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"sort"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"GameSort"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"page"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"pageSize"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"games"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"filter"},"value":{"kind":"Variable","name":{"kind":"Name","value":"filter"}}},{"kind":"Argument","name":{"kind":"Name","value":"sort"},"value":{"kind":"Variable","name":{"kind":"Name","value":"sort"}}},{"kind":"Argument","name":{"kind":"Name","value":"page"},"value":{"kind":"Variable","name":{"kind":"Name","value":"page"}}},{"kind":"Argument","name":{"kind":"Name","value":"pageSize"},"value":{"kind":"Variable","name":{"kind":"Name","value":"pageSize"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"total"}},{"kind":"Field","name":{"kind":"Name","value":"page"}},{"kind":"Field","name":{"kind":"Name","value":"pageSize"}},{"kind":"Field","name":{"kind":"Name","value":"hasNext"}},{"kind":"Field","name":{"kind":"Name","value":"indexedOnly"}},{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"released"}},{"kind":"Field","name":{"kind":"Name","value":"rating"}},{"kind":"Field","name":{"kind":"Name","value":"metacritic"}},{"kind":"Field","name":{"kind":"Name","value":"cover"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"url"}}]}},{"kind":"Field","name":{"kind":"Name","value":"platforms"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"genres"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"price"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"bestUah"}},{"kind":"Field","name":{"kind":"Name","value":"discountPercent"}},{"kind":"Field","name":{"kind":"Name","value":"isFree"}}]}},{"kind":"Field","name":{"kind":"Name","value":"localisation"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"interface"}},{"kind":"Field","name":{"kind":"Name","value":"subtitles"}},{"kind":"Field","name":{"kind":"Name","value":"audio"}}]}},{"kind":"Field","name":{"kind":"Name","value":"madeInUkraine"}}]}}]}}]}}]} as unknown as DocumentNode<GamesQuery, GamesQueryVariables>;
+export const CatalogTaxonomiesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"CatalogTaxonomies"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"genres"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]} as unknown as DocumentNode<CatalogTaxonomiesQuery, CatalogTaxonomiesQueryVariables>;
+export const DevelopersDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"Developers"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"search"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"developers"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"search"},"value":{"kind":"Variable","name":{"kind":"Name","value":"search"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]} as unknown as DocumentNode<DevelopersQuery, DevelopersQueryVariables>;

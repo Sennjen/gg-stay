@@ -16,6 +16,11 @@ export default defineNuxtConfig({
     '/': { isr: 600 },
     '/en': { isr: 600 },
   },
+  image: {
+    provider: 'rawg',
+    providers: { rawg: { provider: '~/providers/rawg' } },
+    screens: { sm: 420, md: 640, lg: 1280 },
+  },
   nitro: {
     serverAssets: [
       {

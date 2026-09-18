@@ -1,0 +1,15 @@
+query CatalogTaxonomies {
+  genres {
+    id
+    slug
+    name
+  }
+}
+
+query Developers($search: String!) {
+  developers(search: $search) {
+    id
+    slug
+    name
+  }
+}
