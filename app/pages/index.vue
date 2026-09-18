@@ -5,7 +5,7 @@ useSeoMeta({ title: () => t('home.title'), description: () => t('home.descriptio
 </script>
 
 <template>
-  <main class="mx-auto max-w-5xl px-4 py-16">
+  <main>
     <h1 class="text-4xl font-bold">{{ t('home.title') }}</h1>
     <p class="mt-4 text-lg text-slate-600">{{ t('home.description') }}</p>
     <NuxtLink
