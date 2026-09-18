@@ -218,15 +218,69 @@ describe('taxonomies', () => {
 })
 
 describe('error mapping', () => {
-  it.each([
+  const RESOLVER_QUERIES = {
+    games: { query: GAMES, variables: {} },
+    game: {
+      query: /* GraphQL */ `
+        query Game($slug: String!) {
+          game(slug: $slug) {
+            slug
+          }
+        }
+      `,
+      variables: { slug: 'the-witcher-3-wild-hunt' },
+    },
+    genres: {
+      query: /* GraphQL */ `
+        {
+          genres {
+            slug
+          }
+        }
+      `,
+      variables: {},
+    },
+    platforms: {
+      query: /* GraphQL */ `
+        {
+          platforms {
+            slug
+          }
+        }
+      `,
+      variables: {},
+    },
+    developers: {
+      query: /* GraphQL */ `
+        {
+          developers(search: "abc") {
+            slug
+          }
+        }
+      `,
+      variables: {},
+    },
+  } as const
+
+  const KINDS = [
     ['RATE_LIMITED', 'UPSTREAM_RATE_LIMITED'],
     ['TIMEOUT', 'UPSTREAM_TIMEOUT'],
     ['ERROR', 'UPSTREAM_ERROR'],
-  ] as const)('maps %s to %s', async (kind, code) => {
+  ] as const
+
+  const CASES = Object.keys(RESOLVER_QUERIES).flatMap((resolver) =>
+    KINDS.map(([kind, code]) => [resolver, kind, code] as const),
+  )
+
+  it.each(CASES)('maps %s resolver upstream %s to %s', async (resolver, kind, code) => {
+    // Fails for every path (the "games"/"genres"/"platforms"/"developers" list call, and, for
+    // `game`, the detail call at "games/<slug>") so each resolver's own error handling is
+    // exercised directly, not just its store-links enhancement call.
     const rawg: RawgFetch = async () => {
       throw new UpstreamError(kind)
     }
-    const { errors } = await run(rawg, GAMES)
+    const { query, variables } = RESOLVER_QUERIES[resolver]
+    const { errors } = await run(rawg, query, variables)
     expect(errors![0]!.extensions!.code).toBe(code)
   })
 
