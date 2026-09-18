@@ -25,5 +25,63 @@
     "title": "Сторінку не знайдено",
     "hint": "Можливо, гру видалено або адреса неправильна.",
     "toCatalog": "До каталогу"
+  },
+  "catalog": {
+    "title": "Каталог ігор",
+    "description": "Каталог відеоігор із фільтрами за платформою, жанром, роком, рейтингом і режимом гри.",
+    "results": "Знайдено: {count}",
+    "filters": "Фільтри",
+    "search": "Пошук за назвою",
+    "searchButton": "Шукати",
+    "any": "Будь-який",
+    "sort": "Сортування",
+    "prev": "Попередня",
+    "next": "Наступна",
+    "page": "Сторінка {page}",
+    "noCover": "Немає обкладинки"
+  },
+  "filters": {
+    "platform": "Платформа",
+    "genre": "Жанр",
+    "year": "Рік виходу",
+    "yearFrom": "Від",
+    "yearTo": "До",
+    "upcoming": "Скоро вийдуть",
+    "metacritic": "Metacritic",
+    "metacriticMin": "{value}+",
+    "userRating": "Оцінка гравців 4.0+",
+    "playtime": "Тривалість",
+    "gameMode": "Режим гри",
+    "ageRating": "Вікове обмеження",
+    "store": "Магазин",
+    "developer": "Розробник",
+    "developerPlaceholder": "Почніть вводити назву студії",
+    "remove": "Прибрати {name}"
+  },
+  "sorts": {
+    "POPULARITY_DESC": "За популярністю",
+    "RATING_DESC": "За оцінкою гравців",
+    "METACRITIC_DESC": "За Metacritic",
+    "RELEASED_DESC": "Спочатку нові",
+    "RELEASED_ASC": "Спочатку старі",
+    "NAME_ASC": "За назвою"
+  },
+  "playtimes": {
+    "SHORT": "Коротка (до 10 год)",
+    "MEDIUM": "Середня (10–40 год)",
+    "LONG": "Довга (40+ год)"
+  },
+  "gameModes": {
+    "SINGLE": "Для одного гравця",
+    "LOCAL_COOP": "Локальний кооператив",
+    "ONLINE_COOP": "Онлайн-кооператив",
+    "MULTIPLAYER": "Мультиплеєр"
+  },
+  "ageRatings": {
+    "PEGI3": "PEGI 3",
+    "PEGI7": "PEGI 7",
+    "PEGI12": "PEGI 12",
+    "PEGI16": "PEGI 16",
+    "PEGI18": "PEGI 18"
   }
 }
