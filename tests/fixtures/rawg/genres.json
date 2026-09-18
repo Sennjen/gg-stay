@@ -1,0 +1,11 @@
+{
+  "count": 6, "next": null, "previous": null,
+  "results": [
+    { "id": 4, "slug": "action", "name": "Action" },
+    { "id": 5, "slug": "role-playing-games-rpg", "name": "RPG" },
+    { "id": 10, "slug": "strategy", "name": "Strategy" },
+    { "id": 51, "slug": "indie", "name": "Indie" },
+    { "id": 2, "slug": "shooter", "name": "Shooter" },
+    { "id": 7, "slug": "puzzle", "name": "Puzzle" }
+  ]
+}

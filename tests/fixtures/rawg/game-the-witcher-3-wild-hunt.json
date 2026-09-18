@@ -1,0 +1,22 @@
+{
+  "id": 3328, "slug": "the-witcher-3-wild-hunt", "name": "The Witcher 3: Wild Hunt",
+  "description_raw": "The third game in a series, it holds nothing back from the player.\n\nOpen world adventures of the renowned monster slayer Geralt of Rivia.",
+  "released": "2015-05-18", "tba": false,
+  "background_image": "https://media.rawg.io/media/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg",
+  "website": "https://thewitcher.com/en/witcher3",
+  "rating": 4.65, "ratings_count": 6800, "metacritic": 92, "playtime": 43,
+  "platforms": [
+    { "platform": { "id": 4, "slug": "pc", "name": "PC" } },
+    { "platform": { "id": 187, "slug": "playstation5", "name": "PlayStation 5" } },
+    { "platform": { "id": 7, "slug": "nintendo-switch", "name": "Nintendo Switch" } }
+  ],
+  "genres": [{ "id": 4, "slug": "action", "name": "Action" }, { "id": 5, "slug": "role-playing-games-rpg", "name": "RPG" }],
+  "tags": [{ "id": 31, "slug": "singleplayer", "name": "Singleplayer" }, { "id": 36, "slug": "open-world", "name": "Open World" }],
+  "developers": [{ "id": 9023, "slug": "cd-projekt-red", "name": "CD PROJEKT RED" }],
+  "publishers": [{ "id": 7411, "slug": "cd-projekt-red", "name": "CD PROJEKT RED" }],
+  "stores": [
+    { "id": 354780, "url": "", "store": { "id": 1, "slug": "steam", "name": "Steam" } },
+    { "id": 354779, "url": "", "store": { "id": 5, "slug": "gog", "name": "GOG" } }
+  ],
+  "esrb_rating": { "id": 4, "slug": "mature", "name": "Mature" }
+}

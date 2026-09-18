@@ -1,0 +1,8 @@
+{
+  "count": 3, "next": null, "previous": null,
+  "results": [
+    { "id": 9023, "slug": "cd-projekt-red", "name": "CD PROJEKT RED" },
+    { "id": 1612, "slug": "valve-software", "name": "Valve Software" },
+    { "id": 10681, "slug": "gsc-game-world", "name": "GSC Game World" }
+  ]
+}
