@@ -3,5 +3,27 @@
     "title": "GG Stay — video game catalog",
     "description": "Games for Ukrainian players: practical filters and a Ukrainian-first interface.",
     "openCatalog": "Open the catalog"
+  },
+  "nav": { "catalog": "Catalog", "language": "Language" },
+  "footer": {
+    "dataBy": "Game data provided by",
+    "rights": "Names and images belong to their respective owners."
+  },
+  "states": {
+    "loading": "Loading…",
+    "emptyTitle": "Nothing found",
+    "emptyHint": "Try changing or clearing the filters.",
+    "clearFilters": "Clear filters"
+  },
+  "errors": {
+    "UPSTREAM_RATE_LIMITED": "Data source is busy, retrying…",
+    "UPSTREAM_TIMEOUT": "The data source is not responding. Please try again.",
+    "UPSTREAM_ERROR": "Could not load data. Please try again.",
+    "retry": "Try again"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "hint": "The game may have been removed or the address is wrong.",
+    "toCatalog": "Go to the catalog"
   }
 }
