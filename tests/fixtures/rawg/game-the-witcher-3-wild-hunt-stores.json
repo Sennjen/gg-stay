@@ -1,0 +1,7 @@
+{
+  "count": 2, "next": null, "previous": null,
+  "results": [
+    { "id": 354780, "game_id": 3328, "store_id": 1, "url": "https://store.steampowered.com/app/292030/" },
+    { "id": 354779, "game_id": 3328, "store_id": 5, "url": "https://www.gog.com/game/the_witcher_3_wild_hunt" }
+  ]
+}

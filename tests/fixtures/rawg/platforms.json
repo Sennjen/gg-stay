@@ -1,0 +1,13 @@
+{
+  "count": 8, "next": null, "previous": null,
+  "results": [
+    { "id": 4, "slug": "pc", "name": "PC" },
+    { "id": 187, "slug": "playstation5", "name": "PlayStation 5" },
+    { "id": 18, "slug": "playstation4", "name": "PlayStation 4" },
+    { "id": 186, "slug": "xbox-series-x", "name": "Xbox Series S/X" },
+    { "id": 1, "slug": "xbox-one", "name": "Xbox One" },
+    { "id": 7, "slug": "nintendo-switch", "name": "Nintendo Switch" },
+    { "id": 3, "slug": "ios", "name": "iOS" },
+    { "id": 21, "slug": "android", "name": "Android" }
+  ]
+}

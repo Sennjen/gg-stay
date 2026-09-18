@@ -1,0 +1,59 @@
+{
+  "count": 4,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 3328, "slug": "the-witcher-3-wild-hunt", "name": "The Witcher 3: Wild Hunt",
+      "released": "2015-05-18", "tba": false,
+      "background_image": "https://media.rawg.io/media/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg",
+      "rating": 4.65, "ratings_count": 6800, "metacritic": 92, "playtime": 43, "added": 21000,
+      "platforms": [
+        { "platform": { "id": 4, "slug": "pc", "name": "PC" } },
+        { "platform": { "id": 187, "slug": "playstation5", "name": "PlayStation 5" } },
+        { "platform": { "id": 7, "slug": "nintendo-switch", "name": "Nintendo Switch" } }
+      ],
+      "genres": [{ "id": 4, "slug": "action", "name": "Action" }, { "id": 5, "slug": "role-playing-games-rpg", "name": "RPG" }],
+      "tags": [{ "id": 31, "slug": "singleplayer", "name": "Singleplayer" }],
+      "stores": [{ "store": { "id": 1, "slug": "steam", "name": "Steam" } }, { "store": { "id": 5, "slug": "gog", "name": "GOG" } }],
+      "esrb_rating": { "id": 4, "slug": "mature", "name": "Mature" }
+    },
+    {
+      "id": 4200, "slug": "portal-2", "name": "Portal 2",
+      "released": "2011-04-18", "tba": false, "background_image": null,
+      "rating": 4.6, "ratings_count": 5900, "metacritic": 95, "playtime": 11, "added": 19500,
+      "platforms": [{ "platform": { "id": 4, "slug": "pc", "name": "PC" } }],
+      "genres": [{ "id": 2, "slug": "shooter", "name": "Shooter" }, { "id": 7, "slug": "puzzle", "name": "Puzzle" }],
+      "tags": [
+        { "id": 31, "slug": "singleplayer", "name": "Singleplayer" },
+        { "id": 9, "slug": "online-co-op", "name": "Online Co-Op" },
+        { "id": 75, "slug": "local-co-op", "name": "Local Co-Op" }
+      ],
+      "stores": [{ "store": { "id": 1, "slug": "steam", "name": "Steam" } }],
+      "esrb_rating": { "id": 2, "slug": "everyone-10-plus", "name": "Everyone 10+" }
+    },
+    {
+      "id": 654, "slug": "stardew-valley", "name": "Stardew Valley",
+      "released": "2016-02-25", "tba": false, "background_image": null,
+      "rating": 4.4, "ratings_count": 2300, "metacritic": 89, "playtime": 27, "added": 9800,
+      "platforms": [
+        { "platform": { "id": 4, "slug": "pc", "name": "PC" } },
+        { "platform": { "id": 7, "slug": "nintendo-switch", "name": "Nintendo Switch" } }
+      ],
+      "genres": [{ "id": 51, "slug": "indie", "name": "Indie" }, { "id": 14, "slug": "simulation", "name": "Simulation" }],
+      "tags": [
+        { "id": 31, "slug": "singleplayer", "name": "Singleplayer" },
+        { "id": 7, "slug": "multiplayer", "name": "Multiplayer" },
+        { "id": 75, "slug": "local-co-op", "name": "Local Co-Op" }
+      ],
+      "stores": [{ "store": { "id": 1, "slug": "steam", "name": "Steam" } }, { "store": { "id": 6, "slug": "nintendo", "name": "Nintendo Store" } }],
+      "esrb_rating": { "id": 2, "slug": "everyone-10-plus", "name": "Everyone 10+" }
+    },
+    {
+      "id": 999001, "slug": "unreleased-sample", "name": "Unreleased Sample",
+      "released": null, "tba": true, "background_image": null,
+      "rating": 0, "ratings_count": 0, "metacritic": null, "playtime": 0, "added": 10,
+      "platforms": null, "genres": [], "tags": null, "stores": null, "esrb_rating": null
+    }
+  ]
+}
