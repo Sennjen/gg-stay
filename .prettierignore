@@ -1,0 +1,7 @@
+.nuxt
+.output
+.vercel
+node_modules
+pnpm-lock.yaml
+**/__generated__/**
+tests/fixtures/**
