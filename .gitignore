@@ -1,0 +1,22 @@
+# dependencies and build output
+node_modules
+.nuxt
+.output
+.nitro
+.cache
+.data
+dist
+.vercel
+
+# environment
+.env
+.env.*
+!.env.example
+
+# logs and OS files
+*.log
+.DS_Store
+
+# editor
+.idea
+.vscode
