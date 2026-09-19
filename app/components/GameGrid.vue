@@ -21,7 +21,7 @@ withDefaults(defineProps<{ games: GamesQuery['games']['items']; layout?: 'grid' 
          yet on first paint), and this pass is not the place to add that measurement. Erring wide
          keeps desktop LCP correct, which is the one case a regression here would actually hurt. -->
     <li v-for="(game, index) in games" :key="game.id" class="h-full">
-      <GameCard :game="game" :eager="index < 5" :layout="layout" />
+      <GameCard :game="game" :eager="index < 5" :layout="layout" :heading-level="2" />
     </li>
   </ul>
 </template>

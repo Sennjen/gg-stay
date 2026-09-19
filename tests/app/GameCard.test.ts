@@ -154,6 +154,16 @@ describe('GameCard', () => {
     expect(title.classes()).toEqual(expect.arrayContaining(['line-clamp-2', 'min-h-[2.75rem]']))
   })
 
+  it('sets the title heading level to h3 by default, for use under a section h2 (GameRow)', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    expect(wrapper.get('[data-test="card-title"]').element.tagName).toBe('H3')
+  })
+
+  it('sets the title heading level to h2 when asked, for use directly under a page h1 (GameGrid)', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game, headingLevel: 2 } })
+    expect(wrapper.get('[data-test="card-title"]').element.tagName).toBe('H2')
+  })
+
   it('keeps the badge and platform icons on one non-wrapping line', async () => {
     const wrapper = await mountSuspended(GameCard, { props: { game } })
     const meta = wrapper.get('[data-test="card-title"]').element.parentElement

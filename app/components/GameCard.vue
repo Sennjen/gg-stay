@@ -6,9 +6,14 @@ const props = withDefaults(
     game: GamesQuery['games']['items'][number]
     eager?: boolean
     layout?: 'grid' | 'list'
+    /** The card title's heading level, so callers can keep a sane outline: `GameRow` nests
+     * cards under its own `<h2>` (so cards stay `<h3>`, the default), while `GameGrid` on the
+     * catalog page sits directly under the page's `<h1>` with no heading in between. */
+    headingLevel?: 2 | 3
   }>(),
-  { eager: false, layout: 'grid' },
+  { eager: false, layout: 'grid', headingLevel: 3 },
 )
+const titleTag = computed(() => `h${props.headingLevel}` as const)
 const { t } = useI18n()
 const localePath = useLocalePath()
 
@@ -84,12 +89,13 @@ function revealPreview(event: PointerEvent) {
         />
       </div>
       <div class="flex flex-1 flex-col p-3">
-        <h3
+        <component
+          :is="titleTag"
           data-test="card-title"
           class="line-clamp-2 min-h-[2.75rem] font-semibold leading-snug text-fg"
         >
           {{ game.name }}
-        </h3>
+        </component>
         <div
           v-if="year || game.metacritic || game.platformFamilies.length"
           class="@container mt-auto pt-2"
