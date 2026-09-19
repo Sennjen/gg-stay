@@ -142,7 +142,7 @@ onBeforeUnmount(() => {
             class="flex-1 rounded-chip bg-accent px-4 py-2 text-sm font-semibold text-on-accent focus-visible:outline-2"
             @click="close"
           >
-            <i18n-t keypath="drawer.showResults" tag="span">
+            <i18n-t keypath="drawer.showResults" tag="span" :plural="resultTotal">
               <template #count
                 ><span class="font-numeric">{{ resultTotal }}</span></template
               >

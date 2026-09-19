@@ -36,7 +36,7 @@
     "loading": "Loading…",
     "empty": "Nothing found",
     "error": "Could not load results",
-    "resultsAnnouncement": "{count} results"
+    "resultsAnnouncement": "{count} result | {count} results"
   },
   "footer": {
     "nav": "Footer",
@@ -142,7 +142,7 @@
     "title": "Filters",
     "close": "Close",
     "openButton": "Filters ({count})",
-    "showResults": "Show {count} games",
+    "showResults": "Show {count} game | Show {count} games",
     "resetAll": "Reset all"
   },
   "chips": {

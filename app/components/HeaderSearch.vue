@@ -52,7 +52,10 @@ const activeOptionId = computed(() => {
 
 const liveMessage = computed(() => {
   if (!showDropdown.value || status.value !== 'success') return ''
-  return t('search.resultsAnnouncement', { count: items.value.length })
+  // `plural` picks the form; `count` is still interpolated so the number stays in the string.
+  // The uk one/few/many rule lives in i18n/i18n.config.ts and runs on the server too.
+  const count = items.value.length
+  return t('search.resultsAnnouncement', { count }, { plural: count })
 })
 
 function optionId(index: number) {
