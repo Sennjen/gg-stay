@@ -15,6 +15,14 @@ const manyImages = Array.from({ length: 13 }, (_, index) => ({
   height: 1080,
 }))
 
+function imagesOf(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    url: `https://media.rawg.io/media/screenshots/${index}/full${index}.jpg`,
+    width: 1920,
+    height: 1080,
+  }))
+}
+
 // The lightbox is a lazily loaded chunk (`defineAsyncComponent`); its dynamic import resolves
 // over a real macrotask the first time it runs, so wait for it instead of a single microtask flush.
 function waitForDialog(wrapper: VueWrapper) {
@@ -145,7 +153,7 @@ describe('ScreenshotGallery', () => {
     expect(wrapper.find('[aria-live="polite"]').text()).toBe('2 з 3')
   })
 
-  it('falls back to compact "n / total" text instead of dots above 12 screenshots', async () => {
+  it('falls back to compact "n / total" text instead of dots above 13 screenshots', async () => {
     const wrapper = await mountSuspended(ScreenshotGallery, {
       props: { images: manyImages, title: 'The Witcher 3' },
     })
@@ -157,7 +165,31 @@ describe('ScreenshotGallery', () => {
     expect(dialog.find('.font-numeric').text()).toBe('1 / 13')
   })
 
-  it('gives the arrows and close button a 44px hit area and accessible names', async () => {
+  it('shows dots up to 11 screenshots (11 * 24px + 10 * 4px = 304px, fitting a 360px phone)', async () => {
+    const wrapper = await mountSuspended(ScreenshotGallery, {
+      props: { images: imagesOf(11), title: 'The Witcher 3' },
+    })
+    await wrapper.findAll('button')[0]!.trigger('click')
+    await waitForDialog(wrapper)
+    const dialog = wrapper.find('[role="dialog"]')
+
+    expect(dialog.findAll('[aria-label^="Скріншот"]')).toHaveLength(11)
+    expect(dialog.find('.font-numeric').exists()).toBe(false)
+  })
+
+  it('falls back to text at 12 screenshots (12 dots would need 332px, more than fits)', async () => {
+    const wrapper = await mountSuspended(ScreenshotGallery, {
+      props: { images: imagesOf(12), title: 'The Witcher 3' },
+    })
+    await wrapper.findAll('button')[0]!.trigger('click')
+    await waitForDialog(wrapper)
+    const dialog = wrapper.find('[role="dialog"]')
+
+    expect(dialog.findAll('[aria-label^="Скріншот"]')).toHaveLength(0)
+    expect(dialog.find('.font-numeric').text()).toBe('1 / 12')
+  })
+
+  it('gives the arrows, close button and dots a real hit area, with accessible names', async () => {
     const wrapper = await mountSuspended(ScreenshotGallery, {
       props: { images, title: 'The Witcher 3' },
     })
@@ -175,6 +207,10 @@ describe('ScreenshotGallery', () => {
       .find((button) => button.text().includes('Закрити'))!
     expect(closeButton.classes()).toEqual(expect.arrayContaining(['h-11', 'w-11']))
     expect(closeButton.find('.sr-only').text()).toBe('Закрити')
+
+    for (const dot of dialog.findAll('[aria-label^="Скріншот"]')) {
+      expect(dot.classes()).toEqual(expect.arrayContaining(['h-6', 'w-6']))
+    }
   })
 
   it('keeps the dots inside the Tab focus trap', async () => {

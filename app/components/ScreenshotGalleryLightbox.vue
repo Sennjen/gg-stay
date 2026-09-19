@@ -7,9 +7,11 @@ const props = defineProps<{ images: GalleryImage[]; title: string; initialIndex:
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
 
-// Above this count, per-screenshot dots would be too small to hit reliably, so the counter
-// falls back to compact "n / total" text instead.
-const MAX_DOTS = 12
+// Above this count, dots (each a 24px hit area with 4px between them) no longer fit a 360px
+// phone alongside the dialog's own padding (11 * 24px + 10 * 4px = 304px, the most that fits
+// inside a 360px viewport minus the dialog's p-4; 12 would need 332px), so the counter falls
+// back to compact "n / total" text instead.
+const MAX_DOTS = 11
 
 const current = ref(props.initialIndex)
 const imageLoaded = ref(false)
@@ -179,17 +181,24 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div v-if="showDots" class="mt-3 flex items-center justify-center gap-2">
+    <div v-if="showDots" class="mt-3 flex items-center justify-center gap-1">
       <button
         v-for="(image, index) in images"
         :key="image.url"
         type="button"
-        class="rounded-full transition-colors duration-200 ease-out focus-visible:outline-2"
-        :class="index === current ? 'h-2.5 w-2.5 bg-accent' : 'h-2 w-2 bg-fg-3 hover:bg-fg-2'"
+        class="group flex h-6 w-6 items-center justify-center focus-visible:outline-2"
         :aria-label="t('gallery.dotLabel', { n: index + 1, total })"
         :aria-current="index === current ? 'true' : undefined"
         @click="goTo(index)"
-      />
+      >
+        <span
+          aria-hidden="true"
+          class="rounded-full transition-colors duration-200 ease-out"
+          :class="
+            index === current ? 'h-2.5 w-2.5 bg-accent' : 'h-2 w-2 bg-fg-3 group-hover:bg-fg-2'
+          "
+        />
+      </button>
     </div>
     <span v-else-if="showFallbackCounter" class="font-numeric mt-3 text-sm text-fg-2">
       {{ t('gallery.counter', { current: current + 1, total }) }}

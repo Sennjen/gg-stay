@@ -53,4 +53,71 @@ describe('PlatformIcons', () => {
     expect(wrapper.find('.sr-only').exists()).toBe(false)
     expect(wrapper.text()).toContain('ПК')
   })
+
+  it('never shrinks or wraps a label mid-word, so a narrow row clips whole labels, not letters', async () => {
+    const wrapper = await mountSuspended(PlatformIcons, {
+      props: { families: ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'MOBILE', 'PC'] },
+    })
+    for (const item of wrapper.findAll('li')) {
+      expect(item.classes()).toEqual(expect.arrayContaining(['shrink-0', 'whitespace-nowrap']))
+    }
+  })
+
+  describe('container-query variants (used by the catalog card)', () => {
+    const fiveFamilies = ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'MOBILE'] as const
+
+    it('renders one <ul> per variant, each hidden from assistive technology', async () => {
+      const wrapper = await mountSuspended(PlatformIcons, {
+        props: { families: fiveFamilies, variants: [1, 2, 3] },
+      })
+      const lists = wrapper.findAll('ul')
+      expect(lists).toHaveLength(3)
+      for (const list of lists) {
+        expect(list.attributes('aria-hidden')).toBe('true')
+      }
+    })
+
+    it('shows the right "+N" for each variant with five families (1, 2 and 3 labels shown)', async () => {
+      const wrapper = await mountSuspended(PlatformIcons, {
+        props: { families: fiveFamilies, variants: [1, 2, 3] },
+      })
+      const lists = wrapper.findAll('ul')
+      expect(lists[0]!.findAll('li')).toHaveLength(2) // 1 label + "+4"
+      expect(lists[0]!.text()).toContain('+4')
+      expect(lists[1]!.findAll('li')).toHaveLength(3) // 2 labels + "+3"
+      expect(lists[1]!.text()).toContain('+3')
+      expect(lists[2]!.findAll('li')).toHaveLength(4) // 3 labels + "+2"
+      expect(lists[2]!.text()).toContain('+2')
+    })
+
+    it('never shows "+N" in any variant for a single-platform game', async () => {
+      const wrapper = await mountSuspended(PlatformIcons, {
+        props: { families: ['PC'], variants: [1, 2, 3] },
+      })
+      for (const list of wrapper.findAll('ul')) {
+        expect(list.text()).not.toContain('+')
+        expect(list.findAll('li')).toHaveLength(1)
+      }
+    })
+
+    it('exposes the full platform list once, for assistive technology, regardless of width', async () => {
+      const wrapper = await mountSuspended(PlatformIcons, {
+        props: { families: fiveFamilies, variants: [1, 2, 3] },
+      })
+      const accessibleLabel = wrapper.find('.sr-only')
+      expect(accessibleLabel.text()).toBe('Платформи: ПК, PlayStation, Xbox, Nintendo, Мобільні')
+    })
+
+    it('carries a distinct container-query class per variant, tied to the card meta block width', async () => {
+      const wrapper = await mountSuspended(PlatformIcons, {
+        props: { families: fiveFamilies, variants: [1, 2, 3] },
+      })
+      const lists = wrapper.findAll('ul')
+      expect(lists[0]!.classes()).toContain('@min-[200px]:hidden')
+      expect(lists[1]!.classes()).toEqual(
+        expect.arrayContaining(['hidden', '@min-[200px]:flex', '@min-[280px]:hidden']),
+      )
+      expect(lists[2]!.classes()).toEqual(expect.arrayContaining(['hidden', '@min-[280px]:flex']))
+    })
+  })
 })

@@ -90,7 +90,10 @@ function revealPreview(event: PointerEvent) {
         >
           {{ game.name }}
         </h3>
-        <div v-if="year || game.metacritic || game.platformFamilies.length" class="mt-auto pt-2">
+        <div
+          v-if="year || game.metacritic || game.platformFamilies.length"
+          class="@container mt-auto pt-2"
+        >
           <p
             v-if="year || game.platformFamilies.length"
             class="flex flex-nowrap items-center gap-1 overflow-hidden text-sm text-fg-2"
@@ -101,9 +104,8 @@ function revealPreview(event: PointerEvent) {
             >
             <PlatformIcons
               v-if="game.platformFamilies.length"
-              class="min-w-0 flex-nowrap overflow-hidden"
               :families="game.platformFamilies"
-              :max="3"
+              :variants="[1, 2, 3]"
             />
           </p>
           <p v-if="game.metacritic" class="mt-1 flex flex-nowrap items-center overflow-hidden">

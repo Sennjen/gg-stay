@@ -174,7 +174,7 @@ describe('GameCard', () => {
     expect(lines[1]!.textContent).toContain('92')
   })
 
-  it('limits platform labels to 3 before "+N" in the card context', async () => {
+  it('passes the 1/2/3-label container-query variants to PlatformIcons in the card context', async () => {
     const wrapper = await mountSuspended(GameCard, {
       props: {
         game: {
@@ -183,7 +183,14 @@ describe('GameCard', () => {
         },
       },
     })
-    expect(wrapper.findComponent(PlatformIcons).props('max')).toBe(3)
+    expect(wrapper.findComponent(PlatformIcons).props('variants')).toEqual([1, 2, 3])
+  })
+
+  it('establishes a container-query context around the meta block, so the platform row can adapt without JS', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    const meta = wrapper.get('[data-test="card-title"]').element.parentElement!
+    const container = meta.querySelector(':scope > div.mt-auto')
+    expect(container?.className).toContain('@container')
   })
 
   describe('layout="list"', () => {
