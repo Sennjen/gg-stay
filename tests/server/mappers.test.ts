@@ -107,6 +107,23 @@ describe('mapGame', () => {
     expect(game.similar).toEqual([])
   })
 
+  it('drops a cover and screenshots whose url is not http(s)', () => {
+    // `img-src` already stops these from doing anything, but it allows `data:`, and the rule is
+    // every third-party url bound to href OR src.
+    const card = mapGameCard({
+      ...detail,
+      background_image: 'javascript:alert(1)',
+      short_screenshots: [
+        { id: 1, image: 'data:text/html,x' },
+        { id: 2, image: 'https://media.rawg.io/media/screenshots/1/ok.jpg' },
+      ],
+    })
+    expect(card.cover).toBeNull()
+    expect(card.screenshots.map((image) => image.url)).toEqual([
+      'https://media.rawg.io/media/screenshots/1/ok.jpg',
+    ])
+  })
+
   it('drops a website with an unsafe scheme', () => {
     for (const website of ['javascript:alert(1)', 'data:text/html,x', '//evil.test/x']) {
       expect(mapGame({ ...detail, website }, []).website).toBeNull()

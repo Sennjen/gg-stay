@@ -75,6 +75,20 @@ beforeAll(async () => {
   await withComposer((i18n) => i18n.setLocaleMessage('en', messages))
 })
 
+/**
+ * Settles a component whose update depends on an awaited dynamic import (`printDocument` loads the
+ * graphql printer on demand), which takes an unpredictable number of microtask turns the first
+ * time it runs. Polls instead of guessing a fixed number of flushes.
+ */
+async function waitFor(condition: () => boolean, turns = 50) {
+  for (let turn = 0; turn < turns; turn++) {
+    if (condition()) return
+    await flushPromises()
+    await nextTick()
+  }
+  expect(condition(), 'condition never became true').toBe(true)
+}
+
 async function switchLocale(locale: 'uk' | 'en') {
   await withComposer((i18n) => {
     i18n.locale.value = locale
@@ -154,12 +168,14 @@ describe('plural forms at the call sites', () => {
       await vi.advanceTimersByTimeAsync(250)
       await flushPromises()
       vi.useRealTimers()
-      // `printDocument` loads the graphql printer on demand, so the response lands a tick later.
-      await flushPromises()
-      await nextTick()
 
-      const live = wrapper.findAll('[aria-live="polite"]').map((node) => node.text())
-      expect(live.join(' ')).toContain(EXPECTED.search[locale][count])
+      const announcement = () =>
+        wrapper
+          .findAll('[aria-live="polite"]')
+          .map((node) => node.text())
+          .join(' ')
+      await waitFor(() => announcement().trim().length > 0)
+      expect(announcement()).toContain(EXPECTED.search[locale][count])
       wrapper.unmount()
     })
 

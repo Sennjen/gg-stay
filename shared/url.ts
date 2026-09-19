@@ -12,6 +12,10 @@ const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
  * exactly as the browser would. A protocol-relative or relative value has no scheme at all and
  * fails to parse without a base, which is the right answer here: these URLs must be absolute.
  *
+ * Credentials in the authority (`https://user:pass@example.com/`) are dropped rather than passed
+ * through: nothing upstream has a reason to send them, and a URL whose visible host is not the
+ * host it reaches is the classic way to make a link read as one site and go to another.
+ *
  * Applied in the mappers so an unsafe value never enters the GraphQL response, and again at the
  * template sites as defence in depth.
  */
@@ -19,7 +23,10 @@ export function safeExternalUrl(raw?: string | null): string | null {
   if (!raw) return null
   try {
     const url = new URL(raw)
-    return ALLOWED_PROTOCOLS.has(url.protocol) ? url.toString() : null
+    if (!ALLOWED_PROTOCOLS.has(url.protocol)) return null
+    url.username = ''
+    url.password = ''
+    return url.toString()
   } catch {
     return null
   }
