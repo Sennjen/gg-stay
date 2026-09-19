@@ -50,6 +50,16 @@ export interface RawgScreenshot {
   height?: number | null
 }
 
+export interface RawgMovie {
+  id?: number
+  name?: string
+  preview?: string
+  data?: {
+    '480'?: string | null
+    max?: string | null
+  } | null
+}
+
 export interface RawgList<T> {
   count?: number
   next?: string | null

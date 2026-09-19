@@ -34,7 +34,16 @@ export interface RawgDeps {
   sleep: (ms: number) => Promise<void>
 }
 
-export type RawgFetch = (path: string, params?: RawgParams) => Promise<unknown>
+export interface RawgFetchOptions {
+  /** Overrides the ttl (seconds) `ttlFor(path)` would otherwise pick for this call's cache entry. */
+  ttl?: number
+}
+
+export type RawgFetch = (
+  path: string,
+  params?: RawgParams,
+  options?: RawgFetchOptions,
+) => Promise<unknown>
 
 function cleanParams(params: RawgParams = {}): [string, string][] {
   return Object.entries(params)
@@ -120,7 +129,7 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
     throw lastError
   }
 
-  return async function rawgFetch(path, params) {
+  return async function rawgFetch(path, params, options) {
     // Capture `now` synchronously, before the first await, so concurrent
     // calls (e.g. Promise.all(...)) all reserve throttle slots against the
     // same reference point instead of one call's simulated sleep (in tests)
@@ -146,7 +155,8 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
 
     try {
       const value = await fetchWithRetry(url.toString(), now)
-      await deps.cache.set(key, { value, expiresAt: now + ttlFor(path) * 1000 })
+      const ttl = options?.ttl ?? ttlFor(path)
+      await deps.cache.set(key, { value, expiresAt: now + ttl * 1000 })
       return value
     } catch (error) {
       const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'

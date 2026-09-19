@@ -10,6 +10,7 @@ export const typeDefs = /* GraphQL */ `
     genres: [Taxonomy!]!
     platforms: [Taxonomy!]!
     developers(search: String!): [Taxonomy!]!
+    landing: Landing!
   }
 
   input GameFilter {
@@ -131,6 +132,18 @@ export const typeDefs = /* GraphQL */ `
     localisation: LocalisationInfo
     madeInUkraine: Boolean!
     similar: [GameCard!]!
+  }
+
+  type FeaturedGame {
+    game: GameCard!
+    clipUrl: String
+  }
+  type Landing {
+    featured: FeaturedGame
+    carousel: [GameCard!]!
+    newReleases: [GameCard!]!
+    topRated: [GameCard!]!
+    totalGames: Int!
   }
 
   type PriceSummary {

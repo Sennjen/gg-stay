@@ -179,4 +179,16 @@ describe('createRawgFetch', () => {
     await expect(rawg('games/unknown')).rejects.toMatchObject({ kind: 'NOT_FOUND' })
     expect(deps.fetchJson).not.toHaveBeenCalled()
   })
+
+  it('caches an entry for the ttl override instead of the path default', async () => {
+    const { deps, advance } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    await rawg('games', { page: 1 }, { ttl: 86_400 })
+    advance(601_000) // past the default 600s ttl for "games"
+    await rawg('games', { page: 1 }, { ttl: 86_400 })
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+    advance(86_400_000) // past the 86400s override, from the first call
+    await rawg('games', { page: 1 }, { ttl: 86_400 })
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+  })
 })

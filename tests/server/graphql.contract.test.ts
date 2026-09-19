@@ -5,6 +5,7 @@ import games from '../fixtures/rawg/games.json'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
 import stores from '../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json'
 import screenshots from '../fixtures/rawg/game-the-witcher-3-wild-hunt-screenshots.json'
+import movies from '../fixtures/rawg/game-3328-movies.json'
 import genres from '../fixtures/rawg/genres.json'
 import platforms from '../fixtures/rawg/platforms.json'
 import developers from '../fixtures/rawg/developers.json'
@@ -14,6 +15,7 @@ const fixtureRawg: RawgFetch = async (path) => {
   if (path === 'games/the-witcher-3-wild-hunt') return detail
   if (path === 'games/the-witcher-3-wild-hunt/stores') return stores
   if (path === 'games/the-witcher-3-wild-hunt/screenshots') return screenshots
+  if (path === 'games/3328/movies') return movies
   if (path === 'genres') return genres
   if (path === 'platforms') return platforms
   if (path === 'developers') return developers
@@ -219,6 +221,73 @@ describe('GameCard.screenshots / platformFamilies', () => {
     expect(unreleased.screenshots).toEqual([])
     expect(unreleased.platformFamilies).toEqual([])
   })
+})
+
+describe('Query.landing', () => {
+  const LANDING = /* GraphQL */ `
+    query Landing {
+      landing {
+        totalGames
+        featured {
+          game {
+            slug
+          }
+          clipUrl
+        }
+        carousel {
+          slug
+        }
+        newReleases {
+          slug
+        }
+        topRated {
+          slug
+        }
+      }
+    }
+  `
+
+  it('returns the featured game with clipUrl, a cover-only carousel and capped lists', async () => {
+    const { data, errors } = await run(fixtureRawg, LANDING)
+    expect(errors).toBeUndefined()
+    expect(data!.landing.totalGames).toBe(4)
+    expect(data!.landing.featured).toEqual({
+      game: { slug: 'the-witcher-3-wild-hunt' },
+      clipUrl: 'https://media.rawg.io/media/movies/1/movie480.mp4',
+    })
+    expect(data!.landing.carousel).toEqual([{ slug: 'the-witcher-3-wild-hunt' }])
+    expect(data!.landing.topRated.map((item: { slug: string }) => item.slug)).toEqual([
+      'the-witcher-3-wild-hunt',
+      'portal-2',
+      'stardew-valley',
+    ])
+    expect(data!.landing.newReleases).toHaveLength(4)
+  })
+
+  it('returns clipUrl: null without failing the query when the movies call fails', async () => {
+    const rawg: RawgFetch = async (path, params) => {
+      if (path.endsWith('/movies')) throw new UpstreamError('ERROR', 500)
+      return fixtureRawg(path, params)
+    }
+    const { data, errors } = await run(rawg, LANDING)
+    expect(errors).toBeUndefined()
+    expect(data!.landing.featured.clipUrl).toBeNull()
+  })
+
+  it.each([
+    ['RATE_LIMITED', 'UPSTREAM_RATE_LIMITED'],
+    ['TIMEOUT', 'UPSTREAM_TIMEOUT'],
+    ['ERROR', 'UPSTREAM_ERROR'],
+  ] as const)(
+    'fails the whole query with %s when the games list call fails',
+    async (kind, code) => {
+      const rawg: RawgFetch = async () => {
+        throw new UpstreamError(kind)
+      }
+      const { errors } = await run(rawg, LANDING)
+      expect(errors![0]!.extensions!.code).toBe(code)
+    },
+  )
 })
 
 describe('taxonomies', () => {

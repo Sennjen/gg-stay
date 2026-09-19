@@ -19,6 +19,11 @@ export type AgeRating =
   | 'PEGI16'
   | 'PEGI18';
 
+export type FeaturedGame = {
+  clipUrl?: Maybe<Scalars['String']['output']>;
+  game: GameCard;
+};
+
 export type Game = {
   ageRating?: Maybe<AgeRating>;
   cover?: Maybe<Image>;
@@ -119,6 +124,14 @@ export type Image = {
   width?: Maybe<Scalars['Int']['output']>;
 };
 
+export type Landing = {
+  carousel: Array<GameCard>;
+  featured?: Maybe<FeaturedGame>;
+  newReleases: Array<GameCard>;
+  topRated: Array<GameCard>;
+  totalGames: Scalars['Int']['output'];
+};
+
 export type Localisation =
   | 'ANY'
   | 'AUDIO'
@@ -158,6 +171,7 @@ export type Query = {
   game?: Maybe<Game>;
   games: GamePage;
   genres: Array<Taxonomy>;
+  landing: Landing;
   platforms: Array<Taxonomy>;
 };
 
@@ -269,6 +283,7 @@ export type DirectiveResolverFn<TResult = Record<PropertyKey, never>, TParent = 
 export type ResolversTypes = {
   AgeRating: AgeRating;
   Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
+  FeaturedGame: ResolverTypeWrapper<FeaturedGame>;
   Float: ResolverTypeWrapper<Scalars['Float']['output']>;
   Game: ResolverTypeWrapper<Game>;
   GameCard: ResolverTypeWrapper<GameCard>;
@@ -279,6 +294,7 @@ export type ResolversTypes = {
   ID: ResolverTypeWrapper<Scalars['ID']['output']>;
   Image: ResolverTypeWrapper<Image>;
   Int: ResolverTypeWrapper<Scalars['Int']['output']>;
+  Landing: ResolverTypeWrapper<Landing>;
   Localisation: Localisation;
   LocalisationInfo: ResolverTypeWrapper<LocalisationInfo>;
   PlatformFamily: PlatformFamily;
@@ -293,6 +309,7 @@ export type ResolversTypes = {
 /** Mapping between all available schema types and the resolvers parents */
 export type ResolversParentTypes = {
   Boolean: Scalars['Boolean']['output'];
+  FeaturedGame: FeaturedGame;
   Float: Scalars['Float']['output'];
   Game: Game;
   GameCard: GameCard;
@@ -301,12 +318,18 @@ export type ResolversParentTypes = {
   ID: Scalars['ID']['output'];
   Image: Image;
   Int: Scalars['Int']['output'];
+  Landing: Landing;
   LocalisationInfo: LocalisationInfo;
   PriceSummary: PriceSummary;
   Query: Record<PropertyKey, never>;
   StoreOffer: StoreOffer;
   String: Scalars['String']['output'];
   Taxonomy: Taxonomy;
+};
+
+export type FeaturedGameResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['FeaturedGame'] = ResolversParentTypes['FeaturedGame']> = {
+  clipUrl?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  game?: Resolver<ResolversTypes['GameCard'], ParentType, ContextType>;
 };
 
 export type GameResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Game'] = ResolversParentTypes['Game']> = {
@@ -368,6 +391,14 @@ export type ImageResolvers<ContextType = GraphQLContext, ParentType extends Reso
   width?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
 };
 
+export type LandingResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Landing'] = ResolversParentTypes['Landing']> = {
+  carousel?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
+  featured?: Resolver<Maybe<ResolversTypes['FeaturedGame']>, ParentType, ContextType>;
+  newReleases?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
+  topRated?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
+  totalGames?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+};
+
 export type LocalisationInfoResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['LocalisationInfo'] = ResolversParentTypes['LocalisationInfo']> = {
   audio?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   interface?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
@@ -388,6 +419,7 @@ export type QueryResolvers<ContextType = GraphQLContext, ParentType extends Reso
   game?: Resolver<Maybe<ResolversTypes['Game']>, ParentType, ContextType, RequireFields<QueryGameArgs, 'slug'>>;
   games?: Resolver<ResolversTypes['GamePage'], ParentType, ContextType, RequireFields<QueryGamesArgs, 'page' | 'pageSize' | 'sort'>>;
   genres?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
+  landing?: Resolver<ResolversTypes['Landing'], ParentType, ContextType>;
   platforms?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
 };
 
@@ -407,10 +439,12 @@ export type TaxonomyResolvers<ContextType = GraphQLContext, ParentType extends R
 };
 
 export type Resolvers<ContextType = GraphQLContext> = {
+  FeaturedGame?: FeaturedGameResolvers<ContextType>;
   Game?: GameResolvers<ContextType>;
   GameCard?: GameCardResolvers<ContextType>;
   GamePage?: GamePageResolvers<ContextType>;
   Image?: ImageResolvers<ContextType>;
+  Landing?: LandingResolvers<ContextType>;
   LocalisationInfo?: LocalisationInfoResolvers<ContextType>;
   PriceSummary?: PriceSummaryResolvers<ContextType>;
   Query?: QueryResolvers<ContextType>;
