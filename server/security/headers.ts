@@ -1,6 +1,9 @@
 // Every third-party origin this app is allowed to reach, named once. RAWG serves covers and its
-// own mp4 clips; Steam serves HLS trailers, which hls.js fetches over XHR (hence `connect-src`)
-// and demuxes in a worker it creates from a blob URL (hence `worker-src blob:`).
+// own mp4 clips; Steam serves HLS trailers, which hls.js fetches over XHR (hence `connect-src`),
+// demuxes in a worker it creates from a blob URL (hence `worker-src blob:`) and attaches to the
+// <video> element as a MediaSource object URL (hence `blob:` in `media-src` — a blob in a media
+// context is governed by `media-src`, not by `worker-src`, and without it the trailer silently
+// never plays on every engine that is not Safari).
 const RAWG_MEDIA = 'https://media.rawg.io'
 // media.rawg.io 307-redirects anything it does not hold in its own bucket to api.rawg.io, and a
 // redirect target has to satisfy the policy in its own right. Verified against the live CDN:
@@ -13,8 +16,16 @@ const STEAM_VIDEO = 'https://video.akamai.steamstatic.com'
  * Builds the policy. `scriptHashes` are `'sha256-…'` sources for the two scripts Nuxt inlines into
  * every server-rendered page (the import map and the `window.__NUXT__.config` assignment); the
  * Nitro plugin in server/plugins/csp.ts computes them per response, so HTML gets an exact-hash
- * `script-src` instead of `'unsafe-inline'`. Everything else — the JS, CSS, font and image assets —
- * carries the hash-free policy from `routeRules`, which is strictly tighter.
+ * `script-src` instead of `'unsafe-inline'`. Responses with no inline script (the API, JSON errors)
+ * get the hash-free policy, which is strictly tighter.
+ *
+ * THE CSP IS SENT FROM EXACTLY ONE PLACE — that plugin. It deliberately does NOT go into
+ * `routeRules`: the Vercel preset compiles a `routeRules` header into a proxy-level entry in
+ * `.vercel/output/config.json`, which would put a hash-free `script-src 'self'` on every response
+ * either instead of or alongside the function's own header. Either way the browser would end up
+ * enforcing a policy without the hashes, block `window.__NUXT__.config`, and leave every page
+ * server-rendered but unhydrated — in production only, where no header test runs.
+ * `STATIC_SECURITY_HEADERS` below is what `routeRules` carries, and it has no CSP in it.
  *
  * `style-src` keeps `'unsafe-inline'`: Nuxt inlines each route's critical CSS into the rendered
  * head, and unlike the scripts those blocks are not enumerable ahead of the head being built, so
@@ -35,7 +46,7 @@ export function contentSecurityPolicy(scriptHashes: readonly string[] = []): str
     // @nuxt/fonts downloads the Google families at build time and serves them from /_fonts.
     "font-src 'self'",
     `img-src 'self' data: ${RAWG_MEDIA} ${RAWG_MEDIA_REDIRECT}`,
-    `media-src 'self' ${RAWG_MEDIA} ${STEAM_VIDEO}`,
+    `media-src 'self' blob: ${RAWG_MEDIA} ${STEAM_VIDEO}`,
     `connect-src 'self' ${STEAM_VIDEO}`,
     "worker-src 'self' blob:",
   ].join('; ')
@@ -43,11 +54,15 @@ export function contentSecurityPolicy(scriptHashes: readonly string[] = []): str
 
 export const CSP_HEADER = 'content-security-policy'
 
-export const SECURITY_HEADERS: Record<string, string> = {
-  'Content-Security-Policy': contentSecurityPolicy(),
+/**
+ * The headers that are identical on every response and carry no per-response state, so they are
+ * safe to set once in `routeRules` — which on Vercel means the CDN applies them to static assets
+ * too, not just to function responses. The CSP is **not** among them; see above.
+ */
+export const STATIC_SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  // Belt and braces with `frame-ancestors 'none'` above, for anything that still reads this.
+  // Belt and braces with `frame-ancestors 'none'` in the policy, for anything that still reads it.
   'X-Frame-Options': 'DENY',
   // The app uses none of these; denying them stops an embedded third party asking either.
   // `autoplay=(self)` is the exception: the hero trailer plays muted on its own.

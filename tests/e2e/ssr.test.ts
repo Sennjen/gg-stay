@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
 
@@ -207,6 +208,10 @@ describe('server-side rendering', async () => {
       expect(csp).toContain("img-src 'self' data: https://media.rawg.io https://api.rawg.io")
       expect(csp).toContain('https://video.akamai.steamstatic.com')
       expect(csp).toContain("worker-src 'self' blob:")
+      // hls.js attaches its MediaSource as a blob: URL on the <video> element, which media-src
+      // governs — not worker-src. Without it the trailer silently never plays off Safari.
+      expect(csp).toContain('media-src')
+      expect(csp.split('; ').find((d) => d.startsWith('media-src'))).toContain('blob:')
 
       // Nuxt inlines two scripts per page; the Nitro plugin hashes exactly those, so `script-src`
       // never falls back to 'unsafe-inline' (which would defeat the point) and never allows eval.
@@ -214,6 +219,18 @@ describe('server-side rendering', async () => {
       expect(scriptSrc).not.toContain('unsafe-inline')
       expect(scriptSrc).not.toContain('unsafe-eval')
       expect(scriptSrc.match(/'sha256-[^']+'/g) ?? []).toHaveLength(2)
+
+      // Every executable inline script in the body must be covered by a hash in the header — the
+      // property the whole arrangement exists for, checked against the markup actually served.
+      const html = await fetch(path, { headers: { accept: 'text/html' } }).then((r) => r.text())
+      const inline = [...html.matchAll(/<script(?![^>]*\ssrc=)([^>]*)>([\s\S]*?)<\/script>/g)]
+        .filter(([, tag]) => !tag!.includes('application/json'))
+        .map(([, , body]) => body!)
+      expect(inline).toHaveLength(2)
+      for (const body of inline) {
+        const hash = createHash('sha256').update(body, 'utf8').digest('base64')
+        expect(scriptSrc).toContain(`'sha256-${hash}'`)
+      }
 
       expect(response.headers.get('x-content-type-options')).toBe('nosniff')
       expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')

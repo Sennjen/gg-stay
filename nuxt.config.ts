@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
-import { SECURITY_HEADERS } from './server/security/headers'
+import { STATIC_SECURITY_HEADERS } from './server/security/headers'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
@@ -48,7 +48,11 @@ export default defineNuxtConfig({
     rawgFixtures: process.env.RAWG_FIXTURES ?? '',
   },
   routeRules: {
-    '/**': { headers: SECURITY_HEADERS },
+    // Static headers only. The Content-Security-Policy is deliberately NOT here: the Vercel preset
+    // compiles a routeRules header into a proxy-level entry in `.vercel/output/config.json`, and a
+    // hash-free `script-src 'self'` applied there would block the scripts Nuxt inlines and leave
+    // every page unhydrated in production. It is sent from `server/plugins/csp.ts` instead.
+    '/**': { headers: STATIC_SECURITY_HEADERS },
     '/': { isr: 600 },
     '/en': { isr: 600 },
   },
