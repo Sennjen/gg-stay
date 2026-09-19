@@ -47,4 +47,14 @@ describe('GameCard', () => {
     expect(wrapper.find('img').exists()).toBe(false)
     expect(wrapper.text()).toContain('Немає обкладинки')
   })
+
+  it('lazy-loads the cover image by default', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    expect(wrapper.get('img').attributes('loading')).toBe('lazy')
+  })
+
+  it('eager-loads the cover image when eager is true', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game, eager: true } })
+    expect(wrapper.get('img').attributes('loading')).toBe('eager')
+  })
 })
