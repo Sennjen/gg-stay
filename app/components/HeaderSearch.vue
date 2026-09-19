@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { SEARCH_THUMBNAIL_IMAGE_SIZES } from '~/utils/rawgImage'
+
 const MIN_LENGTH = 2
 
 const route = useRoute()
@@ -252,6 +254,7 @@ onBeforeUnmount(() => reset())
             alt=""
             width="96"
             height="54"
+            :sizes="SEARCH_THUMBNAIL_IMAGE_SIZES"
             loading="lazy"
             class="h-[54px] w-24 flex-none rounded object-cover"
           />

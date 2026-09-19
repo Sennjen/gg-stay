@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GameQuery } from '~/graphql/__generated__/operations'
+import { GALLERY_THUMB_IMAGE_SIZES } from '~/utils/rawgImage'
 
 type GalleryImage = NonNullable<GameQuery['game']>['screenshots'][number]
 
@@ -57,7 +58,7 @@ function altFor(index: number) {
             width="480"
             height="270"
             loading="lazy"
-            sizes="(max-width: 640px) 50vw, 33vw"
+            :sizes="GALLERY_THUMB_IMAGE_SIZES"
             class="aspect-video w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03] group-focus-visible:scale-[1.03]"
           />
         </button>

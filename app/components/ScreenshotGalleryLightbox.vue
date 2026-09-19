@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GameQuery } from '~/graphql/__generated__/operations'
+import { GALLERY_LIGHTBOX_IMAGE_SIZES } from '~/utils/rawgImage'
 
 type GalleryImage = NonNullable<GameQuery['game']>['screenshots'][number]
 
@@ -155,6 +156,7 @@ onBeforeUnmount(() => {
           :alt="activeAlt"
           width="1280"
           height="720"
+          :sizes="GALLERY_LIGHTBOX_IMAGE_SIZES"
           class="h-full w-full object-contain opacity-0 transition-opacity duration-200 ease-out"
           :class="{ 'opacity-100': imageLoaded }"
           @load="imageLoaded = true"

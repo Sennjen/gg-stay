@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GamesQuery } from '~/graphql/__generated__/operations'
+import { CARD_GRID_IMAGE_SIZES, CARD_LIST_IMAGE_SIZES } from '~/utils/rawgImage'
 
 const props = withDefaults(
   defineProps<{
@@ -10,8 +11,11 @@ const props = withDefaults(
      * cards under its own `<h2>` (so cards stay `<h3>`, the default), while `GameGrid` on the
      * catalog page sits directly under the page's `<h1>` with no heading in between. */
     headingLevel?: 2 | 3
+    /** Overrides the cover's `sizes` for callers whose slot is not the catalog grid's — the
+     * landing rows render grid-layout cards at a fixed width (see `CARD_ROW_IMAGE_SIZES`). */
+    coverSizes?: string
   }>(),
-  { eager: false, layout: 'grid', headingLevel: 3 },
+  { eager: false, layout: 'grid', headingLevel: 3, coverSizes: undefined },
 )
 const titleTag = computed(() => `h${props.headingLevel}` as const)
 const { t } = useI18n()
@@ -35,8 +39,10 @@ const coverWrapperClass = computed(() =>
     ? 'relative aspect-video w-full shrink-0 overflow-hidden bg-surface-2 sm:w-[220px]'
     : 'relative aspect-video w-full shrink-0 overflow-hidden bg-surface-2',
 )
-const coverSizes = computed(() =>
-  props.layout === 'list' ? '(max-width: 640px) 100vw, 220px' : '(max-width: 640px) 50vw, 420px',
+// `@nuxt/image` breakpoint syntax, not CSS media queries — see app/utils/rawgImage.ts.
+const coverSizes = computed(
+  () =>
+    props.coverSizes ?? (props.layout === 'list' ? CARD_LIST_IMAGE_SIZES : CARD_GRID_IMAGE_SIZES),
 )
 
 // The second image is a "does this look interesting?" preview, not core content: it only
@@ -82,6 +88,7 @@ function revealPreview(event: PointerEvent) {
           aria-hidden="true"
           width="420"
           height="236"
+          :sizes="coverSizes"
           loading="lazy"
           class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-200 ease-out"
           :class="previewLoaded ? 'group-hover:opacity-100 group-focus-visible:opacity-100' : ''"
