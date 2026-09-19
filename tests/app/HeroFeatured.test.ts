@@ -5,6 +5,7 @@ import HeroVideo from '~/components/HeroVideo.vue'
 
 const featured = {
   clipUrl: 'https://media.rawg.io/media/movies/1/movie480.mp4',
+  clipSource: 'RAWG' as const,
   game: {
     slug: 'the-witcher-3-wild-hunt',
     name: 'The Witcher 3: Wild Hunt',
@@ -71,5 +72,28 @@ describe('HeroFeatured', () => {
       props: { featured: { ...featured, clipUrl: null } },
     })
     expect(withoutClip.findComponent(HeroVideo).exists()).toBe(false)
+  })
+
+  it('shows a quieter "Трейлер: Steam" line only when the clip came from Steam', async () => {
+    const rawgClip = await mountSuspended(HeroFeatured, { props: { featured } })
+    expect(rawgClip.text()).not.toContain('Трейлер: Steam')
+
+    const steamClip = await mountSuspended(HeroFeatured, {
+      props: { featured: { ...featured, clipSource: 'STEAM' } },
+    })
+    expect(steamClip.text()).toContain('Трейлер: Steam')
+  })
+
+  it('renders an aria-hidden scrim above the poster so the header stays readable', async () => {
+    const wrapper = await mountSuspended(HeroFeatured, { props: { featured } })
+    const scrim = wrapper.find('[aria-hidden="true"].bg-gradient-to-b')
+    expect(scrim.exists()).toBe(true)
+  })
+
+  it('gives the poster a real srcset: resize/1280 for mid-size screens, original for the largest', async () => {
+    const wrapper = await mountSuspended(HeroFeatured, { props: { featured } })
+    const srcset = wrapper.get('img').attributes('srcset') ?? ''
+    expect(srcset).toContain('resize/1280/-/games/618/abc.jpg')
+    expect(srcset).toContain('https://media.rawg.io/media/games/618/abc.jpg')
   })
 })
