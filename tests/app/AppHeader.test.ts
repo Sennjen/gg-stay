@@ -9,13 +9,13 @@ import AppHeader from '~/components/AppHeader.vue'
 // set through the `route` mount option instead.
 
 describe('AppHeader', () => {
-  it('renders the logo, the catalog link, the locale switcher and a search link with an accessible name', async () => {
+  it('renders the logo, the catalog link, the locale switcher and the header search', async () => {
     const wrapper = await mountSuspended(AppHeader, { route: '/games' })
 
     expect(wrapper.get('a[href="/"]').text()).toContain('GG Stay')
     expect(wrapper.get('a[href="/games"]').text()).toBe('Каталог')
     expect(wrapper.get('a[href="/en/games"]').text()).toBe('English')
-    expect(wrapper.get('a[aria-label="Пошук ігор"]').exists()).toBe(true)
+    expect(wrapper.get('input[role="combobox"]').exists()).toBe(true)
   })
 
   it('renders the solid bar by default, on a non-landing route', async () => {

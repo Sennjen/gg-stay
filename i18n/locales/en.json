@@ -5,6 +5,15 @@
     "openCatalog": "Open the catalog"
   },
   "nav": { "catalog": "Catalog", "language": "Language", "search": "Search games" },
+  "search": {
+    "label": "Search games",
+    "placeholder": "Search games…",
+    "allResults": "All results for “{term}”",
+    "loading": "Loading…",
+    "empty": "Nothing found",
+    "error": "Could not load results",
+    "resultsAnnouncement": "{count} results"
+  },
   "footer": {
     "dataBy": "Game data provided by",
     "rights": "Names and images belong to their respective owners."

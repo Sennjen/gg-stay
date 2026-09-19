@@ -41,34 +41,14 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
         GG Stay
       </NuxtLink>
 
-      <div class="flex items-center gap-4">
+      <div class="flex flex-1 items-center justify-end gap-4">
         <NuxtLink
           :to="localePath('/games')"
           class="text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
         >
           {{ t('nav.catalog') }}
         </NuxtLink>
-        <NuxtLink
-          :to="localePath('/games')"
-          :aria-label="t('nav.search')"
-          class="text-fg focus-visible:outline-2"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-        </NuxtLink>
+        <HeaderSearch class="max-w-[360px] flex-none" />
         <LocaleSwitcher />
       </div>
     </div>
