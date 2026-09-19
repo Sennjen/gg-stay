@@ -105,7 +105,7 @@ function revealPreview(event: PointerEvent) {
             <PlatformIcons
               v-if="game.platformFamilies.length"
               :families="game.platformFamilies"
-              :variants="[1, 2, 3]"
+              responsive
             />
           </p>
           <p v-if="game.metacritic" class="mt-1 flex flex-nowrap items-center overflow-hidden">

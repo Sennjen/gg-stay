@@ -63,12 +63,12 @@ describe('PlatformIcons', () => {
     }
   })
 
-  describe('container-query variants (used by the catalog card)', () => {
+  describe('responsive mode (used by the catalog card)', () => {
     const fiveFamilies = ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'MOBILE'] as const
 
     it('renders one <ul> per variant, each hidden from assistive technology', async () => {
       const wrapper = await mountSuspended(PlatformIcons, {
-        props: { families: fiveFamilies, variants: [1, 2, 3] },
+        props: { families: fiveFamilies, responsive: true },
       })
       const lists = wrapper.findAll('ul')
       expect(lists).toHaveLength(3)
@@ -79,7 +79,7 @@ describe('PlatformIcons', () => {
 
     it('shows the right "+N" for each variant with five families (1, 2 and 3 labels shown)', async () => {
       const wrapper = await mountSuspended(PlatformIcons, {
-        props: { families: fiveFamilies, variants: [1, 2, 3] },
+        props: { families: fiveFamilies, responsive: true },
       })
       const lists = wrapper.findAll('ul')
       expect(lists[0]!.findAll('li')).toHaveLength(2) // 1 label + "+4"
@@ -92,7 +92,7 @@ describe('PlatformIcons', () => {
 
     it('never shows "+N" in any variant for a single-platform game', async () => {
       const wrapper = await mountSuspended(PlatformIcons, {
-        props: { families: ['PC'], variants: [1, 2, 3] },
+        props: { families: ['PC'], responsive: true },
       })
       for (const list of wrapper.findAll('ul')) {
         expect(list.text()).not.toContain('+')
@@ -102,7 +102,7 @@ describe('PlatformIcons', () => {
 
     it('exposes the full platform list once, for assistive technology, regardless of width', async () => {
       const wrapper = await mountSuspended(PlatformIcons, {
-        props: { families: fiveFamilies, variants: [1, 2, 3] },
+        props: { families: fiveFamilies, responsive: true },
       })
       const accessibleLabel = wrapper.find('.sr-only')
       expect(accessibleLabel.text()).toBe('Платформи: ПК, PlayStation, Xbox, Nintendo, Мобільні')
@@ -110,7 +110,7 @@ describe('PlatformIcons', () => {
 
     it('carries a distinct container-query class per variant, tied to the card meta block width', async () => {
       const wrapper = await mountSuspended(PlatformIcons, {
-        props: { families: fiveFamilies, variants: [1, 2, 3] },
+        props: { families: fiveFamilies, responsive: true },
       })
       const lists = wrapper.findAll('ul')
       expect(lists[0]!.classes()).toContain('@min-[200px]:hidden')

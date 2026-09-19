@@ -174,7 +174,7 @@ describe('GameCard', () => {
     expect(lines[1]!.textContent).toContain('92')
   })
 
-  it('passes the 1/2/3-label container-query variants to PlatformIcons in the card context', async () => {
+  it('renders PlatformIcons in responsive (container-query) mode in the card context', async () => {
     const wrapper = await mountSuspended(GameCard, {
       props: {
         game: {
@@ -183,7 +183,7 @@ describe('GameCard', () => {
         },
       },
     })
-    expect(wrapper.findComponent(PlatformIcons).props('variants')).toEqual([1, 2, 3])
+    expect(wrapper.findComponent(PlatformIcons).props('responsive')).toBe(true)
   })
 
   it('establishes a container-query context around the meta block, so the platform row can adapt without JS', async () => {
