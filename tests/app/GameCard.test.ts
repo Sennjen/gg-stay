@@ -107,4 +107,27 @@ describe('GameCard', () => {
     })
     expect(wrapper.findAll('img')).toHaveLength(1)
   })
+
+  it('stretches to the full grid-row height as a flex column, so short cards still align', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    expect(wrapper.get('[data-test="game-card"]').classes()).toContain('h-full')
+    expect(wrapper.get('a').classes()).toEqual(
+      expect.arrayContaining(['flex', 'h-full', 'flex-col']),
+    )
+  })
+
+  it('reserves two lines for the title so covers and meta rows line up across a row', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    const title = wrapper.get('[data-test="card-title"]')
+    expect(title.classes()).toEqual(expect.arrayContaining(['line-clamp-2', 'min-h-[2.75rem]']))
+  })
+
+  it('keeps the badge and platform icons on one non-wrapping line', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    const meta = wrapper.get('[data-test="card-title"]').element.parentElement
+    const metaRow = meta?.querySelector('p:last-of-type')
+    expect(metaRow).toBeTruthy()
+    expect(metaRow?.className).toContain('flex-nowrap')
+    expect(metaRow?.className).not.toContain('flex-wrap')
+  })
 })

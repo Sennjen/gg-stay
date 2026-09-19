@@ -14,12 +14,12 @@ const hoverImage = computed(() => props.game.screenshots[0] ?? null)
 </script>
 
 <template>
-  <article class="overflow-hidden rounded-card">
+  <article data-test="game-card" class="h-full overflow-hidden rounded-card">
     <NuxtLink
       :to="localePath(`/games/${game.slug}`)"
-      class="group block overflow-hidden rounded-card border border-line bg-surface-1 transition-colors duration-200 ease-out hover:border-fg-2 focus-visible:border-fg-2 focus-visible:outline-2"
+      class="group flex h-full flex-col overflow-hidden rounded-card border border-line bg-surface-1 transition-colors duration-200 ease-out hover:border-fg-2 focus-visible:border-fg-2 focus-visible:outline-2"
     >
-      <div class="relative aspect-video w-full overflow-hidden bg-surface-2">
+      <div class="relative aspect-video w-full shrink-0 overflow-hidden bg-surface-2">
         <NuxtImg
           v-if="game.cover"
           :src="game.cover.url"
@@ -42,15 +42,24 @@ const hoverImage = computed(() => props.game.screenshots[0] ?? null)
           class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100 group-focus-visible:opacity-100"
         />
       </div>
-      <div class="p-3">
-        <h3 class="line-clamp-2 font-semibold leading-snug text-fg">{{ game.name }}</h3>
+      <div class="flex flex-1 flex-col p-3">
+        <h3
+          data-test="card-title"
+          class="line-clamp-2 min-h-[2.75rem] font-semibold leading-snug text-fg"
+        >
+          {{ game.name }}
+        </h3>
         <p v-if="year" class="font-numeric mt-1 text-sm text-fg-2">{{ year }}</p>
         <p
           v-if="game.metacritic || game.platformFamilies.length"
-          class="mt-2 flex flex-wrap items-center gap-2"
+          class="mt-auto flex flex-nowrap items-center gap-2 overflow-hidden pt-2"
         >
-          <MetacriticBadge v-if="game.metacritic" :score="game.metacritic" />
-          <PlatformIcons v-if="game.platformFamilies.length" :families="game.platformFamilies" />
+          <MetacriticBadge v-if="game.metacritic" class="shrink-0" :score="game.metacritic" />
+          <PlatformIcons
+            v-if="game.platformFamilies.length"
+            class="min-w-0 shrink"
+            :families="game.platformFamilies"
+          />
         </p>
       </div>
     </NuxtLink>
