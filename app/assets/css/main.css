@@ -37,6 +37,9 @@
 
 html {
   color-scheme: dark;
+  /* Full-bleed sections size themselves with 100vw, which includes the scrollbar gutter;
+       clip instead of scrolling sideways by those few pixels. */
+  overflow-x: clip;
 }
 
 body {
