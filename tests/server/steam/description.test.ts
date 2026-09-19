@@ -181,6 +181,28 @@ describe('resolveLocalizedDescription', () => {
     ).toEqual({ text: uk, language: 'uk', source: 'STEAM' })
   })
 
+  it('uses short_description when about_the_game is markup without any text', () => {
+    const result = resolveLocalizedDescription('uk', 'English text', {
+      about_the_game:
+        '<p class="bb_paragraph"><span class="bb_img_ctn"><img class="bb_img" src="https://example.test/a.png"></span></p><br>',
+      short_description: 'Ви — Ґеральт із Рівії, найманий мисливець на чудовиськ.',
+    })
+    expect(result).toEqual({
+      text: 'Ви — Ґеральт із Рівії, найманий мисливець на чудовиськ.',
+      language: 'uk',
+      source: 'STEAM',
+    })
+  })
+
+  it('uses a Ukrainian short_description when about_the_game is English', () => {
+    const result = resolveLocalizedDescription('uk', 'English text', {
+      about_the_game: '<p>An open world adventure with a long English description.</p>',
+      short_description: 'Пригода у відкритому світі, де кожне рішення має наслідки.',
+    })
+    expect(result?.source).toBe('STEAM')
+    expect(result?.text).toContain('Пригода')
+  })
+
   it('falls back to RAWG English when Steam text is English (silent Steam fallback)', () => {
     const english = 'A charming farming simulator with deep systems and relaxing gameplay loops.'
     expect(resolveLocalizedDescription('uk', rawg, { about_the_game: english })).toEqual({
