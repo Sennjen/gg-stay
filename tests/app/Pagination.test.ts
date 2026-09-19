@@ -69,4 +69,16 @@ describe('Pagination', () => {
     const pageOne = wrapper.findAll('a').find((link) => link.text() === '1')!
     expect(pageOne.attributes('href')).not.toContain('page=')
   })
+
+  it('keeps a repeated (array-valued) query param as repeated, not collapsed to one value', async () => {
+    const wrapper = await mountSuspended(Pagination, {
+      props: { page: 2, totalPages: 5 },
+      route: '/games?genres=rpg&genres=action&page=2',
+    })
+    const pageThree = wrapper.findAll('a').find((link) => link.text() === '3')!
+    const href = pageThree.attributes('href')!
+    const params = new URLSearchParams(href.split('?')[1])
+    expect(params.getAll('genres')).toEqual(['rpg', 'action'])
+    expect(params.get('page')).toBe('3')
+  })
 })

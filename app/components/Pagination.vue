@@ -15,10 +15,13 @@ const route = useRoute()
 const router = useRouter()
 
 function hrefFor(page: number): string {
-  const query: Record<string, string> = {}
+  // Keep every other param as it arrived, including a repeated one (?genres=a&genres=b), rather
+  // than collapsing it to its first value: vue-router accepts string | string[] per key here and
+  // serialises a `string[]` back into repeated params.
+  const query: Record<string, string | string[]> = {}
   for (const [key, value] of Object.entries(route.query)) {
-    if (key === 'page' || typeof value !== 'string') continue
-    query[key] = value
+    if (key === 'page' || value == null) continue
+    query[key] = value as string | string[]
   }
   if (page > 1) query.page = String(page)
   return router.resolve({ path: route.path, query }).href
