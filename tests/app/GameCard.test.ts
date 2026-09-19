@@ -166,8 +166,15 @@ describe('GameCard', () => {
   it('renders the meta block as two lines: year · platforms, then "Metacritic 82"', async () => {
     const wrapper = await mountSuspended(GameCard, { props: { game } })
     const meta = wrapper.get('[data-test="card-title"]').element.parentElement!
-    const lines = meta.querySelectorAll(':scope > div.mt-auto > p')
+    // The first line (year · platforms) is a `<div>`, not a `<p>`: `PlatformIcons` in
+    // `responsive` mode renders `<ul>` elements, which HTML forbids inside `<p>` — a browser
+    // parsing SSR'd HTML auto-closes an open `<p>` at the first `<ul>` it meets (even nested a
+    // level or two deeper) and hoists the rest out as following siblings, corrupting the DOM
+    // before hydration ever runs (see the comment above this row in GameCard.vue).
+    const lines = meta.querySelectorAll(':scope > div.mt-auto > :is(div, p)')
     expect(lines).toHaveLength(2)
+    expect(lines[0]!.tagName).toBe('DIV')
+    expect(lines[1]!.tagName).toBe('P')
     expect(lines[0]!.textContent).toContain('2015')
     expect(lines[0]!.textContent).toContain('ПК')
     expect(lines[1]!.textContent).toContain('Metacritic')

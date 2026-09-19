@@ -188,4 +188,27 @@ describe('server-side rendering', async () => {
     const html = await $fetch<string>('/games?search=witcher')
     expect(html).not.toContain('role="listbox"')
   })
+
+  it(
+    'never nests a <ul> inside a <p> on a page with game cards: a browser auto-closes an open ' +
+      '<p> the moment it meets a block element like <ul> (even nested a level or two deeper), ' +
+      'silently hoisting the rest out as following siblings — the server HTML would still look ' +
+      'right, but the browser-parsed DOM would already differ from it before hydration ever runs, ' +
+      'so hydration would warn of a mismatch that has nothing to do with data or timing. GameCard ' +
+      'used to wrap its "year · platforms" row in a <p>, and PlatformIcons in `responsive` mode ' +
+      'renders three <ul>s inside it — this asserts that row is not a <p> on every page that shows ' +
+      'game cards.',
+    async () => {
+      for (const path of ['/', '/games', '/games/the-witcher-3-wild-hunt']) {
+        const html = await $fetch<string>(path)
+        // A coarse "no <ul>/<ol>/<table>/<div> opens between an unclosed <p> and its </p>" check
+        // would need a real parser; the specific regression here is narrower and easy to assert
+        // directly: the exact row that used to be a <p> wrapping a responsive PlatformIcons must
+        // not be one.
+        expect(html).not.toMatch(
+          /<p[^>]*class="flex flex-nowrap items-center gap-1 overflow-hidden text-sm text-fg-2"[^>]*>/,
+        )
+      }
+    },
+  )
 })
