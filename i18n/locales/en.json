@@ -165,6 +165,8 @@
     "thumbnailAlt": "{title} — screenshot {n}",
     "dialogLabel": "Screenshot viewer: {title}",
     "counter": "{current} / {total}",
+    "counterAnnouncement": "{current} of {total}",
+    "dotLabel": "Screenshot {n} of {total}",
     "close": "Close",
     "previous": "Previous screenshot",
     "next": "Next screenshot"

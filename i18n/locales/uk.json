@@ -165,6 +165,8 @@
     "thumbnailAlt": "{title} — скріншот {n}",
     "dialogLabel": "Перегляд скріншотів: {title}",
     "counter": "{current} / {total}",
+    "counterAnnouncement": "{current} з {total}",
+    "dotLabel": "Скріншот {n} з {total}",
     "close": "Закрити",
     "previous": "Попередній скріншот",
     "next": "Наступний скріншот"
