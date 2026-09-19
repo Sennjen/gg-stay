@@ -94,7 +94,15 @@ function revealPreview(event: PointerEvent) {
           v-if="year || game.metacritic || game.platformFamilies.length"
           class="@container mt-auto pt-2"
         >
-          <p
+          <!-- A `<div>`, not a `<p>`: `PlatformIcons` in `responsive` mode renders `<ul>`
+               elements, and `<ul>` is block content that HTML forbids inside `<p>` — a browser
+               parsing the server's HTML string auto-closes an open `<p>` the moment it reaches
+               that first `<ul>` (even nested a level or two deeper), silently hoisting it out as
+               a following sibling. That restructures the server-parsed DOM before Vue ever gets
+               to it, so hydration walks a different tree than the one it rendered and warns of a
+               mismatch — reproducible with plain `@vue/server-renderer` + no app code at all,
+               nothing Vue- or Nuxt-specific to fix on that side. -->
+          <div
             v-if="year || game.platformFamilies.length"
             class="flex flex-nowrap items-center gap-1 overflow-hidden text-sm text-fg-2"
           >
@@ -107,7 +115,7 @@ function revealPreview(event: PointerEvent) {
               :families="game.platformFamilies"
               responsive
             />
-          </p>
+          </div>
           <p v-if="game.metacritic" class="mt-1 flex flex-nowrap items-center overflow-hidden">
             <MetacriticBadge :score="game.metacritic" caption />
           </p>
