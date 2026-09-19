@@ -1,7 +1,12 @@
 import { parse } from 'graphql'
 import { createGraphQLError, createSchema, createYoga, type Plugin } from 'graphql-yoga'
 import type { GraphQLContext } from './context'
-import { checkQueryLength, checkQueryLimits, QUERY_TOO_COMPLEX } from './queryLimits'
+import {
+  checkNestingDepth,
+  checkQueryLength,
+  checkQueryLimits,
+  QUERY_TOO_COMPLEX,
+} from './queryLimits'
 import { resolvers } from './resolvers'
 import { typeDefs } from './schema'
 
@@ -16,10 +21,21 @@ const isProduction = () => process.env.NODE_ENV === 'production'
  * error inside an HTTP 200 body (see `server/graphql/errors.ts`). Setting the result here keeps the
  * client's error handling uniform — one shape, one status, `extensions.code` carries the reason.
  *
- * Order matters and is deliberate: the raw length is capped BEFORE `parse()`, so an oversized body
- * never reaches the parser; the structural limits run after, on a document that is already known to
- * be small. A document that fails to parse is left alone — yoga's own parsing reports the syntax
- * error, in its own shape.
+ * Order matters and is deliberate, and every step before `parse()` is there because `parse()`
+ * itself is not safe on arbitrary input:
+ *
+ *  1. The raw byte length is capped, so an oversized body never reaches the parser.
+ *  2. The raw bracket nesting is capped, because graphql-js parses by recursive descent and a
+ *     document nested a couple of thousand levels deep — which fits easily inside the byte cap —
+ *     overflows the call stack inside the parser.
+ *  3. Only then is the document parsed, and the structural limits run on something already known
+ *     to be small and shallow.
+ *
+ * A document that fails to parse with a *syntax* error is left alone: yoga's own parsing reports it
+ * in its own shape. Anything else a parse can throw — a `RangeError` from the recursion above all —
+ * is turned into `QUERY_TOO_COMPLEX`, because `setResult` short-circuits and yoga never gets to
+ * parse the same document a second time and overflow on it. An unauthenticated request must not be
+ * able to produce an HTTP 500 from this endpoint, whatever the shape of its body.
  */
 const queryLimitsPlugin: Plugin<GraphQLContext> = {
   onParams({ params, setResult }) {
@@ -31,10 +47,21 @@ const queryLimitsPlugin: Plugin<GraphQLContext> = {
     const tooLong = checkQueryLength(params.query)
     if (tooLong) return reject(tooLong.message, tooLong.code)
 
+    const tooDeep = checkNestingDepth(params.query)
+    if (tooDeep) return reject(tooDeep.message, tooDeep.code)
+
     let document
     try {
       document = parse(params.query)
-    } catch {
+    } catch (error) {
+      // A `RangeError` here is the parser running out of stack, not a malformed document. The name
+      // is checked rather than `instanceof`, which is unreliable across the realms a bundler can
+      // leave in play (see the dual-package note in server/graphql/errors.ts).
+      const name = (error as { name?: string } | null)?.name
+      if (name === 'RangeError') {
+        return reject('Query is nested too deeply to parse', QUERY_TOO_COMPLEX)
+      }
+      // A real syntax error: let yoga report it.
       return
     }
 

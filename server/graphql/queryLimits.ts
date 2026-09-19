@@ -32,10 +32,22 @@ export const MAX_ALIASED_UPSTREAM_FIELDS = 3
 // The result is O(size of the document), with no path through it that allocates more than the
 // document itself.
 
-/** Longest raw query text accepted. The app's largest document is under 1 KB. */
+/** Longest raw query text accepted, in UTF-8 bytes. The app's largest document is under 1 KB. */
 export const MAX_QUERY_BYTES = 8_192
 /** Most fragment definitions accepted in one document. The app ships two. */
 export const MAX_FRAGMENTS = 64
+/**
+ * Deepest run of nested brackets accepted in the RAW TEXT, before parsing.
+ *
+ * graphql-js's parser is recursive descent, so a document nested deeply enough overflows the call
+ * stack inside `parse()` itself — as a `RangeError`, not a syntax error, and well within a byte
+ * budget that leaves room for roughly 2 700 levels of `f{f{f{…}}}`. That is a crash in a dependency
+ * before any of this module's own analysis gets to run, so the only place to stop it is on the
+ * string. 50 is two orders of magnitude below where the parser is in danger and an order of
+ * magnitude above anything this app writes: its deepest document nests 5 levels, and
+ * `queryLimits.test.ts` checks every shipped `.graphql` file against this scanner.
+ */
+export const MAX_NESTING_DEPTH = 50
 
 /** Root fields whose resolvers each reach an upstream API. */
 const UPSTREAM_ROOT_FIELDS = new Set(['game', 'games', 'landing'])
@@ -198,16 +210,97 @@ function costFragments(fragments: Map<string, FragmentDefinitionNode>): Map<stri
   return memo
 }
 
+function utf8ByteLength(value: string): number {
+  return typeof Buffer === 'undefined'
+    ? new TextEncoder().encode(value).length
+    : Buffer.byteLength(value, 'utf8')
+}
+
 /**
  * Rejects a raw query that is too long to be worth parsing. Called before `parse()`, so an
  * oversized body never reaches the parser at all.
+ *
+ * The cap is on UTF-8 BYTES, which is what a request actually costs to receive — measuring
+ * `String.length` would let a body padded with three-byte characters carry ~24 KB under an 8 KB
+ * cap. A UTF-8 encoding is never shorter than the string's UTF-16 code-unit count, so anything
+ * longer than the cap is already over it and is rejected without being encoded; only a string
+ * already known to be short is measured exactly, which is where a multi-byte character can still
+ * tip it over.
  */
 export function checkQueryLength(query: string): QueryLimitViolation | null {
-  if (query.length <= MAX_QUERY_BYTES) return null
+  const bytes = query.length > MAX_QUERY_BYTES ? query.length : utf8ByteLength(query)
+  if (bytes <= MAX_QUERY_BYTES) return null
   return {
     code: QUERY_TOO_COMPLEX,
-    message: `Query is too long (${query.length} characters, maximum ${MAX_QUERY_BYTES})`,
+    message: `Query is too long (over ${MAX_QUERY_BYTES} bytes)`,
   }
+}
+
+/**
+ * Rejects a raw query whose brackets nest deeper than the parser is safe with. One linear pass over
+ * the string, before `parse()`.
+ *
+ * It is a real GraphQL lexer for the three constructs where a bracket is not a bracket — `#`
+ * comments, `"…"` strings and `"""…"""` block strings — because a conservative scanner that
+ * counted them would reject legitimate queries: a search term is user input and may hold any
+ * number of braces. `{}`, `()` and `[]` share one counter: what matters is the parser's recursion,
+ * and every one of them recurses.
+ */
+export function checkNestingDepth(query: string): QueryLimitViolation | null {
+  let depth = 0
+  let index = 0
+
+  while (index < query.length) {
+    const char = query[index]
+
+    if (char === '#') {
+      // A comment runs to the end of the line; nothing in it is syntax.
+      while (index < query.length && query[index] !== '\n' && query[index] !== '\r') index++
+      continue
+    }
+
+    if (char === '"') {
+      if (query.startsWith('"""', index)) {
+        // Block string: ends at the next unescaped `"""` (the only escape inside one is `\\"""`).
+        index += 3
+        while (index < query.length) {
+          if (query[index] === '\\' && query.startsWith('"""', index + 1)) {
+            index += 4
+            continue
+          }
+          if (query.startsWith('"""', index)) {
+            index += 3
+            break
+          }
+          index++
+        }
+        continue
+      }
+      index++
+      while (index < query.length && query[index] !== '"') {
+        // A backslash escapes the next character, including a closing quote.
+        index += query[index] === '\\' ? 2 : 1
+      }
+      index++
+      continue
+    }
+
+    if (char === '{' || char === '(' || char === '[') {
+      depth++
+      if (depth > MAX_NESTING_DEPTH) {
+        return {
+          code: QUERY_TOO_COMPLEX,
+          message: `Query is nested too deeply (maximum ${MAX_NESTING_DEPTH} levels)`,
+        }
+      }
+    } else if (char === '}' || char === ')' || char === ']') {
+      // Never below zero: an unbalanced document is a syntax error for the parser to report.
+      if (depth > 0) depth--
+    }
+    index++
+  }
+
+  return null
 }
 
 /**

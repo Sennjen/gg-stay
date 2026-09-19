@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { parse } from 'graphql'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as operations from '../../app/graphql/__generated__/operations'
@@ -6,8 +8,11 @@ import {
   MAX_ALIASED_UPSTREAM_FIELDS,
   MAX_DEPTH,
   MAX_FRAGMENTS,
+  MAX_NESTING_DEPTH,
   MAX_QUERY_BYTES,
   MAX_ROOT_FIELDS,
+  checkNestingDepth,
+  checkQueryLength,
   checkQueryLimits,
 } from '../../server/graphql/queryLimits'
 import { UpstreamError } from '../../server/upstream/errors'
@@ -157,6 +162,122 @@ function fragmentBomb(levels: number, leaf = 'game(slug: "x") { id }'): string {
   return parts.join('\n')
 }
 
+/** `{ f { f { … id … } } }` with `levels` levels of literal brace nesting. */
+function nested(levels: number): string {
+  return `{ ${'f { '.repeat(levels)}id${' }'.repeat(levels)} }`
+}
+
+/** The same, written as tightly as GraphQL allows (3 bytes a level) to fit the most nesting in. */
+function nestedCompact(levels: number): string {
+  return `{${'f{'.repeat(levels)}id${'}'.repeat(levels)}}`
+}
+
+describe('deep literal nesting is refused before the parser sees it', () => {
+  // graphql-js's parser is recursive descent, so a document nested a couple of thousand levels deep
+  // throws a RangeError from inside `parse()` — not a syntax error. Left to itself, the endpoint
+  // answered HTTP 500 INTERNAL_SERVER_ERROR, intermittently (it depends on how much stack is left).
+  // The byte cap alone does not help: 2 700 levels fit inside 8 KB.
+  it.each([3_000, 10_000])('rejects %i levels with a 200, not a 500', async (levels) => {
+    const { rawg, calls } = countingRawg()
+    const response = await post(rawg, { query: nested(levels) })
+
+    expect(response.status).toBe(200)
+    expect(response.json().errors?.[0]?.extensions?.code).toBe('QUERY_TOO_COMPLEX')
+    expect(calls).toEqual([])
+  })
+
+  it('rejects the deepest nesting the byte cap allows — the payload that produced the 500', async () => {
+    // Written as tightly as GraphQL allows, 2 718 levels fit inside the 8 KB cap, which is why the
+    // length check alone never saw this one.
+    const query = nestedCompact(2_718)
+    expect(Buffer.byteLength(query, 'utf8')).toBeLessThan(MAX_QUERY_BYTES)
+
+    const { rawg, calls } = countingRawg()
+    const response = await post(rawg, { query })
+
+    expect(response.status).toBe(200)
+    expect(response.json().errors?.[0]?.extensions?.code).toBe('QUERY_TOO_COMPLEX')
+    expect(calls).toEqual([])
+  })
+
+  it('proves the payload really would break the parser without the pre-scan', () => {
+    // Guards the premise: if graphql-js ever stops being recursive, this says so rather than the
+    // suite quietly proving nothing.
+    expect(() => parse(nested(10_000))).toThrow(RangeError)
+    expect(() => parse(nestedCompact(2_718))).toThrow(RangeError)
+  })
+
+  it('counts every bracket kind, since each one recurses in the parser', () => {
+    expect(checkNestingDepth(`{ a${'(b: ['.repeat(MAX_NESTING_DEPTH + 1)}`)?.code).toBe(
+      'QUERY_TOO_COMPLEX',
+    )
+    expect(checkNestingDepth(nested(MAX_NESTING_DEPTH + 1))?.message).toMatch(/nested too deeply/)
+    expect(checkNestingDepth(nested(MAX_NESTING_DEPTH - 1))).toBeNull()
+  })
+
+  it('does not count brackets inside strings, block strings or comments', () => {
+    // A search term is user input: it may hold any number of braces, and a scanner that counted
+    // them would reject a legitimate query. The scanner lexes the three constructs where a bracket
+    // is not syntax.
+    const braces = '{'.repeat(200)
+    const wrap = (argument: string) => `{ games(filter: { search: ${argument} }) { items { id } } }`
+    expect(checkNestingDepth(wrap(`"${braces}"`))).toBeNull()
+    // A closing quote can be escaped, so the string does not end where a naive scanner thinks.
+    expect(checkNestingDepth(wrap(`"a\\"${braces}"`))).toBeNull()
+    expect(checkNestingDepth(wrap('"""' + braces + '"""'))).toBeNull()
+    expect(checkNestingDepth(`# ${braces}\n{ games { items { id } } }`)).toBeNull()
+  })
+
+  it('still rejects real nesting that follows a string full of brackets', () => {
+    const query = `{ a(x: "${'{'.repeat(200)}") ${'f { '.repeat(MAX_NESTING_DEPTH + 1)}`
+    expect(checkNestingDepth(query)?.code).toBe('QUERY_TOO_COMPLEX')
+  })
+
+  it('accepts every .graphql document the app ships', () => {
+    const directory = resolve(process.cwd(), 'app/graphql')
+    const files = readdirSync(directory).filter((name) => name.endsWith('.graphql'))
+    expect(files.length).toBeGreaterThan(0)
+    for (const file of files) {
+      const source = readFileSync(resolve(directory, file), 'utf-8')
+      expect(checkNestingDepth(source), file).toBeNull()
+      expect(checkQueryLength(source), file).toBeNull()
+    }
+  })
+})
+
+describe('the length cap is measured in bytes', () => {
+  it('accepts a query at the cap and rejects one over it', () => {
+    expect(checkQueryLength('a'.repeat(MAX_QUERY_BYTES))).toBeNull()
+    expect(checkQueryLength('a'.repeat(MAX_QUERY_BYTES + 1))?.code).toBe('QUERY_TOO_COMPLEX')
+  })
+
+  it('counts UTF-8 bytes, not UTF-16 code units', () => {
+    // An em dash is one UTF-16 code unit and three UTF-8 bytes; counting code units would admit
+    // ~24 KB on the wire under an 8 KB cap.
+    const padding = '—'.repeat(MAX_QUERY_BYTES / 2)
+    expect(padding.length).toBeLessThanOrEqual(MAX_QUERY_BYTES)
+    expect(Buffer.byteLength(padding, 'utf8')).toBeGreaterThan(MAX_QUERY_BYTES)
+    expect(checkQueryLength(padding)?.code).toBe('QUERY_TOO_COMPLEX')
+
+    // An emoji is a surrogate pair: two code units, four bytes.
+    const emoji = '🎮'.repeat(MAX_QUERY_BYTES / 3)
+    expect(Buffer.byteLength(emoji, 'utf8')).toBeGreaterThan(MAX_QUERY_BYTES)
+    expect(checkQueryLength(emoji)?.code).toBe('QUERY_TOO_COMPLEX')
+  })
+
+  it('rejects a multi-byte body at the endpoint, with no upstream call', async () => {
+    const { rawg, calls } = countingRawg()
+    const term = '—'.repeat(MAX_QUERY_BYTES / 2)
+    const query = `{ games(filter: { search: "${term}" }) { total } }`
+    const response = await post(rawg, { query })
+
+    expect(response.status).toBe(200)
+    expect(response.json().errors?.[0]?.extensions?.code).toBe('QUERY_TOO_COMPLEX')
+    expect(response.json().errors?.[0]?.message).toMatch(/too long/)
+    expect(calls).toEqual([])
+  })
+})
+
 describe('the analysis cannot itself be used as a denial of service', () => {
   // The reviewer's exact payloads: N = 12 cost 12 ms, N = 16 cost 172 ms, N = 18 overflowed the
   // stack into a 500. All three must now be cheap rejections with the documented error shape.
@@ -201,8 +322,11 @@ describe('the analysis cannot itself be used as a denial of service', () => {
       fragmentBomb(24),
       // A cycle, which is invalid GraphQL — the limiter must not loop on it either.
       'query { ...A }\nfragment A on Query { ...B }\nfragment B on Query { ...A }',
-      // Deep literal nesting: no fragments at all, just braces.
-      `{ ${'f { '.repeat(300)}id${' }'.repeat(300)} }`,
+      // Deep literal nesting: no fragments at all, just braces. graphql-js parses by recursive
+      // descent, so these overflow its stack rather than failing to parse — see the nesting suite.
+      nested(300),
+      nested(3_000),
+      nested(10_000),
     ]
     for (const query of documents) {
       const response = await post(rawg, { query })
