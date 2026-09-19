@@ -101,10 +101,17 @@ package) provider, which does serve the full variable font file.
   3.9:1, below the 4.5:1 WCAG AA threshold for normal text. It is safe to use
   for large text (≥ 24px, or ≥ 18.66px bold) or for genuinely decorative
   captions where the information is redundant with something already
-  announced at AA contrast. For anything a user needs to read to understand
-  the page (metadata labels, secondary copy), use `fg-2` instead, which is
-  what every component built in this PR does — no component in this PR emits
-  `text-fg-3` on `ink`.
+  announced at AA contrast — and **only** on `ink` or `surface-1`. On
+  `surface-2` it drops further, to about 3.4:1, so `fg-3` is **not allowed**
+  on `surface-2` at any size used in this app. For anything a user needs to
+  read to understand the page (metadata labels, secondary copy, placeholder
+  text), use `fg-2` instead, which is what every component built in this PR
+  does — no component in this PR emits `text-fg-3` anywhere.
+- **Numerals rule:** `.font-numeric` wraps bare numbers only — years, scores,
+  counts, page numbers. A full written date ("18 травня 2015") or any string
+  that interpolates a number into words stays in the interface face
+  (`font-sans`); only the number inside it gets `.font-numeric`, via
+  `<i18n-t>` with a slot around just that number.
 
 ### Contrast ratios computed for this PR
 
@@ -115,6 +122,7 @@ package) provider, which does serve the full variable font file.
 | `fg-3` `#6B7080`      | `ink` `#0B0C10`       | 3.96:1  | No (large text / decorative only) |
 | `fg` `#ECEDEF`        | `surface-1` `#13151B` | 15.58:1 | Yes                               |
 | `fg-2` `#A3A7B3`      | `surface-1` `#13151B` | 7.59:1  | Yes                               |
+| `fg-3` `#6B7080`      | `surface-2` `#1A1D25` | 3.41:1  | **No — not allowed at any size**  |
 | `on-accent` `#1A1200` | `accent` `#F5A524`    | 9.10:1  | Yes                               |
 
 ## Accessibility

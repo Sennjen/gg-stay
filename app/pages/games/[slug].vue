@@ -66,7 +66,7 @@ useSeoMeta({
       <dl class="h-fit space-y-3 rounded-card border border-line bg-surface-1 p-4 text-sm">
         <div v-if="game.released">
           <dt class="text-fg-2">{{ t('game.released') }}</dt>
-          <dd class="font-numeric">{{ formatDate(game.released) }}</dd>
+          <dd>{{ formatDate(game.released) }}</dd>
         </div>
         <div v-if="game.platforms.length">
           <dt class="text-fg-2">{{ t('game.platforms') }}</dt>
@@ -86,7 +86,13 @@ useSeoMeta({
         </div>
         <div v-if="game.playtime">
           <dt class="text-fg-2">{{ t('game.playtime') }}</dt>
-          <dd class="font-numeric">{{ t('game.hours', { count: game.playtime }) }}</dd>
+          <dd>
+            <i18n-t keypath="game.hours" tag="span">
+              <template #count
+                ><span class="font-numeric">{{ game.playtime }}</span></template
+              >
+            </i18n-t>
+          </dd>
         </div>
         <div v-if="game.metacritic">
           <dt class="text-fg-2">{{ t('game.metacritic') }}</dt>
@@ -94,10 +100,14 @@ useSeoMeta({
         </div>
         <div v-if="game.rating">
           <dt class="text-fg-2">{{ t('game.userRating') }}</dt>
-          <dd class="font-numeric">
-            {{ game.rating.toFixed(1) }}
+          <dd>
+            <span class="font-numeric">{{ game.rating.toFixed(1) }}</span>
             <span v-if="game.ratingsCount" class="text-fg-2">
-              ({{ t('game.ratingsCount', { count: formatNumber(game.ratingsCount) }) }})
+              (<i18n-t keypath="game.ratingsCount" tag="span">
+                <template #count
+                  ><span class="font-numeric">{{ formatNumber(game.ratingsCount) }}</span></template
+                > </i18n-t
+              >)
             </span>
           </dd>
         </div>

@@ -17,7 +17,11 @@ const { t } = useI18n()
     >
       {{ t('catalog.prev') }}
     </button>
-    <span aria-current="page" class="font-numeric text-fg">{{ t('catalog.page', { page }) }}</span>
+    <i18n-t keypath="catalog.page" tag="span" aria-current="page" class="text-fg">
+      <template #page
+        ><span class="font-numeric">{{ page }}</span></template
+      >
+    </i18n-t>
     <button
       type="button"
       :disabled="!hasNext"
