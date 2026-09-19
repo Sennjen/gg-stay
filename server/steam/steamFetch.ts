@@ -1,4 +1,5 @@
 import { UpstreamError } from '../rawg/rawgFetch'
+import { projectAppDetails } from './appDetailsProjection'
 
 const BASE_URL = 'https://store.steampowered.com/api/appdetails'
 const TIMEOUT_MS = 5_000
@@ -94,7 +95,7 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
     if (deps.fixtures) {
       const fixture = await deps.readFixture(fixtureName(appId))
       if (fixture === null) throw new UpstreamError('NOT_FOUND', 404)
-      return fixture
+      return projectAppDetails(fixture)
     }
 
     const key = appId
@@ -105,13 +106,19 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
     url.searchParams.set('appids', appId)
     url.searchParams.set('cc', 'ua')
     url.searchParams.set('l', 'ukrainian')
-    url.searchParams.set('filters', 'movies')
+    // No `filters` param: both the landing resolver's trailer lookup (`data.movies`) and the game
+    // page's localized description (`data.short_description` / `data.about_the_game`) share this
+    // one cached response per app id, so the response must carry every field either needs.
 
     try {
       const value = await fetchWithRetry(url.toString(), now)
+      // Cache (and return) only the projected shape: the full Steam payload runs to tens of KB
+      // per game, and this app only ever reads a handful of its fields (see
+      // server/steam/appDetailsProjection.ts).
+      const projected = projectAppDetails(value)
       const ttl = options?.ttl ?? DEFAULT_TTL
-      await deps.cache.set(key, { value, expiresAt: now + ttl * 1000 })
-      return value
+      await deps.cache.set(key, { value: projected, expiresAt: now + ttl * 1000 })
+      return projected
     } catch (error) {
       const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
       if (cached && !notFound) return cached.value

@@ -146,6 +146,23 @@ describe('server-side rendering', async () => {
     expect(html).toContain('screenshots/201003/full3.jpg')
   })
 
+  it('renders the Ukrainian Steam description with lang="uk" and the Steam caption', async () => {
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    expect(html).toContain('Ви — Ґеральт із Рівії, відьмак-мисливець на чудовиськ.')
+    expect(html).toMatch(/<div[^>]*lang="uk"[^>]*>/)
+    expect(html).toContain('Опис: Steam')
+    // The English RAWG text must not leak into the Ukrainian page.
+    expect(html).not.toContain('The third game in a series')
+  })
+
+  it('renders the English RAWG description with lang="en" and no Steam caption', async () => {
+    const html = await $fetch<string>('/en/games/the-witcher-3-wild-hunt')
+    expect(html).toContain('The third game in a series, it holds nothing back from the player.')
+    expect(html).toMatch(/<div[^>]*lang="en"[^>]*>/)
+    expect(html).not.toContain('Опис: Steam')
+    expect(html).not.toContain('Description: Steam')
+  })
+
   it('responds 404 for an unknown slug, with a noindex HTML page when the client accepts HTML', async () => {
     const response = await fetch('/games/does-not-exist', { headers: { accept: 'text/html' } })
     expect(response.status).toBe(404)

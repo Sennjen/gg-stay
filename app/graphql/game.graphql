@@ -1,9 +1,13 @@
-query Game($slug: String!) {
+query Game($slug: String!, $locale: String!) {
   game(slug: $slug) {
     id
     slug
     name
-    description
+    localizedDescription(locale: $locale) {
+      text
+      language
+      source
+    }
     released
     rating
     ratingsCount

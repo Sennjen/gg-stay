@@ -34,7 +34,9 @@
     "resultsAnnouncement": "{count} results"
   },
   "footer": {
-    "dataBy": "Game data provided by",
+    "dataBy": "Game data provided by {rawg} and {steam}.",
+    "rawg": "RAWG",
+    "steam": "Steam",
     "rights": "Names and images belong to their respective owners."
   },
   "states": {
@@ -160,6 +162,7 @@
     "website": "Official website",
     "whereToBuy": "Where to buy",
     "about": "About",
+    "descriptionSourceSteam": "Description: Steam",
     "metaFallback": "{name} — platforms, genres, ratings and stores."
   },
   "gallery": {

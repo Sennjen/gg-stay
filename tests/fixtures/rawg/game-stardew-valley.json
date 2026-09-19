@@ -1,0 +1,20 @@
+{
+  "id": 654, "slug": "stardew-valley", "name": "Stardew Valley",
+  "description_raw": "You've inherited your grandfather's old farm plot in Stardew Valley. Armed with hand-me-down tools, you set out to begin your new life.",
+  "released": "2016-02-25", "tba": false,
+  "background_image": null,
+  "website": "https://www.stardewvalley.net",
+  "rating": 4.4, "ratings_count": 2300, "metacritic": 89, "playtime": 27,
+  "platforms": [
+    { "platform": { "id": 4, "slug": "pc", "name": "PC" } },
+    { "platform": { "id": 7, "slug": "nintendo-switch", "name": "Nintendo Switch" } }
+  ],
+  "genres": [{ "id": 51, "slug": "indie", "name": "Indie" }, { "id": 14, "slug": "simulation", "name": "Simulation" }],
+  "tags": [{ "id": 31, "slug": "singleplayer", "name": "Singleplayer" }],
+  "developers": [{ "id": 8291, "slug": "concernedape", "name": "ConcernedApe" }],
+  "publishers": [{ "id": 8291, "slug": "concernedape", "name": "ConcernedApe" }],
+  "stores": [
+    { "id": 655001, "url": "", "store": { "id": 1, "slug": "steam", "name": "Steam" } }
+  ],
+  "esrb_rating": { "id": 2, "slug": "everyone-10-plus", "name": "Everyone 10+" }
+}

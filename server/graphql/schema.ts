@@ -113,6 +113,7 @@ export const typeDefs = /* GraphQL */ `
     slug: String!
     name: String!
     description: String
+    localizedDescription(locale: String!): LocalizedText
     released: String
     rating: Float
     ratingsCount: Int
@@ -133,6 +134,16 @@ export const typeDefs = /* GraphQL */ `
     madeInUkraine: Boolean!
     similar: [GameCard!]!
     platformFamilies: [PlatformFamily!]!
+  }
+
+  enum DescriptionSource {
+    RAWG
+    STEAM
+  }
+  type LocalizedText {
+    text: String!
+    language: String!
+    source: DescriptionSource!
   }
 
   enum ClipSource {

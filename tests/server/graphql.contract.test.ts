@@ -11,6 +11,9 @@ import genres from '../fixtures/rawg/genres.json'
 import platforms from '../fixtures/rawg/platforms.json'
 import developers from '../fixtures/rawg/developers.json'
 import steamAppdetails from '../fixtures/steam/appdetails-292030.json'
+import stardewDetail from '../fixtures/rawg/game-stardew-valley.json'
+import stardewStores from '../fixtures/rawg/game-stardew-valley-stores.json'
+import stardewSteamAppdetails from '../fixtures/steam/appdetails-413150.json'
 
 const fixtureRawg: RawgFetch = async (path) => {
   if (path === 'games') return games
@@ -18,6 +21,8 @@ const fixtureRawg: RawgFetch = async (path) => {
   if (path === 'games/the-witcher-3-wild-hunt/stores') return stores
   if (path === 'games/the-witcher-3-wild-hunt/screenshots') return screenshots
   if (path === 'games/3328/movies') return movies
+  if (path === 'games/stardew-valley') return stardewDetail
+  if (path === 'games/stardew-valley/stores') return stardewStores
   if (path === 'genres') return genres
   if (path === 'platforms') return platforms
   if (path === 'developers') return developers
@@ -27,8 +32,12 @@ const fixtureRawg: RawgFetch = async (path) => {
 // The fixture-mode e2e app (tests/e2e/ssr.test.ts) exercises the Steam trailer path for the
 // featured game (The Witcher 3, RAWG movies fixture emptied out on purpose): its Steam store link
 // resolves to app id 292030. This mock mirrors that fixture so contract tests cover the same path.
+// App id 413150 (Stardew Valley) is the localized-description English-fallback fixture: Steam
+// silently serves English text even with `cc=ua&l=ukrainian`, because the publisher never
+// translated that store page.
 const fixtureSteam: SteamFetch = async (appId) => {
   if (appId === '292030') return steamAppdetails
+  if (appId === '413150') return stardewSteamAppdetails
   throw new UpstreamError('NOT_FOUND', 404)
 }
 
@@ -203,6 +212,138 @@ describe('Query.game', () => {
     const { data, errors } = await run(fixtureRawg, GAME, { slug: 'nope' })
     expect(data!.game).toBeNull()
     expect(errors![0]!.extensions!.code).toBe('NOT_FOUND')
+  })
+})
+
+describe('Game.localizedDescription', () => {
+  const LOCALIZED_GAME = /* GraphQL */ `
+    query LocalizedGame($slug: String!, $locale: String!) {
+      game(slug: $slug) {
+        slug
+        localizedDescription(locale: $locale) {
+          text
+          language
+          source
+        }
+      }
+    }
+  `
+
+  it('returns the Ukrainian Steam text for locale "uk" when the publisher localised the page', async () => {
+    const { data, errors } = await run(fixtureRawg, LOCALIZED_GAME, {
+      slug: 'the-witcher-3-wild-hunt',
+      locale: 'uk',
+    })
+    expect(errors).toBeUndefined()
+    expect(data!.game.localizedDescription.language).toBe('uk')
+    expect(data!.game.localizedDescription.source).toBe('STEAM')
+    expect(data!.game.localizedDescription.text).toContain('Ґеральт із Рівії')
+    expect(data!.game.localizedDescription.text).toContain('• Ґанок рідної домівки')
+  })
+
+  it('returns the RAWG English text for locale "en"', async () => {
+    const { data, errors } = await run(fixtureRawg, LOCALIZED_GAME, {
+      slug: 'the-witcher-3-wild-hunt',
+      locale: 'en',
+    })
+    expect(errors).toBeUndefined()
+    expect(data!.game.localizedDescription).toEqual({
+      text: detail.description_raw,
+      language: 'en',
+      source: 'RAWG',
+    })
+  })
+
+  it('does not call Steam for locale "en"', async () => {
+    const steam = vi.fn(fixtureSteam)
+    const { errors } = await run(
+      fixtureRawg,
+      LOCALIZED_GAME,
+      {
+        slug: 'the-witcher-3-wild-hunt',
+        locale: 'en',
+      },
+      steam,
+    )
+    expect(errors).toBeUndefined()
+    expect(steam).not.toHaveBeenCalled()
+  })
+
+  it('does not call Steam when the field is not selected', async () => {
+    const steam = vi.fn(fixtureSteam)
+    const { errors } = await run(
+      fixtureRawg,
+      /* GraphQL */ `
+        query Game($slug: String!) {
+          game(slug: $slug) {
+            slug
+            description
+          }
+        }
+      `,
+      { slug: 'the-witcher-3-wild-hunt' },
+      steam,
+    )
+    expect(errors).toBeUndefined()
+    expect(steam).not.toHaveBeenCalled()
+  })
+
+  it('falls back to RAWG English when Steam silently served English text (Stardew Valley)', async () => {
+    const { data, errors } = await run(fixtureRawg, LOCALIZED_GAME, {
+      slug: 'stardew-valley',
+      locale: 'uk',
+    })
+    expect(errors).toBeUndefined()
+    expect(data!.game.localizedDescription).toEqual({
+      text: stardewDetail.description_raw,
+      language: 'en',
+      source: 'RAWG',
+    })
+  })
+
+  it('falls back to RAWG English, without failing the query, when Steam fails', async () => {
+    const steam: SteamFetch = async () => {
+      throw new UpstreamError('ERROR', 500)
+    }
+    const { data, errors } = await run(
+      fixtureRawg,
+      LOCALIZED_GAME,
+      {
+        slug: 'the-witcher-3-wild-hunt',
+        locale: 'uk',
+      },
+      steam,
+    )
+    expect(errors).toBeUndefined()
+    expect(data!.game.localizedDescription).toEqual({
+      text: detail.description_raw,
+      language: 'en',
+      source: 'RAWG',
+    })
+  })
+
+  it('falls back to RAWG English when the game has no Steam store link', async () => {
+    const rawg: RawgFetch = async (path, params) => {
+      if (path === 'games/the-witcher-3-wild-hunt/stores') return { count: 0, results: [] }
+      return fixtureRawg(path, params)
+    }
+    const steam = vi.fn(fixtureSteam)
+    const { data, errors } = await run(
+      rawg,
+      LOCALIZED_GAME,
+      {
+        slug: 'the-witcher-3-wild-hunt',
+        locale: 'uk',
+      },
+      steam,
+    )
+    expect(errors).toBeUndefined()
+    expect(data!.game.localizedDescription).toEqual({
+      text: detail.description_raw,
+      language: 'en',
+      source: 'RAWG',
+    })
+    expect(steam).not.toHaveBeenCalled()
   })
 })
 
