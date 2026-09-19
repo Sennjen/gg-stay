@@ -5,13 +5,30 @@ import HeroVideo from '~/components/HeroVideo.vue'
 const CLIP_URL = 'https://media.rawg.io/media/movies/1/movie480.mp4'
 const HLS_URL = 'https://video.akamai.steamstatic.com/store_trailers/1/hls_264_master.m3u8?t=123'
 
-function mockMatchMedia(reducedMotion: boolean) {
+/**
+ * `wideViewport` answers the `(min-width: 768px)` guard; the default is a desktop-width viewport,
+ * because that is the only case where the component is meant to do anything at all.
+ */
+function mockMatchMedia(reducedMotion: boolean, wideViewport = true) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-    matches: query.includes('prefers-reduced-motion') ? reducedMotion : false,
+    matches: query.includes('prefers-reduced-motion')
+      ? reducedMotion
+      : query.includes('min-width')
+        ? wideViewport
+        : false,
     media: query,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   })) as unknown as typeof window.matchMedia
+}
+
+/** Installs a fake Network Information API for the duration of one test. */
+function mockConnection(connection: { effectiveType?: string; saveData?: boolean } | undefined) {
+  Object.defineProperty(navigator, 'connection', {
+    value: connection,
+    configurable: true,
+    writable: true,
+  })
 }
 
 function mockCanPlayType(supportsNativeHls: boolean) {
@@ -66,6 +83,7 @@ vi.mock('hls.js/light', async () => {
 
 beforeEach(() => {
   mockMatchMedia(false)
+  mockConnection(undefined)
   mockCanPlayType(false)
   // happy-dom implements <video>.play()/.pause() as no-ops that don't reject, but we still want
   // to assert they were called without depending on that implementation detail.
@@ -95,6 +113,48 @@ describe('HeroVideo', () => {
     await new Promise((resolve) => setTimeout(resolve, 250))
 
     expect(wrapper.find('video').exists()).toBe(false)
+  })
+
+  it('renders nothing on a viewport narrower than 768px', async () => {
+    mockMatchMedia(false, false)
+    const wrapper = await mountSuspended(HeroVideo, {
+      props: { clipUrl: CLIP_URL, paused: false },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(wrapper.find('video').exists()).toBe(false)
+  })
+
+  it.each(['slow-2g', '2g', '3g'])('renders nothing on a %s connection', async (effectiveType) => {
+    mockConnection({ effectiveType })
+    const wrapper = await mountSuspended(HeroVideo, {
+      props: { clipUrl: CLIP_URL, paused: false },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(wrapper.find('video').exists()).toBe(false)
+  })
+
+  it('renders nothing when Save-Data is on, even on a fast wide screen', async () => {
+    mockConnection({ effectiveType: '4g', saveData: true })
+    const wrapper = await mountSuspended(HeroVideo, {
+      props: { clipUrl: CLIP_URL, paused: false },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(wrapper.find('video').exists()).toBe(false)
+  })
+
+  it('still renders when the connection reports 4g, or reports nothing at all', async () => {
+    for (const connection of [{ effectiveType: '4g' }, undefined]) {
+      mockConnection(connection)
+      const wrapper = await mountSuspended(HeroVideo, {
+        props: { clipUrl: CLIP_URL, paused: false },
+      })
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      expect(wrapper.find('video').exists()).toBe(true)
+      wrapper.unmount()
+    }
   })
 
   it('renders the video (after going idle) with the toggle button', async () => {

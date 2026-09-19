@@ -3,8 +3,10 @@ import type Hls from 'hls.js'
 
 // Rendered only inside a <ClientOnly> wrapper, and only after the page goes idle, so this
 // component never competes with the hero poster (the LCP element) for bandwidth. It also
-// self-guards against `prefers-reduced-motion` and Save-Data, in case a caller mounts it
-// directly without pre-checking those (see the parent's own `v-if="clipUrl"` guard).
+// self-guards against a narrow viewport, a slow or metered connection, `prefers-reduced-motion`
+// and Save-Data, in case a caller mounts it directly without pre-checking those (see the parent's
+// own `v-if="clipUrl"` guard). When any guard trips, nothing is created and nothing is fetched:
+// the poster's slow zoom is the whole hero, which is what a phone should get.
 const props = defineProps<{ clipUrl: string; paused: boolean }>()
 const emit = defineEmits<{ 'update:paused': [value: boolean] }>()
 const { t } = useI18n()
@@ -12,6 +14,10 @@ const { t } = useI18n()
 // Steam trailers are served as HLS master playlists (see docs/specs/2026-09-19-redesign-design.md
 // and the PR brief): the RAWG mp4 clips this component already supported keep working unchanged.
 const HLS_MAX_LEVEL_HEIGHT = 720
+
+// A trailer is several MB. Below this width the hero is a phone-sized box where the poster reads
+// just as well, and the bytes are far more likely to be metered.
+const MIN_VIDEO_VIEWPORT_PX = 768
 
 function isHlsUrl(url: string): boolean {
   const withoutQuery = url.split('?')[0] ?? url
@@ -105,10 +111,31 @@ function prefersReducedMotion(): boolean {
     : false
 }
 
+type NetworkInformation = { saveData?: boolean; effectiveType?: string }
+
+function connection(): NetworkInformation | undefined {
+  if (typeof navigator === 'undefined') return undefined
+  return (navigator as Navigator & { connection?: NetworkInformation }).connection
+}
+
 function saveDataEnabled(): boolean {
-  if (typeof navigator === 'undefined') return false
-  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
-  return connection?.saveData === true
+  return connection()?.saveData === true
+}
+
+/** The Network Information API is not universal; an absent reading is treated as fast. */
+function connectionIsSlow(): boolean {
+  const effectiveType = connection()?.effectiveType
+  return effectiveType !== undefined && effectiveType !== '4g'
+}
+
+/**
+ * Matched once, on mount, rather than watched: a visitor who rotates a phone into landscape has
+ * already been given the poster, and swapping in a multi-megabyte video mid-scroll would be a
+ * worse experience than the one they are having.
+ */
+function viewportIsWideEnough(): boolean {
+  if (typeof window === 'undefined' || window.matchMedia === undefined) return false
+  return window.matchMedia(`(min-width: ${MIN_VIDEO_VIEWPORT_PX}px)`).matches
 }
 
 type IdleWindow = Window & {
@@ -144,7 +171,13 @@ function cancelScheduledIdle() {
 }
 
 onMounted(() => {
-  if (!props.clipUrl || prefersReducedMotion() || saveDataEnabled()) {
+  if (
+    !props.clipUrl ||
+    !viewportIsWideEnough() ||
+    connectionIsSlow() ||
+    prefersReducedMotion() ||
+    saveDataEnabled()
+  ) {
     blocked.value = true
     return
   }
