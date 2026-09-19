@@ -23,7 +23,12 @@
       "title": "Готові знайти свою наступну гру?"
     }
   },
-  "nav": { "catalog": "Каталог", "language": "Мова" },
+  "nav": {
+    "catalog": "Каталог",
+    "language": "Мова",
+    "skipToContent": "Перейти до вмісту",
+    "primary": "Основна навігація"
+  },
   "search": {
     "label": "Пошук ігор",
     "placeholder": "Пошук ігор…",
@@ -34,6 +39,8 @@
     "resultsAnnouncement": "{count} результатів"
   },
   "footer": {
+    "nav": "Підвал сайту",
+    "github": "GitHub",
     "dataBy": "Дані про ігри надають {rawg} і {steam}.",
     "rawg": "RAWG",
     "steam": "Steam",

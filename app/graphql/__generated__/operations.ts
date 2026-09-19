@@ -21,21 +21,25 @@ export type DescriptionSource =
 export type GameFilter = {
   ageRating?: Array<AgeRating> | null | undefined;
   developers?: Array<string> | null | undefined;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   free?: boolean | null | undefined;
   gameModes?: Array<GameMode> | null | undefined;
   genres?: Array<string> | null | undefined;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   madeInUkraine?: boolean | null | undefined;
   metacriticMin?: number | null | undefined;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   onSaleMinPercent?: number | null | undefined;
   platforms?: Array<number> | null | undefined;
   playtime?: Playtime | null | undefined;
-  /** Index-backed fields: accepted and ignored until the nightly index exists. */
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   priceMaxUah?: number | null | undefined;
   publishers?: Array<string> | null | undefined;
   ratingMin?: number | null | undefined;
   search?: string | null | undefined;
   stores?: Array<string> | null | undefined;
   tags?: Array<string> | null | undefined;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   ukrainianLocalisation?: Localisation | null | undefined;
   upcoming?: boolean | null | undefined;
   yearFrom?: number | null | undefined;

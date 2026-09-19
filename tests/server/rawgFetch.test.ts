@@ -191,4 +191,22 @@ describe('createRawgFetch', () => {
     await rawg('games', { page: 1 }, { ttl: 86_400 })
     expect(deps.fetchJson).toHaveBeenCalledTimes(2)
   })
+
+  it('serves a stale entry past a ttl override when the upstream then fails', async () => {
+    // A short per-call ttl override still leaves the fetched value in the cache as a
+    // stale-if-error fallback — expiring sooner (per the override) doesn't mean the entry
+    // stops being usable once the upstream starts failing.
+    const fetchJson = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: { v: 1 } })
+      .mockResolvedValue({ status: 500, body: null })
+    const { deps, advance } = makeDeps({ fetchJson })
+    const rawg = createRawgFetch(deps)
+    await rawg('games', { page: 1 }, { ttl: 30 })
+    advance(31_000) // past the 30s override
+    expect(await rawg('games', { page: 1 }, { ttl: 30 })).toEqual({ v: 1 })
+    // 1 (initial fetch) + 2 (the second call's own 5xx retry, per "retries once on 5xx") before
+    // falling back to the stale cache entry.
+    expect(fetchJson).toHaveBeenCalledTimes(3)
+  })
 })

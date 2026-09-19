@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { mapGame, mapGameCard, mapGamePage, mapTaxonomy } from '../../server/rawg/mappers'
+import { mapGame, mapGameCard, mapGamePage, mapTaxonomy, positive } from '../../server/rawg/mappers'
 import games from '../fixtures/rawg/games.json'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
 import stores from '../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json'
 import screenshots from '../fixtures/rawg/game-the-witcher-3-wild-hunt-screenshots.json'
+
+describe('positive', () => {
+  it('treats a negative number as unknown, same as 0 or null', () => {
+    expect(positive(-5)).toBeNull()
+    expect(positive(0)).toBeNull()
+    expect(positive(null)).toBeNull()
+    expect(positive(undefined)).toBeNull()
+    expect(positive(43)).toBe(43)
+  })
+})
 
 describe('mapGameCard', () => {
   it('maps a complete list item', () => {

@@ -23,7 +23,12 @@
       "title": "Ready to find your next game?"
     }
   },
-  "nav": { "catalog": "Catalog", "language": "Language" },
+  "nav": {
+    "catalog": "Catalog",
+    "language": "Language",
+    "skipToContent": "Skip to content",
+    "primary": "Primary"
+  },
   "search": {
     "label": "Search games",
     "placeholder": "Search games…",
@@ -34,6 +39,8 @@
     "resultsAnnouncement": "{count} results"
   },
   "footer": {
+    "nav": "Footer",
+    "github": "GitHub",
     "dataBy": "Game data provided by {rawg} and {steam}.",
     "rawg": "RAWG",
     "steam": "Steam",
