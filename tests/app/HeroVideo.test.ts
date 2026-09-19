@@ -52,7 +52,17 @@ class FakeHls {
   }
 }
 
-vi.mock('hls.js/light', () => ({ default: FakeHls }))
+// Gate lets the very first test control exactly when the dynamic import resolves, to simulate an
+// unmount that races the import (see the "does not start an HLS session" test below). Every
+// import() after that first one resolves from the module cache instantly regardless of this
+// gate, which is exactly what the rest of the suite wants — so that regression test must stay
+// the first one in this file to actually exercise 'hls.js/light'.
+let hlsModuleGate: Promise<void> | null = null
+
+vi.mock('hls.js/light', async () => {
+  if (hlsModuleGate) await hlsModuleGate
+  return { default: FakeHls }
+})
 
 beforeEach(() => {
   mockMatchMedia(false)
@@ -137,6 +147,32 @@ describe('HeroVideo', () => {
   })
 
   describe('HLS clips', () => {
+    it('does not start an HLS session if the component unmounts before the dynamic import resolves', async () => {
+      // Must run before any other test in this file resolves 'hls.js/light', since the mocked
+      // import only respects hlsModuleGate the first time it's actually awaited (see the comment
+      // above vi.mock above) — every import after that resolves instantly from the module cache.
+      let releaseGate: () => void = () => {}
+      hlsModuleGate = new Promise((resolve) => {
+        releaseGate = resolve
+      })
+
+      const wrapper = await mountSuspended(HeroVideo, {
+        props: { clipUrl: HLS_URL, paused: false },
+      })
+      // Lets the idle timer fire and `ready` flip true, which starts attachHls() — its
+      // `await loadHlsConstructor()` is now blocked on hlsModuleGate.
+      await new Promise((resolve) => setTimeout(resolve, 250))
+
+      wrapper.unmount()
+      // The import resolves only now, after the component is already gone.
+      releaseGate()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(FakeHls.instances).toHaveLength(0)
+      hlsModuleGate = null
+    })
+
     it('sets src directly and never imports hls.js when the browser supports HLS natively', async () => {
       mockCanPlayType(true)
       const wrapper = await mountSuspended(HeroVideo, {

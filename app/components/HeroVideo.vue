@@ -37,6 +37,13 @@ const videoEl = ref<HTMLVideoElement | null>(null)
 const videoSrc = computed(() => (usingHlsJs.value ? undefined : props.clipUrl))
 
 let hlsInstance: Hls | null = null
+// Flipped in onBeforeUnmount, before destroyHls() runs, so the awaited steps below (both the
+// dynamic import and anything after it) can tell a since-unmounted component apart from one still
+// on screen. Without this, unmounting while loadHlsConstructor()'s import() is still in flight
+// leaves destroyHls() a no-op (hlsInstance is still null at that point), and the import later
+// resolving would go on to construct an Hls instance against a detached video element that is
+// never destroyed.
+let cancelled = false
 
 function destroyHls() {
   hlsInstance?.destroy()
@@ -56,11 +63,16 @@ async function loadHlsConstructor(): Promise<typeof Hls> {
 
 async function attachHls(video: HTMLVideoElement) {
   const HlsCtor = await loadHlsConstructor()
+  if (cancelled) return
   if (!HlsCtor.isSupported()) {
     errored.value = true
     return
   }
   const hls = new HlsCtor({ capLevelToPlayerSize: true })
+  if (cancelled) {
+    hls.destroy()
+    return
+  }
   hlsInstance = hls
   hls.on(HlsCtor.Events.MANIFEST_PARSED, () => {
     // Cap playback at 720p regardless of player size: this is a muted, decorative background
@@ -79,6 +91,10 @@ async function attachHls(video: HTMLVideoElement) {
       destroyHls()
     }
   })
+  if (cancelled) {
+    destroyHls()
+    return
+  }
   hls.loadSource(props.clipUrl)
   hls.attachMedia(video)
 }
@@ -141,10 +157,12 @@ onMounted(() => {
 watch(ready, async (isReady) => {
   if (!isReady || !usingHlsJs.value) return
   await nextTick()
+  if (cancelled) return
   if (videoEl.value) await attachHls(videoEl.value)
 })
 
 onBeforeUnmount(() => {
+  cancelled = true
   cancelScheduledIdle()
   destroyHls()
 })
