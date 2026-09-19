@@ -83,5 +83,24 @@
     "PEGI12": "PEGI 12",
     "PEGI16": "PEGI 16",
     "PEGI18": "PEGI 18"
+  },
+  "game": {
+    "backToCatalog": "← Back to the catalog",
+    "released": "Release date",
+    "platforms": "Platforms",
+    "genres": "Genres",
+    "developers": "Developer",
+    "publishers": "Publisher",
+    "ageRating": "Age rating",
+    "playtime": "Average playtime",
+    "hours": "{count} h",
+    "metacritic": "Metacritic",
+    "userRating": "Player rating",
+    "ratingsCount": "{count} ratings",
+    "gameModes": "Game modes",
+    "website": "Official website",
+    "whereToBuy": "Where to buy",
+    "about": "About",
+    "metaFallback": "{name} — platforms, genres, ratings and stores."
   }
 }
