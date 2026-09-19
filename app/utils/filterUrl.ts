@@ -11,7 +11,7 @@ import {
   type GameModeValue,
   type GameSortValue,
   type PlaytimeValue,
-} from '../../shared/catalog'
+} from '#shared/catalog'
 
 export interface CatalogFilter {
   search?: string
