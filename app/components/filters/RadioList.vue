@@ -16,7 +16,7 @@ const { t } = useI18n()
         type="radio"
         :name="name"
         :checked="modelValue === undefined"
-        class="size-4 focus-visible:outline-2"
+        class="size-4 accent-accent focus-visible:outline-2"
         @change="emit('update:modelValue', undefined)"
       />
       {{ t('catalog.any') }}
@@ -26,7 +26,7 @@ const { t } = useI18n()
         type="radio"
         :name="name"
         :checked="modelValue === option.value"
-        class="size-4 focus-visible:outline-2"
+        class="size-4 accent-accent focus-visible:outline-2"
         @change="emit('update:modelValue', option.value)"
       />
       {{ option.label }}

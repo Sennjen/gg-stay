@@ -19,12 +19,12 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <div role="alert" class="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
+  <div role="alert" class="rounded-card border border-line bg-surface-1 p-6 text-center text-fg">
     <p>{{ message }}</p>
     <button
       v-if="!isRateLimited"
       type="button"
-      class="mt-4 rounded bg-slate-900 px-4 py-2 text-white focus-visible:outline-2"
+      class="mt-4 rounded-chip bg-accent px-4 py-2 text-on-accent focus-visible:outline-2"
       @click="emit('retry')"
     >
       {{ t('errors.retry') }}

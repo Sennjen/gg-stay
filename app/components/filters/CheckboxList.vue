@@ -20,7 +20,7 @@ function toggle(value: T, checked: boolean) {
       <input
         type="checkbox"
         :checked="modelValue.includes(option.value)"
-        class="size-4 focus-visible:outline-2"
+        class="size-4 accent-accent focus-visible:outline-2"
         @change="toggle(option.value, ($event.target as HTMLInputElement).checked)"
       />
       {{ option.label }}

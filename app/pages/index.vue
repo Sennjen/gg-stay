@@ -6,11 +6,11 @@ useSeoMeta({ title: () => t('home.title'), description: () => t('home.descriptio
 
 <template>
   <main>
-    <h1 class="text-4xl font-bold">{{ t('home.title') }}</h1>
-    <p class="mt-4 text-lg text-slate-600">{{ t('home.description') }}</p>
+    <h1 class="font-display-heading text-4xl text-fg">{{ t('home.title') }}</h1>
+    <p class="mt-4 text-lg text-fg-2">{{ t('home.description') }}</p>
     <NuxtLink
       :to="localePath('/games')"
-      class="mt-8 inline-block rounded bg-slate-900 px-5 py-3 text-white focus-visible:outline-2"
+      class="mt-8 inline-block rounded-chip bg-accent px-5 py-3 text-on-accent focus-visible:outline-2"
     >
       {{ t('home.openCatalog') }}
     </NuxtLink>

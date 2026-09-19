@@ -45,7 +45,7 @@ function add(slug: string) {
       <li v-for="slug in modelValue" :key="slug">
         <button
           type="button"
-          class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs focus-visible:outline-2"
+          class="rounded-chip bg-surface-2 px-2.5 py-0.5 text-xs text-fg focus-visible:outline-2"
           :aria-label="t('filters.remove', { name: slug })"
           @click="
             emit(
@@ -63,13 +63,13 @@ function add(slug: string) {
       type="search"
       :placeholder="t('filters.developerPlaceholder')"
       :aria-label="t('filters.developer')"
-      class="w-full rounded border border-slate-300 px-2 py-1 text-sm focus-visible:outline-2"
+      class="w-full rounded-lg border border-line bg-surface-1 px-2 py-1 text-sm text-fg focus-visible:outline-2"
     />
-    <ul v-if="suggestions.length" class="rounded border border-slate-200">
+    <ul v-if="suggestions.length" class="rounded-lg border border-line bg-surface-1">
       <li v-for="developer in suggestions" :key="developer.id">
         <button
           type="button"
-          class="block w-full px-2 py-1 text-left text-sm hover:bg-slate-50 focus-visible:outline-2"
+          class="block w-full px-2 py-1 text-left text-sm text-fg hover:bg-surface-2 focus-visible:outline-2"
           @click="add(developer.slug)"
         >
           {{ developer.name }}
