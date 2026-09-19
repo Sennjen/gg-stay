@@ -33,6 +33,11 @@
   /* Radius */
   --radius-card: 12px;
   --radius-chip: 999px;
+
+  /* Layout */
+  /* Fixed header bar height, shared with any section that must run underneath the sticky
+     transparent header (e.g. the landing hero) instead of measuring it in JS. */
+  --header-h: 4rem;
 }
 
 html {

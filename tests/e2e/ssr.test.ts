@@ -17,6 +17,11 @@ describe('server-side rendering', async () => {
     expect(html).toContain('href="/games"')
     expect(html).toContain('The Witcher 3: Wild Hunt')
     expect(html).not.toContain('<video')
+    // The hero must run underneath the sticky transparent header rather than start below it:
+    // pulled up by the header's fixed height (a shared CSS token, not a JS measurement) plus the
+    // layout's own top padding.
+    expect(html).toContain('-mt-[calc(var(--header-h)+1.5rem)]')
+    expect(html).toContain('h-[var(--header-h)]')
   })
 
   it('renders the English landing headline under /en', async () => {

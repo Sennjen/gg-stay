@@ -32,6 +32,17 @@ describe('home page', () => {
     expect(wrapper.text()).toContain('The Witcher 3: Wild Hunt')
   })
 
+  it('pulls the hero up by the header height (plus the layout padding) so it runs under the sticky header instead of starting below it', async () => {
+    registerEndpoint('/api/graphql', {
+      method: 'POST',
+      handler: async () => ({ data: landingWithFeatured }),
+    })
+
+    const wrapper = await mountSuspended(IndexPage)
+    const root = wrapper.get('main')
+    expect(root.classes()).toContain('-mt-[calc(var(--header-h)+1.5rem)]')
+  })
+
   it('still renders the hero and call to action when the landing query fails', async () => {
     registerEndpoint('/api/graphql', {
       method: 'POST',

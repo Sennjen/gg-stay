@@ -12,8 +12,8 @@ const clipUrl = computed(() => props.featured?.clipUrl ?? null)
 
 <template>
   <section
-    class="relative flex min-h-[560px] w-full items-end overflow-hidden bg-ink"
-    style="height: 100svh"
+    class="relative flex min-h-[560px] w-full items-end overflow-hidden bg-ink pt-[var(--header-h)]"
+    style="height: 100vh; height: 100svh"
   >
     <NuxtImg
       v-if="poster"
