@@ -4,7 +4,7 @@
     "description": "Games for Ukrainian players: practical filters and a Ukrainian-first interface.",
     "openCatalog": "Open the catalog"
   },
-  "nav": { "catalog": "Catalog", "language": "Language", "search": "Search games" },
+  "nav": { "catalog": "Catalog", "language": "Language" },
   "search": {
     "label": "Search games",
     "placeholder": "Search games…",

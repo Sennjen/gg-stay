@@ -8,6 +8,7 @@ const { t } = useI18n()
 
 const rootRef = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLInputElement | null>(null)
+const toggleRef = ref<HTMLButtonElement | null>(null)
 const inputId = useId()
 const listboxId = useId()
 const viewAllId = `${listboxId}-view-all`
@@ -18,13 +19,26 @@ const { term, items, status, reset } = useSearchSuggestions()
 function catalogSearchTerm(): string {
   return route.path === localePath('/games') ? String(route.query.search ?? '') : ''
 }
-term.value = catalogSearchTerm()
 
+// The text shown in the input. Kept separate from `useSearchSuggestions`'s
+// own `term` (which drives the debounced fetch): a catalog `search` param
+// pre-fills this on both server and client, but must never by itself fire a
+// request or open the dropdown — only an explicit user action does that (see
+// `interacted` below). `term` is only ever written to from that action.
+const inputText = ref(catalogSearchTerm())
+
+// Starts `false` identically on the server and on the client's first render
+// (no hydration mismatch), and flips to `true` only from a real user action:
+// typing, or pressing ArrowDown/ArrowUp while focused. Never from the
+// pre-filled route value alone.
+const interacted = ref(false)
 const dismissed = ref(false)
 const activeIndex = ref(-1)
 const mobileExpanded = ref(false)
 
-const showDropdown = computed(() => !dismissed.value && term.value.trim().length >= MIN_LENGTH)
+const showDropdown = computed(
+  () => interacted.value && !dismissed.value && inputText.value.trim().length >= MIN_LENGTH,
+)
 const optionCount = computed(() => items.value.length + 1) // +1 for the "all results" row
 
 const activeOptionId = computed(() => {
@@ -49,19 +63,37 @@ function releaseYear(iso: string) {
 
 function onInput(event: Event) {
   dismissed.value = false
+  interacted.value = true
   activeIndex.value = -1
-  term.value = (event.target as HTMLInputElement).value
+  inputText.value = (event.target as HTMLInputElement).value
+  term.value = inputText.value
 }
 
 function onFocus() {
   dismissed.value = false
 }
 
+function collapseMobile({ returnFocus }: { returnFocus: boolean }) {
+  if (!mobileExpanded.value) return
+  mobileExpanded.value = false
+  if (returnFocus) nextTick(() => toggleRef.value?.focus())
+}
+
 function onEscape() {
   dismissed.value = true
+  collapseMobile({ returnFocus: true })
 }
 
 function moveActive(delta: 1 | -1) {
+  if (!interacted.value) {
+    // First arrow key press while focused, before any typing: treat it as an
+    // explicit request to search the text already shown (e.g. a pre-filled
+    // catalog term) rather than opening on the pre-fill by itself.
+    if (inputText.value.trim().length < MIN_LENGTH) return
+    interacted.value = true
+    term.value = inputText.value
+    return
+  }
   if (!showDropdown.value) return
   const count = optionCount.value
   if (activeIndex.value < 0) {
@@ -77,7 +109,7 @@ function goToGame(slug: string) {
 }
 
 function goToAllResults() {
-  const trimmed = term.value.trim()
+  const trimmed = inputText.value.trim()
   if (!trimmed) return
   dismissed.value = true
   router.push({ path: localePath('/games'), query: { search: trimmed } })
@@ -104,21 +136,25 @@ function onDocumentPointerDown(event: PointerEvent) {
   if (!rootRef.value) return
   if (event.target instanceof Node && rootRef.value.contains(event.target)) return
   dismissed.value = true
-  mobileExpanded.value = false
+  collapseMobile({ returnFocus: true })
 }
 
 onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
 onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
 
 // Route change (including the navigations this component itself triggers)
-// closes the dropdown and resets the text to whatever the new route implies.
+// closes the dropdown and resets the text/search session to whatever the new
+// route implies — without stealing focus (unlike Escape/outside-click, this
+// isn't a user action directed at the search box itself).
 watch(
   () => route.fullPath,
   () => {
     dismissed.value = true
+    interacted.value = false
     activeIndex.value = -1
-    mobileExpanded.value = false
-    term.value = catalogSearchTerm()
+    collapseMobile({ returnFocus: false })
+    inputText.value = catalogSearchTerm()
+    reset()
   },
 )
 
@@ -129,6 +165,7 @@ onBeforeUnmount(() => reset())
   <div ref="rootRef" class="relative">
     <button
       v-if="!mobileExpanded"
+      ref="toggleRef"
       type="button"
       class="text-fg focus-visible:outline-2 md:hidden"
       :aria-label="t('search.label')"
@@ -160,7 +197,7 @@ onBeforeUnmount(() => reset())
         role="combobox"
         autocomplete="off"
         spellcheck="false"
-        :value="term"
+        :value="inputText"
         :placeholder="t('search.placeholder')"
         aria-autocomplete="list"
         :aria-expanded="showDropdown"
@@ -226,7 +263,7 @@ onBeforeUnmount(() => reset())
           @mousedown.prevent="goToAllResults"
           @mouseenter="activeIndex = items.length"
         >
-          {{ t('search.allResults', { term: term.trim() }) }}
+          {{ t('search.allResults', { term: inputText.trim() }) }}
         </li>
       </ul>
 

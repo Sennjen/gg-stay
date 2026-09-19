@@ -242,12 +242,123 @@ describe('HeaderSearch', () => {
     wrapper.unmount()
   })
 
-  it('prefills the term from the catalog route search param', async () => {
-    mockGamesEndpoint(['Alpha'])
+  it('prefills the term from the catalog route search param without opening the dropdown or fetching', async () => {
+    const calls = mockGamesEndpoint(['Alpha'])
     const wrapper = await mountSuspended(HeaderSearch, { route: '/games?search=witcher' })
     vi.useFakeTimers()
     const input = wrapper.get('input[role="combobox"]')
 
     expect((input.element as HTMLInputElement).value).toBe('witcher')
+    expect(input.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('ul[role="listbox"]').exists()).toBe(false)
+
+    // Give any accidental debounced fetch a chance to fire before asserting none did.
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(calls).toEqual([])
+  })
+
+  it('opens the dropdown and fetches once the user edits a pre-filled term', async () => {
+    const calls = mockGamesEndpoint(['Alpha'])
+    const wrapper = await mountSuspended(HeaderSearch, { route: '/games?search=witcher' })
+    vi.useFakeTimers()
+    const input = wrapper.get('input[role="combobox"]')
+
+    await typeAndSettle(input, 'witcher2')
+
+    expect(input.attributes('aria-expanded')).toBe('true')
+    expect(calls).toEqual(['witcher2'])
+  })
+
+  it('opens the dropdown and fetches for a pre-filled term on the first ArrowDown, without requiring a prior fetch', async () => {
+    const calls = mockGamesEndpoint(['Alpha'])
+    const wrapper = await mountSuspended(HeaderSearch, { route: '/games?search=witcher' })
+    vi.useFakeTimers()
+    const input = wrapper.get('input[role="combobox"]')
+    expect(input.attributes('aria-expanded')).toBe('false')
+
+    await input.trigger('keydown', { key: 'ArrowDown' })
+
+    expect(calls).toEqual([])
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+
+    expect(input.attributes('aria-expanded')).toBe('true')
+    expect(calls).toEqual(['witcher'])
+  })
+
+  it('focusing the input alone does not open the dropdown for a pre-filled term', async () => {
+    const calls = mockGamesEndpoint(['Alpha'])
+    const wrapper = await mountSuspended(HeaderSearch, { route: '/games?search=witcher' })
+    vi.useFakeTimers()
+    const input = wrapper.get('input[role="combobox"]')
+
+    await input.trigger('focus')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+
+    expect(input.attributes('aria-expanded')).toBe('false')
+    expect(calls).toEqual([])
+  })
+
+  it('on mobile, Escape collapses the expanded input and returns focus to the toggle button', async () => {
+    mockGamesEndpoint(['Alpha'])
+    const wrapper = await mountSuspended(HeaderSearch, {
+      route: '/games',
+      attachTo: document.body,
+    })
+    vi.useFakeTimers()
+    await wrapper.get('button[aria-label]').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.mobileExpanded).toBe(true)
+
+    const input = wrapper.get('input[role="combobox"]')
+    await input.trigger('keydown', { key: 'Escape' })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.mobileExpanded).toBe(false)
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label]').element)
+    wrapper.unmount()
+  })
+
+  it('on mobile, an outside click collapses the expanded input and returns focus to the toggle button', async () => {
+    mockGamesEndpoint(['Alpha'])
+    const wrapper = await mountSuspended(HeaderSearch, {
+      route: '/games',
+      attachTo: document.body,
+    })
+    vi.useFakeTimers()
+    await wrapper.get('button[aria-label]').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.mobileExpanded).toBe(true)
+
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.mobileExpanded).toBe(false)
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label]').element)
+    wrapper.unmount()
+  })
+
+  it('collapses the expanded mobile input on a route change without stealing focus', async () => {
+    mockGamesEndpoint(['Alpha'])
+    const wrapper = await mountSuspended(HeaderSearch, {
+      route: '/games',
+      attachTo: document.body,
+    })
+    vi.useFakeTimers()
+    await wrapper.get('button[aria-label]').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.mobileExpanded).toBe(true)
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    document.body.focus()
+
+    vi.useRealTimers()
+    await wrapper.vm.router.push('/games/the-witcher-3')
+    await flushPromises()
+
+    expect(wrapper.vm.mobileExpanded).toBe(false)
+    expect(document.activeElement).not.toBe(wrapper.get('button[aria-label]').element)
+    wrapper.unmount()
   })
 })
