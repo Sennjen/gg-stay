@@ -3,12 +3,15 @@ import { GameDocument } from '~/graphql/__generated__/operations'
 import { splitParagraphs } from '~/utils/format'
 
 const route = useRoute()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const localePath = useLocalePath()
 const store = useFiltersStore()
 
 const slug = computed(() => String(route.params.slug))
-const { data, errorCode, refresh } = await useGql(GameDocument, () => ({ slug: slug.value }))
+const { data, errorCode, refresh } = await useGql(GameDocument, () => ({
+  slug: slug.value,
+  locale: locale.value,
+}))
 
 if (errorCode.value === 'NOT_FOUND') {
   // Real HTTP 404 during SSR; renders app/error.vue, which sets noindex.
@@ -17,10 +20,12 @@ if (errorCode.value === 'NOT_FOUND') {
 
 const game = computed(() => data.value?.game ?? null)
 const names = (list?: { name: string }[]) => (list ?? []).map((entry) => entry.name).join(', ')
-const descriptionParagraphs = computed(() => splitParagraphs(game.value?.description))
+const localizedDescription = computed(() => game.value?.localizedDescription ?? null)
+const descriptionParagraphs = computed(() => splitParagraphs(localizedDescription.value?.text))
+const isSteamDescription = computed(() => localizedDescription.value?.source === 'STEAM')
 
 const description = computed(() => {
-  const text = game.value?.description?.replace(/\s+/g, ' ').trim()
+  const text = localizedDescription.value?.text.replace(/\s+/g, ' ').trim()
   if (text) return text.length > 160 ? `${text.slice(0, 157)}…` : text
   return t('game.metaFallback', { name: game.value?.name ?? '' })
 })
@@ -53,8 +58,16 @@ useSeoMeta({
       <div class="mt-8 grid gap-8 lg:grid-cols-[1fr_20rem]">
         <div>
           <section v-if="descriptionParagraphs.length">
-            <h2 class="font-display-heading text-xl text-fg">{{ t('game.about') }}</h2>
-            <div lang="en" class="mt-2 max-w-prose space-y-4 leading-relaxed text-fg-2">
+            <div class="flex items-baseline gap-2">
+              <h2 class="font-display-heading text-xl text-fg">{{ t('game.about') }}</h2>
+              <span v-if="isSteamDescription" class="text-sm text-fg-2">{{
+                t('game.descriptionSourceSteam')
+              }}</span>
+            </div>
+            <div
+              :lang="localizedDescription?.language"
+              class="mt-2 max-w-prose space-y-4 leading-relaxed text-fg-2"
+            >
               <p v-for="(paragraph, index) in descriptionParagraphs" :key="index">
                 {{ paragraph }}
               </p>

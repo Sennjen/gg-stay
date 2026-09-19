@@ -34,7 +34,9 @@
     "resultsAnnouncement": "{count} результатів"
   },
   "footer": {
-    "dataBy": "Дані про ігри надає",
+    "dataBy": "Дані про ігри надають {rawg} і {steam}.",
+    "rawg": "RAWG",
+    "steam": "Steam",
     "rights": "Назви та зображення належать їхнім власникам."
   },
   "states": {
@@ -160,6 +162,7 @@
     "website": "Офіційний сайт",
     "whereToBuy": "Де купити",
     "about": "Про гру",
+    "descriptionSourceSteam": "Опис: Steam",
     "metaFallback": "{name} — платформи, жанри, рейтинг і магазини."
   },
   "gallery": {
