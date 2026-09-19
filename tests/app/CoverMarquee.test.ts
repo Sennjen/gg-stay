@@ -52,6 +52,10 @@ describe('CoverMarquee', () => {
     images.forEach((image, index) => {
       expect(image.attributes('alt')).toBe(games[index]!.name)
       expect(image.attributes('loading')).toBe('lazy')
+      // `sizes` must match the item's actual rendered width (200px, see `.marquee-item`), not
+      // a larger figure that would make the image provider serve a needlessly large variant.
+      expect(image.attributes('width')).toBe('200')
+      expect(image.attributes('sizes')).toBe('200px')
     })
   })
 })

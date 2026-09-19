@@ -9,6 +9,12 @@ const props = defineProps<{
 const localePath = useLocalePath()
 const { t } = useI18n()
 
+// Must match `.marquee-item`'s CSS `width` below — `sizes` drives which resized CDN variant
+// the image provider serves, so declaring a larger size than the box is actually rendered at
+// wastes bytes fetching a bigger variant than ever gets shown.
+const COVER_WIDTH = 200
+const COVER_HEIGHT = Math.round((COVER_WIDTH * 9) / 16)
+
 // Pure CSS marquee: a duplicated track slides by exactly one set's width (-50%) in a seamless
 // loop, paused via `:hover`/`:focus-within` in the <style> below. Touch has neither hover nor
 // focus-within while a finger rests on the track, so an active touch is tracked explicitly.
@@ -37,9 +43,9 @@ function onTouchEnd(event: PointerEvent) {
             v-if="game.cover"
             :src="game.cover.url"
             :alt="game.name"
-            width="240"
-            height="135"
-            sizes="240px"
+            :width="COVER_WIDTH"
+            :height="COVER_HEIGHT"
+            :sizes="`${COVER_WIDTH}px`"
             loading="lazy"
             class="aspect-video w-full rounded-card object-cover"
           />
@@ -63,9 +69,9 @@ function onTouchEnd(event: PointerEvent) {
               v-if="game.cover"
               :src="game.cover.url"
               alt=""
-              width="240"
-              height="135"
-              sizes="240px"
+              :width="COVER_WIDTH"
+              :height="COVER_HEIGHT"
+              :sizes="`${COVER_WIDTH}px`"
               loading="lazy"
               class="aspect-video w-full rounded-card object-cover"
             />
@@ -110,7 +116,7 @@ function onTouchEnd(event: PointerEvent) {
 }
 
 .marquee-item {
-  width: 200px;
+  width: v-bind('`${COVER_WIDTH}px`');
   flex-shrink: 0;
 }
 

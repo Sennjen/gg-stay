@@ -79,7 +79,36 @@ describe('CoverRing', () => {
       expect(image.attributes('loading')).toBe('lazy')
       expect(image.attributes('width')).toBeTruthy()
       expect(image.attributes('height')).toBeTruthy()
+      // `sizes` must match the cover's actual rendered width (200px), not a larger,
+      // approximate figure — a bigger `sizes` makes the image provider serve a needlessly
+      // large CDN variant (420px instead of 200px) for a box that never shows it.
+      expect(image.attributes('width')).toBe('200')
+      expect(image.attributes('sizes')).toBe('200px')
     })
+  })
+
+  it('rotates a full 360° in 75s (within the 60-90s target), verified against the real tick loop', async () => {
+    // A live browser can't be timed with a stopwatch in this environment (the automation pane
+    // always renders as a backgrounded tab, and real Chromium throttles requestAnimationFrame
+    // to zero calls for backgrounded tabs regardless of anything this component does) — so the
+    // rotation rate is verified deterministically instead: drive the component's own tick
+    // callback with synthetic timestamps and read the resulting rotation back off the DOM.
+    let tick: FrameRequestCallback | null = null
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      tick = cb
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+
+    const wrapper = await mountSuspended(CoverRing, { props: { games, title: 'Ring' } })
+    expect(tick).toBeTruthy()
+
+    tick!(0) // establishes the loop's internal "last timestamp" baseline
+    tick!(75_000) // simulate exactly 75s of elapsed frame time in one synthetic tick
+
+    const list = wrapper.get('ul').element as HTMLElement
+    const rotation = Math.abs(parseFloat(list.style.getPropertyValue('--ring-rotation')))
+    expect(rotation).toBeCloseTo(360, 1)
   })
 
   it('pauses the loop on hover and resumes on pointer leave', async () => {
@@ -115,20 +144,47 @@ describe('CoverRing', () => {
     expect(rafSpy.mock.calls.length).toBeGreaterThan(rafCallsAfterFocus)
   })
 
-  it('steps focus with ArrowRight/ArrowLeft', async () => {
+  it('steps focus with ArrowRight/ArrowLeft, never scrolling the page to do it', async () => {
     const wrapper = await mountSuspended(CoverRing, {
       props: { games, title: 'Ring' },
       attachTo: document.body,
     })
     const links = wrapper.findAll('a').map((link) => link.element as HTMLAnchorElement)
+    const focusSpy = vi.spyOn(HTMLAnchorElement.prototype, 'focus')
     links[0]!.focus()
     await wrapper.get('ul').trigger('focus')
 
     await wrapper.get('ul').trigger('keydown', { key: 'ArrowRight' })
     expect(document.activeElement).toBe(links[1])
+    // The target cover hasn't eased to the front yet — its current, off-angle transformed
+    // position must never drive the browser's default focus-scroll behaviour.
+    expect(focusSpy).toHaveBeenLastCalledWith({ preventScroll: true })
 
     await wrapper.get('ul').trigger('keydown', { key: 'ArrowLeft' })
     expect(document.activeElement).toBe(links[0])
+    expect(focusSpy).toHaveBeenLastCalledWith({ preventScroll: true })
+
+    focusSpy.mockRestore()
+    wrapper.unmount()
+  })
+
+  it('resets any scroll the stage picked up when focus moves onto a cover', async () => {
+    const wrapper = await mountSuspended(CoverRing, {
+      props: { games, title: 'Ring' },
+      attachTo: document.body,
+    })
+    const stage = wrapper.get('.ring-stage').element as HTMLElement
+    const firstLink = wrapper.findAll('a')[0]!
+
+    // Simulate the browser's own focus-driven scroll (e.g. native Tab focus scrolling an
+    // off-angle, transformed cover into view) landing on the stage before our handler runs.
+    stage.scrollLeft = 40
+    stage.scrollTop = 15
+
+    await firstLink.trigger('focusin')
+
+    expect(stage.scrollLeft).toBe(0)
+    expect(stage.scrollTop).toBe(0)
 
     wrapper.unmount()
   })

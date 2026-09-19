@@ -170,6 +170,22 @@ function onFocusIn(event: FocusEvent) {
   if (!link) return
   isFocusWithin.value = true
   focusToFront(Number(link.dataset.ringIndex))
+  resetStageScroll()
+}
+
+// A cover that hasn't eased to the front yet is a transformed, off-angle box — the browser's
+// built-in "scroll the newly focused element into view" behaviour could otherwise try to reveal
+// it by scrolling this container. `.ring-stage` uses `overflow: clip` rather than `hidden`
+// specifically so it never becomes a scroll container in the first place (unlike `hidden`,
+// `clip` establishes no scroll port at all — verified directly: `scrollLeft`/`scrollTop` stay 0
+// no matter how focus moves around the ring, native Tab included), which is what actually stops
+// this rather than fighting it after the fact. This reset is kept as cheap, harmless
+// defense-in-depth in case that ever changes.
+function resetStageScroll() {
+  const stage = stageEl.value
+  if (!stage) return
+  if (stage.scrollLeft !== 0) stage.scrollLeft = 0
+  if (stage.scrollTop !== 0) stage.scrollTop = 0
 }
 
 function onFocusOut(event: FocusEvent) {
@@ -189,7 +205,10 @@ function onKeydown(event: KeyboardEvent) {
     event.key === 'ArrowRight'
       ? (current + 1) % count.value
       : (current - 1 + count.value) % count.value
-  linkRefs.value[next]?.focus()
+  // `preventScroll`: the target cover hasn't eased to the front yet (that happens via the
+  // rotation this focus triggers, in `onFocusIn`), so its current, off-angle transformed
+  // position must never drive the browser's default focus-scroll behaviour.
+  linkRefs.value[next]?.focus({ preventScroll: true })
 }
 
 // --- Pointer drag: rotate freely; a drag must not fire the trailing click ------------------
@@ -328,7 +347,7 @@ export const RING_HEIGHT_CLASS = 'h-[240px] sm:h-[280px]'
             :alt="game.name"
             :width="COVER_WIDTH"
             :height="COVER_HEIGHT"
-            sizes="320px"
+            :sizes="`${COVER_WIDTH}px`"
             loading="lazy"
             class="h-full w-full object-cover"
           />
@@ -355,9 +374,14 @@ export const RING_HEIGHT_CLASS = 'h-[240px] sm:h-[280px]'
   /* Covers well off to the side rotate far enough round the ring that their transformed box
      extends past the stage's own edges — real content, not a bug in itself, but it must not
      grow the page's scrollable area (a global `overflow-x: clip` on <html> is not a substitute
-     for this: it does not reliably block script/trackpad-driven horizontal scrolling in every
-     engine, so the ring contains its own overflow instead of leaning on that page-level rule). */
-  overflow: hidden;
+     for this on its own — verified directly: it does not block a raw `scrollTo()` call on the
+     root element, so the ring contains its own overflow instead of leaning on that page-level
+     rule). `clip` rather than `hidden` here: unlike `hidden`, `clip` never establishes a scroll
+     container at all on a normal (non-root) element, so there's no `scrollLeft`/`scrollTop` for
+     anything — including the browser's own focus-driven "scroll into view" behaviour for a
+     Tab-focused, off-angle cover — to move in the first place (verified directly: `scrollLeft`
+     stays 0 through focus changes with `clip`, where it visibly drifted with `hidden`). */
+  overflow: clip;
   perspective: 1400px;
   /* The mobile/reduced-motion `CoverMarquee` fallback is shorter than the reserved ring
      height (which is sized for the ring's own, taller covers); center it instead of leaving
