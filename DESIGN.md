@@ -122,6 +122,12 @@ package) provider, which does serve the full variable font file.
 - `.font-numeric` also sets `word-spacing: -0.3em` so the uk-UA thousands
   separator (a no-break space) reads as a thin gap instead of a full
   monospace cell in JetBrains Mono.
+- **Decimal rule:** mono for integers; decimals use the interface face with
+  tabular figures. A decimal's separator (comma in uk-UA, point in en-US)
+  renders as a full monospace cell in JetBrains Mono, which reads like an
+  extra digit ("4 , 6"). Decimal values (e.g. a 4,6 user rating) use
+  `.font-tabular` instead of `.font-numeric` — `font-variant-numeric:
+tabular-nums` in the interface face, without switching to the mono family.
 
 ### Contrast ratios computed for this PR
 
