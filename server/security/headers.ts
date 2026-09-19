@@ -10,6 +10,11 @@ const RAWG_MEDIA = 'https://media.rawg.io'
 // GET media.rawg.io/media/resize/640/-/screenshots/201001/full1.jpg → 307 → api.rawg.io/…, which a
 // policy naming only media.rawg.io blocks. Both hosts serve the same images.
 const RAWG_MEDIA_REDIRECT = 'https://api.rawg.io'
+// Verified against a live Steam trailer (app 292030): the master playlist, every variant playlist
+// and the audio playlist reference their segments with RELATIVE URIs and answer 200 with no
+// redirect, so the whole session stays on this one host. Steam's other CDN host
+// (shared.akamai.steamstatic.com) only serves the movie thumbnails, which the projection in
+// server/steam/appDetailsProjection.ts never keeps — only `hls_h264` reaches the client.
 const STEAM_VIDEO = 'https://video.akamai.steamstatic.com'
 
 /**
