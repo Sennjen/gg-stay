@@ -8,16 +8,20 @@ const options = [
 ]
 
 describe('CheckboxList', () => {
-  it('reflects the model and emits the toggled list', async () => {
+  it('reflects the model as pressed toggle chips and emits the toggled list', async () => {
     const wrapper = await mountSuspended(CheckboxList, {
       props: { legend: 'Platform', options, modelValue: [4] },
     })
-    const boxes = wrapper.findAll('input[type="checkbox"]')
-    expect((boxes[0]!.element as HTMLInputElement).checked).toBe(true)
-    await boxes[1]!.setValue(true)
+    const chips = wrapper.findAll('button')
+    expect(chips[0]!.attributes('aria-pressed')).toBe('true')
+    expect(chips[1]!.attributes('aria-pressed')).toBe('false')
+
+    await chips[1]!.trigger('click')
     expect(wrapper.emitted('update:modelValue')![0]).toEqual([[4, 7]])
-    await boxes[0]!.setValue(false)
+
+    await chips[0]!.trigger('click')
     expect(wrapper.emitted('update:modelValue')![1]).toEqual([[]])
-    expect(wrapper.get('legend').text()).toBe('Platform')
+
+    expect(wrapper.get('[role="group"]').attributes('aria-label')).toBe('Platform')
   })
 })

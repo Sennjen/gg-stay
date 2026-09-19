@@ -40,12 +40,12 @@ function add(slug: string) {
 </script>
 
 <template>
-  <FiltersFilterGroup :legend="t('filters.developer')">
-    <ul v-if="modelValue.length" class="flex flex-wrap gap-1.5">
+  <div>
+    <ul v-if="modelValue.length" class="mb-2 flex flex-wrap gap-1.5">
       <li v-for="slug in modelValue" :key="slug">
         <button
           type="button"
-          class="rounded-chip bg-surface-2 px-2.5 py-0.5 text-xs text-fg focus-visible:outline-2"
+          class="inline-flex items-center gap-1 rounded-chip border border-accent bg-accent px-2.5 py-1 text-xs text-on-accent focus-visible:outline-2"
           :aria-label="t('filters.remove', { name: slug })"
           @click="
             emit(
@@ -65,7 +65,7 @@ function add(slug: string) {
       :aria-label="t('filters.developer')"
       class="w-full rounded-card border border-line bg-surface-1 px-2 py-1 text-sm text-fg focus-visible:outline-2"
     />
-    <ul v-if="suggestions.length" class="rounded-card border border-line bg-surface-1">
+    <ul v-if="suggestions.length" class="mt-1 rounded-card border border-line bg-surface-1">
       <li v-for="developer in suggestions" :key="developer.id">
         <button
           type="button"
@@ -76,5 +76,5 @@ function add(slug: string) {
         </button>
       </li>
     </ul>
-  </FiltersFilterGroup>
+  </div>
 </template>

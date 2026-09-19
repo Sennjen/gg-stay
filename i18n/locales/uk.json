@@ -21,7 +21,7 @@
   "states": {
     "loading": "Завантаження…",
     "emptyTitle": "Нічого не знайдено",
-    "emptyHint": "Спробуйте змінити або скинути фільтри.",
+    "emptyHint": "За цими фільтрами ігор немає. Приберіть один або скиньте всі.",
     "clearFilters": "Скинути фільтри"
   },
   "errors": {
@@ -47,7 +47,10 @@
     "prev": "Попередня",
     "next": "Наступна",
     "page": "Сторінка {page}",
-    "noCover": "Немає обкладинки"
+    "noCover": "Немає обкладинки",
+    "view": "Вигляд списку",
+    "viewGrid": "Сітка",
+    "viewList": "Список"
   },
   "filters": {
     "platform": "Платформа",
@@ -104,6 +107,19 @@
       "NINTENDO": "Nintendo",
       "MOBILE": "Мобільні пристрої"
     }
+  },
+  "drawer": {
+    "title": "Фільтри",
+    "close": "Закрити",
+    "openButton": "Фільтри ({count})",
+    "showResults": "Показати {count} ігор",
+    "resetAll": "Скинути все"
+  },
+  "chips": {
+    "search": "«{term}»",
+    "yearFrom": "від {year}",
+    "yearTo": "до {year}",
+    "resetAll": "Скинути все"
   },
   "game": {
     "backToCatalog": "← До каталогу",
