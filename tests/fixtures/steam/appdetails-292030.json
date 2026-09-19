@@ -1,0 +1,23 @@
+{
+  "292030": {
+    "success": true,
+    "data": {
+      "movies": [
+        {
+          "id": 256813022,
+          "name": "Launch Trailer",
+          "thumbnail": "https://video.akamai.steamstatic.com/store_trailers/256813022/thumb.jpg",
+          "highlight": false,
+          "hls_h264": "https://video.akamai.steamstatic.com/store_trailers/256813022/movie_hls/hls_264_master.m3u8?t=1234567890"
+        },
+        {
+          "id": 256813023,
+          "name": "Cinematic Trailer",
+          "thumbnail": "https://video.akamai.steamstatic.com/store_trailers/256813023/thumb.jpg",
+          "highlight": true,
+          "hls_h264": "https://video.akamai.steamstatic.com/store_trailers/256813023/movie_hls/hls_264_master.m3u8?t=1234567891"
+        }
+      ]
+    }
+  }
+}
