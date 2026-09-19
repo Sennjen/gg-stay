@@ -80,11 +80,11 @@ function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
         type="search"
         :aria-label="t('catalog.search')"
         :placeholder="t('catalog.search')"
-        class="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm focus-visible:outline-2"
+        class="min-w-0 flex-1 rounded-card border border-line bg-surface-1 px-3 py-2 text-sm text-fg focus-visible:outline-2"
       />
       <button
         type="submit"
-        class="rounded bg-slate-900 px-3 py-2 text-sm text-white focus-visible:outline-2"
+        class="rounded-chip bg-accent px-3 py-2 text-sm text-on-accent focus-visible:outline-2"
       >
         {{ t('catalog.searchButton') }}
       </button>
@@ -119,7 +119,7 @@ function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
       <label class="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
-          class="size-4 focus-visible:outline-2"
+          class="size-4 accent-accent focus-visible:outline-2"
           :checked="filter.ratingMin === USER_RATING_MIN"
           @change="
             emit('change', {

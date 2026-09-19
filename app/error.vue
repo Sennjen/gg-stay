@@ -13,13 +13,13 @@ useSeoMeta({ title: () => (isNotFound.value ? t('notFound.title') : t('errors.UP
 <template>
   <NuxtLayout>
     <main class="py-16 text-center">
-      <h1 class="text-3xl font-bold">
+      <h1 class="font-display-heading text-3xl text-fg">
         {{ isNotFound ? t('notFound.title') : t('errors.UPSTREAM_ERROR') }}
       </h1>
-      <p v-if="isNotFound" class="mt-3 text-slate-600">{{ t('notFound.hint') }}</p>
+      <p v-if="isNotFound" class="mt-3 text-fg-2">{{ t('notFound.hint') }}</p>
       <button
         type="button"
-        class="mt-8 rounded bg-slate-900 px-5 py-3 text-white focus-visible:outline-2"
+        class="mt-8 rounded-chip bg-accent px-5 py-3 text-on-accent focus-visible:outline-2"
         @click="clearError({ redirect: localePath('/games') })"
       >
         {{ t('notFound.toCatalog') }}

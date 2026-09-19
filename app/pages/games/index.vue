@@ -27,7 +27,7 @@ useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.desc
 <template>
   <main>
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <h1 class="text-2xl font-bold">{{ t('catalog.title') }}</h1>
+      <h1 class="font-display-heading text-2xl text-fg">{{ t('catalog.title') }}</h1>
       <SortSelect :model-value="state.sort" @update:model-value="setSort" />
     </div>
 
@@ -35,7 +35,7 @@ useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.desc
       <aside>
         <button
           type="button"
-          class="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm lg:hidden focus-visible:outline-2"
+          class="mb-3 w-full rounded-card border border-line bg-surface-1 px-3 py-2 text-sm text-fg lg:hidden focus-visible:outline-2"
           :aria-expanded="store.panelOpen"
           aria-controls="filter-panel"
           @click="store.panelOpen = !store.panelOpen"
@@ -60,7 +60,7 @@ useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.desc
           @clear="clear"
         />
         <template v-else-if="page">
-          <p class="mb-4 text-sm text-slate-600">
+          <p class="mb-4 text-sm text-fg-2">
             {{ t('catalog.results', { count: formatNumber(page.total) }) }}
           </p>
           <GameGrid

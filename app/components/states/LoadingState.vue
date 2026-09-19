@@ -13,7 +13,7 @@ const { t } = useI18n()
       v-for="index in count"
       :key="index"
       data-test="skeleton"
-      class="aspect-[3/4] rounded-lg bg-slate-200 motion-safe:animate-pulse"
+      class="aspect-[3/4] rounded-card bg-surface-2 motion-safe:animate-pulse"
     />
   </div>
 </template>

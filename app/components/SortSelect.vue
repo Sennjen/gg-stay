@@ -7,11 +7,11 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <label class="flex items-center gap-2 text-sm">
+  <label class="flex items-center gap-2 text-sm text-fg">
     <span>{{ t('catalog.sort') }}</span>
     <select
       :value="modelValue"
-      class="rounded border border-slate-300 px-2 py-1.5 focus-visible:outline-2"
+      class="rounded-card border border-line bg-surface-1 px-2 py-1.5 text-fg focus-visible:outline-2"
       @change="
         emit('update:modelValue', ($event.target as HTMLSelectElement).value as GameSortValue)
       "

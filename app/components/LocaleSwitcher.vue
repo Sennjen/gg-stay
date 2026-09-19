@@ -12,7 +12,7 @@ const others = computed(() => locales.value.filter((entry) => entry.code !== loc
       :to="switchLocalePath(entry.code)"
       :hreflang="entry.language"
       :lang="entry.code"
-      class="rounded px-2 py-1 text-sm underline-offset-4 hover:underline focus-visible:outline-2"
+      class="rounded px-2 py-1 text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
     >
       {{ entry.name }}
     </NuxtLink>
