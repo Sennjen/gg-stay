@@ -24,6 +24,46 @@ describe('server-side rendering', async () => {
     expect(html).toContain('h-[var(--header-h)]')
   })
 
+  it('renders the featured game title inside the "now on screen" caption link', async () => {
+    const html = await $fetch<string>('/')
+    const caption = html.match(/Зараз на екрані:[\s\S]*?<\/p>/)?.[0]
+    expect(caption).toBeTruthy()
+    expect(caption).toMatch(/<a[^>]*>\s*The Witcher 3: Wild Hunt\s*<\/a>/)
+  })
+
+  it('renders the landing sections below the hero: count, rows and closing call to action', async () => {
+    const html = await $fetch<string>('/')
+    // totalGames is 4 in the fixture set, rounded down to the nearest 1 000 below 100 000; the
+    // count sits in its own <span class="font-numeric"> (Vue leaves an anchor comment right
+    // after an i18n-t slot), so match around that instead of a single contiguous string.
+    expect(html).toMatch(/class="font-numeric">0<\/span>.*?\+ ігор у каталозі/)
+    expect(html).toContain('Чому GG Stay')
+    expect(html).toContain('Нові релізи')
+    expect(html).toContain('Найкращі за оцінкою гравців')
+    // Row cards reuse GameCard and are present in the server HTML (unlike the ring).
+    expect(html).toContain('Portal 2')
+    expect(html).toContain('Stardew Valley')
+    expect(html).toContain('Готові знайти свою наступну гру?')
+    // The closing call to action reuses the hero's own button label and target.
+    expect(html.match(/Відкрити каталог/g)?.length).toBeGreaterThanOrEqual(2)
+    // The ring only ever mounts client-side (wrapped in <ClientOnly>): the server sends just the
+    // reserved-height placeholder, never the ring's own list markup. (`ring-list`/`ring-stage`
+    // as bare strings would also match CoverRing's scoped CSS, which Vite still inlines into the
+    // page since `index.vue` imports the component module for its `RING_HEIGHT_CLASS` constant —
+    // so check for the cover links' own `data-ring-index` attribute instead, which only exists on
+    // actually-rendered DOM nodes.)
+    expect(html).not.toContain('data-ring-index')
+  })
+
+  it('renders the same landing sections in English under /en', async () => {
+    const html = await $fetch<string>('/en')
+    expect(html).toContain('games in the catalog')
+    expect(html).toContain('Why GG Stay')
+    expect(html).toContain('New releases')
+    expect(html).toContain('Top rated by players')
+    expect(html).toContain('Ready to find your next game?')
+  })
+
   it('renders the English landing headline under /en', async () => {
     const html = await $fetch<string>('/en')
     expect(html).toContain('Games worth finding')

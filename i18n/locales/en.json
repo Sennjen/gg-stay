@@ -10,6 +10,16 @@
       "nowOnScreen": "Now on screen: {title}",
       "videoPlay": "Play video",
       "videoPause": "Pause video"
+    },
+    "stats": {
+      "title": "{count}+ games in the catalog"
+    },
+    "rows": {
+      "newReleases": "New releases",
+      "topRated": "Top rated by players"
+    },
+    "cta": {
+      "title": "Ready to find your next game?"
     }
   },
   "nav": { "catalog": "Catalog", "language": "Language" },

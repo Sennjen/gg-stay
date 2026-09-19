@@ -1,3 +1,40 @@
+fragment LandingGameCard on GameCard {
+  id
+  slug
+  name
+  released
+  rating
+  metacritic
+  cover {
+    url
+  }
+  screenshots {
+    url
+  }
+  platformFamilies
+  platforms {
+    id
+    slug
+    name
+  }
+  genres {
+    id
+    slug
+    name
+  }
+  price {
+    bestUah
+    discountPercent
+    isFree
+  }
+  localisation {
+    interface
+    subtitles
+    audio
+  }
+  madeInUkraine
+}
+
 query Landing {
   landing {
     featured {
@@ -11,6 +48,15 @@ query Landing {
         released
         platformFamilies
       }
+    }
+    carousel {
+      ...LandingGameCard
+    }
+    newReleases {
+      ...LandingGameCard
+    }
+    topRated {
+      ...LandingGameCard
     }
     totalGames
   }

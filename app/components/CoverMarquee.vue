@@ -85,6 +85,10 @@ function onTouchEnd(event: PointerEvent) {
 <style scoped>
 .marquee-viewport {
   overflow: hidden;
+  /* `CoverRing` centers this component as a flex item when it's used as the mobile/reduced-
+     motion fallback; a flex item's main-axis size defaults to its shrink-to-fit content width
+     otherwise, so the track would never get the full stage width to scroll across. */
+  width: 100%;
 }
 
 .marquee-viewport.is-static {

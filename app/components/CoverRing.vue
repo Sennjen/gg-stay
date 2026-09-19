@@ -17,7 +17,7 @@ const localePath = useLocalePath()
 // written every frame, and both are compositor-only properties; nothing here reads layout.
 const COVER_WIDTH = 200
 const COVER_HEIGHT = Math.round((COVER_WIDTH * 9) / 16)
-const DEGREES_PER_MS = 360 / 120_000 // one revolution every two minutes — calm, not a carousel
+const DEGREES_PER_MS = 360 / 75_000 // one revolution every 75s — slow and calm, not a carousel
 const DRAG_SENSITIVITY = 0.3 // degrees rotated per pixel dragged
 const DRAG_THRESHOLD_PX = 6
 const SNAP_EASE = 0.006 // per-ms easing factor when rotating a focused cover to the front
@@ -352,7 +352,20 @@ export const RING_HEIGHT_CLASS = 'h-[240px] sm:h-[280px]'
 
 <style scoped>
 .ring-stage {
+  /* Covers well off to the side rotate far enough round the ring that their transformed box
+     extends past the stage's own edges — real content, not a bug in itself, but it must not
+     grow the page's scrollable area (a global `overflow-x: clip` on <html> is not a substitute
+     for this: it does not reliably block script/trackpad-driven horizontal scrolling in every
+     engine, so the ring contains its own overflow instead of leaning on that page-level rule). */
+  overflow: hidden;
   perspective: 1400px;
+  /* The mobile/reduced-motion `CoverMarquee` fallback is shorter than the reserved ring
+     height (which is sized for the ring's own, taller covers); center it instead of leaving
+     it pinned to the top with empty space below. The ring's own `<ul>` has an explicit
+     height that fills the stage either way, so this has no effect on it. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ring-list {

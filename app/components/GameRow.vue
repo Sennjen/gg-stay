@@ -17,7 +17,11 @@ const headingId = useId()
 </script>
 
 <template>
-  <section v-if="props.games.length" :aria-labelledby="headingId">
+  <!-- `min-w-0`: this section is typically a flex item in a flex-column page layout, where
+       flex items default to `min-width: auto` — they refuse to shrink below their content's
+       intrinsic width. Without this override the row below never gets to scroll internally;
+       it just pushes the whole page wider instead. -->
+  <section v-if="props.games.length" class="min-w-0" :aria-labelledby="headingId">
     <div class="flex items-baseline justify-between gap-4">
       <h2 :id="headingId" class="font-display-heading text-2xl text-fg sm:text-3xl">
         {{ props.title }}
