@@ -27,6 +27,18 @@ describe('GameHero', () => {
     expect(cover.attributes('height')).toBeTruthy()
   })
 
+  it('gives the cover a real srcset: resize/1280 for mid-size screens, original for the largest', async () => {
+    const wrapper = await mountSuspended(GameHero, {
+      props: {
+        name: 'The Witcher 3: Wild Hunt',
+        coverUrl: 'https://media.rawg.io/media/games/618/abc.jpg',
+      },
+    })
+    const srcset = wrapper.get('img').attributes('srcset') ?? ''
+    expect(srcset).toContain('resize/1280/-/games/618/abc.jpg')
+    expect(srcset).toContain('https://media.rawg.io/media/games/618/abc.jpg')
+  })
+
   it('renders no cover image without a cover url', async () => {
     const wrapper = await mountSuspended(GameHero, {
       props: { name: 'The Witcher 3: Wild Hunt', coverUrl: null },

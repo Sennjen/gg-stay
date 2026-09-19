@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { HERO_IMAGE_SIZES } from '~/utils/rawgImage'
+
 defineProps<{ name: string; coverUrl: string | null }>()
 </script>
 
@@ -11,7 +13,7 @@ defineProps<{ name: string; coverUrl: string | null }>()
         :alt="name"
         width="1920"
         height="1080"
-        sizes="100vw"
+        :sizes="HERO_IMAGE_SIZES"
         loading="eager"
         fetchpriority="high"
         class="absolute inset-0 h-full w-full object-cover"
