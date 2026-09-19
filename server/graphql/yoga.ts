@@ -1,7 +1,7 @@
 import { parse } from 'graphql'
 import { createGraphQLError, createSchema, createYoga, type Plugin } from 'graphql-yoga'
 import type { GraphQLContext } from './context'
-import { checkQueryLimits } from './queryLimits'
+import { checkQueryLength, checkQueryLimits, QUERY_TOO_COMPLEX } from './queryLimits'
 import { resolvers } from './resolvers'
 import { typeDefs } from './schema'
 
@@ -16,22 +16,37 @@ const isProduction = () => process.env.NODE_ENV === 'production'
  * error inside an HTTP 200 body (see `server/graphql/errors.ts`). Setting the result here keeps the
  * client's error handling uniform — one shape, one status, `extensions.code` carries the reason.
  *
- * A document that fails to parse is left alone: yoga's own parsing reports the syntax error.
+ * Order matters and is deliberate: the raw length is capped BEFORE `parse()`, so an oversized body
+ * never reaches the parser; the structural limits run after, on a document that is already known to
+ * be small. A document that fails to parse is left alone — yoga's own parsing reports the syntax
+ * error, in its own shape.
  */
 const queryLimitsPlugin: Plugin<GraphQLContext> = {
   onParams({ params, setResult }) {
     if (!params.query) return
+
+    const reject = (message: string, code: string) =>
+      setResult({ errors: [createGraphQLError(message, { extensions: { code } })] })
+
+    const tooLong = checkQueryLength(params.query)
+    if (tooLong) return reject(tooLong.message, tooLong.code)
+
     let document
     try {
       document = parse(params.query)
     } catch {
       return
     }
-    const violation = checkQueryLimits(document, { allowIntrospection: !isProduction() })
-    if (!violation) return
-    setResult({
-      errors: [createGraphQLError(violation.message, { extensions: { code: violation.code } })],
-    })
+
+    try {
+      const violation = checkQueryLimits(document, { allowIntrospection: !isProduction() })
+      if (violation) reject(violation.message, violation.code)
+    } catch {
+      // The limiter is bounded and iterative, so this should be unreachable — but the one thing it
+      // must never do is turn a hostile document into an HTTP 500. Anything unexpected here is
+      // treated as "too complex to analyse", which is both the safe answer and an honest one.
+      reject('Query could not be analysed within its cost budget', QUERY_TOO_COMPLEX)
+    }
   },
 }
 

@@ -1,10 +1,5 @@
 import { Kind } from 'graphql'
-import type {
-  DefinitionNode,
-  DocumentNode,
-  FragmentDefinitionNode,
-  SelectionSetNode,
-} from 'graphql'
+import type { DocumentNode, FragmentDefinitionNode, SelectionSetNode } from 'graphql'
 
 // The BFF is a public, unauthenticated endpoint, and every root `game` field costs three upstream
 // calls (detail + stores + screenshots) through a per-instance rate limiter. Without a cost limit
@@ -21,8 +16,30 @@ export const MAX_ROOT_FIELDS = 12
 export const MAX_DEPTH = 7
 export const MAX_ALIASED_UPSTREAM_FIELDS = 3
 
+// THE ANALYSIS ITSELF MUST BE CHEAPER THAN THE QUERY IT REJECTS. A limiter that walks a document
+// naively is a better denial-of-service than the one it blocks: a chain of N fragments that each
+// spread the next one twice expands to 2^N paths, so a 700-byte document could pin the single Node
+// thread for ~170 ms (and, one fragment further along, overflow the stack into an HTTP 500 —
+// exactly the shape this plugin promises never to return). Three things keep the cost linear:
+//
+//  1. Nothing is parsed until the raw text is under `MAX_QUERY_BYTES` and the document holds at
+//     most `MAX_FRAGMENTS` fragments. Both are checked before any structural work.
+//  2. Every fragment's contribution is computed ONCE and memoised by name, in dependency order,
+//     so a fragment referenced from a thousand places is still walked once.
+//  3. Every walk is iterative with an explicit stack and saturating counters, so no document —
+//     however nested — can overflow the call stack or make a counter grow without bound.
+//
+// The result is O(size of the document), with no path through it that allocates more than the
+// document itself.
+
+/** Longest raw query text accepted. The app's largest document is under 1 KB. */
+export const MAX_QUERY_BYTES = 8_192
+/** Most fragment definitions accepted in one document. The app ships two. */
+export const MAX_FRAGMENTS = 64
+
 /** Root fields whose resolvers each reach an upstream API. */
 const UPSTREAM_ROOT_FIELDS = new Set(['game', 'games', 'landing'])
+const INTROSPECTION_FIELDS = new Set(['__schema', '__type'])
 
 export const QUERY_TOO_COMPLEX = 'QUERY_TOO_COMPLEX'
 export const INTROSPECTION_DISABLED = 'INTROSPECTION_DISABLED'
@@ -30,6 +47,37 @@ export const INTROSPECTION_DISABLED = 'INTROSPECTION_DISABLED'
 export interface QueryLimitViolation {
   code: typeof QUERY_TOO_COMPLEX | typeof INTROSPECTION_DISABLED
   message: string
+}
+
+/**
+ * What one selection set contributes when it sits at the root of an operation, plus how deep it
+ * goes. Counters saturate one past their limit: the exact value stops mattering once a limit is
+ * broken, and a saturating counter cannot be driven to a large number by a small document.
+ */
+interface Cost {
+  /** Root-level fields contributed, saturating at `MAX_ROOT_FIELDS + 1`. */
+  rootFields: number
+  /** Occurrences per upstream root field, each saturating at `MAX_ALIASED_UPSTREAM_FIELDS + 1`. */
+  upstream: Map<string, number>
+  /** Whether `__schema` or `__type` appears at root level. */
+  introspection: boolean
+  /** Deepest field nesting below this selection set, saturating at `MAX_DEPTH + 1`. */
+  depth: number
+}
+
+const ROOT_FIELD_CEILING = MAX_ROOT_FIELDS + 1
+const UPSTREAM_CEILING = MAX_ALIASED_UPSTREAM_FIELDS + 1
+const DEPTH_CEILING = MAX_DEPTH + 1
+
+const emptyCost = (): Cost => ({
+  rootFields: 0,
+  upstream: new Map(),
+  introspection: false,
+  depth: 0,
+})
+
+function addUpstream(into: Map<string, number>, name: string, times: number) {
+  into.set(name, Math.min((into.get(name) ?? 0) + times, UPSTREAM_CEILING))
 }
 
 function fragmentsOf(document: DocumentNode): Map<string, FragmentDefinitionNode> {
@@ -40,69 +88,126 @@ function fragmentsOf(document: DocumentNode): Map<string, FragmentDefinitionNode
   return map
 }
 
-/**
- * Deepest field nesting reachable from `selectionSet`, following fragment spreads. `seen` guards
- * against a fragment cycle: a cyclic document is invalid anyway, but this runs before validation,
- * so it must not hang on one.
- */
-function depthOf(
-  selectionSet: SelectionSetNode,
-  fragments: Map<string, FragmentDefinitionNode>,
-  seen: ReadonlySet<string> = new Set(),
-): number {
-  let deepest = 0
-  for (const selection of selectionSet.selections) {
-    if (selection.kind === Kind.FIELD) {
-      const below = selection.selectionSet ? depthOf(selection.selectionSet, fragments, seen) : 0
-      deepest = Math.max(deepest, 1 + below)
-      continue
-    }
-    if (selection.kind === Kind.INLINE_FRAGMENT) {
-      deepest = Math.max(deepest, depthOf(selection.selectionSet, fragments, seen))
-      continue
-    }
-    const name = selection.name.value
-    if (seen.has(name)) continue
-    const fragment = fragments.get(name)
-    if (!fragment) continue
-    deepest = Math.max(deepest, depthOf(fragment.selectionSet, fragments, new Set([...seen, name])))
-  }
-  return deepest
-}
-
-/** Root-level fields of an operation, with fragment spreads on the operation type expanded. */
-function rootFieldNames(
-  selectionSet: SelectionSetNode,
-  fragments: Map<string, FragmentDefinitionNode>,
-  seen: ReadonlySet<string> = new Set(),
-): string[] {
+/** Every fragment name spread anywhere inside `selectionSet`, found without recursion. */
+function spreadNames(selectionSet: SelectionSetNode): string[] {
   const names: string[] = []
-  for (const selection of selectionSet.selections) {
-    if (selection.kind === Kind.FIELD) {
-      names.push(selection.name.value)
-      continue
+  const stack: SelectionSetNode[] = [selectionSet]
+  while (stack.length > 0) {
+    const set = stack.pop()!
+    for (const selection of set.selections) {
+      if (selection.kind === Kind.FRAGMENT_SPREAD) names.push(selection.name.value)
+      else if (selection.selectionSet) stack.push(selection.selectionSet)
     }
-    if (selection.kind === Kind.INLINE_FRAGMENT) {
-      names.push(...rootFieldNames(selection.selectionSet, fragments, seen))
-      continue
-    }
-    const name = selection.name.value
-    if (seen.has(name)) continue
-    const fragment = fragments.get(name)
-    if (!fragment) continue
-    names.push(...rootFieldNames(fragment.selectionSet, fragments, new Set([...seen, name])))
   }
   return names
 }
 
-function usesIntrospection(
-  definition: DefinitionNode,
-  fragments: Map<string, FragmentDefinitionNode>,
-): boolean {
-  if (definition.kind !== Kind.OPERATION_DEFINITION) return false
-  return rootFieldNames(definition.selectionSet, fragments).some(
-    (name) => name === '__schema' || name === '__type',
-  )
+/**
+ * The cost of one selection set, with every fragment spread answered from `memo`. Iterative: the
+ * stack holds (selection set, depth below the operation root, whether we are still at root level).
+ */
+function costOf(selectionSet: SelectionSetNode, memo: Map<string, Cost>): Cost {
+  const cost = emptyCost()
+  const stack: { set: SelectionSetNode; base: number; atRoot: boolean }[] = [
+    { set: selectionSet, base: 0, atRoot: true },
+  ]
+
+  while (stack.length > 0) {
+    const { set, base, atRoot } = stack.pop()!
+    for (const selection of set.selections) {
+      if (selection.kind === Kind.FIELD) {
+        const name = selection.name.value
+        if (atRoot) {
+          cost.rootFields = Math.min(cost.rootFields + 1, ROOT_FIELD_CEILING)
+          if (UPSTREAM_ROOT_FIELDS.has(name)) addUpstream(cost.upstream, name, 1)
+          if (INTROSPECTION_FIELDS.has(name)) cost.introspection = true
+        }
+        const here = Math.min(base + 1, DEPTH_CEILING)
+        if (here > cost.depth) cost.depth = here
+        // Past the depth ceiling the exact figure stops mattering, so stop descending.
+        if (selection.selectionSet && here < DEPTH_CEILING) {
+          stack.push({ set: selection.selectionSet, base: here, atRoot: false })
+        }
+        continue
+      }
+
+      if (selection.kind === Kind.INLINE_FRAGMENT) {
+        // An inline fragment is a type condition, not a level: its fields sit where it does.
+        stack.push({ set: selection.selectionSet, base, atRoot })
+        continue
+      }
+
+      // A fragment spread: one map lookup, however many times it is spread.
+      const fragment = memo.get(selection.name.value)
+      if (!fragment) continue
+      const here = Math.min(base + fragment.depth, DEPTH_CEILING)
+      if (here > cost.depth) cost.depth = here
+      if (!atRoot) continue
+      cost.rootFields = Math.min(cost.rootFields + fragment.rootFields, ROOT_FIELD_CEILING)
+      for (const [name, count] of fragment.upstream) addUpstream(cost.upstream, name, count)
+      cost.introspection ||= fragment.introspection
+    }
+  }
+
+  return cost
+}
+
+/**
+ * Costs every fragment exactly once, in dependency order, with an explicit stack.
+ *
+ * A fragment that takes part in a cycle is costed as empty: a cyclic document is invalid GraphQL
+ * and yoga's own validation rejects it a moment later, so the only job here is not to loop.
+ */
+function costFragments(fragments: Map<string, FragmentDefinitionNode>): Map<string, Cost> {
+  const memo = new Map<string, Cost>()
+  const visiting = new Set<string>()
+  const deps = new Map<string, string[]>()
+
+  for (const [name, fragment] of fragments) {
+    deps.set(name, spreadNames(fragment.selectionSet))
+  }
+
+  for (const root of fragments.keys()) {
+    if (memo.has(root)) continue
+    // `expanded` marks the second visit to a frame: its dependencies are costed by then.
+    const stack: { name: string; expanded: boolean }[] = [{ name: root, expanded: false }]
+    while (stack.length > 0) {
+      const frame = stack.pop()!
+      if (memo.has(frame.name)) continue
+
+      if (frame.expanded) {
+        visiting.delete(frame.name)
+        const fragment = fragments.get(frame.name)
+        memo.set(frame.name, fragment ? costOf(fragment.selectionSet, memo) : emptyCost())
+        continue
+      }
+
+      visiting.add(frame.name)
+      stack.push({ name: frame.name, expanded: true })
+      for (const dependency of deps.get(frame.name) ?? []) {
+        // Already costed, or part of a cycle we are inside: either way, nothing to push.
+        if (memo.has(dependency) || visiting.has(dependency) || !fragments.has(dependency)) continue
+        stack.push({ name: dependency, expanded: false })
+      }
+    }
+    // A fragment left in `visiting` was reached only through a cycle; cost it as empty.
+    for (const name of visiting) if (!memo.has(name)) memo.set(name, emptyCost())
+    visiting.clear()
+  }
+
+  return memo
+}
+
+/**
+ * Rejects a raw query that is too long to be worth parsing. Called before `parse()`, so an
+ * oversized body never reaches the parser at all.
+ */
+export function checkQueryLength(query: string): QueryLimitViolation | null {
+  if (query.length <= MAX_QUERY_BYTES) return null
+  return {
+    code: QUERY_TOO_COMPLEX,
+    message: `Query is too long (${query.length} characters, maximum ${MAX_QUERY_BYTES})`,
+  }
 }
 
 /**
@@ -115,43 +220,41 @@ export function checkQueryLimits(
   options: { allowIntrospection: boolean },
 ): QueryLimitViolation | null {
   const fragments = fragmentsOf(document)
+  if (fragments.size > MAX_FRAGMENTS) {
+    return {
+      code: QUERY_TOO_COMPLEX,
+      message: `Query defines too many fragments (${fragments.size}, maximum ${MAX_FRAGMENTS})`,
+    }
+  }
+
+  const memo = costFragments(fragments)
 
   for (const definition of document.definitions) {
-    if (!options.allowIntrospection && usesIntrospection(definition, fragments)) {
-      return {
-        code: INTROSPECTION_DISABLED,
-        message: 'Introspection is disabled',
-      }
-    }
     if (definition.kind !== Kind.OPERATION_DEFINITION) continue
+    const cost = costOf(definition.selectionSet, memo)
 
-    const depth = depthOf(definition.selectionSet, fragments)
-    if (depth > MAX_DEPTH) {
+    if (!options.allowIntrospection && cost.introspection) {
+      return { code: INTROSPECTION_DISABLED, message: 'Introspection is disabled' }
+    }
+    if (cost.depth > MAX_DEPTH) {
       return {
         code: QUERY_TOO_COMPLEX,
-        message: `Query is too deep (${depth} levels, maximum ${MAX_DEPTH})`,
+        message: `Query is too deep (maximum ${MAX_DEPTH} levels)`,
       }
     }
-
-    const names = rootFieldNames(definition.selectionSet, fragments)
-    if (names.length > MAX_ROOT_FIELDS) {
+    if (cost.rootFields > MAX_ROOT_FIELDS) {
       return {
         code: QUERY_TOO_COMPLEX,
-        message: `Query selects too many root fields (${names.length}, maximum ${MAX_ROOT_FIELDS})`,
+        message: `Query selects too many root fields (maximum ${MAX_ROOT_FIELDS})`,
       }
     }
-
-    const counts = new Map<string, number>()
-    for (const name of names) {
-      if (!UPSTREAM_ROOT_FIELDS.has(name)) continue
-      const next = (counts.get(name) ?? 0) + 1
-      if (next > MAX_ALIASED_UPSTREAM_FIELDS) {
+    for (const [name, count] of cost.upstream) {
+      if (count > MAX_ALIASED_UPSTREAM_FIELDS) {
         return {
           code: QUERY_TOO_COMPLEX,
           message: `Query repeats the "${name}" field too many times (maximum ${MAX_ALIASED_UPSTREAM_FIELDS})`,
         }
       }
-      counts.set(name, next)
     }
   }
 
