@@ -97,6 +97,23 @@ describe('FilterDrawer', () => {
     expect(document.activeElement).toBe(focusable[0])
   })
 
+  it('traps Tab in reverse: Shift+Tab from the first element wraps to the last', async () => {
+    const host = await mountHost()
+    await host.get('button').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    const dialog = document.body.querySelector('[role="dialog"]')!
+    const focusable = [...dialog.querySelectorAll('button')] as HTMLButtonElement[]
+    const first = focusable[0]!
+    first.focus()
+
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
+    await nextTick()
+
+    expect(document.activeElement).toBe(focusable[focusable.length - 1])
+  })
+
   it('clicking the backdrop closes the drawer', async () => {
     const host = await mountHost()
     await host.get('button').trigger('click')
