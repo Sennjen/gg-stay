@@ -33,7 +33,7 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
         : 'border-line bg-surface-1/80 backdrop-blur'
     "
   >
-    <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+    <div class="mx-auto flex h-[var(--header-h)] max-w-6xl items-center justify-between gap-4 px-4">
       <NuxtLink
         :to="localePath('/')"
         class="font-display-heading text-xl text-fg focus-visible:outline-2"

@@ -11,6 +11,24 @@ describe('server-side rendering', async () => {
     env: { RAWG_FIXTURES: '1', NUXT_RAWG_FIXTURES: '1' },
   })
 
+  it('renders the landing hero into the HTML, with no video tag on the server', async () => {
+    const html = await $fetch<string>('/')
+    expect(html).toMatch(/<h1[^>]*>ігри, які варто знайти<\/h1>/)
+    expect(html).toContain('href="/games"')
+    expect(html).toContain('The Witcher 3: Wild Hunt')
+    expect(html).not.toContain('<video')
+    // The hero must run underneath the sticky transparent header rather than start below it:
+    // pulled up by the header's fixed height (a shared CSS token, not a JS measurement) plus the
+    // layout's own top padding.
+    expect(html).toContain('-mt-[calc(var(--header-h)+1.5rem)]')
+    expect(html).toContain('h-[var(--header-h)]')
+  })
+
+  it('renders the English landing headline under /en', async () => {
+    const html = await $fetch<string>('/en')
+    expect(html).toContain('games worth finding')
+  })
+
   it('renders catalog cards into the HTML', async () => {
     const html = await $fetch<string>('/games')
     expect(html).toContain('The Witcher 3: Wild Hunt')

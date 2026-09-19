@@ -1,0 +1,17 @@
+query Landing {
+  landing {
+    featured {
+      clipUrl
+      game {
+        slug
+        name
+        cover {
+          url
+        }
+        released
+        platformFamilies
+      }
+    }
+    totalGames
+  }
+}

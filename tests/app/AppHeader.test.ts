@@ -18,6 +18,13 @@ describe('AppHeader', () => {
     expect(wrapper.get('input[role="combobox"]').exists()).toBe(true)
   })
 
+  it('gives the header bar a fixed height, shared via --header-h with sections that must run underneath it', async () => {
+    const wrapper = await mountSuspended(AppHeader, { route: '/games' })
+
+    const bar = wrapper.get('header > div')
+    expect(bar.classes()).toContain('h-[var(--header-h)]')
+  })
+
   it('renders the solid bar by default, on a non-landing route', async () => {
     const wrapper = await mountSuspended(AppHeader, { route: '/games' })
 

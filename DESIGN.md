@@ -42,6 +42,12 @@ PR only reserves the tokens.
   value as Tailwind's built-in `rounded-full`, named separately so intent is
   clear in templates).
 
+### Layout
+
+- `--header-h` = 4rem → `h-[var(--header-h)]`, the fixed height of `AppHeader`'s bar; any section
+  that must run underneath the sticky transparent header (the landing hero) offsets itself by
+  this token instead of measuring the header in JS.
+
 ### Spacing
 
 The spacing scale is Tailwind's default 4 px step, used at 4 / 8 / 12 / 16 /
