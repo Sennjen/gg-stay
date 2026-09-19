@@ -51,6 +51,71 @@ describe('htmlToText', () => {
   it('returns an empty string for empty input', () => {
     expect(htmlToText('')).toBe('')
   })
+
+  describe('quote-aware tag scanning (regression: a quoted ">" must not end the tag early)', () => {
+    it("reviewer's exact reproduction: an attribute value containing '>' no longer leaks", () => {
+      expect(htmlToText('<div title="a>b">Дуже цікава гра')).toBe('Дуже цікава гра')
+    })
+
+    it('handles a quoted attribute value containing "<" too', () => {
+      expect(htmlToText('<a title="b<c">text</a>')).toBe('text')
+    })
+
+    it('handles single-quoted attribute values containing ">"', () => {
+      expect(htmlToText("<span data-x='1>2'>kept</span>")).toBe('kept')
+    })
+
+    it('drops only the trailing unclosed tag at end of input', () => {
+      expect(htmlToText('Before<div class="unterminated')).toBe('Before')
+      expect(htmlToText('Before<div class=unterminated')).toBe('Before')
+    })
+
+    it('drops <script>/<style>/<video>/<iframe>/<noscript> content case-insensitively, up to the matching close tag or end of input', () => {
+      expect(htmlToText('<SCRIPT>evil()</ScRiPt>Safe')).toBe('Safe')
+      expect(htmlToText('<style>.a{color:red}</style>Safe')).toBe('Safe')
+      expect(htmlToText('<video src="x.mp4"><source src="y.mp4"></video>Safe')).toBe('Safe')
+      expect(htmlToText('<iframe src="//evil.example"></iframe>Safe')).toBe('Safe')
+      expect(htmlToText('<noscript>Enable JS</noscript>Safe')).toBe('Safe')
+      // No closing tag at all: content dropped to end of input.
+      expect(htmlToText('Before<script>never closes')).toBe('Before')
+      // Self-closing form: no content to skip, tag itself just dropped.
+      expect(htmlToText('<script src="x.js"/>After')).toBe('After')
+    })
+
+    it('drops HTML comments', () => {
+      expect(htmlToText('<!-- secret note --><p>Kept</p>')).toBe('Kept')
+      expect(htmlToText('Before<!-- unterminated comment')).toBe('Before')
+    })
+
+    it('decodes entities only after tags are stripped, so &lt;script&gt; stays inert text', () => {
+      expect(htmlToText('&lt;script&gt;alert(1)&lt;/script&gt;')).toBe('<script>alert(1)</script>')
+    })
+
+    it('keeps a lone "<" that does not start a tag as literal text', () => {
+      expect(htmlToText('5 < 6 and <3 love')).toBe('5 < 6 and <3 love')
+    })
+
+    it('completes quickly and correctly for a ~1MB hostile string of unclosed quoted tags', () => {
+      const hostile = '<a href="x>'.repeat(50_000) // ~550 KB, every quote left dangling.
+      const start = performance.now()
+      const result = htmlToText(hostile)
+      const elapsed = performance.now() - start
+      // No literal text ever appears between the tag markers, so nothing survives stripping.
+      expect(result).toBe('')
+      expect(elapsed).toBeLessThan(2_000)
+    })
+
+    it('completes quickly and correctly for 50 000 lone "<" characters', () => {
+      const hostile = '<'.repeat(50_000)
+      const start = performance.now()
+      const result = htmlToText(hostile)
+      const elapsed = performance.now() - start
+      // Every "<" is literal text (none starts a tag), capped at MAX_LENGTH with no paragraph
+      // break to cut on, so the fallback keeps the raw first 4000 characters.
+      expect(result).toBe('<'.repeat(4_000))
+      expect(elapsed).toBeLessThan(2_000)
+    })
+  })
 })
 
 describe('isLikelyUkrainian', () => {

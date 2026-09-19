@@ -49,32 +49,129 @@ function truncateAtParagraphBoundary(text: string, max: number): string {
   return slice
 }
 
+// Elements whose *content* must be dropped entirely, not just the tags themselves — matched
+// case-insensitively against the scanned tag name.
+const SKIP_CONTENT_TAGS = new Set(['script', 'style', 'video', 'iframe', 'noscript'])
+// Closing tags that become a paragraph break.
+const NEWLINE_ON_CLOSE = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
+function isAsciiLetter(char: string | undefined): boolean {
+  if (!char) return false
+  const code = char.charCodeAt(0)
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function isTagNameChar(char: string | undefined): boolean {
+  return !!char && /[a-zA-Z0-9]/.test(char)
+}
+
+/**
+ * Strips HTML tags down to plain text with a single left-to-right scan (no regex over the tag
+ * markup itself, so a quoted attribute value can safely contain `<`/`>` without derailing where
+ * a tag ends — the classic `<div title="a>b">` failure mode of `/<[^>]+>/`).
+ *
+ * Behaviour: `<li>` becomes "• ", `</li>`/`<br>`/`</p>`/`</h1..6>` become a newline, everything
+ * inside `<script>`/`<style>`/`<video>`/`<iframe>`/`<noscript>` is dropped up to the matching
+ * close tag (case-insensitive) or end of input, `<!-- … -->` comments are dropped, every other
+ * tag is dropped but its surrounding text is kept, an unclosed tag at the end of input drops only
+ * that trailing tag, and a `<` that isn't the start of a tag or comment (`5 < 6`, `<3`) is kept
+ * as literal text.
+ */
+function stripTags(html: string): string {
+  let out = ''
+  const n = html.length
+  let i = 0
+  // Lowercase name of the content-skipping tag currently open, or null when not skipping.
+  let skipping: string | null = null
+
+  while (i < n) {
+    const char = html[i]!
+
+    if (char !== '<') {
+      if (!skipping) out += char
+      i++
+      continue
+    }
+
+    // HTML comment: drop up to and including the matching "-->", or to end of input.
+    if (html.startsWith('<!--', i)) {
+      const end = html.indexOf('-->', i + 4)
+      i = end === -1 ? n : end + 3
+      continue
+    }
+
+    const next = html[i + 1]
+    const closing = next === '/'
+    const nameStart = closing ? i + 2 : i + 1
+    const isTagStart = closing ? isTagNameChar(html[nameStart]) : isAsciiLetter(next)
+    if (!isTagStart) {
+      // A lone "<" that doesn't start a tag or comment — literal text (e.g. "5 < 6", "<3").
+      if (!skipping) out += char
+      i++
+      continue
+    }
+
+    let j = nameStart
+    while (j < n && isTagNameChar(html[j])) j++
+    const tagName = html.slice(nameStart, j).toLowerCase()
+
+    // Scan to the tag's closing ">" (respecting quoted attribute values, which may contain
+    // "<"/">"). An unterminated quote or tag runs to end of input — the trailing, unclosed tag is
+    // simply dropped, same as a real HTML parser would do with no more input to complete it.
+    let k = j
+    let quote: string | null = null
+    let closedProperly = false
+    while (k < n) {
+      const c = html[k]!
+      if (quote) {
+        if (c === quote) quote = null
+      } else if (c === '"' || c === "'") {
+        quote = c
+      } else if (c === '>') {
+        closedProperly = true
+        break
+      }
+      k++
+    }
+    const tagEnd = closedProperly ? k + 1 : n
+
+    if (skipping) {
+      if (closing && tagName === skipping) skipping = null
+      i = tagEnd
+      continue
+    }
+
+    if (!closing && SKIP_CONTENT_TAGS.has(tagName)) {
+      const selfClosing = closedProperly && html[k - 1] === '/'
+      if (!selfClosing) skipping = tagName
+      i = tagEnd
+      continue
+    }
+
+    if (!closing && tagName === 'li') out += '• '
+    else if (closing && tagName === 'li') out += '\n'
+    else if (!closing && tagName === 'br') out += '\n'
+    else if (closing && NEWLINE_ON_CLOSE.has(tagName)) out += '\n'
+    // Every other tag (div, strong, em, ul, the void <img>/<video> form, …) contributes nothing
+    // itself; its surrounding text is already flowing straight into `out`.
+
+    i = tagEnd
+  }
+
+  return out
+}
+
 /**
  * Reduces Steam's HTML description fields to plain text, safe to render through text
  * interpolation (never `v-html`): strips every tag, turns block-level closing tags into
- * newlines, prefixes list items with "• ", drops `<img>`/`<video>`/`<script>`/`<style>` content
- * entirely, decodes HTML entities, collapses whitespace, and caps the result at 4000 characters
- * on a paragraph boundary.
+ * newlines, prefixes list items with "• ", drops `<script>`/`<style>`/`<video>`/`<iframe>`/
+ * `<noscript>` content entirely, decodes HTML entities (after tags are stripped, so an encoded
+ * `&lt;script&gt;` never gets treated as a real tag), collapses whitespace, and caps the result
+ * at 4000 characters on a paragraph boundary.
  */
 export function htmlToText(html: string | null | undefined): string {
   if (!html) return ''
-  let text = html
-
-  // Drop these elements and everything inside them before anything else touches the markup.
-  text = text.replace(/<(script|style|img|video)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-  // Void/self-closing forms (e.g. `<img src="...">` with no closing tag).
-  text = text.replace(/<(img|video)\b[^>]*\/?>/gi, '')
-
-  // List items become a bullet-prefixed line.
-  text = text.replace(/<li\b[^>]*>/gi, '• ')
-  text = text.replace(/<\/li>/gi, '\n')
-
-  // Block-level boundaries become newlines.
-  text = text.replace(/<br\s*\/?>/gi, '\n')
-  text = text.replace(/<\/(p|h[1-6])>/gi, '\n')
-
-  // Strip every remaining tag.
-  text = text.replace(/<[^>]+>/g, '')
+  let text = stripTags(html)
 
   text = decodeEntities(text)
 
@@ -119,9 +216,9 @@ function localizedRawg(rawgDescription: string | null): LocalizedText | null {
 /** Picks `about_the_game` when non-empty, else `short_description`; both are raw Steam HTML. */
 function pickSteamHtml(data: SteamDescriptionData | null): string | null {
   const aboutTheGame = data?.about_the_game?.trim()
-  if (aboutTheGame) return data!.about_the_game as string
+  if (aboutTheGame) return aboutTheGame
   const shortDescription = data?.short_description?.trim()
-  if (shortDescription) return data!.short_description as string
+  if (shortDescription) return shortDescription
   return null
 }
 
