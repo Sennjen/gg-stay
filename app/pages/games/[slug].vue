@@ -15,7 +15,10 @@ const { data, errorCode, refresh } = await useGql(GameDocument, () => ({
 }))
 
 if (errorCode.value === 'NOT_FOUND') {
-  // Real HTTP 404 during SSR; renders app/error.vue, which sets noindex.
+  // Real HTTP 404 during SSR; renders app/error.vue, which sets noindex. Checked once, in setup:
+  // a later client-side refetch that 404s (a game delisted from RAWG while the tab was open)
+  // renders the generic ErrorState instead of a real 404. Acceptable — a fatal createError after
+  // hydration would replace the whole app with the error page for a stale tab.
   throw createError({ statusCode: 404, statusMessage: 'Game not found', fatal: true })
 }
 

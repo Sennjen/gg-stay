@@ -76,7 +76,7 @@
     "next": "Наступна",
     "page": "Сторінка {page}",
     "noCover": "Немає обкладинки",
-    "view": "Вигляд списку",
+    "view": "Вигляд каталогу",
     "viewGrid": "Сітка",
     "viewList": "Список"
   },
@@ -89,7 +89,7 @@
     "upcoming": "Скоро вийдуть",
     "metacritic": "Metacritic",
     "metacriticMin": "{value}+",
-    "userRating": "Оцінка гравців 4.0+",
+    "userRating": "Оцінка гравців 4,0+",
     "playtime": "Тривалість",
     "gameMode": "Режим гри",
     "ageRating": "Вікове обмеження",

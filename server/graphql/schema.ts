@@ -136,6 +136,9 @@ export const typeDefs = /* GraphQL */ `
     stores: [StoreOffer!]!
     localisation: LocalisationInfo
     madeInUkraine: Boolean!
+    """
+    Index-backed field: always empty until the week 2 nightly index computes similarity.
+    """
     similar: [GameCard!]!
     platformFamilies: [PlatformFamily!]!
   }

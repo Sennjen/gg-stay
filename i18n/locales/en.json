@@ -27,7 +27,7 @@
     "catalog": "Catalog",
     "language": "Language",
     "skipToContent": "Skip to content",
-    "primary": "Primary"
+    "primary": "Primary navigation"
   },
   "search": {
     "label": "Search games",
@@ -76,7 +76,7 @@
     "next": "Next",
     "page": "Page {page}",
     "noCover": "No cover",
-    "view": "List layout",
+    "view": "Catalog layout",
     "viewGrid": "Grid",
     "viewList": "List"
   },

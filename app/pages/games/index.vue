@@ -32,7 +32,14 @@ const maxSliderYear = computed(() => currentYear.value + 2)
 
 const filtersButtonEl = ref<HTMLButtonElement>()
 
-useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.description') })
+useSeoMeta({
+  title: () => t('catalog.title'),
+  description: () => t('catalog.description'),
+  ogTitle: () => t('catalog.title'),
+  ogDescription: () => t('catalog.description'),
+  // The first card's cover: the page has no art of its own, and this is what a visitor sees.
+  ogImage: () => page.value?.items[0]?.cover?.url ?? undefined,
+})
 </script>
 
 <template>
@@ -80,7 +87,10 @@ useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.desc
       />
     </FilterDrawer>
 
-    <section class="mt-6" aria-live="polite">
+    <!-- No `aria-live` here: `ResultCount` already announces the total, and the state components
+         below announce themselves. A live region around the whole results section re-announced
+         every card on every filter change. -->
+    <section class="mt-6">
       <StatesErrorState
         v-if="games.errorCode.value"
         :code="games.errorCode.value"

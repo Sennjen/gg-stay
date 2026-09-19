@@ -13,7 +13,6 @@ describe('parseFilterQuery', () => {
       platforms: '4,7',
       yearFrom: '2015',
       yearTo: '2020',
-      upcoming: '1',
       metacriticMin: '80',
       ratingMin: '4',
       playtime: 'LONG',
@@ -31,7 +30,6 @@ describe('parseFilterQuery', () => {
         platforms: [4, 7],
         yearFrom: 2015,
         yearTo: 2020,
-        upcoming: true,
         metacriticMin: 80,
         ratingMin: 4,
         playtime: 'LONG',
@@ -43,6 +41,26 @@ describe('parseFilterQuery', () => {
       sort: 'RELEASED_DESC',
       page: 3,
     })
+  })
+
+  it('drops an inverted year pair instead of sending a range that matches nothing', () => {
+    const state = parseFilterQuery({ yearFrom: '2020', yearTo: '1990' })
+    expect(state.filter.yearFrom).toBeUndefined()
+    expect(state.filter.yearTo).toBeUndefined()
+    // A pair in the right order is untouched, and so is a single open-ended bound.
+    expect(parseFilterQuery({ yearFrom: '1990', yearTo: '2020' }).filter).toEqual({
+      yearFrom: 1990,
+      yearTo: 2020,
+    })
+    expect(parseFilterQuery({ yearFrom: '2020' }).filter).toEqual({ yearFrom: 2020 })
+  })
+
+  it('drops the year range when upcoming is set, so one filter cannot become invisible', () => {
+    // `filterToParams` already prefers `upcoming`, but leaving the years in the state made
+    // `countActiveFilters` count two while `ActiveFilterChips` rendered one.
+    const state = parseFilterQuery({ upcoming: '1', yearFrom: '2000', yearTo: '2010' })
+    expect(state.filter).toEqual({ upcoming: true })
+    expect(countActiveFilters(state.filter)).toBe(1)
   })
 
   it('drops invalid values silently', () => {

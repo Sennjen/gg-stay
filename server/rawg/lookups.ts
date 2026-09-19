@@ -1,3 +1,4 @@
+import { PLATFORM_FAMILIES } from '../../shared/catalog'
 import {
   STORE_OPTIONS,
   type AgeRatingValue,
@@ -90,7 +91,5 @@ export function platformFamiliesFromSlugs(
   slugs: readonly (string | null | undefined)[],
 ): PlatformFamilyValue[] {
   const present = new Set(slugs.map(platformFamilyFromSlug))
-  return (['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'MOBILE', 'OTHER'] as const).filter((family) =>
-    present.has(family),
-  )
+  return PLATFORM_FAMILIES.filter((family) => present.has(family))
 }

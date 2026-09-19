@@ -44,13 +44,20 @@ function close() {
   emit('close')
 }
 
+// Queried once per open rather than on every Tab: the dialog's focusable set is fixed for the
+// lifetime of the lightbox (a close button and, when there is more than one screenshot, the two
+// arrows), so re-reading the DOM on each keystroke only costs.
+let focusable: HTMLElement[] | null = null
+
 function focusableElements(): HTMLElement[] {
+  if (focusable) return focusable
   if (!dialogRef.value) return []
-  return Array.from(
+  focusable = Array.from(
     dialogRef.value.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ),
   )
+  return focusable
 }
 
 function onKeydown(event: KeyboardEvent) {

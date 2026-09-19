@@ -19,13 +19,25 @@ const featured = computed(() => data.value?.landing?.featured ?? null)
 // box. `GameRow` below already renders nothing for an empty list, so the two rows need no
 // matching guard: they fall back to `[]` and disappear on their own.
 const landing = computed(() => data.value?.landing ?? null)
+// `null` when the total is too small to round to a friendly figure; the headline is hidden then.
+const roundedCount = computed(() =>
+  landing.value ? roundGameCount(landing.value.totalGames) : null,
+)
 const formattedCount = computed(() =>
-  landing.value ? formatNumber(roundGameCount(landing.value.totalGames)) : '',
+  roundedCount.value === null ? '' : formatNumber(roundedCount.value),
 )
 const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DESC' } }
 const topRatedTo = { path: localePath('/games'), query: { sort: 'RATING_DESC' } }
 
-useSeoMeta({ title: () => t('home.title'), description: () => t('home.description') })
+useSeoMeta({
+  title: () => t('home.title'),
+  description: () => t('home.description'),
+  ogTitle: () => t('home.title'),
+  ogDescription: () => t('home.description'),
+  // The featured game's cover doubles as the social preview: it is already the hero, already
+  // fetched, and it changes with the featured game rather than going stale as a static asset.
+  ogImage: () => featured.value?.game.cover?.url ?? undefined,
+})
 
 // Full-bleed breakout: the layout's container (app/layouts/default.vue) centers content at
 // `max-w-6xl` with side and top padding, which is right for every other page but would clip the
@@ -57,6 +69,7 @@ useSeoMeta({ title: () => t('home.title'), description: () => t('home.descriptio
     <div class="mt-16 flex flex-col gap-16 sm:mt-24 sm:gap-24">
       <section v-if="landing" class="text-center">
         <i18n-t
+          v-if="roundedCount !== null"
           keypath="home.stats.title"
           tag="h2"
           class="font-display-heading text-2xl text-fg sm:text-3xl"

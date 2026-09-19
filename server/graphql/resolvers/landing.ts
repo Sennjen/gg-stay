@@ -56,7 +56,10 @@ async function fetchSteamClipUrl(
 ): Promise<string | null> {
   if (!slug) return null
   try {
-    const stores = (await context.rawg(`games/${slug}/stores`)) as RawgList<RawgStoreLink>
+    // Encoded like every other slug that goes into a path (see resolvers/game.ts): the value
+    // comes from RAWG's own response, but the two adjacent resolvers should not differ on it.
+    const path = `games/${encodeURIComponent(slug)}/stores`
+    const stores = (await context.rawg(path)) as RawgList<RawgStoreLink>
     const steamLink = (stores.results ?? []).find((link) => steamAppIdFromUrl(link.url) !== null)
     const appId = steamAppIdFromUrl(steamLink?.url)
     if (!appId) return null
