@@ -84,6 +84,18 @@
     "PEGI16": "PEGI 16",
     "PEGI18": "PEGI 18"
   },
+  "card": {
+    "metacriticLabel": "Metacritic {score}",
+    "platformsLabel": "Платформи",
+    "platformsMore": "+{count}",
+    "platformNames": {
+      "PC": "ПК",
+      "PLAYSTATION": "PlayStation",
+      "XBOX": "Xbox",
+      "NINTENDO": "Nintendo",
+      "MOBILE": "Мобільні пристрої"
+    }
+  },
   "game": {
     "backToCatalog": "← До каталогу",
     "released": "Дата виходу",
