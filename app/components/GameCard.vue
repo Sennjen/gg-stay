@@ -14,8 +14,10 @@ const props = withDefaults(
     /** Overrides the cover's `sizes` for callers whose slot is not the catalog grid's — the
      * landing rows render grid-layout cards at a fixed width (see `CARD_ROW_IMAGE_SIZES`). */
     coverSizes?: string
+    /** Marks this cover as the page's LCP candidate: `fetchpriority="high"` plus eager loading. */
+    priority?: boolean
   }>(),
-  { eager: false, layout: 'grid', headingLevel: 3, coverSizes: undefined },
+  { eager: false, layout: 'grid', headingLevel: 3, coverSizes: undefined, priority: false },
 )
 const titleTag = computed(() => `h${props.headingLevel}` as const)
 const { t } = useI18n()
@@ -75,7 +77,8 @@ function revealPreview(event: PointerEvent) {
           width="420"
           height="236"
           :sizes="coverSizes"
-          :loading="props.eager ? 'eager' : 'lazy'"
+          :loading="props.eager || props.priority ? 'eager' : 'lazy'"
+          :fetchpriority="props.priority ? 'high' : undefined"
           class="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03] group-focus-visible:scale-[1.03]"
         />
         <div v-else class="flex h-full w-full items-center justify-center text-sm text-fg-2">
