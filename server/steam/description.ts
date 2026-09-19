@@ -213,13 +213,16 @@ function localizedRawg(rawgDescription: string | null): LocalizedText | null {
   return { text: rawgDescription, language: 'en', source: 'RAWG' }
 }
 
-/** Picks `about_the_game` when non-empty, else `short_description`; both are raw Steam HTML. */
-function pickSteamHtml(data: SteamDescriptionData | null): string | null {
-  const aboutTheGame = data?.about_the_game?.trim()
-  if (aboutTheGame) return aboutTheGame
-  const shortDescription = data?.short_description?.trim()
-  if (shortDescription) return shortDescription
-  return null
+/**
+ * Candidate texts in order of preference: the long `about_the_game`, then `short_description`.
+ * Both are raw Steam HTML and are reduced to plain text here. A field can be non-empty HTML and
+ * still hold no text at all (The Witcher 3's `about_the_game` is a column of images), so each
+ * candidate is judged by the text it yields, not by the raw string.
+ */
+function steamTextCandidates(data: SteamDescriptionData | null): string[] {
+  return [data?.about_the_game, data?.short_description]
+    .map((html) => htmlToText(html))
+    .filter((text) => text.length > 0)
 }
 
 /**
@@ -235,11 +238,8 @@ export function resolveLocalizedDescription(
 ): LocalizedText | null {
   if (locale !== 'uk') return localizedRawg(rawgDescription)
 
-  const html = pickSteamHtml(steamData)
-  if (html) {
-    const text = htmlToText(html)
-    if (text && isLikelyUkrainian(text)) return { text, language: 'uk', source: 'STEAM' }
-  }
+  const text = steamTextCandidates(steamData).find(isLikelyUkrainian)
+  if (text) return { text, language: 'uk', source: 'STEAM' }
 
   return localizedRawg(rawgDescription)
 }
