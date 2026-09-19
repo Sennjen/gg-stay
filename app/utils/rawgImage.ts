@@ -23,11 +23,18 @@ const RAWG_MEDIA = 'https://media.rawg.io/media/'
 export const HERO_IMAGE_SIZES = 'sm:100vw md:100vw lg:100vw xl:100vw 2xl:100vw'
 
 /**
- * Catalog grid card: 2 columns below 768px, then 3/4/5 as the layout widens, with the page
- * container capping at `max-w-6xl` — so above 1280px the cover is a fixed ~211px box, never a
- * share of the viewport.
+ * Catalog grid card: `grid-cols-2 md:3 lg:4 xl:5` (Tailwind breakpoints 768/1024/1280) inside a
+ * `max-w-6xl` container, so the real slot is ~w/2 below 768px, 228–375px from 640 to 1279px, and a
+ * fixed ~211px above that.
+ *
+ * `@nuxt/image`'s bands do not line up with Tailwind's — `md:` here covers **640–1279px**, where
+ * the layout is 2, 3 *and* 4 columns — so a `vw` value cannot fit that band: 50vw is right at
+ * 640px and twice the slot at 1279px, 33vw is the reverse. A fixed `380px`, the widest slot the
+ * band ever renders (2 columns at 767px), is honest across all of it and resolves to the same CDN
+ * variant the pre-breakpoint `420px` string did. Declaring `50vw` here instead made a 1024px
+ * laptop claim a 512px slot and fetch the 640px variant for a ~250px cover.
  */
-export const CARD_GRID_IMAGE_SIZES = 'sm:50vw md:50vw lg:220px'
+export const CARD_GRID_IMAGE_SIZES = 'sm:50vw md:380px lg:220px'
 
 /** Catalog list card: full width on phones, a fixed 220px cover from 640px up. */
 export const CARD_LIST_IMAGE_SIZES = 'sm:100vw md:220px'

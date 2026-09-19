@@ -56,6 +56,34 @@ function expectAscendingWidths(srcset: string | undefined) {
   expect([...widths].sort((a, b) => a - b)).toEqual(widths)
 }
 
+/**
+ * Resolves the candidate a browser would pick, the way the HTML spec says to: take the first
+ * source-size whose media condition matches the viewport (the last, unconditional one otherwise),
+ * that is the slot width; then pick the smallest candidate whose descriptor covers slot × DPR,
+ * falling back to the largest. Asserting the candidate LIST is not enough — the bug this guards
+ * against is a `sizes` band that claims the wrong slot, which changes the pick without changing
+ * the list.
+ */
+function resolveCandidate(sizes: string, srcset: string, viewport: number, dpr: number) {
+  let slot: number | undefined
+  for (const entry of sizes.split(',').map((part) => part.trim())) {
+    const media = entry.match(/^\(max-width:\s*(\d+)px\)\s+(.+)$/)
+    const value = media ? media[2]! : entry
+    if (media && viewport > Number(media[1])) continue
+    const vw = value.match(/^(\d+)vw$/)
+    slot = vw ? (Number(vw[1]) / 100) * viewport : Number.parseInt(value, 10)
+    break
+  }
+  if (slot === undefined) throw new Error(`no source size matched ${viewport}px in "${sizes}"`)
+
+  const candidates = parseSrcset(srcset)
+    .map(({ url, descriptor }) => ({ url, width: Number.parseInt(descriptor, 10) }))
+    .sort((a, b) => a.width - b.width)
+  const needed = slot * dpr
+  const chosen = candidates.find((candidate) => candidate.width >= needed) ?? candidates.at(-1)!
+  return { slot, ...chosen }
+}
+
 const variant = (width: number) => `https://media.rawg.io/media/resize/${width}/-/games/618/abc.jpg`
 
 describe('emitted image sizes', () => {
@@ -64,18 +92,44 @@ describe('emitted image sizes', () => {
     const cover = wrapper.findAll('img')[0]!
 
     expect(cover.attributes('sizes')).toBe(
-      '(max-width: 639px) 50vw, (max-width: 1279px) 50vw, 220px',
+      '(max-width: 639px) 50vw, (max-width: 1279px) 380px, 220px',
     )
     expectAscendingWidths(cover.attributes('srcset'))
     expect(parseSrcset(cover.attributes('srcset'))).toEqual([
       { url: variant(200), descriptor: '210w' },
       { url: variant(200), descriptor: '220w' },
-      { url: variant(420), descriptor: '320w' },
+      { url: variant(420), descriptor: '380w' },
       { url: variant(420), descriptor: '420w' },
       { url: variant(420), descriptor: '440w' },
-      { url: variant(640), descriptor: '640w' },
+      { url: variant(640), descriptor: '760w' },
     ])
   })
+
+  it.each([
+    // viewport, dpr, the CDN variant a browser resolves to, and why that is the right one
+    [360, 1, 200, 'two-column phone: a ~156px slot'],
+    [360, 2, 420, 'the same phone at 2x needs ~312px'],
+    [640, 1, 420, 'still two columns, widest slot in the band (~296px)'],
+    [768, 1, 420, 'three columns, ~234px'],
+    [1024, 1, 420, 'four columns, ~250px — this is the band that regressed'],
+    [1024, 2, 640, 'four columns at 2x'],
+    [1279, 1, 420, 'top of the band, four columns'],
+    [1280, 1, 200, 'five columns in a capped container: a fixed ~211px slot'],
+    [1920, 1, 200, 'the container stops growing, so the slot does not either'],
+  ])(
+    'catalog grid card at %ipx DPR %i resolves to the %ipx CDN variant (%s)',
+    async (viewport, dpr, expected) => {
+      const wrapper = await mountSuspended(GameCard, { props: { game } })
+      const cover = wrapper.findAll('img')[0]!
+      const chosen = resolveCandidate(
+        cover.attributes('sizes')!,
+        cover.attributes('srcset')!,
+        viewport,
+        dpr,
+      )
+      expect(chosen.url).toBe(variant(expected))
+    },
+  )
 
   it('catalog list card asks for the full viewport on phones and 220px above it', async () => {
     const wrapper = await mountSuspended(GameCard, { props: { game, layout: 'list' } })

@@ -140,12 +140,20 @@ one `0w` candidate, which is an invalid descriptor that voids the whole
 `srcset`. Both bugs shipped once. Only a bare pixel value (`200px`) is safe
 without a key.
 
+**The bands do not line up with Tailwind's.** `md:` here covers viewports from
+640 to 1279px, where the catalog grid is 2, 3 _and_ 4 columns, so a `vw` value
+cannot describe that band honestly — 50vw is right at its bottom and twice the
+slot at its top. Where a band spans several column counts, declare the widest
+slot the band actually renders as a fixed pixel value instead.
+
 Every `sizes` string lives as a named constant in `app/utils/rawgImage.ts`,
-written against the layout's real slot width at the top of each breakpoint
-band (`sm:` covers viewports up to 639px, `md:` up to 1279px, `lg:` above),
-and every one is covered by a test in `tests/app/imageSizes.test.ts` that
-asserts the **emitted** `sizes` and `srcset` — the input string alone says
-nothing about what the browser receives.
+written against the layout's real slot width across each breakpoint band
+(`sm:` covers viewports up to 639px, `md:` up to 1279px, `lg:` above), and
+every one is covered by a test in `tests/app/imageSizes.test.ts` that asserts
+the **emitted** `sizes` and `srcset` — and, for the grid, which candidate a
+given viewport and device pixel ratio actually resolve to. The input string
+alone says nothing about what the browser receives, and the candidate list
+alone says nothing about which one it picks.
 
 ### Card meta row
 
