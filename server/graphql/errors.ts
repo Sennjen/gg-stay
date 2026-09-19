@@ -15,7 +15,7 @@ import type { GraphQLError } from 'graphql'
 // or an arbitrary `Error` — never an already-constructed `GraphQLError`, so there is nothing to
 // double-wrap.
 import { createGraphQLError } from 'graphql-yoga'
-import { UpstreamError, type UpstreamKind } from '../rawg/rawgFetch'
+import { UpstreamError, type UpstreamKind } from '../upstream/errors'
 
 export type ErrorCode =
   'UPSTREAM_RATE_LIMITED' | 'UPSTREAM_TIMEOUT' | 'UPSTREAM_ERROR' | 'NOT_FOUND'

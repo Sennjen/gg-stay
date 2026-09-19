@@ -16,6 +16,8 @@ export function useSteam(): SteamFetch {
   })
 
   instance = createSteamFetch({
+    // One switch drives fixture mode for every upstream, hence `rawgFixtures` here too: a local
+    // run either talks to real third-party APIs or to none of them. `.env.example` documents it.
     // Env overrides are parsed by destr, so "1" may arrive as the number 1.
     fixtures: String(config.rawgFixtures) === '1',
     fetchJson: async (url, signal) => {

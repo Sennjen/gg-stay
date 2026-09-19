@@ -8,12 +8,13 @@ import {
   MAX_ROOT_FIELDS,
   checkQueryLimits,
 } from '../../server/graphql/queryLimits'
-import { UpstreamError, type RawgFetch } from '../../server/rawg/rawgFetch'
+import { UpstreamError } from '../../server/upstream/errors'
+import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../server/steam/steamFetch'
 import games from '../fixtures/rawg/games.json'
 
 const steam: SteamFetch = async () => {
-  throw new UpstreamError('NOT_FOUND', 404)
+  throw new UpstreamError('RAWG', 'NOT_FOUND', 404)
 }
 
 /** Counts every upstream call so a rejected query can be proven to have reached none. */
@@ -22,7 +23,7 @@ function countingRawg() {
   const rawg: RawgFetch = async (path) => {
     calls.push(path)
     if (path === 'games') return games
-    throw new UpstreamError('NOT_FOUND', 404)
+    throw new UpstreamError('RAWG', 'NOT_FOUND', 404)
   }
   return { rawg, calls }
 }

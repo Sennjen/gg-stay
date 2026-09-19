@@ -1,4 +1,4 @@
-import { UpstreamError } from '../rawg/rawgFetch'
+import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
 import { projectAppDetails } from './appDetailsProjection'
 
 const BASE_URL = 'https://store.steampowered.com/api/appdetails'
@@ -9,10 +9,7 @@ const MIN_INTERVAL_MS = 1_500
 const MAX_ATTEMPTS = 2
 const DEFAULT_TTL = 86_400 // 24h, per the landing resolver's caching rule for Steam trailers.
 
-export interface SteamCacheEntry {
-  value: unknown
-  expiresAt: number
-}
+export type SteamCacheEntry = UpstreamCacheEntry
 
 export interface SteamDeps {
   fixtures: boolean
@@ -32,97 +29,48 @@ export interface SteamFetchOptions {
 
 export type SteamFetch = (appId: string, options?: SteamFetchOptions) => Promise<unknown>
 
-function isTimeout(error: unknown): boolean {
-  const name = (error as { name?: string } | null)?.name
-  return name === 'TimeoutError' || name === 'AbortError'
+interface SteamRequest {
+  appId: string
+  options?: SteamFetchOptions
 }
 
 export function fixtureName(appId: string): string {
   return `appdetails-${appId}`
 }
 
+function buildUrl(appId: string): string {
+  const url = new URL(BASE_URL)
+  url.searchParams.set('appids', appId)
+  url.searchParams.set('cc', 'ua')
+  url.searchParams.set('l', 'ukrainian')
+  // No `filters` param: both the landing resolver's trailer lookup (`data.movies`) and the game
+  // page's localized description (`data.short_description` / `data.about_the_game`) share this
+  // one cached response per app id, so the response must carry every field either needs.
+  return url.toString()
+}
+
+/**
+ * Steam's share of the shared upstream transport (see server/upstream/createUpstreamFetch.ts):
+ * the store URL, the flat 24h ttl, the slower 1.5s limiter, and the projection that keeps only the
+ * handful of fields this app reads — the full payload runs to tens of KB per game, and caching it
+ * whole would waste most of the cache's entry budget.
+ */
 export function createSteamFetch(deps: SteamDeps): SteamFetch {
-  let nextSlot = 0
+  const fetchUpstream = createUpstreamFetch<SteamRequest>(
+    {
+      source: 'STEAM',
+      minIntervalMs: MIN_INTERVAL_MS,
+      timeoutMs: TIMEOUT_MS,
+      maxAttempts: MAX_ATTEMPTS,
+      buildUrl: ({ appId }) => buildUrl(appId),
+      // A bare numeric app id: no query string, so nothing here needs normalising.
+      cacheKey: ({ appId }) => appId,
+      fixtureName: ({ appId }) => fixtureName(appId),
+      ttlFor: ({ options }) => options?.ttl ?? DEFAULT_TTL,
+      project: projectAppDetails,
+    },
+    deps,
+  )
 
-  async function throttle(now: number): Promise<void> {
-    const slot = Math.max(now, nextSlot)
-    nextSlot = slot + MIN_INTERVAL_MS
-    if (slot > now) await deps.sleep(slot - now)
-  }
-
-  async function attempt(url: string, now: number): Promise<unknown> {
-    await throttle(now)
-    let response: { status: number; body: unknown }
-    try {
-      response = await deps.fetchJson(url, AbortSignal.timeout(TIMEOUT_MS))
-    } catch (error) {
-      throw new UpstreamError(isTimeout(error) ? 'TIMEOUT' : 'ERROR')
-    }
-    if (response.status === 429) throw new UpstreamError('RATE_LIMITED', 429)
-    if (response.status === 404) throw new UpstreamError('NOT_FOUND', 404)
-    if (response.status < 200 || response.status >= 300) {
-      throw new UpstreamError('ERROR', response.status)
-    }
-    return response.body
-  }
-
-  function isRetryable(error: unknown): boolean {
-    if (!(error instanceof UpstreamError)) return false
-    if (error.kind === 'TIMEOUT') return true
-    return error.kind === 'ERROR' && (error.status === undefined || error.status >= 500)
-  }
-
-  async function fetchWithRetry(url: string, now: number): Promise<unknown> {
-    let lastError: unknown
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      // Mirrors server/rawg/rawgFetch.ts: the first attempt reuses the `now` captured before this
-      // logical call started, but a retry re-reads the clock so it doesn't wait out a throttle
-      // slot that has already elapsed while the first attempt was in flight.
-      const attemptNow = i === 0 ? now : deps.now()
-      try {
-        return await attempt(url, attemptNow)
-      } catch (error) {
-        lastError = error
-        if (!isRetryable(error)) break
-      }
-    }
-    throw lastError
-  }
-
-  return async function steamFetch(appId, options) {
-    const now = deps.now()
-
-    if (deps.fixtures) {
-      const fixture = await deps.readFixture(fixtureName(appId))
-      if (fixture === null) throw new UpstreamError('NOT_FOUND', 404)
-      return projectAppDetails(fixture)
-    }
-
-    const key = appId
-    const cached = await deps.cache.get(key)
-    if (cached && cached.expiresAt > now) return cached.value
-
-    const url = new URL(BASE_URL)
-    url.searchParams.set('appids', appId)
-    url.searchParams.set('cc', 'ua')
-    url.searchParams.set('l', 'ukrainian')
-    // No `filters` param: both the landing resolver's trailer lookup (`data.movies`) and the game
-    // page's localized description (`data.short_description` / `data.about_the_game`) share this
-    // one cached response per app id, so the response must carry every field either needs.
-
-    try {
-      const value = await fetchWithRetry(url.toString(), now)
-      // Cache (and return) only the projected shape: the full Steam payload runs to tens of KB
-      // per game, and this app only ever reads a handful of its fields (see
-      // server/steam/appDetailsProjection.ts).
-      const projected = projectAppDetails(value)
-      const ttl = options?.ttl ?? DEFAULT_TTL
-      await deps.cache.set(key, { value: projected, expiresAt: now + ttl * 1000 })
-      return projected
-    } catch (error) {
-      const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
-      if (cached && !notFound) return cached.value
-      throw error
-    }
-  }
+  return (appId, options) => fetchUpstream({ appId, options })
 }
