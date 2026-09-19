@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
+import { SECURITY_HEADERS } from './server/security/headers'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
@@ -39,6 +40,7 @@ export default defineNuxtConfig({
     rawgFixtures: process.env.RAWG_FIXTURES ?? '',
   },
   routeRules: {
+    '/**': { headers: SECURITY_HEADERS },
     '/': { isr: 600 },
     '/en': { isr: 600 },
   },

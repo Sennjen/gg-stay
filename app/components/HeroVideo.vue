@@ -58,13 +58,11 @@ function destroyHls() {
 
 async function loadHlsConstructor(): Promise<typeof Hls> {
   // The light build drops non-essential features (subtitle/audio-track handling, EME) that a
-  // muted, looping background trailer never needs, saving bytes on the async chunk. Fall back to
-  // the full build for older installed versions that don't ship a "light" entry.
-  try {
-    return (await import('hls.js/light')).default
-  } catch {
-    return (await import('hls.js')).default
-  }
+  // muted, looping background trailer never needs. Imported directly, with no try/catch fallback
+  // to the full build: a missing subpath export would fail the BUILD, not fall back at runtime, so
+  // the fallback could never run — while Rollup emitted the full 574 KB build as a second chunk
+  // and the browser fetched both.
+  return (await import('hls.js/light')).default
 }
 
 async function attachHls(video: HTMLVideoElement) {

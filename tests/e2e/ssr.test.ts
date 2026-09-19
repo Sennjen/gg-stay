@@ -189,6 +189,35 @@ describe('server-side rendering', async () => {
     expect(html).not.toContain('role="listbox"')
   })
 
+  it('sends the security headers on every page, with an exact-hash script-src', async () => {
+    for (const path of ['/', '/en', '/games', '/games/the-witcher-3-wild-hunt']) {
+      const response = await fetch(path, { headers: { accept: 'text/html' } })
+      const csp = response.headers.get('content-security-policy')!
+
+      expect(csp).toContain("default-src 'self'")
+      expect(csp).toContain("object-src 'none'")
+      expect(csp).toContain("frame-ancestors 'none'")
+      expect(csp).toContain("base-uri 'self'")
+      expect(csp).toContain("style-src 'self' 'unsafe-inline'")
+      expect(csp).toContain("font-src 'self'")
+      expect(csp).toContain("img-src 'self' data: https://media.rawg.io")
+      expect(csp).toContain('https://video.akamai.steamstatic.com')
+      expect(csp).toContain("worker-src 'self' blob:")
+
+      // Nuxt inlines two scripts per page; the Nitro plugin hashes exactly those, so `script-src`
+      // never falls back to 'unsafe-inline' (which would defeat the point) and never allows eval.
+      const scriptSrc = csp.split('; ').find((directive) => directive.startsWith('script-src'))!
+      expect(scriptSrc).not.toContain('unsafe-inline')
+      expect(scriptSrc).not.toContain('unsafe-eval')
+      expect(scriptSrc.match(/'sha256-[^']+'/g) ?? []).toHaveLength(2)
+
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+      expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
+      expect(response.headers.get('x-frame-options')).toBe('DENY')
+      expect(response.headers.get('permissions-policy')).toContain('camera=()')
+    }
+  })
+
   it(
     'never nests a <ul> inside a <p> on a page with game cards: a browser auto-closes an open ' +
       '<p> the moment it meets a block element like <ul> (even nested a level or two deeper), ' +
