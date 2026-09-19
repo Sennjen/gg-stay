@@ -56,7 +56,7 @@ pnpm dev
 
 ## Attribution
 
-Game data and images are provided by [RAWG](https://rawg.io). Names and images belong to their respective owners.
+Game data and images are provided by [RAWG](https://rawg.io) and [Steam](https://store.steampowered.com). Names and images belong to their respective owners. On the Ukrainian site, the game description comes from Steam's Ukrainian store page when the publisher provides one; otherwise it falls back to RAWG's English text.
 
 ## License
 
