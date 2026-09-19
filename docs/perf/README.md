@@ -61,3 +61,23 @@ Page weight did not change in the lab run: Lighthouse's tall emulated viewport a
 | Performance      | 77       | 89     | 96     |
 | LCP              | 5.5 s    | 3.3 s  | 2.4 s  |
 | Page weight      | 3.4 MB   | 1.1 MB | 1.1 MB |
+
+## After the redesign — a regression, measured
+
+Measured 2026-09-19 on commit `4caa0c4`: the full visual redesign (landing page with a Steam trailer and the cover ring, self-hosted fonts, new cards, filter drawer, header search, game page with a gallery). Same method: Lighthouse mobile, three runs per page on production, median reported.
+
+| Page            | Performance | LCP   | CLS | TBT    | Page weight | Accessibility | Best practices | SEO |
+| --------------- | ----------- | ----- | --- | ------ | ----------- | ------------- | -------------- | --- |
+| `/` (landing)   | 69          | 7.5 s | 0   | 121 ms | 7.2 MB      | 100           | 100            | 100 |
+| `/games`        | 83          | 4.2 s | 0   | 26 ms  | 1.3 MB      | 100           | 100            | 100 |
+| `/games/[slug]` | 86          | 3.5 s | 0   | 19 ms  | 0.5 MB      | 100           | 100            | 100 |
+
+Individual runs — landing: 63 / 69 / 69; catalog: 83 / 81 / 89; game page: 93 / 86 / 85. Reports: [landing](after-redesign/home.report.html), [catalog](after-redesign/catalog.report.html), [game page](after-redesign/detail.report.html).
+
+The catalog dropped from 96 to 83 and the game page from 95 to 86; accessibility went up to 100 on every page and layout shift stayed at zero. What the reports show:
+
+- **Landing: the trailer is the problem on phones.** 5.9 MB of the 7.2 MB is HLS video segments, fetched on an emulated slow 4G phone, and Lighthouse picks the `<video>` as the LCP element at 7.5 s — the poster paints early, then the video's first frame replaces it as the largest paint. The video is deferred until idle and capped at 720p, but it should not load at all on small screens or slow connections.
+- **Catalog: the LCP cover has no fetch priority.** The first card's image is discoverable and eager but competes with four other eager covers, 118 KB of fonts and 153 KB of JavaScript (129 KB before the redesign; the budget for this page is 120 KB).
+- **Every page** now loads three font families (118 KB) and has about 0.5–0.75 s of render-blocking CSS in the simulated profile.
+
+These are the inputs for the next optimisation steps; each will land as its own commit with a measurement here.
