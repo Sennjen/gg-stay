@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LandingQuery } from '~/graphql/__generated__/operations'
+import { HERO_IMAGE_SIZES } from '~/utils/rawgImage'
 
 const props = defineProps<{ featured: LandingQuery['landing']['featured'] }>()
 const { t } = useI18n()
@@ -8,6 +9,7 @@ const localePath = useLocalePath()
 const paused = ref(false)
 const poster = computed(() => props.featured?.game.cover ?? null)
 const clipUrl = computed(() => props.featured?.clipUrl ?? null)
+const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
 </script>
 
 <template>
@@ -21,7 +23,7 @@ const clipUrl = computed(() => props.featured?.clipUrl ?? null)
       alt=""
       width="1280"
       height="720"
-      sizes="100vw"
+      :sizes="HERO_IMAGE_SIZES"
       loading="eager"
       fetchpriority="high"
       preload
@@ -40,6 +42,14 @@ const clipUrl = computed(() => props.featured?.clipUrl ?? null)
     <div
       aria-hidden="true"
       class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/10 to-transparent"
+    />
+    <!-- Keeps the transparent sticky header's nav text readable over any poster, even on the
+         landing route where AppHeader has no background of its own — see DESIGN.md/#header-h.
+         Purely decorative: it sits above the poster/video but below the header, and both the
+         gradient overlays above and this scrim key off the same `ink` token. -->
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-x-0 top-0 z-[5] h-40 bg-gradient-to-b from-ink/70 to-transparent"
     />
 
     <div class="relative z-10 mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6 sm:pb-20">
@@ -65,21 +75,22 @@ const clipUrl = computed(() => props.featured?.clipUrl ?? null)
       </div>
     </div>
 
-    <i18n-t
+    <div
       v-if="featured"
-      keypath="home.hero.nowOnScreen"
-      tag="p"
-      class="absolute bottom-4 right-4 z-10 max-w-[65%] text-right text-sm text-signal sm:bottom-6 sm:right-6"
+      class="absolute bottom-4 right-4 z-10 max-w-[65%] text-right sm:bottom-6 sm:right-6"
     >
-      <template #title>
-        <NuxtLink
-          :to="localePath(`/games/${featured.game.slug}`)"
-          class="underline underline-offset-4 focus-visible:outline-2"
-        >
-          {{ featured.game.name }}
-        </NuxtLink>
-      </template>
-    </i18n-t>
+      <i18n-t keypath="home.hero.nowOnScreen" tag="p" class="text-sm text-signal">
+        <template #title>
+          <NuxtLink
+            :to="localePath(`/games/${featured.game.slug}`)"
+            class="underline underline-offset-4 focus-visible:outline-2"
+          >
+            {{ featured.game.name }}
+          </NuxtLink>
+        </template>
+      </i18n-t>
+      <p v-if="isSteamClip" class="text-xs text-fg-2">{{ t('home.hero.trailerSteam') }}</p>
+    </div>
   </section>
 </template>
 

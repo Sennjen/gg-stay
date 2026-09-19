@@ -60,6 +60,10 @@ export default defineNuxtConfig({
         baseName: 'rawg-fixtures',
         dir: fileURLToPath(new URL('./tests/fixtures/rawg', import.meta.url)),
       },
+      {
+        baseName: 'steam-fixtures',
+        dir: fileURLToPath(new URL('./tests/fixtures/steam', import.meta.url)),
+      },
     ],
   },
   i18n: {

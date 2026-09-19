@@ -19,7 +19,12 @@ export type AgeRating =
   | 'PEGI16'
   | 'PEGI18';
 
+export type ClipSource =
+  | 'RAWG'
+  | 'STEAM';
+
 export type FeaturedGame = {
+  clipSource?: Maybe<ClipSource>;
   clipUrl?: Maybe<Scalars['String']['output']>;
   game: GameCard;
 };
@@ -284,6 +289,7 @@ export type DirectiveResolverFn<TResult = Record<PropertyKey, never>, TParent = 
 export type ResolversTypes = {
   AgeRating: AgeRating;
   Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
+  ClipSource: ClipSource;
   FeaturedGame: ResolverTypeWrapper<FeaturedGame>;
   Float: ResolverTypeWrapper<Scalars['Float']['output']>;
   Game: ResolverTypeWrapper<Game>;
@@ -329,6 +335,7 @@ export type ResolversParentTypes = {
 };
 
 export type FeaturedGameResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['FeaturedGame'] = ResolversParentTypes['FeaturedGame']> = {
+  clipSource?: Resolver<Maybe<ResolversTypes['ClipSource']>, ParentType, ContextType>;
   clipUrl?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   game?: Resolver<ResolversTypes['GameCard'], ParentType, ContextType>;
 };

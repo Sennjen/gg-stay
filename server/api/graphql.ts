@@ -2,6 +2,7 @@ import { createYogaApp } from '../graphql/yoga'
 
 const yoga = createYogaApp(() => ({
   rawg: useRawg(),
+  steam: useSteam(),
   today: new Date().toISOString().slice(0, 10),
 }))
 

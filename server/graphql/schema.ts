@@ -135,9 +135,14 @@ export const typeDefs = /* GraphQL */ `
     platformFamilies: [PlatformFamily!]!
   }
 
+  enum ClipSource {
+    RAWG
+    STEAM
+  }
   type FeaturedGame {
     game: GameCard!
     clipUrl: String
+    clipSource: ClipSource
   }
   type Landing {
     featured: FeaturedGame

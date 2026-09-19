@@ -17,6 +17,10 @@ describe('server-side rendering', async () => {
     expect(html).toContain('href="/games"')
     expect(html).toContain('The Witcher 3: Wild Hunt')
     expect(html).not.toContain('<video')
+    // RAWG has no clip for the featured game in these fixtures (see
+    // tests/fixtures/rawg/game-3328-movies.json): the landing resolver falls back to the game's
+    // Steam trailer, and the hero caption's quieter second line names the source.
+    expect(html).toContain('Трейлер: Steam')
     // The hero must run underneath the sticky transparent header rather than start below it:
     // pulled up by the header's fixed height (a shared CSS token, not a JS measurement) plus the
     // layout's own top padding.
