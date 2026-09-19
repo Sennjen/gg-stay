@@ -25,14 +25,35 @@ function saveDataEnabled(): boolean {
   return connection?.saveData === true
 }
 
+type IdleWindow = Window & {
+  requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+  cancelIdleCallback?: (handle: number) => void
+}
+
+// Tracks whichever deferral mechanism actually scheduled the callback, so it can be cancelled on
+// unmount — leaving the page before the browser goes idle must not still flip `ready` afterwards
+// and start fetching/creating a video element nobody will see.
+let idleHandle: number | null = null
+let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+
 function scheduleWhenIdle(callback: () => void) {
-  const nuxtWindow = window as Window & {
-    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
-  }
-  if (typeof nuxtWindow.requestIdleCallback === 'function') {
-    nuxtWindow.requestIdleCallback(callback, { timeout: 2000 })
+  const idleWindow = window as IdleWindow
+  if (typeof idleWindow.requestIdleCallback === 'function') {
+    idleHandle = idleWindow.requestIdleCallback(callback, { timeout: 2000 })
   } else {
-    setTimeout(callback, 200)
+    timeoutHandle = setTimeout(callback, 200)
+  }
+}
+
+function cancelScheduledIdle() {
+  const idleWindow = window as IdleWindow
+  if (idleHandle !== null) {
+    idleWindow.cancelIdleCallback?.(idleHandle)
+    idleHandle = null
+  }
+  if (timeoutHandle !== null) {
+    clearTimeout(timeoutHandle)
+    timeoutHandle = null
   }
 }
 
@@ -45,6 +66,8 @@ onMounted(() => {
     ready.value = true
   })
 })
+
+onBeforeUnmount(cancelScheduledIdle)
 
 watch(
   () => props.paused,

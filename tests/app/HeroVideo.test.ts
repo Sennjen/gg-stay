@@ -76,4 +76,19 @@ describe('HeroVideo', () => {
     await wrapper.setProps({ paused: false })
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
   })
+
+  it('cancels the deferred idle/timeout callback on unmount, so it never renders afterwards', async () => {
+    // happy-dom has no requestIdleCallback, so the component falls back to setTimeout — assert
+    // the fallback timer is cleared rather than left to fire after the component is gone.
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
+    const wrapper = await mountSuspended(HeroVideo, {
+      props: { clipUrl: CLIP_URL, paused: false },
+    })
+
+    wrapper.unmount()
+    expect(clearTimeoutSpy).toHaveBeenCalled()
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    expect(wrapper.find('video').exists()).toBe(false)
+  })
 })
