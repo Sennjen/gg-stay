@@ -21,6 +21,7 @@
     "test:unit": "vitest run --project unit --project nuxt"
   },
   "dependencies": {
+    "@nuxt/fonts": "^0.14.0",
     "@nuxt/image": "^2.1.0",
     "@nuxtjs/i18n": "^10.6.0",
     "@pinia/nuxt": "^1.0.2",
