@@ -13,9 +13,12 @@ const { t } = useI18n()
 
     <AppHeader />
 
-    <div id="main-content" tabindex="-1" class="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+    <!-- The one `<main>` of every route, and the skip link's target: pages render sections into
+         it rather than their own landmark, so nothing a page renders can end up outside a
+         landmark and no two `<main>` elements can nest. -->
+    <main id="main-content" tabindex="-1" class="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
       <slot />
-    </div>
+    </main>
 
     <AppFooter />
   </div>

@@ -59,7 +59,7 @@ describe('home page', () => {
     })
 
     const wrapper = await mountSuspended(IndexPage)
-    const root = wrapper.get('main')
+    const root = wrapper.get('[data-test="hero-bleed"]')
     expect(root.classes()).toContain('-mt-[calc(var(--header-h)+1.5rem)]')
   })
 

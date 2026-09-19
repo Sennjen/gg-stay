@@ -12,7 +12,7 @@ useSeoMeta({ title: () => (isNotFound.value ? t('notFound.title') : t('errors.UP
 
 <template>
   <NuxtLayout>
-    <main class="py-16 text-center">
+    <div class="py-16 text-center">
       <h1 class="font-display-heading text-3xl text-fg">
         {{ isNotFound ? t('notFound.title') : t('errors.UPSTREAM_ERROR') }}
       </h1>
@@ -24,6 +24,6 @@ useSeoMeta({ title: () => (isNotFound.value ? t('notFound.title') : t('errors.UP
       >
         {{ t('notFound.toCatalog') }}
       </button>
-    </main>
+    </div>
   </NuxtLayout>
 </template>

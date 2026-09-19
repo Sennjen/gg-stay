@@ -29,9 +29,9 @@ useSeoMeta({ title: () => t('home.title'), description: () => t('home.descriptio
 
 // Full-bleed breakout: the layout's container (app/layouts/default.vue) centers content at
 // `max-w-6xl` with side and top padding, which is right for every other page but would clip the
-// hero to that width. The layout is shared with other routes and out of scope for this PR, so the
-// horizontal breakout is done here instead: standard "full-bleed" CSS (viewport-relative offsets,
-// not the parent's).
+// hero to that width. The layout is shared with every other route, which needs that container, so
+// the horizontal breakout is done here instead: standard "full-bleed" CSS (viewport-relative
+// offsets, not the parent's).
 //
 // The hero must also run UNDERNEATH the sticky transparent header, not start below it.
 // `AppHeader` is `position: sticky`, so at the top of the page it still occupies its normal flow
@@ -45,11 +45,14 @@ useSeoMeta({ title: () => t('home.title'), description: () => t('home.descriptio
 
 <template>
   <div>
-    <main
+    <!-- A plain `<div>`, not a landmark: the layout's `<main id="main-content">` already wraps
+         this page, hero included, so the skip link lands above the hero rather than on it. -->
+    <div
+      data-test="hero-bleed"
       class="relative left-1/2 right-1/2 -mt-[calc(var(--header-h)+1.5rem)] w-screen -ml-[50vw] -mr-[50vw]"
     >
       <HeroFeatured :featured="featured" />
-    </main>
+    </div>
 
     <div class="mt-16 flex flex-col gap-16 sm:mt-24 sm:gap-24">
       <section v-if="landing" class="text-center">

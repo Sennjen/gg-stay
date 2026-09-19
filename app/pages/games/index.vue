@@ -36,7 +36,7 @@ useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.desc
 </script>
 
 <template>
-  <main>
+  <div>
     <h1 class="font-display-heading text-2xl text-fg">{{ t('catalog.title') }}</h1>
 
     <div class="mt-4 flex flex-wrap items-center gap-3">
@@ -101,5 +101,5 @@ useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.desc
         <Pagination :page="page.page" :total-pages="totalPages" @change="setPage" />
       </template>
     </section>
-  </main>
+  </div>
 </template>

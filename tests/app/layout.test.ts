@@ -16,4 +16,13 @@ describe('default layout', () => {
     expect(steamLink.text()).toBe('Steam')
     expect(steamLink.attributes('rel')).toContain('noopener')
   })
+
+  it('wraps the page body in the single main landmark the skip link targets', async () => {
+    const wrapper = await mountSuspended(DefaultLayout, { slots: { default: () => 'page body' } })
+    const mains = wrapper.findAll('main')
+    expect(mains).toHaveLength(1)
+    expect(mains[0]!.attributes('id')).toBe('main-content')
+    expect(mains[0]!.text()).toContain('page body')
+    expect(wrapper.get('a[href="#main-content"]').exists()).toBe(true)
+  })
 })

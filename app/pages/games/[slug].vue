@@ -44,7 +44,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <main>
+  <div>
     <NuxtLink
       :to="{ path: localePath('/games'), query: store.lastCatalogQuery }"
       class="text-sm text-fg-2 underline-offset-4 hover:text-fg hover:underline focus-visible:outline-2"
@@ -130,5 +130,5 @@ useSeoMeta({
         </dl>
       </div>
     </article>
-  </main>
+  </div>
 </template>
