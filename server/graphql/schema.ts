@@ -132,6 +132,7 @@ export const typeDefs = /* GraphQL */ `
     localisation: LocalisationInfo
     madeInUkraine: Boolean!
     similar: [GameCard!]!
+    platformFamilies: [PlatformFamily!]!
   }
 
   type FeaturedGame {

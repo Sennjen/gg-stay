@@ -123,5 +123,14 @@
     "whereToBuy": "Where to buy",
     "about": "About",
     "metaFallback": "{name} — platforms, genres, ratings and stores."
+  },
+  "gallery": {
+    "heading": "Screenshots",
+    "thumbnailAlt": "{title} — screenshot {n}",
+    "dialogLabel": "Screenshot viewer: {title}",
+    "counter": "{current} / {total}",
+    "close": "Close",
+    "previous": "Previous screenshot",
+    "next": "Next screenshot"
   }
 }
