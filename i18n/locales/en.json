@@ -156,5 +156,29 @@
     "close": "Close",
     "previous": "Previous screenshot",
     "next": "Next screenshot"
+  },
+  "ring": {
+    "scrollLabel": "Catalog games",
+    "current": "Centered: {name}"
+  },
+  "why": {
+    "title": "Why GG Stay",
+    "cards": {
+      "interface": {
+        "title": "Ukrainian interface",
+        "description": "The whole catalog interface is in Ukrainian — from filters to game cards."
+      },
+      "filters": {
+        "title": "Deep filters",
+        "description": "Search by PEGI age rating, playtime and game mode — solo or co-op."
+      },
+      "data": {
+        "title": "Data from RAWG",
+        "description": "The catalog and ratings are updated from the RAWG database — hundreds of thousands of releases."
+      }
+    }
+  },
+  "rows": {
+    "viewAll": "All games"
   }
 }
