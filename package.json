@@ -18,7 +18,8 @@
     "format:check": "git ls-files -z --cached --others --exclude-standard | xargs -0 prettier --check --ignore-unknown",
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
-    "test:unit": "vitest run --project unit --project nuxt"
+    "test:unit": "vitest run --project unit --project nuxt",
+    "check:vercel-headers": "node scripts/check-vercel-headers.mjs"
   },
   "dependencies": {
     "@nuxt/fonts": "^0.14.0",

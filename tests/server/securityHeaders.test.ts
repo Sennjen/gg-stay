@@ -1,6 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   API_CONTENT_SECURITY_POLICY,
   CSP_HEADER,
@@ -8,22 +6,50 @@ import {
   contentSecurityPolicy,
 } from '../../server/security/headers'
 
-const VERCEL_CONFIG = resolve(process.cwd(), '.vercel/output/config.json')
-
 const hasCsp = (headers: Record<string, unknown>) =>
   Object.keys(headers).some((name) => name.toLowerCase() === CSP_HEADER)
+
+/**
+ * Loads the real `nuxt.config.ts`, with the `defineNuxtConfig` auto-import stubbed to the identity
+ * function so the module can be evaluated outside the Nuxt build. This reads the config the build
+ * actually uses, rather than an object a test hopes the config still spreads.
+ */
+async function loadNuxtConfig() {
+  vi.stubGlobal('defineNuxtConfig', (config: unknown) => config)
+  const module = await import('../../nuxt.config')
+  return module.default as {
+    routeRules?: Record<string, { headers?: Record<string, unknown> }>
+    nitro?: { routeRules?: Record<string, { headers?: Record<string, unknown> }> }
+  }
+}
 
 describe('the Content-Security-Policy has exactly one source', () => {
   /**
    * This is the regression guard for the real failure: `routeRules` headers are compiled by the
-   * Vercel preset into a proxy-level route entry, so a CSP here would be applied by the CDN — either
-   * replacing the function's hashed policy or intersecting with it. Under both behaviours the two
-   * scripts Nuxt inlines are blocked and no page hydrates, in production only. The object asserted
-   * here is literally the one `nuxt.config.ts` spreads into `routeRules['/**']`.
+   * Vercel preset into a proxy-level route entry in `.vercel/output/config.json`, so a CSP there
+   * would be applied by the CDN — either replacing the function's hashed policy or intersecting
+   * with it. Under both behaviours the two scripts Nuxt inlines are blocked and no page hydrates,
+   * in production only.
+   *
+   * It asserts against the loaded config, not against the exported header object, so re-adding a
+   * CSP anywhere in `routeRules` fails here even if it is written inline or comes from elsewhere.
+   * `scripts/check-vercel-headers.mjs` makes the same assertion against the compiled output in CI,
+   * where the built artifact exists.
    */
-  it('routeRules carries no CSP — only the static headers', () => {
-    expect(hasCsp(STATIC_SECURITY_HEADERS)).toBe(false)
-    expect(Object.keys(STATIC_SECURITY_HEADERS).sort()).toEqual([
+  it('no route rule in the real nuxt config sets a CSP', async () => {
+    const config = await loadNuxtConfig()
+    const ruleSets = [config.routeRules ?? {}, config.nitro?.routeRules ?? {}]
+    const offenders = ruleSets.flatMap((rules) =>
+      Object.entries(rules)
+        .filter(([, rule]) => rule?.headers && hasCsp(rule.headers))
+        .map(([pattern]) => pattern),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('the route rules still carry the four static headers', async () => {
+    const config = await loadNuxtConfig()
+    expect(Object.keys(config.routeRules?.['/**']?.headers ?? {}).sort()).toEqual([
       'Permissions-Policy',
       'Referrer-Policy',
       'X-Content-Type-Options',
@@ -31,24 +57,14 @@ describe('the Content-Security-Policy has exactly one source', () => {
     ])
   })
 
-  /**
-   * Runs whenever a Vercel build is present in the working tree (`NITRO_PRESET=vercel pnpm build`,
-   * which the acceptance list runs). It reads the compiled route table rather than trusting that
-   * the rule above is the only way a header can get there.
-   */
-  it('no route in a compiled Vercel config injects a CSP', () => {
-    if (!existsSync(VERCEL_CONFIG)) {
-      // Nothing to check without a build; the assertion above already covers the source of truth.
-      expect(existsSync(VERCEL_CONFIG)).toBe(false)
-      return
-    }
-    const config = JSON.parse(readFileSync(VERCEL_CONFIG, 'utf-8')) as {
-      routes?: { src?: string; headers?: Record<string, unknown> }[]
-    }
-    const offenders = (config.routes ?? [])
-      .filter((route) => route.headers && hasCsp(route.headers))
-      .map((route) => route.src)
-    expect(offenders).toEqual([])
+  it('the header object the route rules spread carries no CSP either', () => {
+    expect(hasCsp(STATIC_SECURITY_HEADERS)).toBe(false)
+    expect(Object.keys(STATIC_SECURITY_HEADERS).sort()).toEqual([
+      'Permissions-Policy',
+      'Referrer-Policy',
+      'X-Content-Type-Options',
+      'X-Frame-Options',
+    ])
   })
 })
 
