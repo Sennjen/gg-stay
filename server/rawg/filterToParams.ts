@@ -41,9 +41,13 @@ export function filterToParams({
   today,
 }: FilterToParamsInput): RawgParams {
   const f = filter ?? {}
-  const params: RawgParams = { ordering: ORDERING[sort], page, page_size: pageSize }
-
   const search = f.search?.trim()
+  // RAWG ranks search results by relevance only when no `ordering` is sent. The default
+  // sort has no explicit user intent, so let relevance win; an explicitly chosen sort
+  // still takes priority over relevance.
+  const ordering = search && sort === 'POPULARITY_DESC' ? undefined : ORDERING[sort]
+  const params: RawgParams = { ordering, page, page_size: pageSize }
+
   if (search) params.search = search
 
   params.genres = join(f.genres)
