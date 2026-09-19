@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { GamesQuery } from '~/graphql/__generated__/operations'
 
-defineProps<{ game: GamesQuery['games']['items'][number] }>()
+const props = withDefaults(
+  defineProps<{ game: GamesQuery['games']['items'][number]; eager?: boolean }>(),
+  { eager: false },
+)
 const { t } = useI18n()
 const localePath = useLocalePath()
 const { formatDate } = useFormatters()
@@ -17,6 +20,7 @@ const { formatDate } = useFormatters()
         width="420"
         height="236"
         sizes="(max-width: 640px) 50vw, 420px"
+        :loading="props.eager ? 'eager' : 'lazy'"
         class="aspect-video w-full object-cover"
       />
       <div
