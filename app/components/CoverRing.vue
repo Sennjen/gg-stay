@@ -189,7 +189,14 @@ function resetStageScroll() {
 }
 
 function onFocusOut(event: FocusEvent) {
-  const next = event.relatedTarget as Node | null
+  // `relatedTarget` is null both for a genuine "focus left the document/window" case and for a
+  // mouse click on a non-focusable spot inside the ring (e.g. the empty space between covers,
+  // or a `preventDefault()`-ed mousedown that keeps focus in place) — some browsers (notably
+  // Safari) report no `relatedTarget` there even though focus never actually moved. Falling back
+  // to `document.activeElement` (read *after* this event, per the focus/blur event order) tells
+  // the two cases apart: if it is still inside the ring, a cover is still focused and rotation
+  // must stay paused, regardless of what `relatedTarget` said.
+  const next = (event.relatedTarget as Node | null) ?? document.activeElement
   if (next && ringListEl.value?.contains(next)) return
   isFocusWithin.value = false
   updateRunState()

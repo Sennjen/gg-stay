@@ -14,6 +14,9 @@ const ESRB_TO_PEGI: Record<string, AgeRatingValue> = {
   'adults-only': 'PEGI18',
 }
 
+// ESRB has no rating between "Teen" and "Mature" — there is no ESRB equivalent of PEGI 16 — so
+// PEGI12 and PEGI16 both map to the same ESRB slug ('teen'). A search for either PEGI band
+// returns the same RAWG results; this is a real gap in RAWG's data, not a bug here.
 const PEGI_TO_ESRB: Record<AgeRatingValue, string[]> = {
   PEGI3: ['everyone'],
   PEGI7: ['everyone', 'everyone-10-plus'],

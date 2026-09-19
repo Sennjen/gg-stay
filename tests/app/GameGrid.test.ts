@@ -36,6 +36,12 @@ describe('GameGrid', () => {
     })
   })
 
+  it('renders card titles as h2, since the grid sits directly under the page h1 with no heading in between', async () => {
+    const wrapper = await mountSuspended(GameGrid, { props: { games } })
+    expect(wrapper.findAll('h2')).toHaveLength(7)
+    expect(wrapper.findAll('h3')).toHaveLength(0)
+  })
+
   it('lays out 2 / 3 / 4 / 5 columns across breakpoints by default (grid layout)', async () => {
     const wrapper = await mountSuspended(GameGrid, { props: { games } })
     const classes = wrapper.get('ul').classes()

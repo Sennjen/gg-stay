@@ -30,9 +30,9 @@ async function fetchRawgClipUrl(
 ): Promise<string | null> {
   if (id === undefined) return null
   try {
-    const movies = (await context.rawg(`games/${id}/movies`, undefined, {
-      ttl: LANDING_TTL,
-    })) as RawgList<RawgMovie>
+    // No explicit `ttl` here: `ttlFor('games/{id}/movies')` already resolves to 86 400s
+    // (any `games/…` sub-path), the same value as `LANDING_TTL` — see `server/rawg/rawgFetch.ts`.
+    const movies = (await context.rawg(`games/${id}/movies`)) as RawgList<RawgMovie>
     const first = movies.results?.[0]
     return first?.data?.['480'] ?? first?.data?.max ?? null
   } catch {

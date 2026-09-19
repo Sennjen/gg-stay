@@ -34,8 +34,8 @@ function mapCover(url?: string | null): Image | null {
   return url ? { url, width: null, height: null } : null
 }
 
-/** RAWG uses 0 for "unknown" on numeric fields. */
-function positive(value?: number | null): number | null {
+/** RAWG uses 0 for "unknown" on numeric fields; negative values are also treated as unknown. */
+export function positive(value?: number | null): number | null {
   return value && value > 0 ? value : null
 }
 

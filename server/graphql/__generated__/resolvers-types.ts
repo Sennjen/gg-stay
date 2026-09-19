@@ -87,21 +87,25 @@ export type GameCard = {
 export type GameFilter = {
   ageRating?: InputMaybe<Array<AgeRating>>;
   developers?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   free?: InputMaybe<Scalars['Boolean']['input']>;
   gameModes?: InputMaybe<Array<GameMode>>;
   genres?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   madeInUkraine?: InputMaybe<Scalars['Boolean']['input']>;
   metacriticMin?: InputMaybe<Scalars['Int']['input']>;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   onSaleMinPercent?: InputMaybe<Scalars['Int']['input']>;
   platforms?: InputMaybe<Array<Scalars['Int']['input']>>;
   playtime?: InputMaybe<Playtime>;
-  /** Index-backed fields: accepted and ignored until the nightly index exists. */
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   priceMaxUah?: InputMaybe<Scalars['Int']['input']>;
   publishers?: InputMaybe<Array<Scalars['String']['input']>>;
   ratingMin?: InputMaybe<Scalars['Float']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
   stores?: InputMaybe<Array<Scalars['String']['input']>>;
   tags?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** Index-backed field: accepted and ignored until the nightly index exists. */
   ukrainianLocalisation?: InputMaybe<Localisation>;
   upcoming?: InputMaybe<Scalars['Boolean']['input']>;
   yearFrom?: InputMaybe<Scalars['Int']['input']>;

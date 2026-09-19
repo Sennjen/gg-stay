@@ -29,11 +29,15 @@ export const typeDefs = /* GraphQL */ `
     developers: [String!]
     publishers: [String!]
     tags: [String!]
-    "Index-backed fields: accepted and ignored until the nightly index exists."
+    "Index-backed field: accepted and ignored until the nightly index exists."
     priceMaxUah: Int
+    "Index-backed field: accepted and ignored until the nightly index exists."
     free: Boolean
+    "Index-backed field: accepted and ignored until the nightly index exists."
     onSaleMinPercent: Int
+    "Index-backed field: accepted and ignored until the nightly index exists."
     ukrainianLocalisation: Localisation
+    "Index-backed field: accepted and ignored until the nightly index exists."
     madeInUkraine: Boolean
   }
 

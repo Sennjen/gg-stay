@@ -144,6 +144,32 @@ describe('CoverRing', () => {
     expect(rafSpy.mock.calls.length).toBeGreaterThan(rafCallsAfterFocus)
   })
 
+  it('does not resume the loop on a focusout with no relatedTarget while a cover is still focused', async () => {
+    // Regression test: some browsers (Safari) report no `relatedTarget` on `focusout` for a
+    // mouse click on a non-focusable spot inside the ring, even though focus never actually
+    // left. The handler must fall back to `document.activeElement` rather than treating a null
+    // `relatedTarget` as "left the ring" outright.
+    const cafSpy = vi.spyOn(window, 'cancelAnimationFrame')
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+    const wrapper = await mountSuspended(CoverRing, {
+      props: { games, title: 'Ring' },
+      attachTo: document.body,
+    })
+    const firstLink = wrapper.findAll('a')[0]!.element as HTMLAnchorElement
+    firstLink.focus()
+    expect(document.activeElement).toBe(firstLink)
+    await wrapper.get('ul').trigger('focusin')
+    expect(cafSpy).toHaveBeenCalled()
+    const rafCallsAfterFocus = rafSpy.mock.calls.length
+
+    // No `relatedTarget` is passed, simulating the browser quirk; the focused cover itself
+    // (`document.activeElement`) is still inside the ring.
+    await wrapper.get('ul').trigger('focusout')
+    expect(rafSpy.mock.calls.length).toBe(rafCallsAfterFocus)
+
+    wrapper.unmount()
+  })
+
   it('steps focus with ArrowRight/ArrowLeft, never scrolling the page to do it', async () => {
     const wrapper = await mountSuspended(CoverRing, {
       props: { games, title: 'Ring' },

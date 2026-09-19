@@ -33,7 +33,9 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
         : 'border-line bg-surface-1/80 backdrop-blur'
     "
   >
-    <div class="mx-auto flex h-[var(--header-h)] max-w-6xl items-center justify-between gap-4 px-4">
+    <div
+      class="relative mx-auto flex h-[var(--header-h)] max-w-6xl items-center justify-between gap-4 px-4"
+    >
       <NuxtLink
         :to="localePath('/')"
         class="font-display-heading text-xl text-fg focus-visible:outline-2"
@@ -42,13 +44,15 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
       </NuxtLink>
 
       <div class="flex flex-1 items-center justify-end gap-4">
-        <NuxtLink
-          :to="localePath('/games')"
-          class="text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
-        >
-          {{ t('nav.catalog') }}
-        </NuxtLink>
-        <HeaderSearch class="max-w-[360px] flex-none" />
+        <nav :aria-label="t('nav.primary')">
+          <NuxtLink
+            :to="localePath('/games')"
+            class="text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
+          >
+            {{ t('nav.catalog') }}
+          </NuxtLink>
+        </nav>
+        <HeaderSearch class="md:max-w-[360px] md:flex-none" />
         <LocaleSwitcher />
       </div>
     </div>
