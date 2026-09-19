@@ -1,0 +1,23 @@
+{
+  "count": 3,
+  "results": [
+    {
+      "id": 201001,
+      "image": "https://media.rawg.io/media/screenshots/201001/full1.jpg",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": 201002,
+      "image": "https://media.rawg.io/media/screenshots/201002/full2.jpg",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": 201003,
+      "image": "https://media.rawg.io/media/screenshots/201003/full3.jpg",
+      "width": 1920,
+      "height": 1080
+    }
+  ]
+}

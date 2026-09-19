@@ -3,6 +3,7 @@ import { mapGame, mapGameCard, mapGamePage, mapTaxonomy } from '../../server/raw
 import games from '../fixtures/rawg/games.json'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
 import stores from '../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json'
+import screenshots from '../fixtures/rawg/game-the-witcher-3-wild-hunt-screenshots.json'
 
 describe('mapGameCard', () => {
   it('maps a complete list item', () => {
@@ -33,7 +34,36 @@ describe('mapGameCard', () => {
       cover: null,
       platforms: [],
       genres: [],
+      screenshots: [],
+      platformFamilies: [],
     })
+  })
+
+  it('maps short_screenshots to Image, excluding id -1 and capping at 4', () => {
+    const card = mapGameCard(games.results[0]!)
+    expect(card.screenshots).toHaveLength(4)
+    expect(
+      card.screenshots.every((image) => !image.url.includes('618c2031a07bbff6b4f611f10b6bcdbc')),
+    ).toBe(true)
+    expect(card.screenshots[0]).toEqual({
+      url: 'https://media.rawg.io/media/screenshots/155001/screenshot1.jpg',
+      width: null,
+      height: null,
+    })
+  })
+
+  it('derives platformFamilies from parent_platforms, de-duplicated and ordered', () => {
+    const card = mapGameCard(games.results[0]!)
+    expect(card.platformFamilies).toEqual(['PC', 'PLAYSTATION', 'NINTENDO'])
+  })
+
+  it('falls back to platforms when parent_platforms is missing', () => {
+    const card = mapGameCard({
+      ...games.results[0]!,
+      parent_platforms: undefined,
+      platforms: [{ platform: { id: 4, slug: 'xbox-series-x', name: 'Xbox Series X' } }],
+    })
+    expect(card.platformFamilies).toEqual(['XBOX'])
   })
 })
 
@@ -73,6 +103,32 @@ describe('mapGame', () => {
       { store_id: 1, url: '' },
     ])
     expect(game.stores).toEqual([])
+  })
+
+  it('fills screenshots from the screenshots endpoint, with width/height when present', () => {
+    const game = mapGame(detail, stores.results, screenshots.results)
+    expect(game.screenshots).toEqual([
+      {
+        url: 'https://media.rawg.io/media/screenshots/201001/full1.jpg',
+        width: 1920,
+        height: 1080,
+      },
+      {
+        url: 'https://media.rawg.io/media/screenshots/201002/full2.jpg',
+        width: 1920,
+        height: 1080,
+      },
+      {
+        url: 'https://media.rawg.io/media/screenshots/201003/full3.jpg',
+        width: 1920,
+        height: 1080,
+      },
+    ])
+  })
+
+  it('defaults to an empty screenshots list when none are given', () => {
+    const game = mapGame(detail, stores.results)
+    expect(game.screenshots).toEqual([])
   })
 })
 

@@ -1,0 +1,14 @@
+{
+  "count": 1,
+  "results": [
+    {
+      "id": 1,
+      "name": "The Witcher 3: Wild Hunt",
+      "preview": "https://media.rawg.io/media/movies_previews/1/preview.jpg",
+      "data": {
+        "480": "https://media.rawg.io/media/movies/1/movie480.mp4",
+        "max": "https://media.rawg.io/media/movies/1/movie_max.mp4"
+      }
+    }
+  ]
+}

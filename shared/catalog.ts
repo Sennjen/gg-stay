@@ -30,6 +30,16 @@ export type GameModeValue = (typeof GAME_MODES)[number]
 export const AGE_RATINGS = ['PEGI3', 'PEGI7', 'PEGI12', 'PEGI16', 'PEGI18'] as const
 export type AgeRatingValue = (typeof AGE_RATINGS)[number]
 
+export const PLATFORM_FAMILIES = [
+  'PC',
+  'PLAYSTATION',
+  'XBOX',
+  'NINTENDO',
+  'MOBILE',
+  'OTHER',
+] as const
+export type PlatformFamilyValue = (typeof PLATFORM_FAMILIES)[number]
+
 export const PLATFORM_OPTIONS = [
   { id: 4, name: 'PC' },
   { id: 187, name: 'PlayStation 5' },

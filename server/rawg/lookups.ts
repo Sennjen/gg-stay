@@ -2,6 +2,7 @@ import {
   STORE_OPTIONS,
   type AgeRatingValue,
   type GameModeValue,
+  type PlatformFamilyValue,
   type PlaytimeValue,
 } from '../../shared/catalog'
 
@@ -63,4 +64,30 @@ export function storeIdsFromSlugs(slugs: readonly string[]): number[] {
 
 export function storeSlugFromId(id: number | null | undefined): string | null {
   return STORE_OPTIONS.find((option) => option.id === id)?.slug ?? null
+}
+
+const FAMILY_PREFIXES: [prefix: string, family: PlatformFamilyValue][] = [
+  ['pc', 'PC'],
+  ['playstation', 'PLAYSTATION'],
+  ['xbox', 'XBOX'],
+  ['nintendo', 'NINTENDO'],
+  ['ios', 'MOBILE'],
+  ['android', 'MOBILE'],
+]
+
+/** RAWG platform (or parent-platform) slug, e.g. "playstation5" or "nintendo-switch", to family. */
+export function platformFamilyFromSlug(slug: string | null | undefined): PlatformFamilyValue {
+  if (!slug) return 'OTHER'
+  const match = FAMILY_PREFIXES.find(([prefix]) => slug.startsWith(prefix))
+  return match ? match[1] : 'OTHER'
+}
+
+/** De-duplicates and orders families by the enum's declaration order (PC, PLAYSTATION, …). */
+export function platformFamiliesFromSlugs(
+  slugs: readonly (string | null | undefined)[],
+): PlatformFamilyValue[] {
+  const present = new Set(slugs.map(platformFamilyFromSlug))
+  return (['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'MOBILE', 'OTHER'] as const).filter((family) =>
+    present.has(family),
+  )
 }
