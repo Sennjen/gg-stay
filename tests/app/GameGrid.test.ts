@@ -10,6 +10,8 @@ const game = {
   rating: 4.65,
   metacritic: 92,
   cover: { url: 'https://media.rawg.io/media/games/618/abc.jpg' },
+  screenshots: [],
+  platformFamilies: ['PC'] as const,
   platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
   genres: [{ id: '4', slug: 'action', name: 'Action' }],
   price: null,
@@ -17,19 +19,27 @@ const game = {
   madeInUkraine: false,
 }
 
-const games = Array.from({ length: 6 }, (_, index) => ({
+const games = Array.from({ length: 7 }, (_, index) => ({
   ...game,
   id: String(index),
   slug: `${game.slug}-${index}`,
 }))
 
 describe('GameGrid', () => {
-  it('eager-loads only the first four covers', async () => {
+  it('eager-loads only the first five covers, matching the five-column first row', async () => {
     const wrapper = await mountSuspended(GameGrid, { props: { games } })
     const images = wrapper.findAll('img')
-    expect(images).toHaveLength(6)
+    expect(images).toHaveLength(7)
     images.forEach((image, index) => {
-      expect(image.attributes('loading')).toBe(index < 4 ? 'eager' : 'lazy')
+      expect(image.attributes('loading')).toBe(index < 5 ? 'eager' : 'lazy')
     })
+  })
+
+  it('lays out 2 / 3 / 4 / 5 columns across breakpoints', async () => {
+    const wrapper = await mountSuspended(GameGrid, { props: { games } })
+    const classes = wrapper.get('ul').classes()
+    expect(classes).toEqual(
+      expect.arrayContaining(['grid-cols-2', 'md:grid-cols-3', 'lg:grid-cols-4', 'xl:grid-cols-5']),
+    )
   })
 })

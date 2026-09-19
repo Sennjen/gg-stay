@@ -15,6 +15,10 @@ query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
       cover {
         url
       }
+      screenshots {
+        url
+      }
+      platformFamilies
       platforms {
         id
         slug

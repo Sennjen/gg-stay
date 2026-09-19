@@ -40,7 +40,9 @@ describe('server-side rendering', async () => {
     expect(html).toMatch(/<html[^>]*lang="en/)
     expect(html).toMatch(/hreflang="uk/)
     expect(html).toMatch(/hreflang="en/)
-    expect(html).toContain('May 18, 2015')
+    // The catalog card shows the release year only (sliced from the ISO date, not a
+    // localised full date) — the full "May 18, 2015" form still appears on the detail page.
+    expect(html).toContain('2015')
   })
 
   it('renders the detail page with a localised date and store links', async () => {

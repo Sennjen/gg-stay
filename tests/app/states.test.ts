@@ -12,6 +12,21 @@ describe('LoadingState', () => {
     expect(wrapper.findAll('[data-test="skeleton"]')).toHaveLength(6)
     expect(wrapper.attributes('aria-busy')).toBe('true')
   })
+
+  it('shapes each skeleton like the card: a 16:9 block plus two text lines', async () => {
+    const wrapper = await mountSuspended(LoadingState, { props: { count: 1 } })
+    const skeleton = wrapper.get('[data-test="skeleton"]')
+    expect(skeleton.find('.aspect-video').exists()).toBe(true)
+    expect(skeleton.findAll('div').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('matches the catalog grid columns and only pulses under motion-safe', async () => {
+    const wrapper = await mountSuspended(LoadingState, { props: { count: 1 } })
+    expect(wrapper.classes()).toEqual(
+      expect.arrayContaining(['grid-cols-2', 'md:grid-cols-3', 'lg:grid-cols-4', 'xl:grid-cols-5']),
+    )
+    expect(wrapper.find('.motion-safe\\:animate-pulse').exists()).toBe(true)
+  })
 })
 
 describe('EmptyState', () => {

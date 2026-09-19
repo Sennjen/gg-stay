@@ -84,6 +84,18 @@
     "PEGI16": "PEGI 16",
     "PEGI18": "PEGI 18"
   },
+  "card": {
+    "metacriticLabel": "Metacritic {score}",
+    "platformsLabel": "Platforms",
+    "platformsMore": "+{count}",
+    "platformNames": {
+      "PC": "PC",
+      "PLAYSTATION": "PlayStation",
+      "XBOX": "Xbox",
+      "NINTENDO": "Nintendo",
+      "MOBILE": "Mobile"
+    }
+  },
   "game": {
     "backToCatalog": "← Back to the catalog",
     "released": "Release date",
