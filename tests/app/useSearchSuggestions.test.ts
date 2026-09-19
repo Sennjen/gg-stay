@@ -14,9 +14,6 @@ const game = (search: string) => ({
   cover: null,
   platforms: [],
   genres: [],
-  price: null,
-  localisation: null,
-  madeInUkraine: false,
 })
 
 /** Mounts the composable inside a minimal host so lifecycle hooks (onBeforeUnmount) work. */

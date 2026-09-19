@@ -1,9 +1,20 @@
-fragment LandingGameCard on GameCard {
+# The ring only ever renders a cover and a link, so the carousel (24 cards on the ISR-cached LCP
+# page) asks for four fields, not a full card payload.
+fragment RingGameCard on GameCard {
+  id
+  slug
+  name
+  cover {
+    url
+  }
+}
+
+# The two rows render `GameCard`, so this fragment must match what `Games` selects for a card.
+fragment RowGameCard on GameCard {
   id
   slug
   name
   released
-  rating
   metacritic
   cover {
     url
@@ -12,27 +23,6 @@ fragment LandingGameCard on GameCard {
     url
   }
   platformFamilies
-  platforms {
-    id
-    slug
-    name
-  }
-  genres {
-    id
-    slug
-    name
-  }
-  price {
-    bestUah
-    discountPercent
-    isFree
-  }
-  localisation {
-    interface
-    subtitles
-    audio
-  }
-  madeInUkraine
 }
 
 query Landing {
@@ -46,18 +36,16 @@ query Landing {
         cover {
           url
         }
-        released
-        platformFamilies
       }
     }
     carousel {
-      ...LandingGameCard
+      ...RingGameCard
     }
     newReleases {
-      ...LandingGameCard
+      ...RowGameCard
     }
     topRated {
-      ...LandingGameCard
+      ...RowGameCard
     }
     totalGames
   }

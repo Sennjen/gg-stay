@@ -15,9 +15,6 @@ const rowGame = {
   platformFamilies: ['PC'],
   platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
   genres: [{ id: '4', slug: 'indie', name: 'Indie' }],
-  price: null,
-  localisation: null,
-  madeInUkraine: false,
 }
 
 const landingWithFeatured = {

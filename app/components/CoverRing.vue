@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { GamesQuery } from '~/graphql/__generated__/operations'
+import type { LandingQuery } from '~/graphql/__generated__/operations'
 
 const props = defineProps<{
-  games: GamesQuery['games']['items']
+  games: LandingQuery['landing']['carousel']
   title: string
 }>()
 

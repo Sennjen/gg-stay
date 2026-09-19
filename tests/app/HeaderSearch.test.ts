@@ -22,9 +22,6 @@ function games(names: string[]) {
     cover: null,
     platforms: [],
     genres: [],
-    price: null,
-    localisation: null,
-    madeInUkraine: false,
   }))
 }
 

@@ -16,9 +16,6 @@ const game = {
   platformFamilies: ['PC', 'PLAYSTATION'] as const,
   platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
   genres: [{ id: '4', slug: 'action', name: 'Action' }],
-  price: null,
-  localisation: null,
-  madeInUkraine: false,
 }
 
 describe('GameCard', () => {
