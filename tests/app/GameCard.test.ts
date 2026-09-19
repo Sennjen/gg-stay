@@ -91,20 +91,52 @@ describe('GameCard', () => {
     expect(wrapper.get('img').attributes('loading')).toBe('eager')
   })
 
-  it('renders a hidden hover image only when a screenshot exists', async () => {
+  it('renders only the cover on first paint, even when a screenshot exists', async () => {
     const wrapper = await mountSuspended(GameCard, { props: { game } })
-    const images = wrapper.findAll('img')
-    expect(images).toHaveLength(2)
-    const hoverImage = images[1]!
-    expect(hoverImage.attributes('alt')).toBe('')
-    expect(hoverImage.attributes('aria-hidden')).toBe('true')
-    expect(hoverImage.attributes('loading')).toBe('lazy')
+    expect(wrapper.findAll('img')).toHaveLength(1)
   })
 
-  it('renders no hover image when there are no screenshots', async () => {
+  it('loads the hidden preview image only after mouse hover shows intent', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    expect(wrapper.findAll('img')).toHaveLength(1)
+
+    await wrapper.get('a').trigger('pointerenter', { pointerType: 'mouse' })
+
+    const images = wrapper.findAll('img')
+    expect(images).toHaveLength(2)
+    const preview = images[1]!
+    expect(preview.attributes('src')).toContain('shot.jpg')
+    expect(preview.attributes('alt')).toBe('')
+    expect(preview.attributes('aria-hidden')).toBe('true')
+    expect(preview.attributes('loading')).toBe('lazy')
+    expect(preview.attributes('width')).toBe('420')
+    expect(preview.attributes('height')).toBe('236')
+  })
+
+  it('loads the hidden preview image only after keyboard focus shows intent', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    expect(wrapper.findAll('img')).toHaveLength(1)
+
+    await wrapper.get('a').trigger('focus')
+
+    expect(wrapper.findAll('img')).toHaveLength(2)
+  })
+
+  it('ignores a touch pointer: no preview fetch on tap', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+
+    await wrapper.get('a').trigger('pointerenter', { pointerType: 'touch' })
+
+    expect(wrapper.findAll('img')).toHaveLength(1)
+  })
+
+  it('never loads a preview when there are no screenshots, even on hover', async () => {
     const wrapper = await mountSuspended(GameCard, {
       props: { game: { ...game, screenshots: [] } },
     })
+
+    await wrapper.get('a').trigger('pointerenter', { pointerType: 'mouse' })
+
     expect(wrapper.findAll('img')).toHaveLength(1)
   })
 
