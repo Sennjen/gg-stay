@@ -23,7 +23,7 @@ function parseYear(raw: string): number | undefined {
           inputmode="numeric"
           :value="props.yearFrom ?? ''"
           :disabled="props.upcoming"
-          class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-2 py-1 text-fg focus-visible:outline-2"
+          class="mt-1 w-full rounded-card border border-line bg-surface-1 px-2 py-1 text-fg focus-visible:outline-2"
           @change="
             emit('change', { yearFrom: parseYear(($event.target as HTMLInputElement).value) })
           "
@@ -38,7 +38,7 @@ function parseYear(raw: string): number | undefined {
           inputmode="numeric"
           :value="props.yearTo ?? ''"
           :disabled="props.upcoming"
-          class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-2 py-1 text-fg focus-visible:outline-2"
+          class="mt-1 w-full rounded-card border border-line bg-surface-1 px-2 py-1 text-fg focus-visible:outline-2"
           @change="emit('change', { yearTo: parseYear(($event.target as HTMLInputElement).value) })"
         />
       </label>

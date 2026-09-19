@@ -11,7 +11,7 @@ const { t } = useI18n()
     <span>{{ t('catalog.sort') }}</span>
     <select
       :value="modelValue"
-      class="rounded-lg border border-line bg-surface-1 px-2 py-1.5 text-fg focus-visible:outline-2"
+      class="rounded-card border border-line bg-surface-1 px-2 py-1.5 text-fg focus-visible:outline-2"
       @change="
         emit('update:modelValue', ($event.target as HTMLSelectElement).value as GameSortValue)
       "

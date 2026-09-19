@@ -63,9 +63,9 @@ function add(slug: string) {
       type="search"
       :placeholder="t('filters.developerPlaceholder')"
       :aria-label="t('filters.developer')"
-      class="w-full rounded-lg border border-line bg-surface-1 px-2 py-1 text-sm text-fg focus-visible:outline-2"
+      class="w-full rounded-card border border-line bg-surface-1 px-2 py-1 text-sm text-fg focus-visible:outline-2"
     />
-    <ul v-if="suggestions.length" class="rounded-lg border border-line bg-surface-1">
+    <ul v-if="suggestions.length" class="rounded-card border border-line bg-surface-1">
       <li v-for="developer in suggestions" :key="developer.id">
         <button
           type="button"

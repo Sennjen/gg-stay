@@ -38,7 +38,7 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
         :to="localePath('/')"
         class="font-display-heading text-xl text-fg focus-visible:outline-2"
       >
-        gg stay
+        GG Stay
       </NuxtLink>
 
       <div class="flex items-center gap-4">

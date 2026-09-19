@@ -80,7 +80,7 @@ function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
         type="search"
         :aria-label="t('catalog.search')"
         :placeholder="t('catalog.search')"
-        class="min-w-0 flex-1 rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm text-fg focus-visible:outline-2"
+        class="min-w-0 flex-1 rounded-card border border-line bg-surface-1 px-3 py-2 text-sm text-fg focus-visible:outline-2"
       />
       <button
         type="submit"
