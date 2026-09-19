@@ -105,7 +105,9 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
     url.searchParams.set('appids', appId)
     url.searchParams.set('cc', 'ua')
     url.searchParams.set('l', 'ukrainian')
-    url.searchParams.set('filters', 'movies')
+    // No `filters` param: both the landing resolver's trailer lookup (`data.movies`) and the game
+    // page's localized description (`data.short_description` / `data.about_the_game`) share this
+    // one cached response per app id, so the response must carry every field either needs.
 
     try {
       const value = await fetchWithRetry(url.toString(), now)

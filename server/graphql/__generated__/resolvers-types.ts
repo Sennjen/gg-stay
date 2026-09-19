@@ -23,6 +23,10 @@ export type ClipSource =
   | 'RAWG'
   | 'STEAM';
 
+export type DescriptionSource =
+  | 'RAWG'
+  | 'STEAM';
+
 export type FeaturedGame = {
   clipSource?: Maybe<ClipSource>;
   clipUrl?: Maybe<Scalars['String']['output']>;
@@ -38,6 +42,7 @@ export type Game = {
   genres: Array<Taxonomy>;
   id: Scalars['ID']['output'];
   localisation?: Maybe<LocalisationInfo>;
+  localizedDescription?: Maybe<LocalizedText>;
   madeInUkraine: Scalars['Boolean']['output'];
   metacritic?: Maybe<Scalars['Int']['output']>;
   name: Scalars['String']['output'];
@@ -54,6 +59,11 @@ export type Game = {
   stores: Array<StoreOffer>;
   tags: Array<Taxonomy>;
   website?: Maybe<Scalars['String']['output']>;
+};
+
+
+export type GameLocalizedDescriptionArgs = {
+  locale: Scalars['String']['input'];
 };
 
 export type GameCard = {
@@ -149,6 +159,12 @@ export type LocalisationInfo = {
   interface: Scalars['Boolean']['output'];
   source: Scalars['String']['output'];
   subtitles: Scalars['Boolean']['output'];
+};
+
+export type LocalizedText = {
+  language: Scalars['String']['output'];
+  source: DescriptionSource;
+  text: Scalars['String']['output'];
 };
 
 export type PlatformFamily =
@@ -290,6 +306,7 @@ export type ResolversTypes = {
   AgeRating: AgeRating;
   Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
   ClipSource: ClipSource;
+  DescriptionSource: DescriptionSource;
   FeaturedGame: ResolverTypeWrapper<FeaturedGame>;
   Float: ResolverTypeWrapper<Scalars['Float']['output']>;
   Game: ResolverTypeWrapper<Game>;
@@ -304,6 +321,7 @@ export type ResolversTypes = {
   Landing: ResolverTypeWrapper<Landing>;
   Localisation: Localisation;
   LocalisationInfo: ResolverTypeWrapper<LocalisationInfo>;
+  LocalizedText: ResolverTypeWrapper<LocalizedText>;
   PlatformFamily: PlatformFamily;
   Playtime: Playtime;
   PriceSummary: ResolverTypeWrapper<PriceSummary>;
@@ -327,6 +345,7 @@ export type ResolversParentTypes = {
   Int: Scalars['Int']['output'];
   Landing: Landing;
   LocalisationInfo: LocalisationInfo;
+  LocalizedText: LocalizedText;
   PriceSummary: PriceSummary;
   Query: Record<PropertyKey, never>;
   StoreOffer: StoreOffer;
@@ -349,6 +368,7 @@ export type GameResolvers<ContextType = GraphQLContext, ParentType extends Resol
   genres?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   localisation?: Resolver<Maybe<ResolversTypes['LocalisationInfo']>, ParentType, ContextType>;
+  localizedDescription?: Resolver<Maybe<ResolversTypes['LocalizedText']>, ParentType, ContextType, RequireFields<GameLocalizedDescriptionArgs, 'locale'>>;
   madeInUkraine?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   metacritic?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -415,6 +435,12 @@ export type LocalisationInfoResolvers<ContextType = GraphQLContext, ParentType e
   subtitles?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
 };
 
+export type LocalizedTextResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['LocalizedText'] = ResolversParentTypes['LocalizedText']> = {
+  language?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  source?: Resolver<ResolversTypes['DescriptionSource'], ParentType, ContextType>;
+  text?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
 export type PriceSummaryResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['PriceSummary'] = ResolversParentTypes['PriceSummary']> = {
   bestStore?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   bestUah?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
@@ -455,6 +481,7 @@ export type Resolvers<ContextType = GraphQLContext> = {
   Image?: ImageResolvers<ContextType>;
   Landing?: LandingResolvers<ContextType>;
   LocalisationInfo?: LocalisationInfoResolvers<ContextType>;
+  LocalizedText?: LocalizedTextResolvers<ContextType>;
   PriceSummary?: PriceSummaryResolvers<ContextType>;
   Query?: QueryResolvers<ContextType>;
   StoreOffer?: StoreOfferResolvers<ContextType>;

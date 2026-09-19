@@ -34,7 +34,7 @@ describe('helpers', () => {
 })
 
 describe('createSteamFetch', () => {
-  it('requests appdetails with the fixed cc/l/filters params and returns the body', async () => {
+  it('requests appdetails with the fixed cc/l params and no filters, so text fields are present', async () => {
     const { deps } = makeDeps()
     const result = await createSteamFetch(deps)('292030')
     expect(result).toEqual({ ok: true })
@@ -43,7 +43,7 @@ describe('createSteamFetch', () => {
     expect(url.searchParams.get('appids')).toBe('292030')
     expect(url.searchParams.get('cc')).toBe('ua')
     expect(url.searchParams.get('l')).toBe('ukrainian')
-    expect(url.searchParams.get('filters')).toBe('movies')
+    expect(url.searchParams.has('filters')).toBe(false)
   })
 
   it('serves a fresh cache entry without fetching', async () => {

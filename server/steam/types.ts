@@ -11,6 +11,11 @@ export interface SteamAppDetails {
   success?: boolean
   data?: {
     movies?: SteamMovie[] | null
+    /** HTML. Localised to `l`/`cc` when the publisher provides a translation, English otherwise
+     *  (Steam does not signal the fallback — see `server/steam/description.ts`). */
+    about_the_game?: string | null
+    /** HTML, usually shorter than `about_the_game`. May be filled when `about_the_game` is empty. */
+    short_description?: string | null
   } | null
 }
 
