@@ -34,7 +34,7 @@ flowchart LR
 
 - The browser never calls RAWG or Steam directly; both API surfaces are only reached from the server.
 - Resolvers are thin: `filterToParams` → `rawgFetch` → `postFilter` → `mappers`. RAWG field names stop at the mapper.
-- `rawgFetch` adds a 4 rps limiter, a 5 s timeout, one retry on 5xx or timeout, a cache (lists 10 min, detail 24 h, taxonomies 7 days) and stale-if-error; `steamFetch` follows the same shape.
+- Both upstreams go through one transport (`createUpstreamFetch`): a rate limiter, a 5 s timeout, one retry on 5xx or timeout, an LRU-bounded cache and stale-if-error. RAWG is parameterised at 4 rps with per-path TTLs (lists 10 min, detail 24 h, taxonomies 7 days); Steam at one request per 1.5 s with a flat 24 h TTL. Errors name their own upstream.
 - All catalog filter state lives in the URL, parsed and serialised by pure functions.
 
 ## Landing page
@@ -65,9 +65,11 @@ Decisions are recorded in [docs/adr](docs/adr); the week 1 design is in
 
 ## Performance
 
-Lighthouse (mobile) is measured on `/` and `/games` after each performance
-change lands, with the report and numbers recorded in
-[docs/perf](docs/perf/README.md).
+Lighthouse (mobile) is measured on `/`, `/games` and a game page after each
+performance change lands, with the report and numbers recorded in
+[docs/perf](docs/perf/README.md). That file also carries the measured
+first-load JavaScript for `/games` (131.1 KB gzipped, 117.5 KB brotli) against
+the 120 KB budget ADR-002 set, chunk by chunk, and what is left to move.
 
 ## Development
 
@@ -84,11 +86,18 @@ pnpm dev
 | `pnpm lint` / `pnpm format:check` | ESLint and Prettier                                    |
 | `pnpm codegen`                    | Regenerate GraphQL types; CI fails when they are stale |
 
+## Security
+
+- **The GraphQL endpoint is public and cost-limited.** Operations are rejected before execution — and therefore before any upstream call — when they select more than 12 root fields, nest deeper than 7 levels, or repeat `game`/`games`/`landing` more than three times; the rejection is a GraphQL error with `extensions.code: "QUERY_TOO_COMPLEX"` inside an HTTP 200, like every other error this endpoint produces. Query batching is refused, and introspection is off in production.
+- **Third-party URLs are scheme-checked.** RAWG game websites, store links and trailer URLs are partly publisher-submitted; `safeExternalUrl` allows only `http:`/`https:`, applied in the mappers so an unsafe value never enters a response, and again at the two templates that bind them to `href`.
+- **Security headers on every route**, set through `routeRules`: a Content-Security-Policy scoped to this app's real origins (`media.rawg.io` for images, Steam's video CDN for the HLS trailer, self-hosted fonts), plus `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and `X-Frame-Options`. `script-src` carries sha256 hashes of the two scripts Nuxt inlines, computed per response, so it never needs `'unsafe-inline'`; `style-src` does, because Nuxt inlines each route's critical CSS and there is no hook to hash it without a module.
+- **Steam HTML is stripped, never interpolated as markup** — a hand-written linear scanner (`server/steam/description.ts`) whose output only ever reaches text interpolation.
+
 ## Known gaps
 
 - Player rating, playtime and age rating filters are applied after fetching a page, because RAWG has no query parameters for them. A filtered page can hold fewer than 20 games and the total count reflects the unfiltered query.
 - Selecting several game modes widens the result set rather than narrowing it, because RAWG treats comma-separated tags as OR.
-- The response cache is in memory per server instance until the shared Redis store lands in week 2.
+- The response cache is in memory per server instance, LRU-bounded at 500 entries, until the shared Redis store lands in week 2.
 - Fixture mode ignores filters that RAWG would apply server-side.
 - Steam trailer URLs carry a signed query string; how long that signature stays valid is undocumented by Steam, so a cached trailer link could go stale before its own cache entry expires. Not yet observed in practice.
 - There are no prices yet — `PriceSummary`/`StoreOffer` price fields exist in the schema but resolve to `null` until the nightly Steam index (week 2) fills them in.
