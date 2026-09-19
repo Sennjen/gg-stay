@@ -178,41 +178,79 @@ tabular-nums` in the interface face, without switching to the mono family.
 
 Status values: **exists** (unchanged since before the redesign),
 **restyled in PR 1** (tokens/classes only, no behaviour change),
-**planned** (arrives in a later PR per the design doc's work order).
+**done** (built and finished as designed).
 
-| Component                | Status                                                                                 |
-| ------------------------ | -------------------------------------------------------------------------------------- |
-| `AppHeader`              | Added in PR 1                                                                          |
-| `HeaderSearch`           | Planned — PR 5                                                                         |
-| `HeroFeatured`           | Planned — PR 6                                                                         |
-| `HeroVideo`              | Planned — PR 6                                                                         |
-| `CoverRing`              | Planned — PR 7                                                                         |
-| `CoverMarquee`           | Planned — PR 7                                                                         |
-| `WhyCards`               | Planned — PR 7                                                                         |
-| `GameRow`                | Planned — PR 7                                                                         |
-| `MetacriticBadge`        | Planned — PR 3                                                                         |
-| `PlatformIcons`          | Planned — PR 3                                                                         |
-| `ActiveFilterChips`      | Planned — PR 4                                                                         |
-| `FilterDrawer`           | Planned — PR 4                                                                         |
-| `FilterSection`          | Planned — PR 4                                                                         |
-| `SegmentedControl`       | Planned — PR 4                                                                         |
-| `YearRangeSlider`        | Planned — PR 4                                                                         |
-| `ViewToggle`             | Planned — PR 4                                                                         |
-| `ResultCount`            | Planned — PR 4                                                                         |
-| `ScreenshotGallery`      | Planned — PR 8                                                                         |
-| `pages/index.vue`        | Dark pass only in PR 1 — full landing rebuild is PR 6/7                                |
-| `FilterPanel`            | Restyled in PR 1 (dark pass); `SegmentedControl`/`YearRangeSlider` swap in PR 4        |
-| `filters/RadioList`      | Restyled in PR 1 (dark pass); replaced by `SegmentedControl` in PR 4                   |
-| `filters/YearRange`      | Restyled in PR 1 (dark pass); replaced by `YearRangeSlider` in PR 4                    |
-| `GameCard`               | Restyled in PR 1 (dark pass); full restyle (hover, score band, platform icons) in PR 3 |
-| `GameGrid`               | Restyled in PR 1 (dark pass)                                                           |
-| `SortSelect`             | Restyled in PR 1 (dark pass)                                                           |
-| `Pagination`             | Restyled in PR 1 (dark pass)                                                           |
-| `states/LoadingState`    | Restyled in PR 1 (dark pass)                                                           |
-| `states/EmptyState`      | Restyled in PR 1 (dark pass)                                                           |
-| `states/ErrorState`      | Restyled in PR 1 (dark pass)                                                           |
-| `StoreLinks`             | Restyled in PR 1 (dark pass)                                                           |
-| `LocaleSwitcher`         | Restyled in PR 1 (dark pass)                                                           |
-| `layouts/default`        | Header extracted to `AppHeader`, footer restyled in PR 1                               |
-| `error.vue`              | Restyled in PR 1 (dark pass)                                                           |
-| `pages/games/[slug].vue` | Dark pass in PR 1; full restyle (scoreboard row, gallery) in PR 8                      |
+| Component                | Status                                                                                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AppHeader`              | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9                                                                                          |
+| `AppFooter`              | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                         |
+| `HeaderSearch`           | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                         |
+| `HeroFeatured`           | Done — PR 6                                                                                                                                                         |
+| `HeroVideo`              | Done — PR 6                                                                                                                                                         |
+| `CoverRing`              | Done — PR 7; `onFocusOut` hardened against a null `relatedTarget` in PR 9                                                                                           |
+| `CoverMarquee`           | Done — PR 7                                                                                                                                                         |
+| `WhyCards`               | Done — PR 7                                                                                                                                                         |
+| `GameRow`                | Done — PR 7                                                                                                                                                         |
+| `MetacriticBadge`        | Done — PR 3                                                                                                                                                         |
+| `PlatformIcons`          | Done — PR 3                                                                                                                                                         |
+| `ActiveFilterChips`      | Done — PR 4                                                                                                                                                         |
+| `FilterDrawer`           | Done — PR 4                                                                                                                                                         |
+| `FilterSection`          | Done — PR 4                                                                                                                                                         |
+| `SegmentedControl`       | Done — PR 4                                                                                                                                                         |
+| `YearRangeSlider`        | Done — PR 4                                                                                                                                                         |
+| `ViewToggle`             | Done — PR 4                                                                                                                                                         |
+| `ResultCount`            | Done — PR 4                                                                                                                                                         |
+| `ScreenshotGallery`      | Done — PR 8                                                                                                                                                         |
+| `pages/index.vue`        | Full landing page — PR 6/7                                                                                                                                          |
+| `FilterPanel`            | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4                                                                                                     |
+| `filters/RadioList`      | Replaced by `SegmentedControl` in PR 4                                                                                                                              |
+| `filters/YearRange`      | Replaced by `YearRangeSlider` in PR 4                                                                                                                               |
+| `GameCard`               | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9 |
+| `GameGrid`               | Restyled in PR 1; passes `heading-level="2"` to `GameCard` since PR 9                                                                                               |
+| `SortSelect`             | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `Pagination`             | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `states/LoadingState`    | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `states/EmptyState`      | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `states/ErrorState`      | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `StoreLinks`             | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `LocaleSwitcher`         | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `layouts/default`        | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9                                |
+| `error.vue`              | Restyled in PR 1 (dark pass)                                                                                                                                        |
+| `pages/games/[slug].vue` | Full restyle (scoreboard row, gallery) in PR 8                                                                                                                      |
+
+### Footer (PR 9)
+
+`AppFooter` replaces the plain attribution strip that used to live inline in
+`layouts/default.vue`. Three columns on `sm:` and up (stacked below that):
+the "GG Stay" logo (display face) with the same one-line tagline used for
+`<meta name="description">` (`home.description`), a labelled nav
+(`footer.nav`) with links to the catalog, new releases
+(`/games?sort=RELEASED_DESC`) and the project's GitHub repository (an
+inline, hand-drawn `currentColor` SVG mark, external with
+`rel="noopener noreferrer"`), and `LocaleSwitcher`. A bottom row in
+`fg-2` keeps the existing RAWG/Steam attribution sentence and the
+ownership sentence, both already present in the locale files.
+
+### Accessibility additions (PR 9)
+
+- A skip link ("Перейти до вмісту" / "Skip to content") is the first
+  focusable element on every page, targeting `#main-content` (the
+  layout's content wrapper, which every page's own `<main>` sits inside).
+- `AppHeader`'s catalog link is wrapped in a `<nav aria-label="nav.primary">`;
+  `AppFooter`'s link group is a `<nav aria-label="footer.nav">` — both
+  landmarks are distinguishable from each other and from the existing
+  `LocaleSwitcher`/`Pagination` navs, which were already labelled.
+- **Ring covers decision (design doc vs. shipped behaviour):** the design
+  doc asked for ring covers to be "hidden from assistive technology except
+  the focused one." `CoverRing` ships with every cover as a real,
+  always-focusable `NuxtLink` instead. Kept as-is: the covers' DOM order
+  matches their visual rest order, each has a correct accessible name (the
+  game's title, via `alt`), Arrow Left/Right step through them without
+  requiring 24 individual Tab presses, and the `role="status"` live region
+  only announces on a real focus change (not once per animation frame), so
+  it is not chatty. Rotation itself is a purely visual/decorative effect a
+  screen reader user never needs to perceive — exposing every cover as a
+  reachable link gives that user strictly more access to the row's content
+  than hiding 23 of 24 items would, and implementing a stricter
+  roving-tabindex/`aria-hidden` scheme risked behaviour regressions in a
+  pass that is not supposed to change behaviour.
