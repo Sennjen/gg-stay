@@ -42,6 +42,34 @@ describe('filterToParams', () => {
     expect(filterToParams({ ...base, filter })).toMatchObject(expected)
   })
 
+  describe('search relevance ordering', () => {
+    it('sends no ordering for a search with the default sort', () => {
+      const params = filterToParams({
+        ...base,
+        sort: 'POPULARITY_DESC',
+        filter: { search: 'witcher' },
+      })
+      expect(params).not.toHaveProperty('ordering')
+      expect(params.search).toBe('witcher')
+    })
+
+    it('still sends ordering for a search with an explicitly chosen sort', () => {
+      const params = filterToParams({ ...base, sort: 'RATING_DESC', filter: { search: 'witcher' } })
+      expect(params.ordering).toBe('-rating')
+    })
+
+    it('sends the default ordering when there is no search', () => {
+      const params = filterToParams({ ...base, sort: 'POPULARITY_DESC', filter: null })
+      expect(params.ordering).toBe('-added')
+    })
+
+    it('treats a whitespace-only search as no search', () => {
+      const params = filterToParams({ ...base, sort: 'POPULARITY_DESC', filter: { search: '   ' } })
+      expect(params.ordering).toBe('-added')
+      expect(params).not.toHaveProperty('search')
+    })
+  })
+
   it('ignores post-filter and index-backed fields', () => {
     const params = filterToParams({
       ...base,

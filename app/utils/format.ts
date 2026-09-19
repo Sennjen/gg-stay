@@ -16,3 +16,24 @@ export function formatDate(iso: string | null | undefined, localeTag: string): s
 export function formatNumber(value: number, localeTag: string): string {
   return new Intl.NumberFormat(localeTag).format(value)
 }
+
+/** Formats a decimal with a fixed number of fraction digits, localised (e.g. "3,6" in uk-UA). */
+export function formatDecimal(value: number, localeTag: string, fractionDigits = 1): string {
+  return new Intl.NumberFormat(localeTag, {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value)
+}
+
+/**
+ * Splits a RAWG `description_raw` block into paragraphs. Handles `\n`, `\r\n` and blank-line
+ * separated paragraphs, trims each one, and drops empty paragraphs (including leading/trailing
+ * blank lines).
+ */
+export function splitParagraphs(text: string | null | undefined): string[] {
+  if (!text) return []
+  return text
+    .split(/\r?\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0)
+}
