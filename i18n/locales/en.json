@@ -25,5 +25,63 @@
     "title": "Page not found",
     "hint": "The game may have been removed or the address is wrong.",
     "toCatalog": "Go to the catalog"
+  },
+  "catalog": {
+    "title": "Game catalog",
+    "description": "Video game catalog with filters by platform, genre, year, rating and game mode.",
+    "results": "Found: {count}",
+    "filters": "Filters",
+    "search": "Search by title",
+    "searchButton": "Search",
+    "any": "Any",
+    "sort": "Sort by",
+    "prev": "Previous",
+    "next": "Next",
+    "page": "Page {page}",
+    "noCover": "No cover"
+  },
+  "filters": {
+    "platform": "Platform",
+    "genre": "Genre",
+    "year": "Release year",
+    "yearFrom": "From",
+    "yearTo": "To",
+    "upcoming": "Upcoming",
+    "metacritic": "Metacritic",
+    "metacriticMin": "{value}+",
+    "userRating": "Player rating 4.0+",
+    "playtime": "Playtime",
+    "gameMode": "Game mode",
+    "ageRating": "Age rating",
+    "store": "Store",
+    "developer": "Developer",
+    "developerPlaceholder": "Start typing a studio name",
+    "remove": "Remove {name}"
+  },
+  "sorts": {
+    "POPULARITY_DESC": "Popularity",
+    "RATING_DESC": "Player rating",
+    "METACRITIC_DESC": "Metacritic",
+    "RELEASED_DESC": "Newest first",
+    "RELEASED_ASC": "Oldest first",
+    "NAME_ASC": "Name"
+  },
+  "playtimes": {
+    "SHORT": "Short (under 10 h)",
+    "MEDIUM": "Medium (10–40 h)",
+    "LONG": "Long (40+ h)"
+  },
+  "gameModes": {
+    "SINGLE": "Single-player",
+    "LOCAL_COOP": "Local co-op",
+    "ONLINE_COOP": "Online co-op",
+    "MULTIPLAYER": "Multiplayer"
+  },
+  "ageRatings": {
+    "PEGI3": "PEGI 3",
+    "PEGI7": "PEGI 7",
+    "PEGI12": "PEGI 12",
+    "PEGI16": "PEGI 16",
+    "PEGI18": "PEGI 18"
   }
 }
