@@ -4,7 +4,7 @@
 
 A server-rendered video game catalog built for Ukrainian players: Ukrainian-first interface, practical filters, and a GraphQL layer over the [RAWG](https://rawg.io) API.
 
-**Live:** _added after the first production deployment_
+**Live:** https://gg-stay.vercel.app
 
 ## Status
 
