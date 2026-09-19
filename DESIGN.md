@@ -129,6 +129,25 @@ package) provider, which does serve the full variable font file.
   `.font-tabular` instead of `.font-numeric` — `font-variant-numeric:
 tabular-nums` in the interface face, without switching to the mono family.
 
+### Card meta row
+
+- **Platforms are short text labels, not glyphs.** `PlatformIcons` renders a
+  `<ul>` of plain text (`PC`, `PlayStation`, `Xbox`, `Nintendo`, `Mobile` /
+  `Мобільні`), separated by a middle dot, 12–13px `fg-2`, in enum order with
+  `OTHER` always hidden. Text needs no trademark artwork and is accessible by
+  default — no icon glyphs, no `sr-only` duplicate labels. A `max` prop
+  (default 5) caps how many labels show before a mono `+N`; the catalog card
+  passes `max="3"` so the row still fits a narrow column, and `+N` carries the
+  hidden platform names as its `title`/accessible name.
+- **The Metacritic score is labelled.** `MetacriticBadge` takes an optional
+  `caption` prop; when set (the catalog card — the game page scoreboard
+  already has a visible `dt` caption, so it passes the badge unchanged), a
+  visible "Metacritic" caption (12px, `fg-2`) precedes the coloured score
+  chip, so the row reads "Metacritic 82" instead of a bare number. Below a
+  ~360px card width "Metacritic" no longer fits on the line, so the caption
+  falls back to "MC" with a `title="Metacritic"` tooltip at that width only.
+  The chip itself (band colour, accessible name) is unchanged.
+
 ### Contrast ratios computed for this PR
 
 | Foreground            | Background            | Ratio   | Passes AA (normal text, 4.5:1)?   |

@@ -117,6 +117,8 @@
   },
   "card": {
     "metacriticLabel": "Metacritic {score}",
+    "metacriticCaption": "Metacritic",
+    "metacriticCaptionShort": "MC",
     "platformsLabel": "Platforms",
     "platformsMore": "+{count}",
     "platformNames": {

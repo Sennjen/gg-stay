@@ -117,6 +117,8 @@
   },
   "card": {
     "metacriticLabel": "Metacritic {score}",
+    "metacriticCaption": "Metacritic",
+    "metacriticCaptionShort": "MC",
     "platformsLabel": "Платформи",
     "platformsMore": "+{count}",
     "platformNames": {
@@ -124,7 +126,7 @@
       "PLAYSTATION": "PlayStation",
       "XBOX": "Xbox",
       "NINTENDO": "Nintendo",
-      "MOBILE": "Мобільні пристрої"
+      "MOBILE": "Мобільні"
     }
   },
   "drawer": {
