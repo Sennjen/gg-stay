@@ -10,7 +10,12 @@ import {
 } from '#shared/catalog'
 import type { CatalogFilter } from '~/utils/filterUrl'
 
-const props = defineProps<{ filter: CatalogFilter; genres: { slug: string; name: string }[] }>()
+const props = defineProps<{
+  filter: CatalogFilter
+  genres: { slug: string; name: string }[]
+  /** Deterministic upper bound for the year slider (current year + 2), passed by the page. */
+  maxYear: number
+}>()
 const emit = defineEmits<{ change: [patch: Partial<CatalogFilter>] }>()
 const { t } = useI18n()
 
@@ -67,6 +72,28 @@ function onMetacriticChange(value: number | undefined) {
 function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
   emit('change', { playtime: value })
 }
+function toggleRating() {
+  emit('change', {
+    ratingMin: props.filter.ratingMin === USER_RATING_MIN ? undefined : USER_RATING_MIN,
+  })
+}
+
+/** Sections that hold an active value start open; toggling one afterwards is remembered in the store. */
+const sectionActive = computed(() => ({
+  platform: (props.filter.platforms?.length ?? 0) > 0,
+  genre: (props.filter.genres?.length ?? 0) > 0,
+  year:
+    props.filter.yearFrom !== undefined ||
+    props.filter.yearTo !== undefined ||
+    props.filter.upcoming === true,
+  metacritic: props.filter.metacriticMin !== undefined,
+  userRating: props.filter.ratingMin !== undefined,
+  playtime: props.filter.playtime !== undefined,
+  gameMode: (props.filter.gameModes?.length ?? 0) > 0,
+  ageRating: (props.filter.ageRating?.length ?? 0) > 0,
+  store: (props.filter.stores?.length ?? 0) > 0,
+  developer: (props.filter.developers?.length ?? 0) > 0,
+}))
 </script>
 
 <template>
@@ -90,74 +117,131 @@ function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
       </button>
     </div>
 
-    <FiltersCheckboxList
-      :legend="t('filters.platform')"
-      :options="platformOptions"
-      :model-value="filter.platforms ?? []"
-      @update:model-value="onPlatformsChange"
-    />
-    <FiltersCheckboxList
-      :legend="t('filters.genre')"
-      :options="genreOptions"
-      :model-value="filter.genres ?? []"
-      @update:model-value="onGenresChange"
-    />
-    <FiltersYearRange
-      :year-from="filter.yearFrom"
-      :year-to="filter.yearTo"
-      :upcoming="filter.upcoming"
-      @change="emit('change', $event)"
-    />
-    <FiltersRadioList
-      name="metacritic"
-      :legend="t('filters.metacritic')"
-      :options="metacriticOptions"
-      :model-value="filter.metacriticMin"
-      @update:model-value="onMetacriticChange"
-    />
-    <FiltersFilterGroup :legend="t('filters.userRating')">
-      <label class="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          class="size-4 accent-accent focus-visible:outline-2"
-          :checked="filter.ratingMin === USER_RATING_MIN"
-          @change="
-            emit('change', {
-              ratingMin: ($event.target as HTMLInputElement).checked ? USER_RATING_MIN : undefined,
-            })
-          "
-        />
+    <FilterSection
+      section-id="platform"
+      :title="t('filters.platform')"
+      :active="sectionActive.platform"
+    >
+      <FiltersCheckboxList
+        :legend="t('filters.platform')"
+        :options="platformOptions"
+        :model-value="filter.platforms ?? []"
+        @update:model-value="onPlatformsChange"
+      />
+    </FilterSection>
+
+    <FilterSection section-id="genre" :title="t('filters.genre')" :active="sectionActive.genre">
+      <FiltersCheckboxList
+        :legend="t('filters.genre')"
+        :options="genreOptions"
+        :model-value="filter.genres ?? []"
+        @update:model-value="onGenresChange"
+      />
+    </FilterSection>
+
+    <FilterSection section-id="year" :title="t('filters.year')" :active="sectionActive.year">
+      <YearRangeSlider
+        :year-from="filter.yearFrom"
+        :year-to="filter.yearTo"
+        :upcoming="filter.upcoming"
+        :min-year="1970"
+        :max-year="maxYear"
+        @change="emit('change', $event)"
+      />
+    </FilterSection>
+
+    <FilterSection
+      section-id="metacritic"
+      :title="t('filters.metacritic')"
+      :active="sectionActive.metacritic"
+    >
+      <SegmentedControl
+        :legend="t('filters.metacritic')"
+        :any-label="t('catalog.any')"
+        :options="metacriticOptions"
+        :model-value="filter.metacriticMin"
+        @update:model-value="onMetacriticChange"
+      />
+    </FilterSection>
+
+    <FilterSection
+      section-id="userRating"
+      :title="t('filters.userRating')"
+      :active="sectionActive.userRating"
+    >
+      <button
+        type="button"
+        :aria-pressed="filter.ratingMin === USER_RATING_MIN"
+        class="rounded-chip border px-3 py-1.5 text-sm focus-visible:outline-2"
+        :class="
+          filter.ratingMin === USER_RATING_MIN
+            ? 'border-accent bg-accent text-on-accent'
+            : 'border-line bg-surface-1 text-fg-2 hover:text-fg'
+        "
+        @click="toggleRating"
+      >
         {{ t('filters.userRating') }}
-      </label>
-    </FiltersFilterGroup>
-    <FiltersRadioList
-      name="playtime"
-      :legend="t('filters.playtime')"
-      :options="playtimeOptions"
-      :model-value="filter.playtime"
-      @update:model-value="onPlaytimeChange"
-    />
-    <FiltersCheckboxList
-      :legend="t('filters.gameMode')"
-      :options="modeOptions"
-      :model-value="filter.gameModes ?? []"
-      @update:model-value="onGameModesChange"
-    />
-    <FiltersCheckboxList
-      :legend="t('filters.ageRating')"
-      :options="ageOptions"
-      :model-value="filter.ageRating ?? []"
-      @update:model-value="onAgeRatingChange"
-    />
-    <FiltersCheckboxList
-      :legend="t('filters.store')"
-      :options="storeOptions"
-      :model-value="filter.stores ?? []"
-      @update:model-value="onStoresChange"
-    />
-    <FiltersDeveloperAutocomplete
-      :model-value="filter.developers ?? []"
-      @update:model-value="onDevelopersChange"
-    />
+      </button>
+    </FilterSection>
+
+    <FilterSection
+      section-id="playtime"
+      :title="t('filters.playtime')"
+      :active="sectionActive.playtime"
+    >
+      <SegmentedControl
+        :legend="t('filters.playtime')"
+        :any-label="t('catalog.any')"
+        :options="playtimeOptions"
+        :model-value="filter.playtime"
+        @update:model-value="onPlaytimeChange"
+      />
+    </FilterSection>
+
+    <FilterSection
+      section-id="gameMode"
+      :title="t('filters.gameMode')"
+      :active="sectionActive.gameMode"
+    >
+      <FiltersCheckboxList
+        :legend="t('filters.gameMode')"
+        :options="modeOptions"
+        :model-value="filter.gameModes ?? []"
+        @update:model-value="onGameModesChange"
+      />
+    </FilterSection>
+
+    <FilterSection
+      section-id="ageRating"
+      :title="t('filters.ageRating')"
+      :active="sectionActive.ageRating"
+    >
+      <FiltersCheckboxList
+        :legend="t('filters.ageRating')"
+        :options="ageOptions"
+        :model-value="filter.ageRating ?? []"
+        @update:model-value="onAgeRatingChange"
+      />
+    </FilterSection>
+
+    <FilterSection section-id="store" :title="t('filters.store')" :active="sectionActive.store">
+      <FiltersCheckboxList
+        :legend="t('filters.store')"
+        :options="storeOptions"
+        :model-value="filter.stores ?? []"
+        @update:model-value="onStoresChange"
+      />
+    </FilterSection>
+
+    <FilterSection
+      section-id="developer"
+      :title="t('filters.developer')"
+      :active="sectionActive.developer"
+    >
+      <FiltersDeveloperAutocomplete
+        :model-value="filter.developers ?? []"
+        @update:model-value="onDevelopersChange"
+      />
+    </FilterSection>
   </form>
 </template>

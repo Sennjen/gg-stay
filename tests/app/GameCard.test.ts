@@ -162,4 +162,52 @@ describe('GameCard', () => {
     expect(metaRow?.className).toContain('flex-nowrap')
     expect(metaRow?.className).not.toContain('flex-wrap')
   })
+
+  describe('layout="list"', () => {
+    it('lays out horizontally at >= 640px, with the cover at a fixed 220px width', async () => {
+      const wrapper = await mountSuspended(GameCard, { props: { game, layout: 'list' } })
+      const link = wrapper.get('a')
+      expect(link.classes()).toEqual(expect.arrayContaining(['flex-col', 'sm:flex-row']))
+
+      const cover = wrapper.get('[data-test="game-card"] img').element.parentElement!
+      expect(cover.className).toContain('sm:w-[220px]')
+      expect(cover.className).toContain('w-full')
+    })
+
+    it('asks for a narrower image than the grid layout, keeping explicit width/height', async () => {
+      const grid = await mountSuspended(GameCard, { props: { game } })
+      const list = await mountSuspended(GameCard, { props: { game, layout: 'list' } })
+      // `NuxtImg` resolves its own `sizes` attribute from the `sizes` prop; what matters here is
+      // that list asks for a narrower rendered size than grid, not the raw HTML sizes syntax.
+      const gridSizes = grid.get('img').attributes('sizes')!
+      const listSizes = list.get('img').attributes('sizes')!
+      expect(listSizes).not.toBe(gridSizes)
+      expect(listSizes).toContain('220')
+      expect(gridSizes).toContain('420')
+
+      const cover = list.get('img')
+      expect(cover.attributes('width')).toBe('420')
+      expect(cover.attributes('height')).toBe('236')
+    })
+
+    it('keeps the eager/lazy rule and the hover/focus preview behaviour unchanged', async () => {
+      const eager = await mountSuspended(GameCard, { props: { game, layout: 'list', eager: true } })
+      expect(eager.get('img').attributes('loading')).toBe('eager')
+
+      const wrapper = await mountSuspended(GameCard, { props: { game, layout: 'list' } })
+      expect(wrapper.findAll('img')).toHaveLength(1)
+      await wrapper.get('a').trigger('pointerenter', { pointerType: 'mouse' })
+      const images = wrapper.findAll('img')
+      expect(images).toHaveLength(2)
+      expect(images[1]!.attributes('width')).toBe('420')
+      expect(images[1]!.attributes('height')).toBe('236')
+    })
+
+    it('defaults to "grid": no sm:flex-row and no fixed cover width', async () => {
+      const wrapper = await mountSuspended(GameCard, { props: { game } })
+      expect(wrapper.get('a').classes()).not.toContain('sm:flex-row')
+      const cover = wrapper.get('img').element.parentElement!
+      expect(cover.className).not.toContain('sm:w-[220px]')
+    })
+  })
 })

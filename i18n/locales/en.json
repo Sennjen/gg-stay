@@ -21,7 +21,7 @@
   "states": {
     "loading": "Loading…",
     "emptyTitle": "Nothing found",
-    "emptyHint": "Try changing or clearing the filters.",
+    "emptyHint": "No games match these filters. Remove one or clear them all.",
     "clearFilters": "Clear filters"
   },
   "errors": {
@@ -47,7 +47,10 @@
     "prev": "Previous",
     "next": "Next",
     "page": "Page {page}",
-    "noCover": "No cover"
+    "noCover": "No cover",
+    "view": "List layout",
+    "viewGrid": "Grid",
+    "viewList": "List"
   },
   "filters": {
     "platform": "Platform",
@@ -104,6 +107,19 @@
       "NINTENDO": "Nintendo",
       "MOBILE": "Mobile"
     }
+  },
+  "drawer": {
+    "title": "Filters",
+    "close": "Close",
+    "openButton": "Filters ({count})",
+    "showResults": "Show {count} games",
+    "resetAll": "Reset all"
+  },
+  "chips": {
+    "search": "“{term}”",
+    "yearFrom": "from {year}",
+    "yearTo": "up to {year}",
+    "resetAll": "Reset all"
   },
   "game": {
     "backToCatalog": "← Back to the catalog",

@@ -20,6 +20,12 @@ describe('server-side rendering', async () => {
     expect(html).toContain('Каталог ігор')
   })
 
+  it('renders the filters button and numbered pagination', async () => {
+    const html = await $fetch<string>('/games')
+    expect(html).toContain('Фільтри')
+    expect(html).toMatch(/aria-current="page"/)
+  })
+
   it('applies URL filters on the server', async () => {
     const html = await $fetch<string>('/games?playtime=LONG')
     expect(html).toContain('The Witcher 3: Wild Hunt')
@@ -31,6 +37,7 @@ describe('server-side rendering', async () => {
     // so this post-filter yields zero results while still exercising server filtering.
     const html = await $fetch<string>('/games?ageRating=PEGI12')
     expect(html).toContain('Нічого не знайдено')
+    expect(html).toContain('За цими фільтрами ігор немає. Приберіть один або скиньте всі.')
     expect(html).toContain('Скинути фільтри')
   })
 
