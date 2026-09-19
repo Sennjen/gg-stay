@@ -36,6 +36,7 @@ export type Game = {
   madeInUkraine: Scalars['Boolean']['output'];
   metacritic?: Maybe<Scalars['Int']['output']>;
   name: Scalars['String']['output'];
+  platformFamilies: Array<PlatformFamily>;
   platforms: Array<Taxonomy>;
   playtime?: Maybe<Scalars['Int']['output']>;
   publishers: Array<Taxonomy>;
@@ -344,6 +345,7 @@ export type GameResolvers<ContextType = GraphQLContext, ParentType extends Resol
   madeInUkraine?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   metacritic?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  platformFamilies?: Resolver<Array<ResolversTypes['PlatformFamily']>, ParentType, ContextType>;
   platforms?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
   playtime?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   publishers?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;

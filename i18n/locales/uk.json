@@ -123,5 +123,14 @@
     "whereToBuy": "Де купити",
     "about": "Про гру",
     "metaFallback": "{name} — платформи, жанри, рейтинг і магазини."
+  },
+  "gallery": {
+    "heading": "Скріншоти",
+    "thumbnailAlt": "{title} — скріншот {n}",
+    "dialogLabel": "Перегляд скріншотів: {title}",
+    "counter": "{current} / {total}",
+    "close": "Закрити",
+    "previous": "Попередній скріншот",
+    "next": "Наступний скріншот"
   }
 }

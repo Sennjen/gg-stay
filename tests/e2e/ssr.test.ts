@@ -53,6 +53,21 @@ describe('server-side rendering', async () => {
     expect(html).toContain('https://store.steampowered.com/app/292030/')
   })
 
+  it('renders the hero title and scoreboard row on the detail page', async () => {
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    expect(html).toMatch(/<h1[^>]*>\s*The Witcher 3: Wild Hunt\s*<\/h1>/)
+    // The scoreboard row shows the same localised release date as the rest of the page.
+    expect(html).toContain('18 травня 2015')
+    expect(html).toContain('92')
+  })
+
+  it('renders the screenshot gallery thumbnails into the server HTML', async () => {
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    expect(html).toContain('screenshots/201001/full1.jpg')
+    expect(html).toContain('screenshots/201002/full2.jpg')
+    expect(html).toContain('screenshots/201003/full3.jpg')
+  })
+
   it('responds 404 for an unknown slug, with a noindex HTML page when the client accepts HTML', async () => {
     const response = await fetch('/games/does-not-exist', { headers: { accept: 'text/html' } })
     expect(response.status).toBe(404)

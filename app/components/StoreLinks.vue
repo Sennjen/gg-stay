@@ -18,9 +18,24 @@ const storeName = (slug: string) =>
           :href="offer.url"
           target="_blank"
           rel="noopener noreferrer"
-          class="inline-block rounded-chip border border-line bg-surface-1 px-3 py-1.5 text-sm text-fg hover:bg-surface-2 focus-visible:outline-2"
+          class="inline-flex items-center gap-1.5 rounded-chip border border-line bg-surface-1 px-3 py-1.5 text-sm text-fg transition-colors duration-200 ease-out hover:bg-surface-2 focus-visible:outline-2"
         >
           {{ storeName(offer.store) }}
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 16 16"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M6.5 3.5h6v6" />
+            <path d="M12.5 3.5 6 10" />
+            <path d="M9.5 3.5h-5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-5" />
+          </svg>
         </a>
       </li>
     </ul>
