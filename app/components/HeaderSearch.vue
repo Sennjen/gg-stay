@@ -162,7 +162,14 @@ onBeforeUnmount(() => reset())
 </script>
 
 <template>
-  <div ref="rootRef" class="relative">
+  <div
+    ref="rootRef"
+    :class="
+      mobileExpanded
+        ? 'absolute inset-0 z-10 flex items-center bg-surface-1 px-4 md:static md:inset-auto md:z-auto md:bg-transparent md:px-0'
+        : 'relative'
+    "
+  >
     <button
       v-if="!mobileExpanded"
       ref="toggleRef"
