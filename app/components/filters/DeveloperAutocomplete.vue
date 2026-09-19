@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { DevelopersDocument, type DevelopersQuery } from '~/graphql/__generated__/operations'
-import { print } from 'graphql/language/printer'
+import { printDocument } from '~/utils/printDocument'
 
 const props = defineProps<{ modelValue: string[] }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string[]] }>()
@@ -8,7 +8,6 @@ const { t } = useI18n()
 
 const term = ref('')
 const suggestions = ref<DevelopersQuery['developers']>([])
-const query = print(DevelopersDocument)
 let timer: ReturnType<typeof setTimeout> | undefined
 
 // Client-only, user-triggered lookup: useAsyncData is for render-blocking data, this is not.
@@ -20,6 +19,7 @@ watch(term, (value) => {
   }
   timer = setTimeout(async () => {
     try {
+      const query = await printDocument(DevelopersDocument as never)
       const response = await $fetch<{ data?: DevelopersQuery }>('/api/graphql', {
         method: 'POST',
         body: { query, variables: { search: value } },
