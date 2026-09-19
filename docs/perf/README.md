@@ -37,3 +37,27 @@ Measured 2026-09-19 after `238ce0e`. One change: the image provider picks the sm
 | CLS              | 0      | 0       |
 
 Individual runs: 88 / 95 / 89 (LCP 3.4 / 2.8 / 3.3 s). Report: [catalog](step1-image-size/catalog.report.html).
+
+## Step 2 — lazy-loaded covers below the first row
+
+Measured 2026-09-19 after `42b237b`. One change: the first four covers stay eager, the other sixteen get `loading="lazy"`.
+
+| Catalog `/games` | Before | After  |
+| ---------------- | ------ | ------ |
+| Performance      | 89     | 96     |
+| LCP              | 3.3 s  | 2.4 s  |
+| TBT              | 52 ms  | 20 ms  |
+| Page weight      | 1.1 MB | 1.1 MB |
+| CLS              | 0      | 0      |
+
+Individual runs: 96 / 90 / 98 (LCP 2.0 / 3.2 / 2.4 s). Report: [catalog](step2-lazy-covers/catalog.report.html).
+
+Page weight did not change in the lab run: Lighthouse's tall emulated viewport and the browser's generous lazy-loading distance still fetch all twenty covers. The gain comes from priority — lazy images no longer compete with the first row, so the LCP image arrives about a second earlier. On a real phone, covers far below the fold are not requested until the user scrolls.
+
+## Summary so far
+
+| Catalog `/games` | Baseline | Step 1 | Step 2 |
+| ---------------- | -------- | ------ | ------ |
+| Performance      | 77       | 89     | 96     |
+| LCP              | 5.5 s    | 3.3 s  | 2.4 s  |
+| Page weight      | 3.4 MB   | 1.1 MB | 1.1 MB |
