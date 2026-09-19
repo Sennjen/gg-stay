@@ -192,6 +192,24 @@ describe('server-side rendering', async () => {
     expect(html).not.toContain('role="listbox"')
   })
 
+  it('gives the GraphQL endpoint its own minimal policy, since it never reaches the plugin', async () => {
+    // yoga answers with its own Response, which `sendWebResponse` hands straight to the client
+    // without passing through the `beforeResponse` hook the CSP plugin back-fills from — so this
+    // route sets its own. A JSON body hosts no document, hence 'none' rather than an allow-list.
+    const response = await fetch('/api/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '{ genres { id } }' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    )
+    // The static headers still come from routeRules, as on every other route.
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
   it('sends the security headers on every page, with an exact-hash script-src', async () => {
     for (const path of ['/', '/en', '/games', '/games/the-witcher-3-wild-hunt']) {
       const response = await fetch(path, { headers: { accept: 'text/html' } })

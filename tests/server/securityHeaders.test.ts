@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  API_CONTENT_SECURITY_POLICY,
   CSP_HEADER,
   STATIC_SECURITY_HEADERS,
   contentSecurityPolicy,
@@ -69,6 +70,12 @@ describe('the policy itself', () => {
     expect(directive('connect-src')).toContain('https://video.akamai.steamstatic.com')
     expect(directive('img-src')).toContain('https://media.rawg.io')
     expect(directive('img-src')).toContain('https://api.rawg.io')
+  })
+
+  it('gives the JSON endpoint a policy that allows nothing at all', () => {
+    // It loads nothing and hosts no document, so an allow-list would only be a larger surface.
+    expect(API_CONTENT_SECURITY_POLICY).toBe("default-src 'none'; frame-ancestors 'none'")
+    expect(API_CONTENT_SECURITY_POLICY).not.toContain('self')
   })
 
   it('never allows inline or eval scripts, with or without hashes', () => {

@@ -60,6 +60,24 @@ export function contentSecurityPolicy(scriptHashes: readonly string[] = []): str
 export const CSP_HEADER = 'content-security-policy'
 
 /**
+ * The policy for `/api/graphql`, set by the route handler itself.
+ *
+ * This is not a second source for the pages: yoga answers with its own `Response`, which Nitro
+ * hands straight to the client without passing it through the `beforeResponse` hook the plugin
+ * back-fills from, so that one route would otherwise carry no policy at all. A JSON body hosts no
+ * document and loads nothing, so it needs no allow-list — `'none'` everywhere is both the tightest
+ * and the most accurate description of what the endpoint is entitled to do. `nosniff` (from
+ * `routeRules`) is what stops the body being re-interpreted as a document in the first place; this
+ * header is what makes the answer harmless if it ever were.
+ *
+ * On Vercel the same gap applies to CDN-served static assets, which never reach the function at
+ * all: they carry the four static headers from the route table and no CSP. Also harmless — they
+ * are scripts, styles and fonts, governed by the policy of the page that loads them — and stated
+ * here rather than implied away.
+ */
+export const API_CONTENT_SECURITY_POLICY = "default-src 'none'; frame-ancestors 'none'"
+
+/**
  * The headers that are identical on every response and carry no per-response state, so they are
  * safe to set once in `routeRules` — which on Vercel means the CDN applies them to static assets
  * too, not just to function responses. The CSP is **not** among them; see above.
