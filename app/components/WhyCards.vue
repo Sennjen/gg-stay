@@ -26,7 +26,7 @@ const headingId = useId()
             stroke-width="1.5"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="text-accent"
+            class="text-fg-2"
           >
             <template v-if="card === 'interface'">
               <path d="M4 5.5h16M4 12h16M4 18.5h9" />
