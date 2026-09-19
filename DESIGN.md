@@ -112,6 +112,9 @@ package) provider, which does serve the full variable font file.
   that interpolates a number into words stays in the interface face
   (`font-sans`); only the number inside it gets `.font-numeric`, via
   `<i18n-t>` with a slot around just that number.
+- `.font-numeric` also sets `word-spacing: -0.3em` so the uk-UA thousands
+  separator (a no-break space) reads as a thin gap instead of a full
+  monospace cell in JetBrains Mono.
 
 ### Contrast ratios computed for this PR
 

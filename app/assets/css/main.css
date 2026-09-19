@@ -63,6 +63,10 @@ body {
 .font-numeric {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  /* JetBrains Mono renders the uk-UA thousands separator (a no-break space) as a
+     full monospace cell, which reads as two spaces ("3 645"). Tighten it to a thin
+     gap; the en-US comma separator is unaffected by word-spacing. */
+  word-spacing: -0.3em;
 }
 
 @media (prefers-reduced-motion: reduce) {

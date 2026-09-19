@@ -1,4 +1,4 @@
-import { formatDate, formatNumber } from '~/utils/format'
+import { formatDate, formatDecimal, formatNumber } from '~/utils/format'
 
 export function useFormatters() {
   const { localeProperties } = useI18n()
@@ -6,5 +6,7 @@ export function useFormatters() {
   return {
     formatDate: (iso?: string | null) => formatDate(iso, tag.value),
     formatNumber: (value: number) => formatNumber(value, tag.value),
+    formatDecimal: (value: number, fractionDigits = 1) =>
+      formatDecimal(value, tag.value, fractionDigits),
   }
 }

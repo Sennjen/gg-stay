@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, formatNumber } from '~/utils/format'
+import { formatDate, formatDecimal, formatNumber, splitParagraphs } from '~/utils/format'
 
 describe('formatDate', () => {
   it('formats Ukrainian dates without the trailing year marker', () => {
@@ -21,5 +21,41 @@ describe('formatNumber', () => {
   it('groups digits per locale', () => {
     expect(formatNumber(1299, 'en-US')).toBe('1,299')
     expect(formatNumber(1299, 'uk-UA').replace(/\s/g, ' ')).toBe('1 299')
+  })
+})
+
+describe('formatDecimal', () => {
+  it('uses a comma in uk-UA', () => {
+    expect(formatDecimal(3.6, 'uk-UA')).toBe('3,6')
+  })
+  it('uses a dot in en-US', () => {
+    expect(formatDecimal(3.6, 'en-US')).toBe('3.6')
+  })
+  it('pads and rounds to the requested fraction digits', () => {
+    expect(formatDecimal(4, 'en-US')).toBe('4.0')
+    expect(formatDecimal(3.14159, 'en-US', 2)).toBe('3.14')
+  })
+})
+
+describe('splitParagraphs', () => {
+  it('returns a single paragraph unchanged', () => {
+    expect(splitParagraphs('A single paragraph.')).toEqual(['A single paragraph.'])
+  })
+  it('splits on a single newline', () => {
+    expect(splitParagraphs('First.\nSecond.')).toEqual(['First.', 'Second.'])
+  })
+  it('splits on a double newline', () => {
+    expect(splitParagraphs('First.\n\nSecond.')).toEqual(['First.', 'Second.'])
+  })
+  it('splits on CRLF newlines', () => {
+    expect(splitParagraphs('First.\r\nSecond.')).toEqual(['First.', 'Second.'])
+  })
+  it('drops leading and trailing blank lines', () => {
+    expect(splitParagraphs('\n\nFirst.\n\nSecond.\n\n')).toEqual(['First.', 'Second.'])
+  })
+  it('returns an empty array for empty or missing input', () => {
+    expect(splitParagraphs('')).toEqual([])
+    expect(splitParagraphs(null)).toEqual([])
+    expect(splitParagraphs(undefined)).toEqual([])
   })
 })
