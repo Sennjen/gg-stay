@@ -163,6 +163,36 @@ describe('GameCard', () => {
     expect(metaRow?.className).not.toContain('flex-wrap')
   })
 
+  it('renders the meta block as two lines: year · platforms, then "Metacritic 82"', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    const meta = wrapper.get('[data-test="card-title"]').element.parentElement!
+    const lines = meta.querySelectorAll(':scope > div.mt-auto > p')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]!.textContent).toContain('2015')
+    expect(lines[0]!.textContent).toContain('ПК')
+    expect(lines[1]!.textContent).toContain('Metacritic')
+    expect(lines[1]!.textContent).toContain('92')
+  })
+
+  it('renders PlatformIcons in responsive (container-query) mode in the card context', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: {
+        game: {
+          ...game,
+          platformFamilies: ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO'] as const,
+        },
+      },
+    })
+    expect(wrapper.findComponent(PlatformIcons).props('responsive')).toBe(true)
+  })
+
+  it('establishes a container-query context around the meta block, so the platform row can adapt without JS', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    const meta = wrapper.get('[data-test="card-title"]').element.parentElement!
+    const container = meta.querySelector(':scope > div.mt-auto')
+    expect(container?.className).toContain('@container')
+  })
+
   describe('layout="list"', () => {
     it('lays out horizontally at >= 640px, with the cover at a fixed 220px width', async () => {
       const wrapper = await mountSuspended(GameCard, { props: { game, layout: 'list' } })

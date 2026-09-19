@@ -117,6 +117,8 @@
   },
   "card": {
     "metacriticLabel": "Metacritic {score}",
+    "metacriticCaption": "Metacritic",
+    "metacriticCaptionShort": "MC",
     "platformsLabel": "Платформи",
     "platformsMore": "+{count}",
     "platformNames": {
@@ -124,7 +126,7 @@
       "PLAYSTATION": "PlayStation",
       "XBOX": "Xbox",
       "NINTENDO": "Nintendo",
-      "MOBILE": "Мобільні пристрої"
+      "MOBILE": "Мобільні"
     }
   },
   "drawer": {
@@ -152,7 +154,8 @@
     "hours": "{count} год",
     "metacritic": "Metacritic",
     "userRating": "Оцінка гравців",
-    "ratingsCount": "оцінок: {count}",
+    "ratingScale": "з 5",
+    "ratingsCount": "{count} оцінка | {count} оцінки | {count} оцінок",
     "gameModes": "Режими гри",
     "website": "Офіційний сайт",
     "whereToBuy": "Де купити",
@@ -164,6 +167,8 @@
     "thumbnailAlt": "{title} — скріншот {n}",
     "dialogLabel": "Перегляд скріншотів: {title}",
     "counter": "{current} / {total}",
+    "counterAnnouncement": "{current} з {total}",
+    "dotLabel": "Скріншот {n} з {total}",
     "close": "Закрити",
     "previous": "Попередній скріншот",
     "next": "Наступний скріншот"

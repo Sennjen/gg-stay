@@ -76,6 +76,13 @@ body {
   word-spacing: -0.3em;
 }
 
+/* Decimal values: JetBrains Mono renders the decimal separator as a full monospace cell
+   ("4 , 6"), so decimals stay in the interface face and only borrow tabular figures from
+   .font-numeric so they still line up. Integers (years, scores, counts) use .font-numeric. */
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -90,18 +90,28 @@ function revealPreview(event: PointerEvent) {
         >
           {{ game.name }}
         </h3>
-        <p v-if="year" class="font-numeric mt-1 text-sm text-fg-2">{{ year }}</p>
-        <p
-          v-if="game.metacritic || game.platformFamilies.length"
-          class="mt-auto flex flex-nowrap items-center gap-2 overflow-hidden pt-2"
+        <div
+          v-if="year || game.metacritic || game.platformFamilies.length"
+          class="@container mt-auto pt-2"
         >
-          <MetacriticBadge v-if="game.metacritic" class="shrink-0" :score="game.metacritic" />
-          <PlatformIcons
-            v-if="game.platformFamilies.length"
-            class="min-w-0 shrink"
-            :families="game.platformFamilies"
-          />
-        </p>
+          <p
+            v-if="year || game.platformFamilies.length"
+            class="flex flex-nowrap items-center gap-1 overflow-hidden text-sm text-fg-2"
+          >
+            <span v-if="year" class="font-numeric shrink-0">{{ year }}</span>
+            <span v-if="year && game.platformFamilies.length" aria-hidden="true" class="shrink-0"
+              >·</span
+            >
+            <PlatformIcons
+              v-if="game.platformFamilies.length"
+              :families="game.platformFamilies"
+              responsive
+            />
+          </p>
+          <p v-if="game.metacritic" class="mt-1 flex flex-nowrap items-center overflow-hidden">
+            <MetacriticBadge :score="game.metacritic" caption />
+          </p>
+        </div>
       </div>
     </NuxtLink>
   </article>

@@ -117,6 +117,8 @@
   },
   "card": {
     "metacriticLabel": "Metacritic {score}",
+    "metacriticCaption": "Metacritic",
+    "metacriticCaptionShort": "MC",
     "platformsLabel": "Platforms",
     "platformsMore": "+{count}",
     "platformNames": {
@@ -152,7 +154,8 @@
     "hours": "{count} h",
     "metacritic": "Metacritic",
     "userRating": "Player rating",
-    "ratingsCount": "{count} ratings",
+    "ratingScale": "of 5",
+    "ratingsCount": "{count} rating | {count} ratings",
     "gameModes": "Game modes",
     "website": "Official website",
     "whereToBuy": "Where to buy",
@@ -164,6 +167,8 @@
     "thumbnailAlt": "{title} — screenshot {n}",
     "dialogLabel": "Screenshot viewer: {title}",
     "counter": "{current} / {total}",
+    "counterAnnouncement": "{current} of {total}",
+    "dotLabel": "Screenshot {n} of {total}",
     "close": "Close",
     "previous": "Previous screenshot",
     "next": "Next screenshot"

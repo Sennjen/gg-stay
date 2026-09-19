@@ -4,9 +4,10 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import ResultCount from '~/components/ResultCount.vue'
 
 describe('ResultCount', () => {
-  it('renders the count and is a polite live region', async () => {
-    const wrapper = await mountSuspended(ResultCount, { props: { total: 12480 } })
-    expect(wrapper.text()).toContain('12480')
+  it('renders the count locale-grouped and is a polite live region', async () => {
+    const wrapper = await mountSuspended(ResultCount, { props: { total: 900934 } })
+    expect(wrapper.text()).not.toContain('900934')
+    expect(wrapper.find('.font-numeric').text()).toBe('900 934')
     expect(wrapper.get('[aria-live="polite"]').exists()).toBe(true)
   })
 

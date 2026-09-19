@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** "Знайдено: {N}" with a 150ms tick when N changes; none under reduced motion (CSS only). */
 const props = defineProps<{ total: number }>()
+const { formatNumber } = useFormatters()
 
 const ticking = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -27,7 +28,7 @@ onBeforeUnmount(() => clearTimeout(timer))
         <span
           class="font-numeric inline-block text-fg transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none"
           :class="ticking ? '-translate-y-0.5 opacity-70' : 'translate-y-0 opacity-100'"
-          >{{ total }}</span
+          >{{ formatNumber(total) }}</span
         >
       </template>
     </i18n-t>

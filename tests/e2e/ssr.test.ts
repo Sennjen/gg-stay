@@ -130,6 +130,15 @@ describe('server-side rendering', async () => {
     expect(html).toContain('92')
   })
 
+  it('applies the Ukrainian plural rule server-side for the ratings count', async () => {
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    // Fixture rating: 6800, uk-UA grouped with a no-break space (U+00A0) between the digits;
+    // 6800 % 10 === 0,
+    // so the correct Ukrainian plural form is "many" ("оцінок"), not "оцінка"/"оцінки" — this
+    // only proves the custom pluralRules.uk rule (i18n/i18n.config.ts) runs on the server too.
+    expect(html).toContain('6 800 оцінок')
+  })
+
   it('renders the screenshot gallery thumbnails into the server HTML', async () => {
     const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
     expect(html).toContain('screenshots/201001/full1.jpg')
