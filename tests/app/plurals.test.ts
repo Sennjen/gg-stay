@@ -76,17 +76,17 @@ beforeAll(async () => {
 })
 
 /**
- * Settles a component whose update depends on an awaited dynamic import (`printDocument` loads the
- * graphql printer on demand), which takes an unpredictable number of microtask turns the first
- * time it runs. Polls instead of guessing a fixed number of flushes.
+ * Waits for the suggestion request to settle. The debounce runs on fake timers, but the fetch that
+ * follows awaits a dynamic import (`printDocument` loads the graphql printer on demand), which
+ * takes an unpredictable number of turns the first time it runs in a worker. `advanceTimersByTimeAsync(0)`
+ * yields a real macrotask turn each time round, which is what lets that import resolve.
  */
-async function waitFor(condition: () => boolean, turns = 50) {
-  for (let turn = 0; turn < turns; turn++) {
-    if (condition()) return
+async function settleSuggestions(wrapper: { vm: object }) {
+  const status = () => (wrapper.vm as { status: string }).status
+  for (let turn = 0; turn < 50 && status() === 'loading'; turn++) {
+    await vi.advanceTimersByTimeAsync(0)
     await flushPromises()
-    await nextTick()
   }
-  expect(condition(), 'condition never became true').toBe(true)
 }
 
 async function switchLocale(locale: 'uk' | 'en') {
@@ -167,15 +167,14 @@ describe('plural forms at the call sites', () => {
       await wrapper.get('input').setValue('witcher')
       await vi.advanceTimersByTimeAsync(250)
       await flushPromises()
+      await settleSuggestions(wrapper)
       vi.useRealTimers()
 
-      const announcement = () =>
-        wrapper
-          .findAll('[aria-live="polite"]')
-          .map((node) => node.text())
-          .join(' ')
-      await waitFor(() => announcement().trim().length > 0)
-      expect(announcement()).toContain(EXPECTED.search[locale][count])
+      const announcement = wrapper
+        .findAll('[aria-live="polite"]')
+        .map((node) => node.text())
+        .join(' ')
+      expect(announcement).toContain(EXPECTED.search[locale][count])
       wrapper.unmount()
     })
 
