@@ -23,3 +23,17 @@ Reports: [detail](baseline-week1/detail.report.html), [catalog](baseline-week1/c
 - JavaScript transfer is 129 KB, slightly over the 120 KB budget set for this page.
 
 These are the inputs for week 2. Each optimisation lands as its own commit with a before/after measurement added to this file.
+
+## Step 1 — right-sized cover images
+
+Measured 2026-09-19 after `238ce0e`. One change: the image provider picks the smallest RAWG CDN size that covers at least 75 % of the requested width, so a 2x request for 840 px resolves to 640 px instead of 1280 px.
+
+| Catalog `/games` | Before | After   |
+| ---------------- | ------ | ------- |
+| Performance      | 77     | 89      |
+| LCP              | 5.5 s  | 3.3 s   |
+| Page weight      | 3.4 MB | 1.1 MB  |
+| Images           | 3.3 MB | 0.99 MB |
+| CLS              | 0      | 0       |
+
+Individual runs: 88 / 95 / 89 (LCP 3.4 / 2.8 / 3.3 s). Report: [catalog](step1-image-size/catalog.report.html).
