@@ -10,28 +10,36 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
   vite: { plugins: [tailwindcss()] },
   fonts: {
+    // Weights and styles are declared to match what the app actually renders, because every
+    // declared combination becomes an `@font-face` block in the render-blocking stylesheet even
+    // when no element ever selects it. Nothing in the app is italic, and `.font-display-heading`
+    // never sets a weight (Tailwind's preflight resets headings to `font-weight: inherit`), so
+    // Tektur only ever renders at 400 — the 500/600/700 faces were 9 dead blocks.
+    // `cyrillic-ext` is dropped: it carries historic Slavic letters, the Abkhaz/Ossetian
+    // extensions and ₴, and none of them appear in this app's copy (checked against both locale
+    // files). A stray glyph from a third-party game title falls back to the system face, which is
+    // what the fallback chain is for. Three fewer files in the build per family, and it leaves
+    // Inter with exactly the two files a first paint needs — see `preload` below.
+    defaults: { styles: ['normal'], subsets: ['latin', 'cyrillic'] },
     families: [
-      {
-        name: 'Tektur',
-        provider: 'google',
-        subsets: ['latin', 'cyrillic', 'cyrillic-ext'],
-        weights: [400, 500, 600, 700],
-        display: 'swap',
-      },
+      // Hero headlines, section titles and the logo — see DESIGN.md.
+      { name: 'Tektur', provider: 'google', weights: [400], display: 'swap' },
+      // The interface face: 400 body, 500 `font-medium`, 600 `font-semibold`. Google serves one
+      // variable file per subset covering every weight, so this is two files — the Latin and the
+      // Cyrillic one — and both are needed above the fold on every route. They are the only fonts
+      // preloaded: the display and mono faces are used further down the page and `font-display:
+      // swap` already renders their text in the fallback in the meantime.
       {
         name: 'Inter',
         provider: 'google',
-        subsets: ['latin', 'cyrillic', 'cyrillic-ext'],
         weights: [400, 500, 600],
         display: 'swap',
+        preload: true,
       },
-      {
-        name: 'JetBrains Mono',
-        provider: 'google',
-        subsets: ['latin', 'cyrillic', 'cyrillic-ext'],
-        weights: [400, 500],
-        display: 'swap',
-      },
+      // Bare numerals. 500 is kept although no element selects it: the Metacritic badge is
+      // `font-numeric font-semibold`, and CSS weight matching resolves 600 to the 500 face — with
+      // 400 alone the browser would synthesise a bolder one instead, changing how it renders.
+      { name: 'JetBrains Mono', provider: 'google', weights: [400, 500], display: 'swap' },
     ],
   },
   typescript: { strict: true },
