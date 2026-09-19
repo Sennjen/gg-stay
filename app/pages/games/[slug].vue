@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { GameDocument } from '~/graphql/__generated__/operations'
+import { splitParagraphs } from '~/utils/format'
 
 const route = useRoute()
 const { t } = useI18n()
 const localePath = useLocalePath()
-const { formatDate, formatNumber } = useFormatters()
+const { formatDate, formatDecimal, formatNumber } = useFormatters()
 const store = useFiltersStore()
 
 const slug = computed(() => String(route.params.slug))
@@ -17,6 +18,7 @@ if (errorCode.value === 'NOT_FOUND') {
 
 const game = computed(() => data.value?.game ?? null)
 const names = (list?: { name: string }[]) => (list ?? []).map((entry) => entry.name).join(', ')
+const descriptionParagraphs = computed(() => splitParagraphs(game.value?.description))
 
 const description = computed(() => {
   const text = game.value?.description?.replace(/\s+/g, ' ').trim()
@@ -56,9 +58,13 @@ useSeoMeta({
           sizes="(max-width: 1024px) 100vw, 800px"
           class="mt-4 aspect-video w-full rounded-lg object-cover"
         />
-        <section v-if="game.description" class="mt-6">
+        <section v-if="descriptionParagraphs.length" class="mt-6">
           <h2 class="font-display-heading text-xl text-fg">{{ t('game.about') }}</h2>
-          <p class="mt-2 leading-relaxed whitespace-pre-line text-fg-2">{{ game.description }}</p>
+          <div lang="en" class="mt-2 max-w-prose space-y-4 leading-relaxed text-fg-2">
+            <p v-for="(paragraph, index) in descriptionParagraphs" :key="index">
+              {{ paragraph }}
+            </p>
+          </div>
         </section>
         <StoreLinks class="mt-8" :offers="game.stores" />
       </div>
@@ -101,7 +107,7 @@ useSeoMeta({
         <div v-if="game.rating">
           <dt class="text-fg-2">{{ t('game.userRating') }}</dt>
           <dd>
-            <span class="font-numeric">{{ game.rating.toFixed(1) }}</span>
+            <span class="font-numeric">{{ formatDecimal(game.rating) }}</span>
             <span v-if="game.ratingsCount" class="text-fg-2">
               (<i18n-t keypath="game.ratingsCount" tag="span">
                 <template #count
