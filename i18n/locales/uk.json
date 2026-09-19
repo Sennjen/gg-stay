@@ -83,5 +83,24 @@
     "PEGI12": "PEGI 12",
     "PEGI16": "PEGI 16",
     "PEGI18": "PEGI 18"
+  },
+  "game": {
+    "backToCatalog": "← До каталогу",
+    "released": "Дата виходу",
+    "platforms": "Платформи",
+    "genres": "Жанри",
+    "developers": "Розробник",
+    "publishers": "Видавець",
+    "ageRating": "Вікове обмеження",
+    "playtime": "Середня тривалість",
+    "hours": "{count} год",
+    "metacritic": "Metacritic",
+    "userRating": "Оцінка гравців",
+    "ratingsCount": "оцінок: {count}",
+    "gameModes": "Режими гри",
+    "website": "Офіційний сайт",
+    "whereToBuy": "Де купити",
+    "about": "Про гру",
+    "metaFallback": "{name} — платформи, жанри, рейтинг і магазини."
   }
 }
