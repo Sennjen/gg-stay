@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createYogaApp } from '../../server/graphql/yoga'
 import { UpstreamError, type RawgFetch } from '../../server/rawg/rawgFetch'
+import type { SteamFetch } from '../../server/steam/steamFetch'
 import games from '../fixtures/rawg/games.json'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
 import stores from '../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json'
@@ -9,6 +10,7 @@ import movies from '../fixtures/rawg/game-3328-movies.json'
 import genres from '../fixtures/rawg/genres.json'
 import platforms from '../fixtures/rawg/platforms.json'
 import developers from '../fixtures/rawg/developers.json'
+import steamAppdetails from '../fixtures/steam/appdetails-292030.json'
 
 const fixtureRawg: RawgFetch = async (path) => {
   if (path === 'games') return games
@@ -22,8 +24,21 @@ const fixtureRawg: RawgFetch = async (path) => {
   throw new UpstreamError('NOT_FOUND', 404)
 }
 
-async function run(rawg: RawgFetch, query: string, variables: Record<string, unknown> = {}) {
-  const yoga = createYogaApp(() => ({ rawg, today: '2026-09-18' }))
+// The fixture-mode e2e app (tests/e2e/ssr.test.ts) exercises the Steam trailer path for the
+// featured game (The Witcher 3, RAWG movies fixture emptied out on purpose): its Steam store link
+// resolves to app id 292030. This mock mirrors that fixture so contract tests cover the same path.
+const fixtureSteam: SteamFetch = async (appId) => {
+  if (appId === '292030') return steamAppdetails
+  throw new UpstreamError('NOT_FOUND', 404)
+}
+
+async function run(
+  rawg: RawgFetch,
+  query: string,
+  variables: Record<string, unknown> = {},
+  steam: SteamFetch = fixtureSteam,
+) {
+  const yoga = createYogaApp(() => ({ rawg, steam, today: '2026-09-18' }))
   const response = await yoga.fetch('http://test/api/graphql', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -233,6 +248,7 @@ describe('Query.landing', () => {
             slug
           }
           clipUrl
+          clipSource
         }
         carousel {
           slug
@@ -247,13 +263,19 @@ describe('Query.landing', () => {
     }
   `
 
-  it('returns the featured game with clipUrl, a cover-only carousel and capped lists', async () => {
+  // RAWG has no clip for the featured game in these fixtures (game-3328-movies.json is empty on
+  // purpose, so the fixture-mode e2e app exercises the Steam fallback path end to end — see the
+  // comment above `fixtureSteam`). Its Steam store link (in
+  // game-the-witcher-3-wild-hunt-stores.json) resolves to app id 292030.
+  it('falls back to the Steam clip when RAWG has none, a cover-only carousel and capped lists', async () => {
     const { data, errors } = await run(fixtureRawg, LANDING)
     expect(errors).toBeUndefined()
     expect(data!.landing.totalGames).toBe(4)
     expect(data!.landing.featured).toEqual({
       game: { slug: 'the-witcher-3-wild-hunt' },
-      clipUrl: 'https://media.rawg.io/media/movies/1/movie480.mp4',
+      clipUrl:
+        'https://video.akamai.steamstatic.com/store_trailers/256813023/movie_hls/hls_264_master.m3u8?t=1234567891',
+      clipSource: 'STEAM',
     })
     expect(data!.landing.carousel).toEqual([{ slug: 'the-witcher-3-wild-hunt' }])
     expect(data!.landing.topRated.map((item: { slug: string }) => item.slug)).toEqual([
@@ -264,14 +286,61 @@ describe('Query.landing', () => {
     expect(data!.landing.newReleases).toHaveLength(4)
   })
 
-  it('returns clipUrl: null without failing the query when the movies call fails', async () => {
+  it('prefers the RAWG clip when present, without calling Steam', async () => {
+    const rawgMovies = {
+      count: 1,
+      results: [{ id: 1, data: { '480': 'https://media.rawg.io/media/movies/1/movie480.mp4' } }],
+    }
+    const rawg: RawgFetch = async (path, params) => {
+      if (path === 'games/3328/movies') return rawgMovies
+      return fixtureRawg(path, params)
+    }
+    const steam = vi.fn(fixtureSteam)
+    const { data, errors } = await run(rawg, LANDING, {}, steam)
+    expect(errors).toBeUndefined()
+    expect(data!.landing.featured).toMatchObject({
+      clipUrl: 'https://media.rawg.io/media/movies/1/movie480.mp4',
+      clipSource: 'RAWG',
+    })
+    expect(steam).not.toHaveBeenCalled()
+  })
+
+  it('returns clipUrl: null, clipSource: null when there is no Steam store link', async () => {
+    const rawg: RawgFetch = async (path, params) => {
+      if (path === 'games/the-witcher-3-wild-hunt/stores') {
+        return { count: 0, results: [] }
+      }
+      return fixtureRawg(path, params)
+    }
+    const { data, errors } = await run(rawg, LANDING)
+    expect(errors).toBeUndefined()
+    expect(data!.landing.featured).toMatchObject({ clipUrl: null, clipSource: null })
+  })
+
+  it('returns clipUrl: null and the query still succeeds when Steam fails', async () => {
+    const steam: SteamFetch = async () => {
+      throw new UpstreamError('ERROR', 500)
+    }
+    const { data, errors } = await run(fixtureRawg, LANDING, {}, steam)
+    expect(errors).toBeUndefined()
+    expect(data!.landing.featured).toMatchObject({ clipUrl: null, clipSource: null })
+  })
+
+  it('calls Steam exactly once for an uncached landing query', async () => {
+    const steam = vi.fn(fixtureSteam)
+    const { errors } = await run(fixtureRawg, LANDING, {}, steam)
+    expect(errors).toBeUndefined()
+    expect(steam).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns clipUrl: null without failing the query when the RAWG movies call fails, then falls back to Steam', async () => {
     const rawg: RawgFetch = async (path, params) => {
       if (path.endsWith('/movies')) throw new UpstreamError('ERROR', 500)
       return fixtureRawg(path, params)
     }
     const { data, errors } = await run(rawg, LANDING)
     expect(errors).toBeUndefined()
-    expect(data!.landing.featured.clipUrl).toBeNull()
+    expect(data!.landing.featured.clipSource).toBe('STEAM')
   })
 
   it.each([

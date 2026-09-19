@@ -39,6 +39,7 @@ query Landing {
   landing {
     featured {
       clipUrl
+      clipSource
       game {
         slug
         name

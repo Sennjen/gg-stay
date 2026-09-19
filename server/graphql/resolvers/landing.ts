@@ -1,6 +1,8 @@
 import { mapGameCard } from '../../rawg/mappers'
 import { dateRange, pickFeatured, pickTopRated } from '../../rawg/landing'
-import type { RawgGameListItem, RawgList, RawgMovie } from '../../rawg/types'
+import type { RawgGameListItem, RawgList, RawgMovie, RawgStoreLink } from '../../rawg/types'
+import { pickTrailer, steamAppIdFromUrl } from '../../steam/steam'
+import type { SteamAppDetailsResponse } from '../../steam/types'
 import { withUpstreamErrors } from '../errors'
 import type { GraphQLContext } from '../context'
 import type { QueryResolvers } from '../__generated__/resolvers-types'
@@ -22,7 +24,7 @@ async function fetchGamesList(
   return context.rawg('games', params, { ttl: LANDING_TTL }) as Promise<RawgList<RawgGameListItem>>
 }
 
-async function fetchClipUrl(
+async function fetchRawgClipUrl(
   context: GraphQLContext,
   id: number | undefined,
 ): Promise<string | null> {
@@ -37,6 +39,44 @@ async function fetchClipUrl(
     // Trailers are an enhancement: a missing or failed clip must not fail the landing query.
     return null
   }
+}
+
+/**
+ * RAWG has no clips for most recent games. As a fallback, look up the featured game's Steam
+ * store link (already cached 24h by path via `games/{slug}/stores`), extract the Steam app id and
+ * ask Steam for its trailer. Every failure on this path resolves to null — trailers are an
+ * enhancement, never something that should fail or slow down the rest of the landing query.
+ */
+async function fetchSteamClipUrl(
+  context: GraphQLContext,
+  slug: string | undefined,
+): Promise<string | null> {
+  if (!slug) return null
+  try {
+    const stores = (await context.rawg(`games/${slug}/stores`)) as RawgList<RawgStoreLink>
+    const steamLink = (stores.results ?? []).find((link) => steamAppIdFromUrl(link.url) !== null)
+    const appId = steamAppIdFromUrl(steamLink?.url)
+    if (!appId) return null
+    const response = (await context.steam(appId, {
+      ttl: LANDING_TTL,
+    })) as SteamAppDetailsResponse
+    const details = response[appId]
+    if (!details?.success) return null
+    return pickTrailer(details.data?.movies)
+  } catch {
+    return null
+  }
+}
+
+async function fetchClip(
+  context: GraphQLContext,
+  item: RawgGameListItem,
+): Promise<{ clipUrl: string | null; clipSource: 'RAWG' | 'STEAM' | null }> {
+  const rawgClip = await fetchRawgClipUrl(context, item.id)
+  if (rawgClip) return { clipUrl: rawgClip, clipSource: 'RAWG' }
+  const steamClip = await fetchSteamClipUrl(context, item.slug)
+  if (steamClip) return { clipUrl: steamClip, clipSource: 'STEAM' }
+  return { clipUrl: null, clipSource: null }
 }
 
 export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
@@ -63,7 +103,7 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
     const featured = featuredItem
       ? {
           game: mapGameCard(featuredItem),
-          clipUrl: await fetchClipUrl(context, featuredItem.id),
+          ...(await fetchClip(context, featuredItem)),
         }
       : null
 
