@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { MAX_PAGE, MAX_PAGE_SIZE, MAX_SEARCH_LENGTH } from '../../shared/catalog'
 import { createYogaApp } from '../../server/graphql/yoga'
 import { UpstreamError, type RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../server/steam/steamFetch'
@@ -132,8 +133,30 @@ describe('Query.games', () => {
   it('clamps pageSize to 40', async () => {
     const rawg = vi.fn(fixtureRawg)
     const { data } = await run(rawg, GAMES, { pageSize: 500 })
-    expect(rawg.mock.calls[0]![1]).toMatchObject({ page_size: 40 })
-    expect(data!.games.pageSize).toBe(40)
+    expect(rawg.mock.calls[0]![1]).toMatchObject({ page_size: MAX_PAGE_SIZE })
+    expect(data!.games.pageSize).toBe(MAX_PAGE_SIZE)
+  })
+
+  it('caps every attacker-controlled part of the upstream cache key', async () => {
+    const rawg = vi.fn(fixtureRawg)
+    await run(rawg, GAMES, {
+      filter: { search: 'w'.repeat(5_000) },
+      pageSize: 10_000,
+      page: 2,
+    })
+    // Unbounded key material would mint one permanent cache entry per distinct request.
+    expect(rawg.mock.calls[0]![1]).toMatchObject({
+      search: 'w'.repeat(MAX_SEARCH_LENGTH),
+      page_size: MAX_PAGE_SIZE,
+      page: 2,
+    })
+  })
+
+  it('refuses a page past the maximum without calling upstream', async () => {
+    const rawg = vi.fn(fixtureRawg)
+    const { data } = await run(rawg, GAMES, { page: MAX_PAGE + 1 })
+    expect(rawg).not.toHaveBeenCalled()
+    expect(data!.games).toMatchObject({ items: [], total: 0 })
   })
 
   it.each([0, -3, 501])('returns an empty page for page=%i without calling RAWG', async (page) => {
@@ -525,6 +548,25 @@ describe('taxonomies', () => {
     expect(data!.platforms).toHaveLength(8)
     expect(data!.developers[0].slug).toBe('cd-projekt-red')
     expect(rawg).toHaveBeenCalledWith('developers', { search: 'cd', page_size: 10 })
+  })
+
+  it('caps the developer search term before it reaches the upstream cache key', async () => {
+    const rawg = vi.fn(fixtureRawg)
+    await run(
+      rawg,
+      /* GraphQL */ `
+        query Developers($search: String!) {
+          developers(search: $search) {
+            slug
+          }
+        }
+      `,
+      { search: 'c'.repeat(5_000) },
+    )
+    expect(rawg).toHaveBeenCalledWith('developers', {
+      search: 'c'.repeat(MAX_SEARCH_LENGTH),
+      page_size: 10,
+    })
   })
 
   it('returns no developers for a search shorter than 2 characters', async () => {

@@ -65,3 +65,10 @@ export const USER_RATING_MIN = 4
 export const DEFAULT_PAGE_SIZE = 20
 export const MAX_PAGE_SIZE = 40
 export const MAX_PAGE = 500
+
+/**
+ * Longest search term that reaches an upstream request — and therefore a cache key. RAWG matches
+ * on titles, so anything past this is not a search any more; capping it keeps the attacker-facing
+ * part of the key space finite rather than "one permanent entry per arbitrary string".
+ */
+export const MAX_SEARCH_LENGTH = 100
