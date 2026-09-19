@@ -60,4 +60,45 @@ describe('ActiveFilterChips', () => {
     await wrapper.get('button[aria-label]').trigger('click')
     expect(wrapper.emitted('change')![0]).toEqual([{ yearFrom: undefined, yearTo: undefined }])
   })
+
+  describe('one-sided year chips keep the word out of the mono face', () => {
+    it('uk: "yearFrom" only', async () => {
+      const wrapper = await mountSuspended(ActiveFilterChips, {
+        props: { filter: { yearFrom: 2010 }, genres: [] },
+      })
+      const mono = wrapper.get('.font-numeric')
+      expect(mono.text()).toBe('2010')
+      expect(wrapper.text()).toContain('від 2010')
+      expect(wrapper.text().replace(mono.text(), '').trim()).not.toBe('')
+    })
+
+    it('uk: "yearTo" only', async () => {
+      const wrapper = await mountSuspended(ActiveFilterChips, {
+        props: { filter: { yearTo: 2015 }, genres: [] },
+      })
+      const mono = wrapper.get('.font-numeric')
+      expect(mono.text()).toBe('2015')
+      expect(wrapper.text()).toContain('до 2015')
+    })
+
+    it('en: "yearFrom" only', async () => {
+      const wrapper = await mountSuspended(ActiveFilterChips, {
+        props: { filter: { yearFrom: 2010 }, genres: [] },
+        route: '/en/games',
+      })
+      const mono = wrapper.get('.font-numeric')
+      expect(mono.text()).toBe('2010')
+      expect(wrapper.text()).toContain('from 2010')
+    })
+
+    it('en: "yearTo" only', async () => {
+      const wrapper = await mountSuspended(ActiveFilterChips, {
+        props: { filter: { yearTo: 2015 }, genres: [] },
+        route: '/en/games',
+      })
+      const mono = wrapper.get('.font-numeric')
+      expect(mono.text()).toBe('2015')
+      expect(wrapper.text()).toContain('up to 2015')
+    })
+  })
 })

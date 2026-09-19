@@ -14,9 +14,14 @@ const { t } = useI18n()
 
 interface Chip {
   key: string
+  /** Plain-text label: used for the remove button's `aria-label`, and rendered as-is
+   * unless `yearPart` is set. */
   label: string
   /** Numbers displayed with no surrounding words get the mono numeral treatment. */
   numeric?: boolean
+  /** One-sided year chip ("від 2010" / "from 2010"): only the year is a bare number, so it
+   * renders through `<i18n-t>` with a slot, keeping the surrounding word out of the mono face. */
+  yearPart?: { keypath: string; year: number }
   remove: () => void
 }
 
@@ -61,17 +66,25 @@ const chips = computed<Chip[]>(() => {
       label: t('filters.upcoming'),
       remove: () => emit('change', { upcoming: undefined }),
     })
-  } else if (filter.yearFrom !== undefined || filter.yearTo !== undefined) {
-    const label =
-      filter.yearFrom !== undefined && filter.yearTo !== undefined
-        ? `${filter.yearFrom}–${filter.yearTo}`
-        : filter.yearFrom !== undefined
-          ? t('chips.yearFrom', { year: filter.yearFrom })
-          : t('chips.yearTo', { year: filter.yearTo })
+  } else if (filter.yearFrom !== undefined && filter.yearTo !== undefined) {
     list.push({
       key: 'year',
-      label,
+      label: `${filter.yearFrom}–${filter.yearTo}`,
       numeric: true,
+      remove: () => emit('change', { yearFrom: undefined, yearTo: undefined }),
+    })
+  } else if (filter.yearFrom !== undefined) {
+    list.push({
+      key: 'year',
+      label: t('chips.yearFrom', { year: filter.yearFrom }),
+      yearPart: { keypath: 'chips.yearFrom', year: filter.yearFrom },
+      remove: () => emit('change', { yearFrom: undefined, yearTo: undefined }),
+    })
+  } else if (filter.yearTo !== undefined) {
+    list.push({
+      key: 'year',
+      label: t('chips.yearTo', { year: filter.yearTo }),
+      yearPart: { keypath: 'chips.yearTo', year: filter.yearTo },
       remove: () => emit('change', { yearFrom: undefined, yearTo: undefined }),
     })
   }
@@ -145,7 +158,12 @@ const chips = computed<Chip[]>(() => {
       :key="chip.key"
       class="inline-flex items-center gap-1 rounded-chip border border-line bg-surface-1 py-1 pl-3 pr-1.5 text-sm text-fg"
     >
-      <span :class="{ 'font-numeric': chip.numeric }">{{ chip.label }}</span>
+      <i18n-t v-if="chip.yearPart" :keypath="chip.yearPart.keypath" tag="span">
+        <template #year
+          ><span class="font-numeric">{{ chip.yearPart.year }}</span></template
+        >
+      </i18n-t>
+      <span v-else :class="{ 'font-numeric': chip.numeric }">{{ chip.label }}</span>
       <button
         type="button"
         class="flex size-5 items-center justify-center rounded-full text-fg-2 hover:text-fg focus-visible:outline-2"
