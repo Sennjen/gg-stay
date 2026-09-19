@@ -4,17 +4,23 @@ import { rawgImageUrl } from '~/utils/rawgImage'
 const src = 'https://media.rawg.io/media/games/618/abc.jpg'
 
 describe('rawgImageUrl', () => {
-  it('rewrites to the smallest supported width that covers the request', () => {
-    expect(rawgImageUrl(src, 300)).toBe(
-      'https://media.rawg.io/media/resize/420/-/games/618/abc.jpg',
-    )
-    expect(rawgImageUrl(src, 640)).toBe(
-      'https://media.rawg.io/media/resize/640/-/games/618/abc.jpg',
-    )
-    expect(rawgImageUrl(src, 5000)).toBe(
-      'https://media.rawg.io/media/resize/1280/-/games/618/abc.jpg',
-    )
-  })
+  it.each([
+    [300, 420],
+    [420, 420],
+    [560, 420],
+    [640, 640],
+    [840, 640],
+    [1000, 1280],
+    [1280, 1280],
+    [5000, 1280],
+  ])(
+    'picks the smallest CDN size that is at least 75%% of the requested width (%i -> %i)',
+    (requested, expected) => {
+      expect(rawgImageUrl(src, requested)).toBe(
+        `https://media.rawg.io/media/resize/${expected}/-/games/618/abc.jpg`,
+      )
+    },
+  )
   it('leaves the url alone without a width, for other hosts, and when already resized', () => {
     expect(rawgImageUrl(src)).toBe(src)
     expect(rawgImageUrl('https://example.com/media/a.jpg', 300)).toBe(
