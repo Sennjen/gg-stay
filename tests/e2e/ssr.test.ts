@@ -73,4 +73,9 @@ describe('server-side rendering', async () => {
     const html = await $fetch<string>('/games')
     expect(html).toContain('Unreleased Sample')
   })
+
+  it('does not render the header search suggestions listbox for a pre-filled catalog search term', async () => {
+    const html = await $fetch<string>('/games?search=witcher')
+    expect(html).not.toContain('role="listbox"')
+  })
 })
