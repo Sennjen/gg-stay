@@ -93,12 +93,11 @@ useSeoMeta({ title: () => t('catalog.title'), description: () => t('catalog.desc
         @clear="clear"
       />
       <template v-else-if="page">
-        <div :class="store.viewMode === 'list' ? 'catalog-grid--list' : 'catalog-grid--grid'">
-          <GameGrid
-            :games="page.items"
-            :class="{ 'opacity-60': games.status.value === 'pending' }"
-          />
-        </div>
+        <GameGrid
+          :games="page.items"
+          :layout="store.viewMode"
+          :class="{ 'opacity-60': games.status.value === 'pending' }"
+        />
         <Pagination :page="page.page" :total-pages="totalPages" @change="setPage" />
       </template>
     </section>

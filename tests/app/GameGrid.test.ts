@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import GameGrid from '~/components/GameGrid.vue'
+import GameCard from '~/components/GameCard.vue'
 
 const game = {
   id: '3328',
@@ -35,11 +36,24 @@ describe('GameGrid', () => {
     })
   })
 
-  it('lays out 2 / 3 / 4 / 5 columns across breakpoints', async () => {
+  it('lays out 2 / 3 / 4 / 5 columns across breakpoints by default (grid layout)', async () => {
     const wrapper = await mountSuspended(GameGrid, { props: { games } })
     const classes = wrapper.get('ul').classes()
     expect(classes).toEqual(
       expect.arrayContaining(['grid-cols-2', 'md:grid-cols-3', 'lg:grid-cols-4', 'xl:grid-cols-5']),
     )
+    for (const card of wrapper.findAllComponents(GameCard)) {
+      expect(card.props('layout')).toBe('grid')
+    }
+  })
+
+  it('lays out a single column and passes layout="list" down to each card', async () => {
+    const wrapper = await mountSuspended(GameGrid, { props: { games, layout: 'list' } })
+    const classes = wrapper.get('ul').classes()
+    expect(classes).toContain('grid-cols-1')
+    expect(classes).not.toContain('grid-cols-2')
+    for (const card of wrapper.findAllComponents(GameCard)) {
+      expect(card.props('layout')).toBe('list')
+    }
   })
 })
