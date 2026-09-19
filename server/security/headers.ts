@@ -2,6 +2,11 @@
 // own mp4 clips; Steam serves HLS trailers, which hls.js fetches over XHR (hence `connect-src`)
 // and demuxes in a worker it creates from a blob URL (hence `worker-src blob:`).
 const RAWG_MEDIA = 'https://media.rawg.io'
+// media.rawg.io 307-redirects anything it does not hold in its own bucket to api.rawg.io, and a
+// redirect target has to satisfy the policy in its own right. Verified against the live CDN:
+// GET media.rawg.io/media/resize/640/-/screenshots/201001/full1.jpg → 307 → api.rawg.io/…, which a
+// policy naming only media.rawg.io blocks. Both hosts serve the same images.
+const RAWG_MEDIA_REDIRECT = 'https://api.rawg.io'
 const STEAM_VIDEO = 'https://video.akamai.steamstatic.com'
 
 /**
@@ -29,7 +34,7 @@ export function contentSecurityPolicy(scriptHashes: readonly string[] = []): str
     "style-src 'self' 'unsafe-inline'",
     // @nuxt/fonts downloads the Google families at build time and serves them from /_fonts.
     "font-src 'self'",
-    `img-src 'self' data: ${RAWG_MEDIA}`,
+    `img-src 'self' data: ${RAWG_MEDIA} ${RAWG_MEDIA_REDIRECT}`,
     `media-src 'self' ${RAWG_MEDIA} ${STEAM_VIDEO}`,
     `connect-src 'self' ${STEAM_VIDEO}`,
     "worker-src 'self' blob:",

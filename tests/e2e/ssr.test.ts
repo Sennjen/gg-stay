@@ -202,7 +202,9 @@ describe('server-side rendering', async () => {
       expect(csp).toContain("base-uri 'self'")
       expect(csp).toContain("style-src 'self' 'unsafe-inline'")
       expect(csp).toContain("font-src 'self'")
-      expect(csp).toContain("img-src 'self' data: https://media.rawg.io")
+      // api.rawg.io is where media.rawg.io redirects images it does not hold; a redirect target
+      // must satisfy the policy itself, so both hosts are named.
+      expect(csp).toContain("img-src 'self' data: https://media.rawg.io https://api.rawg.io")
       expect(csp).toContain('https://video.akamai.steamstatic.com')
       expect(csp).toContain("worker-src 'self' blob:")
 
