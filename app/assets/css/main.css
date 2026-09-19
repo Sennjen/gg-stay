@@ -58,11 +58,10 @@ body {
   outline-offset: 2px;
 }
 
-/* Display headings: Tektur, lowercase, tight tracking. Hero headlines, section
+/* Display headings: Tektur, sentence case, tight tracking. Hero headlines, section
    titles and the logo only — see DESIGN.md. */
 .font-display-heading {
   font-family: var(--font-display);
-  text-transform: lowercase;
   letter-spacing: -0.02em;
 }
 

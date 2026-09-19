@@ -27,8 +27,8 @@ describe('home page', () => {
     })
 
     const wrapper = await mountSuspended(IndexPage)
-    expect(wrapper.text()).toContain('ігри, які варто знайти')
-    expect(wrapper.get('h1').text()).toBe('ігри, які варто знайти')
+    expect(wrapper.text()).toContain('Ігри, які варто знайти')
+    expect(wrapper.get('h1').text()).toBe('Ігри, які варто знайти')
     expect(wrapper.text()).toContain('The Witcher 3: Wild Hunt')
   })
 
@@ -54,7 +54,7 @@ describe('home page', () => {
     // cached, successful response instead of exercising the error path.
     clearNuxtData('gql:Landing:{}')
     const wrapper = await mountSuspended(IndexPage)
-    expect(wrapper.get('h1').text()).toBe('ігри, які варто знайти')
+    expect(wrapper.get('h1').text()).toBe('Ігри, які варто знайти')
     expect(wrapper.get('a[href="/games"]').exists()).toBe(true)
     // No caption and no error box without a featured game.
     expect(wrapper.text()).not.toContain('Зараз на екрані')

@@ -74,8 +74,9 @@ Three font families, self-hosted via `@nuxt/fonts` (Google provider,
 
 - **Tektur** (`--font-display`, weights 400–700) — display face. Used only
   for hero headlines, section titles and the logo. Class `.font-display-heading`
-  applies the family, forces lowercase and tightens tracking (`-0.02em`), matching
-  the "ігри, які варто знайти" style headline in the design doc.
+  applies the family and tightens tracking (`-0.02em`). Headings are written in
+  sentence case ("Ігри, які варто знайти"); the logo reads "GG Stay". No
+  `text-transform` — the text in the DOM is the text on screen.
 - **Inter** (`--font-sans`, weights 400/500/600) — the interface face, applied
   to `body` by default. Every other piece of text uses it.
 - **JetBrains Mono** (`--font-mono`, weights 400/500) — numerals only: years,

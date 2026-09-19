@@ -15,11 +15,11 @@ const featured = {
 }
 
 describe('HeroFeatured', () => {
-  it('renders the lowercase headline, both locales of the call to action, and the secondary link', async () => {
+  it('renders the headline, both locales of the call to action, and the secondary link', async () => {
     const wrapper = await mountSuspended(HeroFeatured, { props: { featured: null } })
 
-    expect(wrapper.get('h1').text()).toBe('ігри, які варто знайти')
-    expect(wrapper.text()).toContain('каталог для українського гравця')
+    expect(wrapper.get('h1').text()).toBe('Ігри, які варто знайти')
+    expect(wrapper.text()).toContain('Каталог для українського гравця')
 
     const cta = wrapper.get('a[href="/games"]')
     expect(cta.text()).toBe('Відкрити каталог')
@@ -34,7 +34,7 @@ describe('HeroFeatured', () => {
       route: '/en',
     })
 
-    expect(wrapper.get('h1').text()).toBe('games worth finding')
+    expect(wrapper.get('h1').text()).toBe('Games worth finding')
     expect(wrapper.get('a[href="/en/games"]').text()).toBe('Open the catalog')
   })
 

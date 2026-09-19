@@ -49,7 +49,7 @@ Spacing scale 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64. Radius 12 px for cards, 999 p
 
 ### Typography
 
-- **Tektur** for display: lowercase, large, tight tracking. It is a variable font with a width axis; long Ukrainian headlines use a narrower width (`wdth` 75–85) instead of a smaller size. Used for hero headlines, section titles and the logo — nowhere else.
+- **Tektur** for display: sentence case, large, tight tracking. The logo reads "GG Stay". It is a variable font with a width axis; long Ukrainian headlines use a narrower width (`wdth` 75–85) instead of a smaller size. Used for hero headlines, section titles and the logo — nowhere else.
 - **Inter** for all interface text.
 - **JetBrains Mono** with tabular figures for every number: years, scores, counts, page numbers.
 - Fonts are self-hosted through `@nuxt/fonts`, subset to Latin and Cyrillic, `font-display: swap`.
