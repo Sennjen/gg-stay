@@ -1,19 +1,30 @@
 <script setup lang="ts">
 import { STORE_OPTIONS } from '#shared/catalog'
+import { safeExternalUrl } from '#shared/url'
 
-defineProps<{ offers: { store: string; url: string }[] }>()
+const props = defineProps<{ offers: { store: string; url: string }[] }>()
 const { t } = useI18n()
 const storeName = (slug: string) =>
   STORE_OPTIONS.find((option) => option.slug === slug)?.name ?? slug
+
+// The mapper already refuses anything that is not http(s) (server/rawg/mappers.ts), so this is
+// defence in depth: the scheme check sits next to the `:href` it protects, where a future
+// refactor that changes the data source cannot silently drop it.
+const safeOffers = computed(() =>
+  props.offers.flatMap((offer) => {
+    const url = safeExternalUrl(offer.url)
+    return url ? [{ ...offer, url }] : []
+  }),
+)
 </script>
 
 <template>
-  <section v-if="offers.length" aria-labelledby="where-to-buy">
+  <section v-if="safeOffers.length" aria-labelledby="where-to-buy">
     <h2 id="where-to-buy" class="font-display-heading text-xl text-fg">
       {{ t('game.whereToBuy') }}
     </h2>
     <ul class="mt-3 flex flex-wrap gap-2">
-      <li v-for="offer in offers" :key="offer.store">
+      <li v-for="offer in safeOffers" :key="offer.store">
         <a
           :href="offer.url"
           target="_blank"

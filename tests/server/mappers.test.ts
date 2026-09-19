@@ -107,6 +107,20 @@ describe('mapGame', () => {
     expect(game.similar).toEqual([])
   })
 
+  it('drops a website with an unsafe scheme', () => {
+    for (const website of ['javascript:alert(1)', 'data:text/html,x', '//evil.test/x']) {
+      expect(mapGame({ ...detail, website }, []).website).toBeNull()
+    }
+  })
+
+  it('drops store links whose url has an unsafe scheme', () => {
+    const game = mapGame(detail, [
+      { store_id: 1, url: 'javascript:alert(1)' },
+      { store_id: 5, url: 'https://www.gog.com/x' },
+    ])
+    expect(game.stores.map((offer) => offer.url)).toEqual(['https://www.gog.com/x'])
+  })
+
   it('drops store links with unknown stores or empty urls', () => {
     const game = mapGame(detail, [
       { store_id: 999, url: 'https://x.test' },

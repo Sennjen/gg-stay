@@ -15,6 +15,7 @@ import type {
   RawgStoreLink,
   RawgTaxonomy,
 } from './types'
+import { safeExternalUrl } from '../../shared/url'
 import {
   esrbToAgeRating,
   gameModesFromTags,
@@ -83,11 +84,14 @@ export function mapGameCard(raw: RawgGameListItem): GameCard {
 function mapStoreOffers(links: RawgStoreLink[]): StoreOffer[] {
   return links.flatMap((link) => {
     const store = storeSlugFromId(link.store_id)
-    if (!store || !link.url) return []
+    // A store link with an unsafe scheme is dropped rather than passed through: the offer only
+    // exists to be clicked, so there is nothing left to render once the URL is refused.
+    const url = safeExternalUrl(link.url)
+    if (!store || !url) return []
     return [
       {
         store,
-        url: link.url,
+        url,
         priceUah: null,
         regularPriceUah: null,
         discountPercent: null,
@@ -118,7 +122,7 @@ export function mapGame(
     tags,
     developers: mapTaxonomies(raw.developers),
     publishers: mapTaxonomies(raw.publishers),
-    website: raw.website || null,
+    website: safeExternalUrl(raw.website),
     stores: mapStoreOffers(storeLinks),
     similar: [],
   }

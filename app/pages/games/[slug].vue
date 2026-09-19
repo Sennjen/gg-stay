@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { GameDocument } from '~/graphql/__generated__/operations'
+import { safeExternalUrl } from '#shared/url'
 import { splitParagraphs } from '~/utils/format'
 
 const route = useRoute()
@@ -19,6 +20,9 @@ if (errorCode.value === 'NOT_FOUND') {
 }
 
 const game = computed(() => data.value?.game ?? null)
+// Defence in depth: the mapper already refuses a non-http(s) `website`, but the check belongs
+// next to the `:href` too — Vue does not sanitise `href`, and this value is publisher-submitted.
+const website = computed(() => safeExternalUrl(game.value?.website))
 const names = (list?: { name: string }[]) => (list ?? []).map((entry) => entry.name).join(', ')
 const localizedDescription = computed(() => game.value?.localizedDescription ?? null)
 const descriptionParagraphs = computed(() => splitParagraphs(localizedDescription.value?.text))
@@ -110,16 +114,16 @@ useSeoMeta({
             <dt class="text-fg-2">{{ t('game.publishers') }}</dt>
             <dd>{{ names(game.publishers) }}</dd>
           </div>
-          <div v-if="game.website">
+          <div v-if="website">
             <dt class="text-fg-2">{{ t('game.website') }}</dt>
             <dd>
               <a
-                :href="game.website"
+                :href="website"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="break-all text-fg underline underline-offset-4 hover:text-fg-2"
               >
-                {{ game.website }}
+                {{ website }}
               </a>
             </dd>
           </div>

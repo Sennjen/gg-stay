@@ -1,3 +1,4 @@
+import { safeExternalUrl } from '../../../shared/url'
 import { mapGameCard } from '../../rawg/mappers'
 import { dateRange, pickFeatured, pickTopRated } from '../../rawg/landing'
 import type { RawgGameListItem, RawgList, RawgMovie, RawgStoreLink } from '../../rawg/types'
@@ -34,7 +35,9 @@ async function fetchRawgClipUrl(
     // (any `games/…` sub-path), the same value as `LANDING_TTL` — see `server/rawg/rawgFetch.ts`.
     const movies = (await context.rawg(`games/${id}/movies`)) as RawgList<RawgMovie>
     const first = movies.results?.[0]
-    return first?.data?.['480'] ?? first?.data?.max ?? null
+    // The clip URL ends up as a media source in the client; run it through the same scheme
+    // allow-list as every other third-party URL rather than trusting the upstream record.
+    return safeExternalUrl(first?.data?.['480'] ?? first?.data?.max)
   } catch {
     // Trailers are an enhancement: a missing or failed clip must not fail the landing query.
     return null
@@ -62,7 +65,7 @@ async function fetchSteamClipUrl(
     })) as SteamAppDetailsResponse
     const details = response[appId]
     if (!details?.success) return null
-    return pickTrailer(details.data?.movies)
+    return safeExternalUrl(pickTrailer(details.data?.movies))
   } catch {
     return null
   }
