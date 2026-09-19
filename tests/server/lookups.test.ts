@@ -4,6 +4,8 @@ import {
   esrbToAgeRating,
   gameModesFromTags,
   matchesPlaytime,
+  platformFamiliesFromSlugs,
+  platformFamilyFromSlug,
   storeIdsFromSlugs,
   storeSlugFromId,
   tagsForGameModes,
@@ -49,5 +51,39 @@ describe('lookups', () => {
     expect(storeIdsFromSlugs(['steam', 'nope', 'gog'])).toEqual([1, 5])
     expect(storeSlugFromId(11)).toBe('epic-games')
     expect(storeSlugFromId(999)).toBeNull()
+  })
+
+  it.each([
+    ['pc', 'PC'],
+    ['playstation', 'PLAYSTATION'],
+    ['playstation5', 'PLAYSTATION'],
+    ['xbox', 'XBOX'],
+    ['xbox-series-x', 'XBOX'],
+    ['nintendo', 'NINTENDO'],
+    ['nintendo-switch', 'NINTENDO'],
+    ['ios', 'MOBILE'],
+    ['android', 'MOBILE'],
+    ['mac', 'OTHER'],
+    ['linux', 'OTHER'],
+    ['web', 'OTHER'],
+    ['sega', 'OTHER'],
+    ['atari', 'OTHER'],
+  ] as const)('maps platform slug %s to family %s', (slug, family) => {
+    expect(platformFamilyFromSlug(slug)).toBe(family)
+  })
+
+  it('maps a missing slug to OTHER', () => {
+    expect(platformFamilyFromSlug(undefined)).toBe('OTHER')
+    expect(platformFamilyFromSlug(null)).toBe('OTHER')
+  })
+
+  it('de-duplicates families and orders them by the enum order', () => {
+    expect(
+      platformFamiliesFromSlugs(['nintendo-switch', 'pc', 'playstation5', 'pc', 'xbox-series-x']),
+    ).toEqual(['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO'])
+  })
+
+  it('returns an empty list for no slugs', () => {
+    expect(platformFamiliesFromSlugs([])).toEqual([])
   })
 })

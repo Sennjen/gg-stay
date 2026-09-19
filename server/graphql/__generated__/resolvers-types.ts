@@ -53,11 +53,13 @@ export type GameCard = {
   madeInUkraine: Scalars['Boolean']['output'];
   metacritic?: Maybe<Scalars['Int']['output']>;
   name: Scalars['String']['output'];
+  platformFamilies: Array<PlatformFamily>;
   platforms: Array<Taxonomy>;
   playtime?: Maybe<Scalars['Int']['output']>;
   price?: Maybe<PriceSummary>;
   rating?: Maybe<Scalars['Float']['output']>;
   released?: Maybe<Scalars['String']['output']>;
+  screenshots: Array<Image>;
   slug: Scalars['String']['output'];
 };
 
@@ -129,6 +131,14 @@ export type LocalisationInfo = {
   source: Scalars['String']['output'];
   subtitles: Scalars['Boolean']['output'];
 };
+
+export type PlatformFamily =
+  | 'MOBILE'
+  | 'NINTENDO'
+  | 'OTHER'
+  | 'PC'
+  | 'PLAYSTATION'
+  | 'XBOX';
 
 export type Playtime =
   | 'LONG'
@@ -271,6 +281,7 @@ export type ResolversTypes = {
   Int: ResolverTypeWrapper<Scalars['Int']['output']>;
   Localisation: Localisation;
   LocalisationInfo: ResolverTypeWrapper<LocalisationInfo>;
+  PlatformFamily: PlatformFamily;
   Playtime: Playtime;
   PriceSummary: ResolverTypeWrapper<PriceSummary>;
   Query: ResolverTypeWrapper<Record<PropertyKey, never>>;
@@ -332,11 +343,13 @@ export type GameCardResolvers<ContextType = GraphQLContext, ParentType extends R
   madeInUkraine?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   metacritic?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  platformFamilies?: Resolver<Array<ResolversTypes['PlatformFamily']>, ParentType, ContextType>;
   platforms?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
   playtime?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   price?: Resolver<Maybe<ResolversTypes['PriceSummary']>, ParentType, ContextType>;
   rating?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
   released?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  screenshots?: Resolver<Array<ResolversTypes['Image']>, ParentType, ContextType>;
   slug?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 

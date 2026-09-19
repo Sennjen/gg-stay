@@ -10,10 +10,17 @@ import type {
   RawgGameDetail,
   RawgGameListItem,
   RawgList,
+  RawgScreenshot,
+  RawgShortScreenshot,
   RawgStoreLink,
   RawgTaxonomy,
 } from './types'
-import { esrbToAgeRating, gameModesFromTags, storeSlugFromId } from './lookups'
+import {
+  esrbToAgeRating,
+  gameModesFromTags,
+  platformFamiliesFromSlugs,
+  storeSlugFromId,
+} from './lookups'
 
 export function mapTaxonomy(raw: RawgTaxonomy): Taxonomy {
   return { id: String(raw.id ?? ''), slug: raw.slug ?? '', name: raw.name ?? '' }
@@ -32,6 +39,27 @@ function positive(value?: number | null): number | null {
   return value && value > 0 ? value : null
 }
 
+/** `short_screenshots`: exclude the id -1 entry (it duplicates the cover) and cap at 4. */
+function mapShortScreenshots(list?: RawgShortScreenshot[] | null): Image[] {
+  return (list ?? [])
+    .filter((item) => item.id !== -1 && item.image)
+    .slice(0, 4)
+    .map((item) => ({ url: item.image!, width: null, height: null }))
+}
+
+/** Full screenshots from `GET games/{slug}/screenshots`, width/height passed through when present. */
+function mapScreenshots(list?: RawgScreenshot[] | null): Image[] {
+  return (list ?? [])
+    .filter((item) => item.image)
+    .map((item) => ({ url: item.image!, width: item.width ?? null, height: item.height ?? null }))
+}
+
+function platformFamilies(raw: RawgGameListItem): GameCard['platformFamilies'] {
+  const source = raw.parent_platforms ?? raw.platforms ?? []
+  const slugs = source.map((entry) => entry.platform?.slug)
+  return platformFamiliesFromSlugs(slugs)
+}
+
 export function mapGameCard(raw: RawgGameListItem): GameCard {
   return {
     id: String(raw.id ?? ''),
@@ -42,6 +70,8 @@ export function mapGameCard(raw: RawgGameListItem): GameCard {
     metacritic: positive(raw.metacritic),
     playtime: positive(raw.playtime),
     cover: mapCover(raw.background_image),
+    screenshots: mapShortScreenshots(raw.short_screenshots),
+    platformFamilies: platformFamilies(raw),
     platforms: mapTaxonomies((raw.platforms ?? []).map((entry) => entry.platform ?? {})),
     genres: mapTaxonomies(raw.genres),
     price: null,
@@ -67,10 +97,16 @@ function mapStoreOffers(links: RawgStoreLink[]): StoreOffer[] {
   })
 }
 
-export function mapGame(raw: RawgGameDetail, storeLinks: RawgStoreLink[]): Game {
+export function mapGame(
+  raw: RawgGameDetail,
+  storeLinks: RawgStoreLink[],
+  screenshots: RawgScreenshot[] = [],
+): Game {
   // `price` exists on GameCard but not on Game; destructure it out so the
   // spread below doesn't carry a field the Game type doesn't declare.
-  const { price: _price, ...card } = mapGameCard(raw)
+  // `screenshots` (mapped from `short_screenshots` above) is also replaced: `Game.screenshots`
+  // comes from the dedicated screenshots endpoint, not the max-4 card preview.
+  const { price: _price, screenshots: _cardScreenshots, ...card } = mapGameCard(raw)
   const tags = mapTaxonomies(raw.tags)
   return {
     ...card,
@@ -78,7 +114,7 @@ export function mapGame(raw: RawgGameDetail, storeLinks: RawgStoreLink[]): Game 
     ratingsCount: positive(raw.ratings_count),
     ageRating: esrbToAgeRating(raw.esrb_rating?.slug),
     gameModes: gameModesFromTags(tags.map((tag) => tag.slug)),
-    screenshots: [],
+    screenshots: mapScreenshots(screenshots),
     tags,
     developers: mapTaxonomies(raw.developers),
     publishers: mapTaxonomies(raw.publishers),

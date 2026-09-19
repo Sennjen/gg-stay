@@ -13,6 +13,19 @@
         { "platform": { "id": 187, "slug": "playstation5", "name": "PlayStation 5" } },
         { "platform": { "id": 7, "slug": "nintendo-switch", "name": "Nintendo Switch" } }
       ],
+      "parent_platforms": [
+        { "platform": { "id": 1, "slug": "pc", "name": "PC" } },
+        { "platform": { "id": 2, "slug": "playstation", "name": "PlayStation" } },
+        { "platform": { "id": 3, "slug": "nintendo", "name": "Nintendo" } }
+      ],
+      "short_screenshots": [
+        { "id": -1, "image": "https://media.rawg.io/media/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg" },
+        { "id": 155001, "image": "https://media.rawg.io/media/screenshots/155001/screenshot1.jpg" },
+        { "id": 155002, "image": "https://media.rawg.io/media/screenshots/155002/screenshot2.jpg" },
+        { "id": 155003, "image": "https://media.rawg.io/media/screenshots/155003/screenshot3.jpg" },
+        { "id": 155004, "image": "https://media.rawg.io/media/screenshots/155004/screenshot4.jpg" },
+        { "id": 155005, "image": "https://media.rawg.io/media/screenshots/155005/screenshot5.jpg" }
+      ],
       "genres": [{ "id": 4, "slug": "action", "name": "Action" }, { "id": 5, "slug": "role-playing-games-rpg", "name": "RPG" }],
       "tags": [{ "id": 31, "slug": "singleplayer", "name": "Singleplayer" }],
       "stores": [{ "store": { "id": 1, "slug": "steam", "name": "Steam" } }, { "store": { "id": 5, "slug": "gog", "name": "GOG" } }],
@@ -23,6 +36,12 @@
       "released": "2011-04-18", "tba": false, "background_image": null,
       "rating": 4.6, "ratings_count": 5900, "metacritic": 95, "playtime": 11, "added": 19500,
       "platforms": [{ "platform": { "id": 4, "slug": "pc", "name": "PC" } }],
+      "parent_platforms": [{ "platform": { "id": 1, "slug": "pc", "name": "PC" } }],
+      "short_screenshots": [
+        { "id": -1, "image": null },
+        { "id": 155101, "image": "https://media.rawg.io/media/screenshots/155101/screenshot1.jpg" },
+        { "id": 155102, "image": "https://media.rawg.io/media/screenshots/155102/screenshot2.jpg" }
+      ],
       "genres": [{ "id": 2, "slug": "shooter", "name": "Shooter" }, { "id": 7, "slug": "puzzle", "name": "Puzzle" }],
       "tags": [
         { "id": 31, "slug": "singleplayer", "name": "Singleplayer" },
@@ -40,6 +59,14 @@
         { "platform": { "id": 4, "slug": "pc", "name": "PC" } },
         { "platform": { "id": 7, "slug": "nintendo-switch", "name": "Nintendo Switch" } }
       ],
+      "parent_platforms": [
+        { "platform": { "id": 1, "slug": "pc", "name": "PC" } },
+        { "platform": { "id": 3, "slug": "nintendo", "name": "Nintendo" } }
+      ],
+      "short_screenshots": [
+        { "id": -1, "image": null },
+        { "id": 155201, "image": "https://media.rawg.io/media/screenshots/155201/screenshot1.jpg" }
+      ],
       "genres": [{ "id": 51, "slug": "indie", "name": "Indie" }, { "id": 14, "slug": "simulation", "name": "Simulation" }],
       "tags": [
         { "id": 31, "slug": "singleplayer", "name": "Singleplayer" },
@@ -53,7 +80,8 @@
       "id": 999001, "slug": "unreleased-sample", "name": "Unreleased Sample",
       "released": null, "tba": true, "background_image": null,
       "rating": 0, "ratings_count": 0, "metacritic": null, "playtime": 0, "added": 10,
-      "platforms": null, "genres": [], "tags": null, "stores": null, "esrb_rating": null
+      "platforms": null, "parent_platforms": null, "short_screenshots": null,
+      "genres": [], "tags": null, "stores": null, "esrb_rating": null
     }
   ]
 }

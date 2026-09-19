@@ -5,6 +5,11 @@ export interface RawgTaxonomy {
   name?: string
 }
 
+export interface RawgShortScreenshot {
+  id?: number
+  image?: string | null
+}
+
 export interface RawgGameListItem {
   id?: number
   slug?: string
@@ -15,7 +20,10 @@ export interface RawgGameListItem {
   ratings_count?: number | null
   metacritic?: number | null
   playtime?: number | null
+  added?: number | null
   platforms?: { platform?: RawgTaxonomy }[] | null
+  parent_platforms?: { platform?: RawgTaxonomy }[] | null
+  short_screenshots?: RawgShortScreenshot[] | null
   genres?: RawgTaxonomy[] | null
   tags?: RawgTaxonomy[] | null
   stores?: { store?: RawgTaxonomy }[] | null
@@ -33,6 +41,13 @@ export interface RawgStoreLink {
   id?: number
   store_id?: number
   url?: string | null
+}
+
+export interface RawgScreenshot {
+  id?: number
+  image?: string | null
+  width?: number | null
+  height?: number | null
 }
 
 export interface RawgList<T> {

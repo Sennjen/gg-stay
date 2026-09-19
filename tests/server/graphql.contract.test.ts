@@ -4,6 +4,7 @@ import { UpstreamError, type RawgFetch } from '../../server/rawg/rawgFetch'
 import games from '../fixtures/rawg/games.json'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
 import stores from '../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json'
+import screenshots from '../fixtures/rawg/game-the-witcher-3-wild-hunt-screenshots.json'
 import genres from '../fixtures/rawg/genres.json'
 import platforms from '../fixtures/rawg/platforms.json'
 import developers from '../fixtures/rawg/developers.json'
@@ -12,6 +13,7 @@ const fixtureRawg: RawgFetch = async (path) => {
   if (path === 'games') return games
   if (path === 'games/the-witcher-3-wild-hunt') return detail
   if (path === 'games/the-witcher-3-wild-hunt/stores') return stores
+  if (path === 'games/the-witcher-3-wild-hunt/screenshots') return screenshots
   if (path === 'genres') return genres
   if (path === 'platforms') return platforms
   if (path === 'developers') return developers
@@ -140,7 +142,7 @@ describe('Query.game', () => {
     }
   `
 
-  it('returns detail with store links', async () => {
+  it('returns detail with store links and screenshots', async () => {
     const { data, errors } = await run(fixtureRawg, GAME, { slug: 'the-witcher-3-wild-hunt' })
     expect(errors).toBeUndefined()
     expect(data!.game).toMatchObject({
@@ -148,11 +150,15 @@ describe('Query.game', () => {
       ageRating: 'PEGI18',
       gameModes: ['SINGLE'],
       similar: [],
-      screenshots: [],
     })
     expect(data!.game.stores.map((offer: { store: string }) => offer.store)).toEqual([
       'steam',
       'gog',
+    ])
+    expect(data!.game.screenshots).toEqual([
+      { url: 'https://media.rawg.io/media/screenshots/201001/full1.jpg' },
+      { url: 'https://media.rawg.io/media/screenshots/201002/full2.jpg' },
+      { url: 'https://media.rawg.io/media/screenshots/201003/full3.jpg' },
     ])
   })
 
@@ -166,10 +172,52 @@ describe('Query.game', () => {
     expect(data!.game.stores).toEqual([])
   })
 
+  it('still returns the game, with empty screenshots, when the screenshots call fails', async () => {
+    const rawg: RawgFetch = async (path, params) => {
+      if (path.endsWith('/screenshots')) throw new UpstreamError('ERROR', 500)
+      return fixtureRawg(path, params)
+    }
+    const { data, errors } = await run(rawg, GAME, { slug: 'the-witcher-3-wild-hunt' })
+    expect(errors).toBeUndefined()
+    expect(data!.game.screenshots).toEqual([])
+  })
+
   it('reports NOT_FOUND for an unknown slug', async () => {
     const { data, errors } = await run(fixtureRawg, GAME, { slug: 'nope' })
     expect(data!.game).toBeNull()
     expect(errors![0]!.extensions!.code).toBe('NOT_FOUND')
+  })
+})
+
+describe('GameCard.screenshots / platformFamilies', () => {
+  const CARD_FIELDS = /* GraphQL */ `
+    query Games {
+      games {
+        items {
+          slug
+          screenshots {
+            url
+          }
+          platformFamilies
+        }
+      }
+    }
+  `
+
+  it('excludes the id -1 entry, caps at 4, and orders platform families', async () => {
+    const { data, errors } = await run(fixtureRawg, CARD_FIELDS)
+    expect(errors).toBeUndefined()
+    const witcher = data!.games.items.find(
+      (item: { slug: string }) => item.slug === 'the-witcher-3-wild-hunt',
+    )
+    expect(witcher.screenshots).toHaveLength(4)
+    expect(witcher.platformFamilies).toEqual(['PC', 'PLAYSTATION', 'NINTENDO'])
+
+    const unreleased = data!.games.items.find(
+      (item: { slug: string }) => item.slug === 'unreleased-sample',
+    )
+    expect(unreleased.screenshots).toEqual([])
+    expect(unreleased.platformFamilies).toEqual([])
   })
 })
 

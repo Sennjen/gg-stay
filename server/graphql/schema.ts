@@ -71,6 +71,14 @@ export const typeDefs = /* GraphQL */ `
     SUBTITLES
     AUDIO
   }
+  enum PlatformFamily {
+    PC
+    PLAYSTATION
+    XBOX
+    NINTENDO
+    MOBILE
+    OTHER
+  }
 
   type GamePage {
     items: [GameCard!]!
@@ -90,6 +98,8 @@ export const typeDefs = /* GraphQL */ `
     metacritic: Int
     playtime: Int
     cover: Image
+    screenshots: [Image!]!
+    platformFamilies: [PlatformFamily!]!
     platforms: [Taxonomy!]!
     genres: [Taxonomy!]!
     price: PriceSummary
