@@ -5,6 +5,7 @@ import type { RawgGameListItem, RawgList, RawgMovie, RawgStoreLink } from '../..
 import { pickTrailer, steamAppIdFromUrl } from '../../steam/steam'
 import type { SteamAppDetailsResponse } from '../../steam/types'
 import { withUpstreamErrors } from '../errors'
+import { attachIndexData, indexState } from '../indexPath'
 import type { GraphQLContext } from '../context'
 import type { QueryResolvers } from '../__generated__/resolvers-types'
 
@@ -113,11 +114,25 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
         }
       : null
 
-    return {
+    const page = {
       featured,
       carousel: carouselItems.slice(0, CAROUSEL_LIMIT).map(mapGameCard),
       newReleases: (newReleasesPage.results ?? []).slice(0, NEW_RELEASES_LIMIT).map(mapGameCard),
       topRated: pickTopRated(lastYearItems, TOP_RATED_LIMIT).map(mapGameCard),
       totalGames: carouselPage.count ?? 0,
     }
+
+    // Every card of every row in one index read, the featured game and the carousel included: the
+    // rows render `GameCard` and show a price line, and a game that appears in two of them must
+    // not be looked up twice. A stale index withholds the prices and keeps the language lists,
+    // exactly as it does in the catalog.
+    const state = await indexState(context)
+    const cards = [
+      ...(page.featured ? [page.featured.game] : []),
+      ...page.carousel,
+      ...page.newReleases,
+      ...page.topRated,
+    ]
+    await attachIndexData(context, cards, { prices: !state.stale })
+    return page
   })
