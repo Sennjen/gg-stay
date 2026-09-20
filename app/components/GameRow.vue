@@ -36,7 +36,10 @@ const headingId = useId()
         {{ props.moreLabel ?? t('rows.viewAll') }}
       </NuxtLink>
     </div>
-    <ul class="row-scroll mt-4 flex gap-4 overflow-x-auto pb-2" role="list">
+    <ul
+      class="row-scroll -mx-4 mt-4 flex scroll-px-4 gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:scroll-px-0 sm:px-0"
+      role="list"
+    >
       <li v-for="game in props.games" :key="game.id" class="w-[280px] shrink-0 snap-start">
         <GameCard :game="game" :eager="false" :cover-sizes="CARD_ROW_IMAGE_SIZES" />
       </li>

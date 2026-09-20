@@ -19,7 +19,9 @@ defineProps<{ name: string; coverUrl: string | null }>()
         class="absolute inset-0 h-full w-full object-cover"
       />
       <!-- Bottom-to-top and left-to-right gradients keep the title readable over any cover. -->
-      <div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink to-transparent" />
+      <div
+        class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/70 to-ink/10 sm:via-ink/40 sm:to-transparent"
+      />
       <div
         class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/70 via-transparent to-transparent"
       />

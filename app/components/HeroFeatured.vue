@@ -14,7 +14,7 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
 
 <template>
   <section
-    class="relative flex min-h-[560px] w-full items-end overflow-hidden bg-ink pt-[var(--header-h)]"
+    class="relative flex min-h-[560px] w-full flex-col justify-end overflow-hidden bg-ink pt-[var(--header-h)]"
     style="height: 100vh; height: 100svh"
   >
     <NuxtImg
@@ -52,7 +52,7 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
       class="pointer-events-none absolute inset-x-0 top-0 z-[5] h-40 bg-gradient-to-b from-ink/70 to-transparent"
     />
 
-    <div class="relative z-10 mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6 sm:pb-20">
+    <div class="relative z-10 mx-auto w-full max-w-6xl px-4 pb-6 sm:px-6 sm:pb-20">
       <h1
         class="font-display-heading text-balance text-[clamp(2.75rem,7vw,5.5rem)] leading-[0.95] text-fg"
       >
@@ -77,7 +77,7 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
 
     <div
       v-if="featured"
-      class="absolute bottom-4 right-4 z-10 max-w-[65%] text-right sm:bottom-6 sm:right-6"
+      class="relative z-10 w-full px-4 pb-6 sm:absolute sm:bottom-6 sm:right-6 sm:w-auto sm:max-w-[65%] sm:p-0 sm:text-right"
     >
       <i18n-t keypath="home.hero.nowOnScreen" tag="p" class="text-sm text-signal">
         <template #title>
@@ -89,7 +89,9 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
           </NuxtLink>
         </template>
       </i18n-t>
-      <p v-if="isSteamClip" class="text-xs text-fg-2">{{ t('home.hero.trailerSteam') }}</p>
+      <p v-if="isSteamClip" class="hidden text-xs text-fg-2 md:block">
+        {{ t('home.hero.trailerSteam') }}
+      </p>
     </div>
   </section>
 </template>

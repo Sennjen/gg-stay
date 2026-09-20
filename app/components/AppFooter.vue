@@ -46,7 +46,7 @@ const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DES
           </a>
         </nav>
 
-        <LocaleSwitcher />
+        <LocaleSwitcher class="-ml-2 self-start sm:ml-0" />
       </div>
 
       <div class="mt-8 border-t border-line pt-4 text-sm text-fg-2">
