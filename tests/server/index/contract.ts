@@ -380,6 +380,18 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect((await adapter.writer.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
       })
 
+      it('refuses to rewrite the version that is published', async () => {
+        const adapter = await fresh()
+        const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+        await expect(
+          adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(3, 6)),
+        ).rejects.toThrow()
+        // A rewrite empties the version before it fills it again; the live one must not be seen
+        // half-written, so it is refused rather than attempted.
+        expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
+        expect(await adapter.index.getOne(1)).not.toBeNull()
+      })
+
       it('refuses to discard the version that is published', async () => {
         const adapter = await fresh()
         const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))

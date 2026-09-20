@@ -150,6 +150,11 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 
   async writeVersion(version: number, games: IndexedGame[]): Promise<void> {
+    // Writing a version replaces it whole, so writing the live one would empty the index before
+    // it filled it again. A run writes a version it began, never the one readers are on.
+    if (this.live?.version === version) {
+      throw new Error(`Index version ${version} is published and cannot be rewritten`)
+    }
     if (!this.drafts.has(version)) throw new Error(`Unknown index version ${version}`)
     this.drafts.set(version, games.map(clone))
   }

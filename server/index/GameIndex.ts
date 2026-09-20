@@ -100,9 +100,11 @@ export interface GameIndex {
  * nothing behind; `meta()` is what that check reads, and `previousMeta()` reports the version the
  * last publish replaced.
  *
- * Two edges a retried run runs into: publishing the version that is already live only refreshes
+ * Three edges a retried run runs into. Publishing the version that is already live only refreshes
  * its metadata — it does not make that version its own predecessor, and none of its keys are set
- * to expire — and discarding the live version is refused, because that would empty the index.
+ * to expire. Discarding the live version is refused, because that would empty the index. Rewriting
+ * the live version is refused for the same reason: `writeVersion` replaces a version whole, so it
+ * would empty the index before filling it again, and readers would see it half-written.
  *
  * App ids and cursors live outside the version and survive publications, so a Steam app id is
  * resolved once in the life of the index. Both are batched: a run touches 3 000 games and a REST

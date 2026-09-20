@@ -229,9 +229,18 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
   }
 
   async writeVersion(version: number, games: IndexedGame[]): Promise<void> {
+    const opening = this.commands.pipeline()
+    const registered = opening.smembers(registryKey(version))
+    const pointer = opening.get(CURRENT_VERSION_KEY)
+    await opening.exec()
+    // Writing a version replaces it whole, so writing the live one would empty the index before
+    // it filled it again. A run writes a version it began, never the one readers are on.
+    if (pointer.value !== null && Number(pointer.value) === version) {
+      throw new Error(`Index version ${version} is published and cannot be rewritten`)
+    }
     // A rerun of the same version starts from nothing, so a game the previous attempt wrote and
     // this one did not cannot survive in a facet or an order.
-    await this.dropKeys(await this.read((batch) => batch.smembers(registryKey(version))))
+    await this.dropKeys(registered.value)
 
     const plan = buildIndexPlan(version, games)
     const written: ((batch: RedisBatch) => void)[] = []
