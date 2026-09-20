@@ -1,6 +1,7 @@
 import {
   AGE_RATINGS,
   GAME_MODES,
+  LOCALISATIONS,
   MAX_PAGE,
   METACRITIC_STEPS,
   PLAYTIMES,
@@ -10,6 +11,7 @@ import {
   type AgeRatingValue,
   type GameModeValue,
   type GameSortValue,
+  type LocalisationValue,
   type PlaytimeValue,
 } from '#shared/catalog'
 
@@ -27,6 +29,7 @@ export interface CatalogFilter {
   ageRating?: AgeRatingValue[]
   stores?: string[]
   developers?: string[]
+  ukrainianLocalisation?: LocalisationValue
 }
 
 export interface CatalogState {
@@ -88,6 +91,7 @@ export function parseFilterQuery(query: Record<string, unknown>): CatalogState {
     ),
     stores: nonEmpty(list(query.stores).filter((slug) => STORE_SLUGS.includes(slug))),
     developers: nonEmpty(list(query.developers).filter((slug) => SLUG.test(slug))),
+    ukrainianLocalisation: oneOf(first(query.ukrainianLocalisation), LOCALISATIONS),
   }
   // Each bound is range-checked on its own above, but the pair is not: a hand-edited
   // `?yearFrom=2020&yearTo=1990` would reach `filterToParams` as `dates=2020-01-01,1990-12-31`,
@@ -137,6 +141,7 @@ export function serializeFilterState({ filter, sort, page }: CatalogState): Reco
     ['ageRating', filter.ageRating?.join(',') || undefined],
     ['stores', filter.stores?.join(',') || undefined],
     ['developers', filter.developers?.join(',') || undefined],
+    ['ukrainianLocalisation', filter.ukrainianLocalisation],
     ['sort', sort === DEFAULT_SORT ? undefined : sort],
     ['page', page > 1 ? String(page) : undefined],
   ]

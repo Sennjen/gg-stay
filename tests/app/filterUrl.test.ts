@@ -20,6 +20,7 @@ describe('parseFilterQuery', () => {
       ageRating: 'PEGI7',
       stores: 'steam,gog',
       developers: 'cd-projekt-red',
+      ukrainianLocalisation: 'AUDIO',
       sort: 'RELEASED_DESC',
       page: '3',
     })
@@ -37,6 +38,7 @@ describe('parseFilterQuery', () => {
         ageRating: ['PEGI7'],
         stores: ['steam', 'gog'],
         developers: ['cd-projekt-red'],
+        ukrainianLocalisation: 'AUDIO',
       },
       sort: 'RELEASED_DESC',
       page: 3,
@@ -73,6 +75,8 @@ describe('parseFilterQuery', () => {
       gameModes: 'SINGLE,BOGUS',
       ageRating: 'PEGI99',
       stores: 'steam,warez',
+      // The interface and subtitles levels the schema used to offer are gone.
+      ukrainianLocalisation: 'SUBTITLES',
       sort: 'PRICE_ASC',
       page: '0',
       genres: ['rpg', 'x'],
@@ -132,6 +136,7 @@ describe('serializeFilterState', () => {
       platforms: '4',
       gameModes: 'LOCAL_COOP',
       ageRating: 'PEGI7',
+      ukrainianLocalisation: 'TEXT',
       sort: 'RELEASED_DESC',
       page: '2',
     }

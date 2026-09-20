@@ -70,6 +70,8 @@ const GAMES = /* GraphQL */ `
       pageSize
       hasNext
       indexedOnly
+      indexStale
+      indexUpdatedAt
       items {
         id
         slug
@@ -78,7 +80,9 @@ const GAMES = /* GraphQL */ `
           bestUah
         }
         localisation {
+          text
           audio
+          source
         }
         madeInUkraine
       }
@@ -96,6 +100,8 @@ describe('Query.games', () => {
       pageSize: 20,
       hasNext: false,
       indexedOnly: false,
+      indexStale: false,
+      indexUpdatedAt: null,
     })
     expect(data!.games.items).toHaveLength(4)
     expect(data!.games.items[0]).toEqual({
@@ -106,6 +112,23 @@ describe('Query.games', () => {
       localisation: null,
       madeInUkraine: false,
     })
+  })
+
+  it.each(['ANY', 'TEXT', 'AUDIO'])(
+    'accepts %s as the Ukrainian localisation level',
+    async (level) => {
+      const { errors } = await run(fixtureRawg, GAMES, {
+        filter: { ukrainianLocalisation: level },
+      })
+      expect(errors).toBeUndefined()
+    },
+  )
+
+  // Steam reports "supported" and "full audio" only, so the schema has two levels; the interface
+  // and subtitles levels it used to name were never served and cannot be told apart.
+  it.each(['INTERFACE', 'SUBTITLES'])('rejects %s as a localisation level', async (level) => {
+    const { errors } = await run(fixtureRawg, GAMES, { filter: { ukrainianLocalisation: level } })
+    expect(errors?.[0]?.message).toContain(level)
   })
 
   it('passes filter, sort and pagination to RAWG', async () => {

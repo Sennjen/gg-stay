@@ -70,10 +70,10 @@ export const typeDefs = /* GraphQL */ `
     PEGI16
     PEGI18
   }
+  "Steam reports supported languages and full audio only, so localisation has two levels."
   enum Localisation {
     ANY
-    INTERFACE
-    SUBTITLES
+    TEXT
     AUDIO
   }
   enum PlatformFamily {
@@ -92,6 +92,10 @@ export const typeDefs = /* GraphQL */ `
     pageSize: Int!
     hasNext: Boolean!
     indexedOnly: Boolean!
+    "The index has not been refreshed for too long, so prices are withheld."
+    indexStale: Boolean!
+    "ISO timestamp of the last index publication, when there is one."
+    indexUpdatedAt: String
   }
 
   type GameCard {
@@ -186,8 +190,9 @@ export const typeDefs = /* GraphQL */ `
     updatedAt: String
   }
   type LocalisationInfo {
-    interface: Boolean!
-    subtitles: Boolean!
+    "The interface or the subtitles are available in Ukrainian."
+    text: Boolean!
+    "The game is voiced in Ukrainian."
     audio: Boolean!
     source: String!
   }

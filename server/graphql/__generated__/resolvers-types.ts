@@ -121,6 +121,10 @@ export type GameMode =
 
 export type GamePage = {
   hasNext: Scalars['Boolean']['output'];
+  /** The index has not been refreshed for too long, so prices are withheld. */
+  indexStale: Scalars['Boolean']['output'];
+  /** ISO timestamp of the last index publication, when there is one. */
+  indexUpdatedAt?: Maybe<Scalars['String']['output']>;
   indexedOnly: Scalars['Boolean']['output'];
   items: Array<GameCard>;
   page: Scalars['Int']['output'];
@@ -153,17 +157,18 @@ export type Landing = {
   totalGames: Scalars['Int']['output'];
 };
 
+/** Steam reports supported languages and full audio only, so localisation has two levels. */
 export type Localisation =
   | 'ANY'
   | 'AUDIO'
-  | 'INTERFACE'
-  | 'SUBTITLES';
+  | 'TEXT';
 
 export type LocalisationInfo = {
+  /** The game is voiced in Ukrainian. */
   audio: Scalars['Boolean']['output'];
-  interface: Scalars['Boolean']['output'];
   source: Scalars['String']['output'];
-  subtitles: Scalars['Boolean']['output'];
+  /** The interface or the subtitles are available in Ukrainian. */
+  text: Scalars['Boolean']['output'];
 };
 
 export type LocalizedText = {
@@ -412,6 +417,8 @@ export type GameCardResolvers<ContextType = GraphQLContext, ParentType extends R
 
 export type GamePageResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['GamePage'] = ResolversParentTypes['GamePage']> = {
   hasNext?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  indexStale?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  indexUpdatedAt?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   indexedOnly?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
   page?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
@@ -435,9 +442,8 @@ export type LandingResolvers<ContextType = GraphQLContext, ParentType extends Re
 
 export type LocalisationInfoResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['LocalisationInfo'] = ResolversParentTypes['LocalisationInfo']> = {
   audio?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
-  interface?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   source?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
-  subtitles?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  text?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
 };
 
 export type LocalizedTextResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['LocalizedText'] = ResolversParentTypes['LocalizedText']> = {

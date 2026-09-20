@@ -30,6 +30,14 @@ export type GameModeValue = (typeof GAME_MODES)[number]
 export const AGE_RATINGS = ['PEGI3', 'PEGI7', 'PEGI12', 'PEGI16', 'PEGI18'] as const
 export type AgeRatingValue = (typeof AGE_RATINGS)[number]
 
+/**
+ * Ukrainian localisation levels. Steam reports "supported" and "full audio" per language and
+ * nothing finer, so the catalog knows text and audio — an interface or subtitles level cannot be
+ * told apart without scraping store pages.
+ */
+export const LOCALISATIONS = ['ANY', 'TEXT', 'AUDIO'] as const
+export type LocalisationValue = (typeof LOCALISATIONS)[number]
+
 export const PLATFORM_FAMILIES = [
   'PC',
   'PLAYSTATION',
