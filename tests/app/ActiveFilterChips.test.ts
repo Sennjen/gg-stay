@@ -102,3 +102,105 @@ describe('ActiveFilterChips', () => {
     })
   })
 })
+
+describe('ActiveFilterChips: the index filters', () => {
+  it('renders one removable chip per index filter', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: {
+        filter: {
+          free: true,
+          priceMaxUah: 1000,
+          onSaleMinPercent: 50,
+          ukrainianLocalisation: 'AUDIO',
+        },
+        genres: [],
+      },
+    })
+    const text = wrapper.text()
+    expect(text).toContain('Безкоштовно')
+    expect(text).toContain('до 1 000 ₴')
+    expect(text).toContain('від 50 %')
+    expect(text).toContain('Українська: озвучка')
+
+    const removes = wrapper.findAll('button[aria-label]')
+    expect(removes).toHaveLength(4)
+    await removes[0]!.trigger('click')
+    expect(wrapper.emitted('change')![0]).toEqual([{ free: undefined }])
+    await removes[1]!.trigger('click')
+    expect(wrapper.emitted('change')![1]).toEqual([{ priceMaxUah: undefined }])
+    await removes[2]!.trigger('click')
+    expect(wrapper.emitted('change')![2]).toEqual([{ onSaleMinPercent: undefined }])
+    await removes[3]!.trigger('click')
+    expect(wrapper.emitted('change')![3]).toEqual([{ ukrainianLocalisation: undefined }])
+  })
+
+  it('names each localisation level rather than making the visitor guess', async () => {
+    for (const [level, label] of [
+      ['ANY', 'Українська: будь-яка'],
+      ['TEXT', 'Українська: текст'],
+      ['AUDIO', 'Українська: озвучка'],
+    ] as const) {
+      const wrapper = await mountSuspended(ActiveFilterChips, {
+        props: { filter: { ukrainianLocalisation: level }, genres: [] },
+      })
+      expect(wrapper.text()).toContain(label)
+    }
+  })
+
+  it('keeps the bare numbers in the mono face and the words out of it', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: { filter: { onSaleMinPercent: 75 }, genres: [] },
+    })
+    expect(wrapper.get('.font-numeric').text()).toBe('75')
+    expect(wrapper.text()).toContain('від 75 %')
+  })
+
+  it('strikes an ignored filter through, explains it in words, and still removes it', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: {
+        filter: { priceMaxUah: 300, ukrainianLocalisation: 'TEXT' },
+        genres: [],
+        ignored: ['priceMaxUah'],
+        indexStale: true,
+      },
+    })
+    const struck = wrapper.findAll('[data-test="ignored-chip"]')
+    expect(struck).toHaveLength(1)
+    expect(struck[0]!.find('s').exists()).toBe(true)
+    // The explanation is visible text, not a title attribute: nothing here may depend on hover.
+    expect(struck[0]!.text()).toContain('не застосовано: ціни тимчасово не оновлюються')
+
+    await struck[0]!.get('button[aria-label]').trigger('click')
+    expect(wrapper.emitted('change')![0]).toEqual([{ priceMaxUah: undefined }])
+  })
+
+  it('tells a stale index apart from one that is not answering', async () => {
+    const down = await mountSuspended(ActiveFilterChips, {
+      props: { filter: { free: true }, genres: [], ignored: ['free'], indexStale: false },
+    })
+    expect(down.get('[data-test="ignored-chip"]').text()).toContain(
+      'не застосовано: дані про ціни зараз недоступні',
+    )
+  })
+
+  it('explains a RAWG-only filter that lost to the index in its own words', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: {
+        filter: { developers: ['cd-projekt-red'], free: true },
+        genres: [],
+        ignored: ['developers'],
+      },
+    })
+    expect(wrapper.get('[data-test="ignored-chip"]').text()).toContain(
+      'не застосовано: не працює разом із фільтрами ціни',
+    )
+  })
+
+  it('leaves the chips alone when nothing was ignored', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: { filter: { free: true }, genres: [], ignored: [] },
+    })
+    expect(wrapper.find('[data-test="ignored-chip"]').exists()).toBe(false)
+    expect(wrapper.find('s').exists()).toBe(false)
+  })
+})

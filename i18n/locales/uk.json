@@ -183,7 +183,8 @@
     "localisationAUDIO": "Українська: озвучка",
     "ignored": "не застосовано: {reason}",
     "ignoredStalePrices": "ціни тимчасово не оновлюються",
-    "ignoredWithPriceFilter": "не працює разом із фільтрами ціни"
+    "ignoredWithPriceFilter": "не працює разом із фільтрами ціни",
+    "ignoredIndexDown": "дані про ціни зараз недоступні"
   },
   "game": {
     "backToCatalog": "← До каталогу",

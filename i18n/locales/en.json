@@ -183,7 +183,8 @@
     "localisationAUDIO": "Ukrainian: voice acting",
     "ignored": "not applied: {reason}",
     "ignoredStalePrices": "prices are not being refreshed right now",
-    "ignoredWithPriceFilter": "cannot be combined with the price filters"
+    "ignoredWithPriceFilter": "cannot be combined with the price filters",
+    "ignoredIndexDown": "price data is unavailable right now"
   },
   "game": {
     "backToCatalog": "← Back to the catalog",
