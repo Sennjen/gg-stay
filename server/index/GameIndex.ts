@@ -1,11 +1,9 @@
-import {
-  DEFAULT_PAGE_SIZE,
-  MAX_PAGE,
-  MAX_PAGE_SIZE,
-  type AgeRatingValue,
-  type GameModeValue,
-  type GameSortValue,
-  type PlaytimeValue,
+import type {
+  AgeRatingValue,
+  GameModeValue,
+  GameSortValue,
+  LocalisationValue,
+  PlaytimeValue,
 } from '../../shared/catalog'
 import type { IndexMeta, IndexedGame } from './document'
 
@@ -16,21 +14,37 @@ import type { IndexMeta, IndexedGame } from './document'
  * written here.
  *
  * Query semantics, identical in every adapter:
- * - Values selected inside one facet are OR-ed; facets are AND-ed with each other.
+ * - Values selected inside one facet are OR-ed; facets are AND-ed with each other. `free: false`
+ *   narrows nothing, like an unchecked box.
  * - Every range is inclusive on both bounds.
  * - `ukrainianLocalisation: ANY` matches Ukrainian text or Ukrainian audio; `TEXT` matches the
  *   text set and `AUDIO` the audio set, neither implying the other.
  * - Games whose price is unknown are excluded whenever the sort is `PRICE_ASC`, `PRICE_DESC` or
  *   `DISCOUNT_DESC`, or whenever a price or discount filter is set. Free games count as priced:
- *   `free: true` matches them, and so does `priceMaxUah`.
- *   Games without a release date are likewise absent from the release-date sorts and range.
- * - `search` is a case-insensitive substring match on the name, applied to the ordered ids before
- *   paging.
- * - `total` is exact; a page past the end returns no ids and the same total.
- * - Ties on the sort score are broken by popularity and then by id, so paging is stable.
+ *   `free: true` matches them, and so does `priceMaxUah`. Games without a release date are
+ *   likewise absent from the release-date sorts and range.
+ *   Games without a rating or a Metacritic score are NOT excluded from those sorts — they are
+ *   ordered last, at zero — which differs from the RAWG path, where `metacritic=70,100` drops
+ *   them. A caller that mixes the two paths has to know this.
+ * - `total` is exact; a page past the end returns no ids and the same total. The page size is
+ *   clamped to `MAX_PAGE_SIZE` and the page to `MAX_PAGE`.
+ * - Ties on the sort score are broken by popularity and then by id, in both directions, so paging
+ *   is stable. The writer bakes that order into the rank scores of the order sets
+ *   (`server/index/buildPlan.ts`), because a store cannot be asked to sort by our rule.
+ * - `search` is a case-insensitive substring of the name, applied to the ordered ids before
+ *   paging, so the total stays exact. It is executed by reading the version's folded names — one
+ *   key, `namesKey(version)` — matching in the application and intersecting the matches with the
+ *   rest of the query: two round trips when a query searches, one when it does not. Matching
+ *   3 000 short strings in the process is cheaper than any alternative Upstash offers, and the
+ *   names key is immutable for the life of a version, so it caches.
+ *
+ * A read is served by whatever version `idx:current` points at when it starts. `search` followed
+ * by `getMany` can therefore straddle a publication: the second call may miss ids the first one
+ * returned. The catalog treats a missing document as "this game is not in the index", which is
+ * exactly how it treats a game outside the 3 000.
  */
 
-export type LocalisationFilter = 'ANY' | 'TEXT' | 'AUDIO'
+export type LocalisationFilter = LocalisationValue
 
 export interface IndexQuery {
   search?: string
@@ -41,7 +55,7 @@ export interface IndexQuery {
   ageRating?: AgeRatingValue[]
   yearFrom?: number
   yearTo?: number
-  /** Released after `today`; ignored when `today` is missing. */
+  /** Released strictly after `today`; planning it without `today` throws. */
   upcoming?: boolean
   /** ISO date the `upcoming` filter is measured against; no adapter reads a clock. */
   today?: string
@@ -76,48 +90,36 @@ export interface GameIndex {
 }
 
 /**
- * The write side, used by the refresh job. A run calls `beginVersion`, writes with `putGames` as
- * often as it likes and ends with `publish`, which swaps the live version in one step; until then
- * readers see only the previous version. App ids and cursors live outside the version and survive
- * publications, so a resolved Steam app id is never resolved twice.
+ * The write side, used by the refresh job.
+ *
+ * A run calls `beginVersion`, then `writeVersion` with every game it indexed — the whole set at
+ * once, because the order sets are ranked across all of them — and ends with `publish`, which
+ * moves the pointer in one step and marks the version it replaced for expiry. Until then readers
+ * see only the previous version. A run that fails its own checks (the design refuses a run that
+ * ends below half the previous game count) calls `discardVersion` instead, so a refused run leaves
+ * nothing behind; `meta()` is what that check reads, and `previousMeta()` reports the version the
+ * last publish replaced.
+ *
+ * App ids and cursors live outside the version and survive publications, so a Steam app id is
+ * resolved once in the life of the index. Both are batched: a run touches 3 000 games and a REST
+ * round trip per game is not affordable.
  */
 export interface GameIndexWriter {
   beginVersion(): Promise<number>
-  putGames(version: number, games: IndexedGame[]): Promise<void>
+  writeVersion(version: number, games: IndexedGame[]): Promise<void>
   publish(version: number, meta: IndexMeta): Promise<void>
+  discardVersion(version: number): Promise<void>
   currentVersion(): Promise<number | null>
-  /** `null` when the game was never resolved; the empty string when it has no Steam app id. */
-  getAppId(rawgId: number): Promise<string | null>
-  setAppId(rawgId: number, appId: string): Promise<void>
+  /** The published version's meta — the blue/green check compares against it. */
+  meta(): Promise<IndexMeta | null>
+  /** The meta of the version the last publish replaced, or `null` when there was none. */
+  previousMeta(): Promise<IndexMeta | null>
+  /** Only the ids that were resolved appear; the empty string means "has no Steam app id". */
+  getAppIds(ids: number[]): Promise<Map<number, string>>
+  setAppIds(entries: Iterable<[number, string]>): Promise<void>
   getCursor(stage: string): Promise<string | null>
   setCursor(stage: string, cursor: string): Promise<void>
+  clearCursor(stage: string): Promise<void>
 }
 
 export const DEFAULT_SORT: GameSortValue = 'POPULARITY_DESC'
-
-/** The paging an adapter applies: the same clamps the GraphQL layer uses. */
-export function resolvePaging(query: IndexQuery): { page: number; pageSize: number } {
-  const pageSize = Math.min(Math.max(query.pageSize ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
-  const page = Math.min(Math.max(query.page ?? 1, 1), MAX_PAGE)
-  return { page, pageSize }
-}
-
-/** Whether the query constrains price or discount, which excludes games without a price. */
-export function hasPriceConstraint(query: IndexQuery): boolean {
-  const sort = query.sort ?? DEFAULT_SORT
-  return (
-    query.priceMaxUah !== undefined ||
-    query.onSaleMinPercent !== undefined ||
-    query.free === true ||
-    sort === 'PRICE_ASC' ||
-    sort === 'PRICE_DESC' ||
-    sort === 'DISCOUNT_DESC'
-  )
-}
-
-/** Case-insensitive substring match on the name, the only text search the index offers. */
-export function matchesSearch(name: string, search: string | undefined): boolean {
-  const needle = search?.trim().toLowerCase()
-  if (!needle) return true
-  return name.toLowerCase().includes(needle)
-}

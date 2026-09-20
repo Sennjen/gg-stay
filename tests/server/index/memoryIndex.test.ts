@@ -9,36 +9,20 @@ describeGameIndexContract('memoryIndex', () => {
 })
 
 describe('memoryIndex', () => {
-  it('refuses to publish a version that was never written', async () => {
+  it('drops the replaced version instead of keeping it in memory', async () => {
     const store = createMemoryGameIndex()
-    await expect(
-      store.publish(7, {
-        version: 7,
-        updatedAt: '2026-09-20T06:30:00.000Z',
-        pricesUpdatedAt: null,
-        gameCount: 0,
-      }),
-    ).rejects.toThrow(/version/i)
+    const adapter = { index: store, writer: store }
+    const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
+    await publishGames(adapter, FIXTURE_GAMES.slice(2, 4))
+    expect(store.retainedVersions()).toEqual([await store.currentVersion()])
+    expect(store.retainedVersions()).not.toContain(first)
   })
 
-  it('accepts games in several calls before the version is published', async () => {
+  it('hands back copies, so a caller cannot edit the index in place', async () => {
     const store = createMemoryGameIndex()
-    const version = await store.beginVersion()
-    await store.putGames(version, FIXTURE_GAMES.slice(0, 2))
-    await store.putGames(version, FIXTURE_GAMES.slice(2, 4))
-    await store.publish(version, {
-      version,
-      updatedAt: '2026-09-20T06:30:00.000Z',
-      pricesUpdatedAt: null,
-      gameCount: 4,
-    })
-    expect((await store.search({})).ids).toEqual([1, 2, 3, 4])
-  })
-
-  it('numbers versions upwards from the published one', async () => {
-    const store = createMemoryGameIndex()
-    expect(await store.beginVersion()).toBe(1)
-    await publishGames({ index: store, writer: store }, FIXTURE_GAMES.slice(0, 1))
-    expect(await store.beginVersion()).toBe(3)
+    await publishGames({ index: store, writer: store }, FIXTURE_GAMES.slice(0, 2))
+    const game = await store.getOne(1)
+    game!.name = 'edited'
+    expect((await store.getOne(1))?.name).toBe('Alpha Quest')
   })
 })

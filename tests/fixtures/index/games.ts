@@ -8,6 +8,9 @@ import type { IndexedGame } from '../../../server/index/document'
  *
  * Popularity is `1000 - id * 10`, so the default popularity order is the id order — except for
  * the deliberate tie group 38/39/40.
+ *
+ * There are deliberately more games here than `MAX_PAGE_SIZE`, so a page-size clamp has something
+ * to cut.
  */
 
 export const FIXTURE_TODAY = '2026-09-20'
@@ -117,4 +120,9 @@ export const FIXTURE_GAMES: IndexedGame[] = [
     madeInUkraine: true,
   }),
   game(40, 'Pixel Pursuit', { genres: ['racing'], metacritic: 55, popularity: 700 }),
+
+  // The bounds of the date filters: a game released exactly today (so "upcoming" must not list
+  // it) and one released on the last day of a year (so a year range must).
+  game(41, 'Quill Quest', { released: FIXTURE_TODAY }),
+  game(42, 'Rune Relic', { released: '2018-12-31' }),
 ]

@@ -12,15 +12,14 @@ import {
   localisationFacetKey,
   madeInUkraineFacetKey,
   metaKey,
+  namesKey,
+  orderKey,
   platformFacetKey,
   playtimeFacetKey,
   pricedFacetKey,
-  sortDescendingOf,
-  sortFieldOf,
-  sortKey,
+  rangeKey,
   storeFacetKey,
   versionPrefix,
-  yearFacetKey,
 } from '../../../server/index/keys'
 import { FIXTURE_GAMES } from '../../fixtures/index/games'
 
@@ -33,16 +32,23 @@ describe('index keys', () => {
     expect(storeFacetKey(2, 'steam')).toBe('idx:v2:f:store:steam')
     expect(gameModeFacetKey(2, 'ONLINE_COOP')).toBe('idx:v2:f:mode:ONLINE_COOP')
     expect(ageRatingFacetKey(2, 'PEGI16')).toBe('idx:v2:f:age:PEGI16')
-    expect(yearFacetKey(2, 2020)).toBe('idx:v2:f:year:2020')
     expect(playtimeFacetKey(2, 'SHORT')).toBe('idx:v2:f:playtime:SHORT')
     expect(localisationFacetKey(2, 'text')).toBe('idx:v2:f:loc:text')
     expect(localisationFacetKey(2, 'audio')).toBe('idx:v2:f:loc:audio')
     expect(freeFacetKey(2)).toBe('idx:v2:f:free')
     expect(madeInUkraineFacetKey(2)).toBe('idx:v2:f:ua')
     expect(pricedFacetKey(2)).toBe('idx:v2:f:priced')
-    expect(sortKey(2, 'popularity')).toBe('idx:v2:s:popularity')
-    expect(sortKey(2, 'discount')).toBe('idx:v2:s:discount')
     expect(metaKey(2)).toBe('idx:v2:meta')
+    expect(namesKey(2)).toBe('idx:v2:names')
+  })
+
+  it('gives every sort its own order set and every trimmed value its own range set', () => {
+    expect(orderKey(2, 'POPULARITY_DESC')).toBe('idx:v2:o:POPULARITY_DESC')
+    expect(orderKey(2, 'PRICE_ASC')).toBe('idx:v2:o:PRICE_ASC')
+    expect(orderKey(2, 'RELEASED_DESC')).toBe('idx:v2:o:RELEASED_DESC')
+    expect(rangeKey(2, 'price')).toBe('idx:v2:r:price')
+    expect(rangeKey(2, 'released')).toBe('idx:v2:r:released')
+    expect(rangeKey(2, 'rating')).toBe('idx:v2:r:rating')
   })
 
   it('keeps the pointer, the app ids and the job cursors outside the version prefix', () => {
@@ -64,17 +70,21 @@ describe('index keys', () => {
         'idx:v1:f:playtime:MEDIUM',
         'idx:v1:f:store:steam',
         'idx:v1:f:ua',
-        'idx:v1:f:year:2020',
       ].sort(),
     )
   })
 
-  it('leaves a game out of the priced, free and year facets when it has no price or date', () => {
+  it('writes no per-year facet: the year range is trimmed on the release range set', () => {
+    for (const game of FIXTURE_GAMES) {
+      for (const key of facetKeysOf(1, game)) expect(key).not.toContain(':f:year:')
+    }
+  })
+
+  it('leaves a game out of the priced and free facets when it has no price', () => {
     const game = FIXTURE_GAMES.find((entry) => entry.id === 14)!
     const keys = facetKeysOf(1, game)
     expect(keys).not.toContain('idx:v1:f:priced')
     expect(keys).not.toContain('idx:v1:f:free')
-    expect(keys.some((key) => key.startsWith('idx:v1:f:year:'))).toBe(false)
   })
 
   it('puts a priced game in the priced facet and a free game in both', () => {
@@ -84,18 +94,5 @@ describe('index keys', () => {
     const paid = FIXTURE_GAMES.find((entry) => entry.id === 27)!
     expect(facetKeysOf(1, paid)).toContain('idx:v1:f:priced')
     expect(facetKeysOf(1, paid)).not.toContain('idx:v1:f:free')
-  })
-
-  it('maps every catalog sort onto a sorted set and a direction', () => {
-    expect(sortFieldOf('POPULARITY_DESC')).toBe('popularity')
-    expect(sortFieldOf('RELEASED_ASC')).toBe('released')
-    expect(sortFieldOf('NAME_ASC')).toBe('name')
-    expect(sortFieldOf('PRICE_DESC')).toBe('price')
-    expect(sortFieldOf('DISCOUNT_DESC')).toBe('discount')
-    expect(sortDescendingOf('RELEASED_ASC')).toBe(false)
-    expect(sortDescendingOf('NAME_ASC')).toBe(false)
-    expect(sortDescendingOf('PRICE_ASC')).toBe(false)
-    expect(sortDescendingOf('PRICE_DESC')).toBe(true)
-    expect(sortDescendingOf('POPULARITY_DESC')).toBe(true)
   })
 })

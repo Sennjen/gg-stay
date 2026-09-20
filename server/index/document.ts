@@ -62,17 +62,34 @@ export interface IndexMeta {
   stats?: Partial<IndexRunStats>
 }
 
-/** The sorted sets a version keeps, one per sort order and range. */
-export const INDEX_SORT_FIELDS = [
-  'popularity',
-  'rating',
-  'metacritic',
-  'released',
-  'name',
-  'price',
-  'discount',
-] as const
-export type IndexSortField = (typeof INDEX_SORT_FIELDS)[number]
+/**
+ * The values a query trims on, one sorted set each. Every score is a safe integer far below 2^53,
+ * because a Redis score is a double and a wider score would round on the way in: prices and
+ * discounts are whole numbers already, ratings are stored in hundredths and release dates in days
+ * since the epoch rather than milliseconds.
+ */
+export const INDEX_RANGE_FIELDS = ['price', 'discount', 'metacritic', 'rating', 'released'] as const
+export type IndexRangeField = (typeof INDEX_RANGE_FIELDS)[number]
+
+/** Whole days since the epoch, the finest granularity an ISO date carries. */
+export function daysSinceEpoch(isoDate: string): number {
+  return Math.floor(Date.parse(`${isoDate.slice(0, 10)}T00:00:00Z`) / 86_400_000)
+}
+
+/** The day after `isoDate`, as days since the epoch. */
+export function dayAfter(isoDate: string): number {
+  return daysSinceEpoch(isoDate) + 1
+}
+
+/** The first day of a year, as days since the epoch. Years are padded, so year 20 is not 1920. */
+export function firstDayOfYear(year: number): number {
+  return daysSinceEpoch(`${String(year).padStart(4, '0')}-01-01`)
+}
+
+/** The last day of a year (31 December), as days since the epoch. */
+export function lastDayOfYear(year: number): number {
+  return daysSinceEpoch(`${String(year).padStart(4, '0')}-12-31`)
+}
 
 /**
  * The playtime bucket a game belongs to, matching the catalog's own buckets
@@ -85,50 +102,32 @@ export function playtimeBucketOf(hours: number | null | undefined): PlaytimeValu
   return 'LONG'
 }
 
-/** The release year of a game, or `null` when it has no release date. */
-export function releaseYearOf(game: Pick<IndexedGame, 'released'>): number | null {
-  const year = Number(game.released?.slice(0, 4))
-  return Number.isInteger(year) ? year : null
-}
-
-/** The `s:released` score: the release date as a UTC timestamp. */
-export function releasedScore(released: string): number {
-  return Date.parse(`${released.slice(0, 10)}T00:00:00Z`)
-}
-
 /**
- * The score of a game in one sorted set, or `null` when the game does not belong to it: a game
- * without a price is absent from `s:price` and `s:discount` so the price sorts never list it, and
- * a game without a release date is absent from `s:released` for the same reason. `s:name` is
- * scored by rank, which only the whole set can decide — see `nameRanks`.
+ * The value a game contributes to one range set, or `null` when it does not belong to it: a game
+ * without a price is absent from the price and discount ranges, and a game without a release date
+ * from the release range, so neither can be matched by a filter over a value it does not have.
+ * Games without a rating or a Metacritic score stay in those ranges at zero — the catalog shows
+ * them, and a minimum above zero excludes them anyway.
  */
-export function sortScoreOf(game: IndexedGame, field: IndexSortField): number | null {
+export function rangeValueOf(game: IndexedGame, field: IndexRangeField): number | null {
   switch (field) {
-    case 'popularity':
-      return game.popularity
-    case 'rating':
-      return game.rating ?? 0
-    case 'metacritic':
-      return game.metacritic ?? 0
-    case 'released':
-      return game.released ? releasedScore(game.released) : null
     case 'price':
-      return game.priceUah ?? null
+      return game.priceUah
     case 'discount':
       return game.priceUah === null ? null : game.discountPercent
-    case 'name':
-      return null
+    case 'metacritic':
+      return game.metacritic ?? 0
+    case 'rating':
+      return Math.round((game.rating ?? 0) * 100)
+    case 'released':
+      return game.released ? daysSinceEpoch(game.released) : null
   }
 }
 
 /**
- * Locale-aware ranks of the names in one version, which become the `s:name` scores. The job
- * computes them once per publication because Redis sorts by score, not by string.
+ * The name as the search matches it. Folded once by the writer, into the index's names key, and
+ * once per query by the planner, so both sides fold the same way.
  */
-export function nameRanks(games: readonly IndexedGame[]): Map<number, number> {
-  const collator = new Intl.Collator('uk', { numeric: true, sensitivity: 'variant' })
-  const ordered = [...games].sort(
-    (left, right) => collator.compare(left.name, right.name) || left.id - right.id,
-  )
-  return new Map(ordered.map((game, rank) => [game.id, rank]))
+export function foldName(name: string): string {
+  return name.trim().toLocaleLowerCase('uk')
 }

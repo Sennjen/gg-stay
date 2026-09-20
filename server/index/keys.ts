@@ -4,8 +4,8 @@ import type {
   GameSortValue,
   PlaytimeValue,
 } from '../../shared/catalog'
-import type { IndexSortField, IndexedGame } from './document'
-import { playtimeBucketOf, releaseYearOf } from './document'
+import type { IndexRangeField, IndexedGame } from './document'
+import { playtimeBucketOf } from './document'
 
 /**
  * Every key name the index uses, in one place. The names are the contract between the reader,
@@ -14,6 +14,18 @@ import { playtimeBucketOf, releaseYearOf } from './document'
  *
  * A version owns everything under `idx:v{N}:`. The pointer to the live version, the permanent
  * Steam app ids and the job's resume cursors live outside it: they must survive a publication.
+ *
+ * Two families of sorted sets, and they are not interchangeable:
+ *
+ * - **order sets**, one per `GameSort` value (`o:PRICE_ASC`, …), scored by the game's final RANK
+ *   in that order with the tie-break already applied by the writer. A plain ascending read after
+ *   the intersection is therefore the finished page order, in either direction, and no two members
+ *   ever tie — which matters because Redis breaks equal scores by member name, not by our rule.
+ * - **range sets** (`r:price`, `r:discount`, `r:metacritic`, `r:rating`, `r:released`), scored by
+ *   the true value, which is what a `ZRANGEBYSCORE` trim needs.
+ *
+ * There is no per-year facet: the year range is a trim on `r:released`, as the design says, so a
+ * publication does not carry forty keys nothing reads.
  */
 
 /** The pointer to the published version. */
@@ -25,6 +37,11 @@ export function versionPrefix(version: number): string {
 
 export function gameKey(version: number, rawgId: number): string {
   return `${versionPrefix(version)}game:${rawgId}`
+}
+
+/** The folded names of the version, one entry per game: what `search` is matched against. */
+export function namesKey(version: number): string {
+  return `${versionPrefix(version)}names`
 }
 
 export function genreFacetKey(version: number, genre: string): string {
@@ -47,10 +64,6 @@ export function ageRatingFacetKey(version: number, rating: AgeRatingValue): stri
   return `${versionPrefix(version)}f:age:${rating}`
 }
 
-export function yearFacetKey(version: number, year: number): string {
-  return `${versionPrefix(version)}f:year:${year}`
-}
-
 export function playtimeFacetKey(version: number, bucket: PlaytimeValue): string {
   return `${versionPrefix(version)}f:playtime:${bucket}`
 }
@@ -67,13 +80,19 @@ export function madeInUkraineFacetKey(version: number): string {
   return `${versionPrefix(version)}f:ua`
 }
 
-/** Games whose price is known; the price filters and sorts start from this set. */
+/** Games whose price is known; the price and discount filters start from this set. */
 export function pricedFacetKey(version: number): string {
   return `${versionPrefix(version)}f:priced`
 }
 
-export function sortKey(version: number, field: IndexSortField): string {
-  return `${versionPrefix(version)}s:${field}`
+/** The sorted set of final ranks for one catalog sort. */
+export function orderKey(version: number, sort: GameSortValue): string {
+  return `${versionPrefix(version)}o:${sort}`
+}
+
+/** The sorted set of true values a range filter trims on. */
+export function rangeKey(version: number, field: IndexRangeField): string {
+  return `${versionPrefix(version)}r:${field}`
 }
 
 export function metaKey(version: number): string {
@@ -100,9 +119,6 @@ export function facetKeysOf(version: number, game: IndexedGame): string[] {
   ]
   if (game.ageRating) keys.push(ageRatingFacetKey(version, game.ageRating))
 
-  const year = releaseYearOf(game)
-  if (year !== null) keys.push(yearFacetKey(version, year))
-
   const bucket = playtimeBucketOf(game.playtime)
   if (bucket) keys.push(playtimeFacetKey(version, bucket))
 
@@ -113,26 +129,4 @@ export function facetKeysOf(version: number, game: IndexedGame): string[] {
   if (game.priceUah !== null) keys.push(pricedFacetKey(version))
 
   return keys
-}
-
-const SORT_FIELDS: Record<GameSortValue, IndexSortField> = {
-  POPULARITY_DESC: 'popularity',
-  RATING_DESC: 'rating',
-  METACRITIC_DESC: 'metacritic',
-  RELEASED_DESC: 'released',
-  RELEASED_ASC: 'released',
-  NAME_ASC: 'name',
-  PRICE_ASC: 'price',
-  PRICE_DESC: 'price',
-  DISCOUNT_DESC: 'discount',
-}
-
-/** The sorted set a catalog sort reads. */
-export function sortFieldOf(sort: GameSortValue): IndexSortField {
-  return SORT_FIELDS[sort]
-}
-
-/** Whether a catalog sort reads its sorted set from the high scores down. */
-export function sortDescendingOf(sort: GameSortValue): boolean {
-  return sort.endsWith('_DESC')
 }

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../shared/catalog'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../../server/index/GameIndex'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
@@ -7,6 +8,10 @@ import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
  * The behaviour every `GameIndex` adapter owes its callers. The in-memory adapter and the Upstash
  * adapter run this same suite, so a rule written here is a rule both stores obey — that is the
  * point of keeping the semantics in one file instead of in each adapter's own test.
+ *
+ * Reads never mutate: the read cases share one published version through `beforeAll`, so a case
+ * that writes would leak into its neighbours. Writer behaviour belongs in the groups below, each
+ * of which gets its own adapter.
  */
 
 export interface GameIndexAdapter {
@@ -33,12 +38,8 @@ export async function publishGames(
   meta: Omit<IndexMeta, 'version' | 'gameCount'> = FIXTURE_META,
 ): Promise<number> {
   const version = await adapter.writer.beginVersion()
-  await adapter.writer.putGames(version, games)
-  await adapter.writer.publish(version, {
-    ...meta,
-    version,
-    gameCount: games.length,
-  })
+  await adapter.writer.writeVersion(version, games)
+  await adapter.writer.publish(version, { ...meta, version, gameCount: games.length })
   return version
 }
 
@@ -62,6 +63,13 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       const total = async (query: IndexQuery): Promise<number> =>
         (await adapter.index.search(query)).total
 
+      /** The whole ordered result: the fixture is larger than one page on purpose. */
+      const allIds = async (query: IndexQuery): Promise<number[]> => {
+        const first = await adapter.index.search({ ...query, page: 1, pageSize: MAX_PAGE_SIZE })
+        const second = await adapter.index.search({ ...query, page: 2, pageSize: MAX_PAGE_SIZE })
+        return [...first.ids, ...second.ids]
+      }
+
       describe('facets', () => {
         it('matches any of the selected values within one facet', async () => {
           expect(await ids({ genres: ['indie'] })).toEqual([2, 3, 5])
@@ -70,6 +78,11 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
 
         it('requires every facet to match across facets', async () => {
           expect(await ids({ genres: ['indie'], platforms: [7] })).toEqual([2, 3])
+        })
+
+        it('returns nothing when two facets that each match cannot match together', async () => {
+          const result = await adapter.index.search({ genres: ['indie'], platforms: [18] })
+          expect(result).toEqual({ ids: [], total: 0, games: [] })
         })
 
         it('filters by store', async () => {
@@ -89,7 +102,7 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         it('filters by playtime bucket', async () => {
           expect(await ids({ playtime: 'SHORT' })).toEqual([15])
           expect(await ids({ playtime: 'LONG' })).toEqual([18])
-          const medium = await ids({ playtime: 'MEDIUM' })
+          const medium = await allIds({ playtime: 'MEDIUM' })
           expect(medium).toContain(16)
           expect(medium).toContain(17)
           expect(medium).not.toContain(15)
@@ -108,13 +121,14 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
 
       describe('ranges', () => {
-        it('includes both bounds of the release year range', async () => {
-          expect(await ids({ yearFrom: 2015, yearTo: 2018 })).toEqual([10, 11])
+        it('includes both bounds of the release year range, 31 December included', async () => {
+          expect(await ids({ yearFrom: 2015, yearTo: 2018 })).toEqual([10, 11, 42])
           expect(await ids({ yearTo: 2015 })).toEqual([10])
-          expect(await ids({ yearFrom: 2021 })).toEqual([12, 13])
+          expect(await ids({ yearFrom: 2021 })).toEqual([12, 13, 41])
         })
 
         it('lists only games released after today when upcoming is set', async () => {
+          // Game 41 is released exactly on `FIXTURE_TODAY`, which is not upcoming.
           expect(await ids({ upcoming: true, today: FIXTURE_TODAY })).toEqual([13])
         })
 
@@ -123,8 +137,8 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         })
 
         it('includes the bound of the rating minimum', async () => {
-          const matching = await ids({ ratingMin: 4, pageSize: 40 })
-          expect(matching).toHaveLength(38)
+          const matching = await allIds({ ratingMin: 4 })
+          expect(matching).toHaveLength(FIXTURE_GAMES.length - 2)
           expect(matching).not.toContain(22)
           expect(matching).not.toContain(23)
         })
@@ -145,8 +159,9 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
 
       describe('price and discount', () => {
-        it('matches free games for free', async () => {
+        it('matches free games for free, and ignores free: false', async () => {
           expect(await ids({ free: true })).toEqual([28, 36])
+          expect(await total({ free: false })).toBe(FIXTURE_GAMES.length)
         })
 
         it('includes free games in a price ceiling and includes the bound', async () => {
@@ -184,36 +199,39 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         })
 
         it('orders by rating', async () => {
-          const ordered = await ids({ sort: 'RATING_DESC', pageSize: 40 })
+          const ordered = await allIds({ sort: 'RATING_DESC' })
           expect(ordered.slice(0, 2)).toEqual([20, 1])
           expect(ordered.slice(-2)).toEqual([22, 23])
         })
 
         it('orders by Metacritic', async () => {
-          const ordered = await ids({ sort: 'METACRITIC_DESC', pageSize: 40 })
+          const ordered = await allIds({ sort: 'METACRITIC_DESC' })
           expect(ordered.slice(0, 3)).toEqual([20, 21, 22])
           expect(ordered.at(-1)).toBe(23)
         })
 
         it('orders by release date, leaving out games without one', async () => {
-          const descending = await adapter.index.search({ sort: 'RELEASED_DESC', pageSize: 40 })
-          expect(descending.total).toBe(39)
-          expect(descending.ids.slice(0, 2)).toEqual([13, 12])
-          expect(descending.ids.slice(-2)).toEqual([11, 10])
-          const ascending = await ids({ sort: 'RELEASED_ASC', pageSize: 40 })
+          const descending = await adapter.index.search({ sort: 'RELEASED_DESC' })
+          expect(descending.total).toBe(FIXTURE_GAMES.length - 1)
+          expect(descending.ids.slice(0, 2)).toEqual([13, 41])
+          expect((await allIds({ sort: 'RELEASED_DESC' })).slice(-2)).toEqual([11, 10])
+          const ascending = await allIds({ sort: 'RELEASED_ASC' })
           expect(ascending.slice(0, 2)).toEqual([10, 11])
           expect(ascending.at(-1)).toBe(13)
         })
 
         it('orders by name', async () => {
-          const ordered = await adapter.index.search({ sort: 'NAME_ASC', pageSize: 40 })
-          expect(ordered.total).toBe(40)
+          const ordered = await adapter.index.search({ sort: 'NAME_ASC' })
+          expect(ordered.total).toBe(FIXTURE_GAMES.length)
           expect(ordered.ids.slice(0, 4)).toEqual([1, 25, 26, 2])
-          expect(ordered.ids.slice(-2)).toEqual([14, 6])
+          expect((await allIds({ sort: 'NAME_ASC' })).slice(-2)).toEqual([14, 6])
         })
 
-        it('breaks ties by popularity and then by id', async () => {
+        it('breaks ties by popularity and then by id, whichever way the sort runs', async () => {
+          // The three racing games share their Metacritic score and their release date; two of
+          // them also share their popularity, which leaves the id as the last word.
           expect(await ids({ genres: ['racing'], sort: 'METACRITIC_DESC' })).toEqual([39, 40, 38])
+          expect(await ids({ genres: ['racing'], sort: 'RELEASED_ASC' })).toEqual([39, 40, 38])
         })
       })
 
@@ -222,6 +240,10 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           expect(await ids({ search: 'kite' })).toEqual([35])
           expect(await ids({ search: 'KITE' })).toEqual([35])
           expect(await ids({ search: 'arb' })).toEqual([32])
+        })
+
+        it('combines the search with a facet', async () => {
+          expect(await ids({ genres: ['racing'], search: 'o' })).toEqual([39, 38])
         })
 
         it('applies the search before paging', async () => {
@@ -234,14 +256,14 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         })
 
         it('ignores a blank search', async () => {
-          expect(await total({ search: '   ' })).toBe(40)
+          expect(await total({ search: '   ' })).toBe(FIXTURE_GAMES.length)
         })
       })
 
       describe('paging', () => {
         it('reports the exact total and pages through it', async () => {
           const first = await adapter.index.search({ page: 1, pageSize: 20 })
-          expect(first.total).toBe(40)
+          expect(first.total).toBe(FIXTURE_GAMES.length)
           expect(first.ids).toHaveLength(20)
           const second = await adapter.index.search({ page: 2, pageSize: 20 })
           expect(second.ids).toHaveLength(20)
@@ -250,12 +272,14 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
 
         it('answers an out-of-range page with the correct total and no ids', async () => {
           const result = await adapter.index.search({ page: 99, pageSize: 20 })
-          expect(result).toMatchObject({ ids: [], total: 40, games: [] })
+          expect(result).toMatchObject({ ids: [], total: FIXTURE_GAMES.length, games: [] })
         })
 
-        it('clamps the page size', async () => {
-          const result = await adapter.index.search({ page: 1, pageSize: 500 })
-          expect(result.ids).toHaveLength(40)
+        it('clamps the page size down and a missing or invalid one up', async () => {
+          // The fixture is larger than one page, so an adapter that ignores the clamp is caught.
+          expect((await adapter.index.search({ pageSize: 500 })).ids).toHaveLength(MAX_PAGE_SIZE)
+          expect((await adapter.index.search({ pageSize: 0 })).ids).toHaveLength(DEFAULT_PAGE_SIZE)
+          expect((await adapter.index.search({ page: 0 })).ids[0]).toBe(1)
         })
       })
 
@@ -280,13 +304,14 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           expect(await adapter.index.getMany([])).toEqual(new Map())
         })
 
-        it('reports the published meta', async () => {
+        it('reports the published meta, version included', async () => {
           const meta = await adapter.index.meta()
           expect(meta).toMatchObject({
             updatedAt: FIXTURE_META.updatedAt,
             pricesUpdatedAt: FIXTURE_META.pricesUpdatedAt,
             gameCount: FIXTURE_GAMES.length,
           })
+          expect(meta?.version).toBe(await adapter.writer.currentVersion())
         })
       })
     })
@@ -307,18 +332,19 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(await adapter.index.getOne(1)).toBeNull()
         expect(await adapter.index.getMany([1, 2])).toEqual(new Map())
         expect(await adapter.index.meta()).toBeNull()
+        expect(await adapter.writer.meta()).toBeNull()
+        expect(await adapter.writer.previousMeta()).toBeNull()
         expect(await adapter.writer.currentVersion()).toBeNull()
       })
 
       it('keeps an unpublished version invisible and swaps on publish', async () => {
-        const first = FIXTURE_GAMES.slice(0, 3)
-        await publishGames(adapter, first)
+        const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
         expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
-        expect(await adapter.writer.currentVersion()).toBe(1)
+        expect(await adapter.writer.currentVersion()).toBe(first)
 
         const next = await adapter.writer.beginVersion()
-        expect(next).not.toBe(1)
-        await adapter.writer.putGames(next, FIXTURE_GAMES.slice(3, 6))
+        expect(next).not.toBe(first)
+        await adapter.writer.writeVersion(next, FIXTURE_GAMES.slice(3, 6))
         expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
         expect(await adapter.index.getOne(4)).toBeNull()
 
@@ -333,6 +359,47 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(await adapter.writer.currentVersion()).toBe(next)
         expect((await adapter.index.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
       })
+
+      it('remembers the meta of the version a publish replaced', async () => {
+        expect((await adapter.writer.previousMeta())?.updatedAt).toBe(FIXTURE_META.updatedAt)
+        expect((await adapter.writer.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
+      })
+
+      it('never hands out a version number twice', async () => {
+        const current = await adapter.writer.currentVersion()
+        const seen = new Set<number>(current === null ? [] : [current])
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const version = await adapter.writer.beginVersion()
+          expect(seen.has(version)).toBe(false)
+          seen.add(version)
+          await adapter.writer.discardVersion(version)
+        }
+      })
+
+      it('writes a version whole, replacing whatever was written before the publish', async () => {
+        const version = await adapter.writer.beginVersion()
+        await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 5))
+        await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(6, 8))
+        await adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 2 })
+        expect((await adapter.index.search({})).ids).toEqual([7, 8])
+      })
+
+      it('forgets a discarded version and refuses to publish it', async () => {
+        const version = await adapter.writer.beginVersion()
+        await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(8, 10))
+        await adapter.writer.discardVersion(version)
+        expect((await adapter.index.search({})).ids).toEqual([7, 8])
+        await expect(
+          adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 2 }),
+        ).rejects.toThrow()
+      })
+
+      it('refuses to publish a version that was never written', async () => {
+        const version = 9_999
+        await expect(
+          adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 0 }),
+        ).rejects.toThrow()
+      })
     })
 
     describe('job state outside the version prefix', () => {
@@ -346,20 +413,27 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await adapter.teardown?.()
       })
 
-      it('stores Steam app ids, including the empty one, across publications', async () => {
-        expect(await adapter.writer.getAppId(3328)).toBeNull()
-        await adapter.writer.setAppId(3328, '292030')
-        await adapter.writer.setAppId(4200, '')
+      it('stores Steam app ids in batches, including the empty one, across publications', async () => {
+        expect(await adapter.writer.getAppIds([3328, 4200])).toEqual(new Map())
+        await adapter.writer.setAppIds([
+          [3328, '292030'],
+          [4200, ''],
+        ])
         await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
-        expect(await adapter.writer.getAppId(3328)).toBe('292030')
-        expect(await adapter.writer.getAppId(4200)).toBe('')
+        const resolved = await adapter.writer.getAppIds([3328, 4200, 5000])
+        expect(resolved.get(3328)).toBe('292030')
+        expect(resolved.get(4200)).toBe('')
+        expect(resolved.has(5000)).toBe(false)
       })
 
-      it('stores a resume cursor per stage', async () => {
+      it('stores and clears a resume cursor per stage', async () => {
         expect(await adapter.writer.getCursor('prices')).toBeNull()
         await adapter.writer.setCursor('prices', '120')
         await adapter.writer.setCursor('languages', 'abc')
         expect(await adapter.writer.getCursor('prices')).toBe('120')
+        expect(await adapter.writer.getCursor('languages')).toBe('abc')
+        await adapter.writer.clearCursor('prices')
+        expect(await adapter.writer.getCursor('prices')).toBeNull()
         expect(await adapter.writer.getCursor('languages')).toBe('abc')
       })
     })
