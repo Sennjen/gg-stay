@@ -1,11 +1,22 @@
 import { createYogaApp } from '../graphql/yoga'
+import { useGameIndex } from '../index/index'
 import { API_CONTENT_SECURITY_POLICY, CSP_HEADER } from '../security/headers'
 
-const yoga = createYogaApp(() => ({
-  rawg: useRawg(),
-  steam: useSteam(),
-  today: new Date().toISOString().slice(0, 10),
-}))
+const yoga = createYogaApp(async () => {
+  // One clock read per request: `today` and `now` are the same instant, so how stale the index is
+  // and how old a price is are measured against one moment, and no render path reads a clock.
+  const now = new Date().toISOString()
+  return {
+    rawg: useRawg(),
+    steam: useSteam(),
+    today: now.slice(0, 10),
+    now,
+    // Never rejects and never remembers a failure — see server/index/index.ts.
+    index: await useGameIndex(),
+    steamPrices: useSteamPrices(),
+    cache: useResolverCache(),
+  }
+})
 
 export default defineEventHandler(async (event) => {
   const url = getRequestURL(event)

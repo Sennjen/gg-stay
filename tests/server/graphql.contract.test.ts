@@ -1,65 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MAX_PAGE, MAX_PAGE_SIZE, MAX_SEARCH_LENGTH } from '../../shared/catalog'
-import { createYogaApp } from '../../server/graphql/yoga'
 import { UpstreamError } from '../../server/upstream/errors'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../server/steam/steamFetch'
-import games from '../fixtures/rawg/games.json'
+import { fixtureRawg, fixtureSteam, runQuery, type QueryResult } from './support/yoga'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
-import stores from '../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json'
-import screenshots from '../fixtures/rawg/game-the-witcher-3-wild-hunt-screenshots.json'
-import movies from '../fixtures/rawg/game-3328-movies.json'
-import genres from '../fixtures/rawg/genres.json'
-import platforms from '../fixtures/rawg/platforms.json'
-import developers from '../fixtures/rawg/developers.json'
-import steamAppdetails from '../fixtures/steam/appdetails-292030.json'
 import stardewDetail from '../fixtures/rawg/game-stardew-valley.json'
-import stardewStores from '../fixtures/rawg/game-stardew-valley-stores.json'
-import stardewSteamAppdetails from '../fixtures/steam/appdetails-413150.json'
 
-const fixtureRawg: RawgFetch = async (path) => {
-  if (path === 'games') return games
-  if (path === 'games/the-witcher-3-wild-hunt') return detail
-  if (path === 'games/the-witcher-3-wild-hunt/stores') return stores
-  if (path === 'games/the-witcher-3-wild-hunt/screenshots') return screenshots
-  if (path === 'games/3328/movies') return movies
-  if (path === 'games/stardew-valley') return stardewDetail
-  if (path === 'games/stardew-valley/stores') return stardewStores
-  if (path === 'genres') return genres
-  if (path === 'platforms') return platforms
-  if (path === 'developers') return developers
-  throw new UpstreamError('RAWG', 'NOT_FOUND', 404)
-}
-
-// The fixture-mode e2e app (tests/e2e/ssr.test.ts) exercises the Steam trailer path for the
-// featured game (The Witcher 3, RAWG movies fixture emptied out on purpose): its Steam store link
-// resolves to app id 292030. This mock mirrors that fixture so contract tests cover the same path.
-// App id 413150 (Stardew Valley) is the localized-description English-fallback fixture: Steam
-// silently serves English text even with `cc=ua&l=ukrainian`, because the publisher never
-// translated that store page.
-const fixtureSteam: SteamFetch = async (appId) => {
-  if (appId === '292030') return steamAppdetails
-  if (appId === '413150') return stardewSteamAppdetails
-  throw new UpstreamError('STEAM', 'NOT_FOUND', 404)
-}
+/**
+ * The BFF's contract, for everything the price and localisation index does not decide. The index
+ * this suite runs against is one that was never published, which is the shape a deployment starts
+ * in: every card comes back without a price and without a language list, exactly as it did before
+ * the index existed. The paths the index does decide are in `indexResolvers.test.ts`.
+ */
 
 async function run(
   rawg: RawgFetch,
   query: string,
   variables: Record<string, unknown> = {},
   steam: SteamFetch = fixtureSteam,
-) {
-  const yoga = createYogaApp(() => ({ rawg, steam, today: '2026-09-18' }))
-  const response = await yoga.fetch('http://test/api/graphql', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  })
-  return (await response.json()) as {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test helper reads ad-hoc query shapes
-    data?: Record<string, any>
-    errors?: { message: string; extensions?: { code?: string } }[]
-  }
+): Promise<QueryResult> {
+  return runQuery({ rawg, steam }, query, variables)
 }
 
 const GAMES = /* GraphQL */ `

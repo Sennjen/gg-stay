@@ -77,7 +77,7 @@ const queryLimitsPlugin: Plugin<GraphQLContext> = {
   },
 }
 
-export function createYogaApp(contextFactory: () => GraphQLContext) {
+export function createYogaApp(contextFactory: () => GraphQLContext | Promise<GraphQLContext>) {
   return createYoga({
     schema,
     graphqlEndpoint: '/api/graphql',
