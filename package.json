@@ -19,7 +19,8 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "test:unit": "vitest run --project unit --project nuxt",
-    "check:vercel-headers": "node scripts/check-vercel-headers.mjs"
+    "check:vercel-headers": "node scripts/check-vercel-headers.mjs",
+    "smoke:index": "tsx scripts/index/smoke.ts"
   },
   "dependencies": {
     "@nuxt/fonts": "^0.14.0",
@@ -51,6 +52,7 @@
     "happy-dom": "^20.14.5",
     "playwright-core": "^1.63.0",
     "prettier": "^3.9.7",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "vitest": "^5.0.1",
     "vue-tsc": "^3.3.11"

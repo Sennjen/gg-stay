@@ -1,0 +1,23 @@
+name: Index smoke test
+# The only workflow that talks to a real Redis, so it is started by hand and never by a push. It
+# works under a key namespace of its own and removes everything it wrote, but it does write — run
+# it against the index database on purpose, not by accident.
+on: workflow_dispatch
+concurrency:
+  group: index-smoke
+  cancel-in-progress: false
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm smoke:index
+        env:
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
