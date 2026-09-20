@@ -370,6 +370,12 @@ async function seedFromFixture(sources: GameIndexSources): Promise<GameIndex> {
   return index
 }
 
+/**
+ * How old `INDEX_FIXTURE_STALE=1` pretends the seeded fixture's last price run is. Comfortably
+ * past the seven days `indexStale` uses, so the flag does not sit on the boundary.
+ */
+const STALE_SEED_AGE_MS = 8 * 24 * 60 * 60 * 1000
+
 let instance: Promise<GameIndex> | undefined
 
 export function useGameIndex(): Promise<GameIndex> {
@@ -378,12 +384,20 @@ export function useGameIndex(): Promise<GameIndex> {
     // Env overrides are parsed by destr, so "1" may arrive as the number 1 — the same reading
     // `useRawg`, `useSteam` and `useSteamPrices` do.
     const fixtures = String(config.rawgFixtures) === '1'
+    // Test-only, and only alongside the fixture seed: publish it as if its last price run had
+    // been more than a week ago, which is exactly what `indexStale` measures. It lets the stale
+    // banner, the withheld prices and the missing price controls be seen in a real browser
+    // without waiting a week or touching a resolver.
+    const staleSeed = fixtures && String(config.indexFixtureStale) === '1'
     instance = createGameIndex({
       upstashRedisRestUrl: String(config.upstashRedisRestUrl ?? ''),
       upstashRedisRestToken: String(config.upstashRedisRestToken ?? ''),
       fixtures,
       timeoutMs: Number(config.indexTimeoutMs) || undefined,
       slowMs: Number(config.indexSlowMs) || undefined,
+      seededAt: staleSeed
+        ? () => new Date(Date.now() - STALE_SEED_AGE_MS).toISOString()
+        : undefined,
       // Read only in fixture mode: outside it the asset is never touched, so nothing can serve
       // its prices by accident.
       readFixture: () =>

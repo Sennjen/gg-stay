@@ -3,6 +3,9 @@
 # hard-codes most of them to null today. Paging is derived from `total`/`pageSize`, so `hasNext`
 # is not selected either. `price` and `localisation` ARE selected: the card renders a price line
 # and a localisation badge, null on a game outside the index.
+# `indexedOnly`/`indexStale`/`indexUpdatedAt`/`ignoredFilters` say which path answered, how old
+# its prices are, and which filters (or the sort) it could not apply — the catalog's note, its
+# stale banner, its struck-through chips and the note beside the sort control all read them.
 # `screenshots` is a list because `GameCard.screenshots` takes no argument; the mapper already
 # caps it at four and only the first one is used, as the card's hover preview.
 query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
@@ -10,6 +13,10 @@ query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
     total
     page
     pageSize
+    indexedOnly
+    indexStale
+    indexUpdatedAt
+    ignoredFilters
     items {
       id
       slug

@@ -30,6 +30,16 @@ const totalPages = computed(() =>
 const currentYear = useState('catalog-current-year', () => new Date().getFullYear())
 const maxSliderYear = computed(() => currentYear.value + 2)
 
+// The same trick for "prices updated N hours ago": read once on the server, carried to the client
+// in the payload, and handed to `CatalogIndexNote` as a prop — so the hour count in the server
+// HTML and the hydrated one are computed from the same instant and can never disagree.
+const now = useState('catalog-now', () => new Date().toISOString())
+
+const indexStale = computed(() => page.value?.indexStale ?? false)
+const indexedOnly = computed(() => page.value?.indexedOnly ?? false)
+const ignoredFilters = computed<readonly string[]>(() => page.value?.ignoredFilters ?? [])
+const sortIgnored = computed(() => ignoredFilters.value.includes('sort'))
+
 const filtersButtonEl = ref<HTMLButtonElement>()
 
 useSeoMeta({
@@ -64,16 +74,32 @@ useSeoMeta({
       <ResultCount v-if="page" :total="page.total" />
 
       <div class="ml-auto flex items-center gap-3">
-        <SortSelect :model-value="state.sort" @update:model-value="setSort" />
+        <SortSelect
+          :model-value="state.sort"
+          :index-stale="indexStale"
+          :ignored="sortIgnored"
+          @update:model-value="setSort"
+        />
         <ViewToggle />
       </div>
     </div>
+
+    <!-- A sibling of `ResultCount`'s own paragraph, never inside it: a block element nested in a
+         `<p>` is re-parented by the browser's parser and cost this project a hydration bug once. -->
+    <CatalogIndexNote
+      v-if="indexedOnly"
+      class="mt-2"
+      :updated-at="page?.indexUpdatedAt"
+      :now="now"
+    />
 
     <ActiveFilterChips
       v-if="activeCount"
       class="mt-3"
       :filter="state.filter"
       :genres="genres"
+      :ignored="ignoredFilters"
+      :index-stale="indexStale"
       @change="setFilter"
       @clear="clear"
     />
@@ -83,9 +109,12 @@ useSeoMeta({
         :filter="state.filter"
         :genres="genres"
         :max-year="maxSliderYear"
+        :index-stale="indexStale"
         @change="setFilter"
       />
     </FilterDrawer>
+
+    <CatalogStaleBanner v-if="indexStale" class="mt-4" />
 
     <!-- No `aria-live` here: `ResultCount` already announces the total, and the state components
          below announce themselves. A live region around the whole results section re-announced
