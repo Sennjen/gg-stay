@@ -24,6 +24,8 @@ import { safeExternalUrl } from '../../shared/url'
 /** RAWG's largest page; 75 of them cover the 3 000 games the design indexes. */
 export const CANDIDATE_PAGE_SIZE = 40
 export const DEFAULT_CANDIDATE_PAGES = 75
+/** Pages between two renewals of the write lock; see `INDEX_LOCK_TTL_SECONDS`. */
+const PAGES_PER_LOCK_RENEWAL = 20
 
 export interface CandidatesOptions {
   /** How many RAWG pages to walk at most. */
@@ -102,6 +104,7 @@ export async function collectCandidates(
       games.push(game)
     }
 
+    if (pagesFetched % PAGES_PER_LOCK_RENEWAL === 0) await deps.writer.renewLock()
     if (!response.next) break
   }
 

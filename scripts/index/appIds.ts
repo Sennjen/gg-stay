@@ -61,6 +61,8 @@ export async function resolveAppIds(
     if (batch.length === 0) return
     await deps.writer.setAppIds(batch)
     batch = []
+    // The stage is the longest stretch of a first run; the lock needs a sign of life in it.
+    await deps.writer.renewLock()
   }
 
   let failures = 0

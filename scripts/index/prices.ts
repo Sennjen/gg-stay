@@ -93,6 +93,7 @@ export async function refreshPrices(
       failures += ids.length
       deps.log(`prices: a chunk of ${ids.length} app ids failed, keeping their current prices`)
     }
+    await deps.writer.renewLock()
   }
   assertWithinFailureBudget('prices', failures, requested.length)
 

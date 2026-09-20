@@ -1,6 +1,7 @@
 import type { AppIdMap } from './appIds'
 import { assertWithinFailureBudget, isoNow, type JobDeps } from './deps'
 import type { IndexedGame, IndexedLanguages } from '../../server/index/document'
+import type { SteamPrice } from '../../server/steam/price'
 
 /**
  * Stage 4: Ukrainian localisation, and the one thing the batched price call cannot answer.
@@ -23,7 +24,10 @@ import type { IndexedGame, IndexedLanguages } from '../../server/index/document'
  * The same response settles the free-versus-unavailable question the price stage had to leave
  * open: `data: []` under the price filter means either "free" or "not sold in Ukraine", and only
  * the unfiltered call's `is_free` tells them apart — in both directions, so a game Steam no longer
- * reports as free stops being free here.
+ * reports as free stops being free here. It also carries a price of its own for some apps the
+ * batched call would not price, and that price is used for a game that has none: it belongs to
+ * this run rather than to the stored record, so it is kept in the stage and not in
+ * `IndexedLanguages`, which is the language answer and nothing else.
  *
  * One app failing is not the run failing. It is counted, no record is written, and the next run
  * sees it as due again — otherwise a single delisted app would block the weekly refresh for good.
@@ -59,6 +63,8 @@ export interface LanguagesOptions {
 export interface LanguagesResult {
   /** Apps read from Steam in this run. */
   fetched: number
+  /** Games given a price by the unfiltered response that the batched one would not price. */
+  pricesFilled: number
   /** Apps applied from a stored record without a request. */
   fromStore: number
   failures: number
@@ -121,11 +127,16 @@ export async function refreshLanguages(
   let fetched = 0
   let failures = 0
   let batch: [string, IndexedLanguages][] = []
+  // Prices this run happened to see. A stored record carries no price, so only an app actually
+  // read this run can fill one in.
+  const pricesSeen = new Map<string, SteamPrice>()
 
   async function flush(): Promise<void> {
     if (batch.length === 0) return
     await deps.writer.setLanguages(batch)
     batch = []
+    // An hour of Steam reads is the longest stretch of a run; the lock needs a sign of life in it.
+    await deps.writer.renewLock()
   }
 
   try {
@@ -141,6 +152,7 @@ export async function refreshLanguages(
         }
         stored.set(appId, record)
         batch.push([appId, record])
+        if (details.price) pricesSeen.set(appId, details.price)
         fetched += 1
         if (batch.length >= batchSize) await flush()
       } catch {
@@ -157,6 +169,7 @@ export async function refreshLanguages(
 
   let fromStore = 0
   let pricesTouched = 0
+  let pricesFilled = 0
   for (const { game, appId } of withPage) {
     const record = stored.get(appId)
     if (!record) continue
@@ -175,7 +188,10 @@ export async function refreshLanguages(
       game.regularPriceUah = 0
       game.discountPercent = 0
       game.priceUpdatedAt = record.updatedAt
-    } else if (game.free) {
+      continue
+    }
+
+    if (game.free) {
       // Steam no longer calls it free. A real price may already have been attached this run;
       // only the zero one is a leftover of a flag that is no longer true.
       game.free = false
@@ -187,10 +203,20 @@ export async function refreshLanguages(
       }
       pricesTouched += 1
     }
+
+    const seen = pricesSeen.get(appId)
+    if (seen && game.priceUah === null) {
+      game.priceUah = seen.priceUah
+      game.regularPriceUah = seen.regularPriceUah
+      game.discountPercent = seen.discountPercent
+      game.priceUpdatedAt = record.updatedAt
+      pricesFilled += 1
+      pricesTouched += 1
+    }
   }
 
   deps.log(
-    `languages: ${fetched} apps read, ${failures} failed, ${fromStore} games given their flags, ${deferred} apps left for the next run`,
+    `languages: ${fetched} apps read, ${failures} failed, ${fromStore} games given their flags, ${pricesFilled} given a price, ${deferred} apps left for the next run`,
   )
-  return { fetched, fromStore, failures, deferred, pricesTouched }
+  return { fetched, pricesFilled, fromStore, failures, deferred, pricesTouched }
 }

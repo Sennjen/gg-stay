@@ -3,21 +3,16 @@ name: Index refresh
 # seventy-five RAWG pages and reads Steam languages at forty requests a minute, which no
 # serverless function may run for.
 #
-# THE SCHEDULES ARE COMMENTED OUT ON PURPOSE. `createWriterFromEnv` in scripts/index/writer.ts
-# still throws until the Upstash adapter lands, so every scheduled run would fail and email the
-# owner, and a permanently red "Index refresh" is an alert channel nobody reads any more. They are
-# enabled in the pull request that plugs the adapter in; until then the job runs on demand.
-#
-# Note when enabling them: GitHub disables `schedule:` triggers on a repository with no activity
-# for sixty days, and has to be told to re-enable them.
+# GitHub disables `schedule:` triggers on a repository with no activity for sixty days and has to
+# be told to re-enable them, so a long quiet spell is worth checking for here.
 on:
-  # schedule:
-  #   # Prices every six hours — one batched Steam call over the published documents.
-  #   - cron: '15 */6 * * *'
-  #   # The whole catalog nightly at 02:30 UTC: candidates, new app ids, prices, due languages.
-  #   - cron: '30 2 * * *'
-  #   # The rest of the language sweep, weekly, Sunday 04:00 UTC.
-  #   - cron: '0 4 * * 0'
+  schedule:
+    # Prices every six hours — one batched Steam call over the published documents.
+    - cron: '15 */6 * * *'
+    # The whole catalog nightly at 02:30 UTC: candidates, new app ids, prices, due languages.
+    - cron: '30 2 * * *'
+    # The rest of the language sweep, weekly, Sunday 04:00 UTC.
+    - cron: '0 4 * * 0'
   workflow_dispatch:
     inputs:
       mode:
@@ -87,6 +82,9 @@ jobs:
       # The write token lives only here: the site on Vercel gets a read-only one. The job never
       # prints either, and it proves it may write before it spends any RAWG quota. Everything the
       # script needs comes through `env:`; nothing is interpolated into the command line.
+      # A dead run's lock frees itself in half an hour (see INDEX_LOCK_TTL_SECONDS), which is well
+      # inside the gap to the next scheduled run. `force_unlock` is for the operator who retries
+      # sooner than that.
       - name: Refresh the index
         env:
           MODE: ${{ steps.mode.outputs.mode }}

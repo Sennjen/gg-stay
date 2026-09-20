@@ -100,6 +100,55 @@ describe('refreshLanguages', () => {
     expect(result.pricesTouched).toBe(1)
   })
 
+  it('prices a game from the unfiltered response the batched call would not price', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const { games, appIds, byId } = await upToPrices(harness)
+    // Steam prices this one per app but not in the batch, which is what a regionless entry does.
+    harness.steamApps['417000'] = {
+      success: true,
+      data: {
+        is_free: false,
+        supported_languages: 'English, Українська',
+        price_overview: {
+          currency: 'UAH',
+          initial: 20500,
+          final: 6150,
+          discount_percent: 70,
+        },
+      },
+    }
+    expect(byId.get(107)).toMatchObject({ priceUah: null })
+
+    const result = await refreshLanguages(harness.deps, games, appIds)
+
+    expect(result.pricesFilled).toBe(1)
+    expect(byId.get(107)).toMatchObject({
+      priceUah: 62,
+      regularPriceUah: 205,
+      discountPercent: 70,
+      free: false,
+      priceUpdatedAt: RUN_AT,
+    })
+  })
+
+  it('leaves a price the batched call already gave alone', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const { games, appIds, byId } = await upToPrices(harness)
+    harness.steamApps['411000'] = {
+      success: true,
+      data: {
+        is_free: false,
+        supported_languages: 'Українська',
+        price_overview: { currency: 'UAH', initial: 100, final: 100, discount_percent: 0 },
+      },
+    }
+
+    const result = await refreshLanguages(harness.deps, games, appIds)
+
+    expect(result.pricesFilled).toBe(0)
+    expect(byId.get(101)).toMatchObject({ priceUah: 675, regularPriceUah: 1349 })
+  })
+
   it('never asks about a game whose record is still fresh', async () => {
     const harness = createJobHarness({ start: RUN_AT })
     const { games, appIds } = await upToPrices(harness)

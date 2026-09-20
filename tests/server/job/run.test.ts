@@ -10,8 +10,9 @@ import {
   writeProbe,
   type JobReport,
 } from '../../../scripts/index/run'
-import { createWriterFromEnv, UPSTASH_ADAPTER_MISSING } from '../../../scripts/index/writer'
+import { createWriterFromEnv, INDEX_LOCK_TTL_SECONDS } from '../../../scripts/index/writer'
 import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
+import { RedisBatchError } from '../../../server/index/upstashIndex'
 import { createJobHarness, type RawgCall } from './harness'
 
 const RUN_AT = '2026-09-20T03:00:00.000Z'
@@ -63,6 +64,15 @@ describe('writeProbe', () => {
       await expect(writeProbe(harness.deps)).rejects.toThrow(READ_ONLY_TOKEN_MESSAGE)
     },
   )
+
+  it('blames the token when the store answers but refuses the command', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    vi.spyOn(harness.writer, 'setCursor').mockRejectedValue(
+      new RedisBatchError('Command 1 [ SET ] failed: something', 'pipeline', 0, 'SET'),
+    )
+
+    await expect(writeProbe(harness.deps)).rejects.toThrow(READ_ONLY_TOKEN_MESSAGE)
+  })
 
   it('reports any other write failure as such', async () => {
     const harness = createJobHarness({ start: RUN_AT })
@@ -157,6 +167,27 @@ describe('runJob', () => {
     refresh.mockRestore()
   })
 
+  it('renews the write lock between the stages and inside the long ones', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const renewLock = vi.spyOn(harness.writer, 'renewLock')
+
+    await runJob(harness.deps, FULL)
+
+    // Five stages plus the app-id and language batch flushes and one renewal per price chunk.
+    expect(renewLock.mock.calls.length).toBeGreaterThanOrEqual(7)
+  })
+
+  it('deletes the cursor keys older builds of the job left behind', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await harness.writer.setCursor('candidates', '30')
+    await harness.writer.setCursor('languages', '1234')
+
+    await runJob(harness.deps, FULL)
+
+    expect(await harness.writer.getCursor('candidates')).toBeNull()
+    expect(await harness.writer.getCursor('languages')).toBeNull()
+  })
+
   it('will not refresh a version that was never published', async () => {
     const harness = createJobHarness({ start: RUN_AT })
 
@@ -206,7 +237,7 @@ describe('formatSummary', () => {
     languagesFetched: 6,
     failures: 1,
     durationMs: 125_000,
-    writes: { commands: 412, bytes: 1_048_576 },
+    writes: { requests: 31, commands: 412, bytes: 1_048_576 },
     outcome: {
       published: true,
       reason: null,
@@ -229,7 +260,7 @@ describe('formatSummary', () => {
     expect(summary).toContain('| Priced | 2711 |')
     expect(summary).toContain('| Ukrainian audio | 96 |')
     expect(summary).toContain('| Item failures | 1 |')
-    expect(summary).toContain('| Index writes | 412 commands, 1048576 bytes |')
+    expect(summary).toContain('| Index traffic | 31 requests, 412 commands, 1024 KiB |')
     expect(summary).toContain('| Duration | 2m 5s |')
   })
 
@@ -269,13 +300,22 @@ describe('createWriterFromEnv', () => {
     expect(() => createWriterFromEnv({})).toThrow(/UPSTASH_REDIS_REST_URL/)
   })
 
-  it('says the adapter is still missing when the credentials are there', () => {
-    expect(() =>
-      createWriterFromEnv({
-        UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
-        UPSTASH_REDIS_REST_TOKEN: 'token',
-      }),
-    ).toThrow(UPSTASH_ADAPTER_MISSING)
+  it('builds the Upstash adapter from the write credentials', () => {
+    const { writer, dryRun } = createWriterFromEnv({
+      UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'token',
+    })
+
+    expect(dryRun).toBe(false)
+    expect(typeof writer.allGames).toBe('function')
+    expect(typeof writer.renewLock).toBe('function')
+  })
+
+  it('gives the lock a life shorter than the gap between two scheduled runs', () => {
+    // The six-hourly price run is the next one along; a dead run must not block it.
+    expect(INDEX_LOCK_TTL_SECONDS).toBeLessThan(6 * 60 * 60)
+    // And long enough to cover the longest gap between two renewals with room to spare.
+    expect(INDEX_LOCK_TTL_SECONDS).toBeGreaterThanOrEqual(10 * 60)
   })
 })
 

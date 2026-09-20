@@ -9,6 +9,8 @@ import { publishVersion, type PublishOutcome } from './publish'
 import { createJobRawg, createJobSteam, systemClock } from './upstreams'
 import { createWriterFromEnv } from './writer'
 import type { IndexedGame } from '../../server/index/document'
+import type { IndexWriteStats } from '../../server/index/GameIndex'
+import { RedisBatchError } from '../../server/index/upstashIndex'
 
 /**
  * The refresh job's command line.
@@ -40,6 +42,24 @@ export const READ_ONLY_TOKEN_MESSAGE =
 /** What a refused write looks like when the token is a reader, whatever the store calls it. */
 const CREDENTIAL_REFUSALS = /noperm|wrongpass|unauthorized|forbidden|\b40[13]\b/i
 
+/**
+ * Cursor keys earlier builds of this job wrote. Progress lives in the data now — the permanent
+ * app-id mapping and the per-app language records — so nothing reads these, and a run deletes
+ * them once on its way past. Two commands, idempotent, and the key space is tidy afterwards.
+ */
+const ABANDONED_CURSOR_STAGES = ['candidates', 'languages', 'appids', 'prices']
+
+/**
+ * Whether a failed write probe means "this token may not write" rather than "the store is down".
+ * A `RedisBatchError` with a command position is the store answering and refusing a named command,
+ * and the probe only ever asks it to `SET` and `DEL` one throwaway key — there is no other reason
+ * to refuse those. Anything else is judged by what it says.
+ */
+function isCredentialRefusal(error: unknown): boolean {
+  if (error instanceof RedisBatchError && error.commandIndex !== null) return true
+  return CREDENTIAL_REFUSALS.test(error instanceof Error ? error.message : String(error))
+}
+
 export interface JobOptions {
   mode: JobMode
   /** RAWG pages of candidates; only `--mode=full` walks them. */
@@ -57,7 +77,7 @@ export interface JobReport {
   failures: number
   durationMs: number
   /** What the store charged this run, when the adapter counts it. */
-  writes: { commands: number; bytes: number } | null
+  writes: IndexWriteStats | null
   /** The stage that was running when the run failed, and why. */
   failedStage?: string
   error?: string
@@ -105,20 +125,35 @@ export async function writeProbe(deps: JobDeps): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(
-      CREDENTIAL_REFUSALS.test(message)
-        ? READ_ONLY_TOKEN_MESSAGE
-        : `Write probe failed: ${message}`,
+      isCredentialRefusal(error) ? READ_ONLY_TOKEN_MESSAGE : `Write probe failed: ${message}`,
       { cause: error },
     )
   }
 }
 
-/** Names the stage a failure came out of, so the summary can say where the run stopped. */
-async function stage<T>(name: string, run: () => Promise<T>): Promise<T> {
-  try {
-    return await run()
-  } catch (error) {
-    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { stage: name })
+/** Deletes the cursor keys older builds of this job left behind. Cheap, idempotent, once a run. */
+export async function dropAbandonedCursors(deps: JobDeps): Promise<void> {
+  for (const abandoned of ABANDONED_CURSOR_STAGES) {
+    await deps.writer.clearCursor(abandoned)
+  }
+}
+
+/**
+ * Names the stage a failure came out of, so the summary can say where the run stopped, and gives
+ * the write lock a sign of life once the stage is done — a stage can be an hour long and the lock
+ * is deliberately shorter than that (`INDEX_LOCK_TTL_SECONDS`).
+ */
+function runStage(deps: JobDeps) {
+  return async function stage<T>(name: string, run: () => Promise<T>): Promise<T> {
+    try {
+      const result = await run()
+      await deps.writer.renewLock()
+      return result
+    } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        stage: name,
+      })
+    }
   }
 }
 
@@ -142,12 +177,15 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
   // on every path out of this function. An orphaned draft is never swept and the lock would block
   // the owner's own retry.
   const version = await deps.writer.beginVersion(options.forceUnlock ? { force: true } : undefined)
+  const stage = runStage(deps)
 
   let pricesFetched = 0
   let languagesFetched = 0
   let failures = 0
 
   try {
+    await stage('tidying up', () => dropAbandonedCursors(deps))
+
     let games: IndexedGame[]
     let appIds: AppIdMap
 
@@ -263,9 +301,11 @@ export function formatSummary(report: JobReport): string {
   }
 
   rows.push([
-    'Index writes',
+    'Index traffic',
     report.writes
-      ? `${report.writes.commands} commands, ${report.writes.bytes} bytes`
+      ? `${report.writes.requests} requests, ${report.writes.commands} commands, ${Math.round(
+          report.writes.bytes / 1024,
+        )} KiB`
       : 'not counted',
   ])
   rows.push(['Duration', duration(report.durationMs)])
