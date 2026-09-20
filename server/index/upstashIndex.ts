@@ -2,7 +2,13 @@ import { Redis } from '@upstash/redis'
 import type { Requester } from '@upstash/redis'
 import { buildIndexPlan } from './buildPlan'
 import type { IndexMeta, IndexedGame } from './document'
-import type { GameIndex, GameIndexWriter, IndexQuery, IndexSearchResult } from './GameIndex'
+import type {
+  BeginVersionOptions,
+  GameIndex,
+  GameIndexWriter,
+  IndexQuery,
+  IndexSearchResult,
+} from './GameIndex'
 import {
   CURRENT_VERSION_KEY,
   appIdKey,
@@ -34,10 +40,23 @@ import { createRedisResult, withKeyPrefix } from './redisCommands'
  * starts inside that window is served by the version the pointer named when it was last read — the
  * same window the port already allows between `search` and `getMany`.
  *
- * **A version is written by one run at a time.** `beginVersion` takes `idx:lock`; `writeVersion`,
- * `publish` and `discardVersion` refuse to act while another run holds it, and a publication or a
- * discard releases it. Without it two overlapping runs would both move `idx:current` and one of
- * them would leave its keys behind forever.
+ * **A version is written by one run at a time.** `beginVersion` takes `idx:lock` with `SET … NX
+ * EX`, which is atomic, so two runs can never both begin a version; it also writes `idx:draft`
+ * (the version it is building) and `idx:lock:at` (when it took the lock), and a long
+ * `writeVersion` gives all three a fresh life with `EXPIRE`, which cannot change whose they are.
+ * `publish` and `discardVersion` act only while the lock is still this run's, and they release the
+ * three keys together. A run blocked by the lock is told who holds it and for how long;
+ * `beginVersion({ force: true })` takes over a lock held past `forceAfterMs`.
+ *
+ * What is left is a window, and it is worth being exact about it: `publish` reads the lock, the
+ * draft and the pointer, re-reads the lock and the draft immediately before the transaction, and
+ * then sends it — so a run whose lock lapsed in the microseconds between the last read and the
+ * `EXEC` would still act. It cannot corrupt the pointer, because the transaction is refused when
+ * the version is not this run's draft or is older than the published one, and version numbers only
+ * ever grow. The worst it can do is publish a version of its own on top of a newer one it has not
+ * seen, which needs its lock to have lapsed and a later run to have published inside that window —
+ * hence `lockTtlSeconds`, which PR 4 should size against the job's real worst case rather than
+ * inherit. Closing the window entirely needs a compare-and-delete, which means Lua.
  *
  * **Every key a version consists of is recorded in a registry** as it is written, and the version
  * number in `idx:versions`. That is what `discardVersion` deletes, and what a publication sweeps
@@ -52,8 +71,12 @@ const VERSION_SEQUENCE_KEY = 'idx:sequence'
 const PREVIOUS_VERSION_KEY = 'idx:previous'
 /** Every version number that still owns keys: what a publication sweeps. */
 const VERSIONS_KEY = 'idx:versions'
-/** Held by the one run allowed to write. */
+/** Held by the one run allowed to write; its value is that run's id and nothing else. */
 const LOCK_KEY = 'idx:lock'
+/** When the lock was taken, so a blocked run can say how old it is and an operator can force it. */
+const LOCK_TAKEN_AT_KEY = 'idx:lock:at'
+/** The version the run holding the lock is building; the publication checks it against its own. */
+const DRAFT_KEY = 'idx:draft'
 
 /** Every key the version owns, written as the version is written. */
 function registryKey(version: number): string {
@@ -74,11 +97,17 @@ export interface UpstashIndexOptions {
   itemsPerCommand?: number
   /** The life the write lock is given, in case a run dies holding it. */
   lockTtlSeconds?: number
+  /** How long a lock must have been held before `beginVersion({ force: true })` may take it. */
+  forceAfterMs?: number
   /** The life a replaced or abandoned version is given by a publication. */
   replacedTtlSeconds?: number
   /** How many sets of one version are kept in this process. */
   cacheEntries?: number
-  /** Roughly how much of them is kept, in bytes. */
+  /**
+   * How much of them is kept, in bytes, charged at deliberately generous per-element rates (see
+   * `bytesOf`). The default of 8 MB is therefore worth roughly 8–16 MB of real heap per instance,
+   * not a fraction of it.
+   */
   cacheBytes?: number
   /**
    * Moves every key this adapter touches aside, under a namespace of its own. Empty in the site
@@ -89,6 +118,15 @@ export interface UpstashIndexOptions {
 }
 
 const EMPTY_RESULT: IndexSearchResult = { ids: [], total: 0, games: [] }
+
+/** The one message a blocked run sees: who holds the lock, for how long, and how to take it. */
+function lockHeldBy(holder: string, heldForMs: number): Error {
+  const age = Number.isFinite(heldForMs) ? `${Math.round(heldForMs / 60_000)} minute(s)` : 'a while'
+  return new Error(
+    `Another index run (${holder}) has held the write lock for ${age}. ` +
+      'Begin the version with { force: true } to take it over.',
+  )
+}
 
 /** A Redis score bound: `-inf`, `+inf` or the number itself. Every bound of a plan is inclusive. */
 function bound(value: number): string {
@@ -152,11 +190,22 @@ type CachedRead =
   | { kind: 'members'; ids: Set<number> }
   | { kind: 'names'; names: Map<number, string> }
 
+/**
+ * What an entry costs on the heap, deliberately over-estimated. A V8 `Set` of small integers runs
+ * to roughly 40 bytes an element once its hash table and its load factor are counted, a `Map`
+ * entry to about 80 plus the string, and a packed array of small integers to about 16. The budget
+ * is therefore close to real bytes rather than a fraction of them, so `cacheBytes` can be read as
+ * what it says.
+ */
+const BYTES_PER_ARRAY_ELEMENT = 16
+const BYTES_PER_SET_MEMBER = 48
+const BYTES_PER_MAP_ENTRY = 80
+
 function bytesOf(cached: CachedRead): number {
-  if (cached.kind === 'order') return cached.ids.length * 8 + 64
-  if (cached.kind === 'members') return cached.ids.size * 8 + 64
-  let total = 64
-  for (const name of cached.names.values()) total += name.length * 2 + 16
+  if (cached.kind === 'order') return cached.ids.length * BYTES_PER_ARRAY_ELEMENT + 128
+  if (cached.kind === 'members') return cached.ids.size * BYTES_PER_SET_MEMBER + 128
+  let total = 128
+  for (const name of cached.names.values()) total += name.length * 2 + BYTES_PER_MAP_ENTRY
   return total
 }
 
@@ -168,6 +217,8 @@ function bytesOf(cached: CachedRead): number {
 class VersionReads {
   readonly version: number
   private readonly entries = new Map<string, { value: CachedRead; bytes: number }>()
+  /** Reads another request of this version has already asked for and not yet received. */
+  readonly inflight = new Map<string, Promise<CachedRead>>()
   private held = 0
 
   constructor(
@@ -215,6 +266,7 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
   private readonly maxBytesPerRequest: number
   private readonly itemsPerCommand: number
   private readonly lockTtlSeconds: number
+  private readonly forceAfterMs: number
   private readonly replacedTtlSeconds: number
   private readonly cacheEntries: number
   private readonly cacheBytes: number
@@ -230,6 +282,7 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     this.maxBytesPerRequest = options.maxBytesPerRequest ?? 700_000
     this.itemsPerCommand = options.itemsPerCommand ?? 500
     this.lockTtlSeconds = options.lockTtlSeconds ?? 3_600
+    this.forceAfterMs = options.forceAfterMs ?? 30 * 60 * 1000
     this.replacedTtlSeconds = options.replacedTtlSeconds ?? 48 * 60 * 60
     this.cacheEntries = options.cacheEntries ?? 200
     this.cacheBytes = options.cacheBytes ?? 8_000_000
@@ -242,11 +295,44 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     const plan = planQuery(version, query)
     const reads = this.readsFor(version)
 
-    const missing: { key: string; queue: (batch: RedisBatch) => () => CachedRead }[] = []
+    // Every set this query needs, held here for as long as the query lasts. The cache is an
+    // optimisation and never the working set: an entry it drops while the query is running — a
+    // budget smaller than one query needs, a neighbour evicting it — must not change the answer.
+    const held = new Map<string, CachedRead>()
+    const awaited: { key: string; wait: Promise<CachedRead> }[] = []
+    const missing: {
+      key: string
+      queue: (batch: RedisBatch) => () => CachedRead
+      settle: { resolve: (value: CachedRead) => void; reject: (error: unknown) => void }
+    }[] = []
+
     const need = (key: string, queue: (batch: RedisBatch) => () => CachedRead): string => {
-      if (reads.get(key) === undefined && !missing.some((entry) => entry.key === key)) {
-        missing.push({ key, queue })
+      if (held.has(key) || missing.some((entry) => entry.key === key)) return key
+      if (awaited.some((entry) => entry.key === key)) return key
+
+      const cached = reads.get(key)
+      if (cached !== undefined) {
+        held.set(key, cached)
+        return key
       }
+      // Another request of this version is already fetching it: wait for that one instead of
+      // asking again. A publication empties the cache, so without this every request in flight
+      // would re-read the same order set at the same moment.
+      const inflight = reads.inflight.get(key)
+      if (inflight) {
+        awaited.push({ key, wait: inflight })
+        return key
+      }
+      let resolve!: (value: CachedRead) => void
+      let reject!: (error: unknown) => void
+      const wait = new Promise<CachedRead>((onValue, onError) => {
+        resolve = onValue
+        reject = onError
+      })
+      // Nobody may see this rejection except the requests that asked for the key.
+      wait.catch(() => undefined)
+      reads.inflight.set(key, wait)
+      missing.push({ key, queue, settle: { resolve, reject } })
       return key
     }
 
@@ -259,9 +345,13 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
 
     const constraintKeys: string[] = []
     for (const group of plan.facetGroups) {
+      // The values of one facet are a set, so the order the caller listed them in must not make
+      // two cache entries — or two `SUNION`s — out of one.
+      const canonical = [...group].sort()
       constraintKeys.push(
-        need(`f|${group.join(',')}`, (batch) => {
-          const members = group.length === 1 ? batch.smembers(group[0]!) : batch.sunion(group)
+        need(`f|${canonical.join(',')}`, (batch) => {
+          const members =
+            canonical.length === 1 ? batch.smembers(canonical[0]!) : batch.sunion(canonical)
           return () => ({ kind: 'members', ids: new Set(members.value.map(Number)) })
         }),
       )
@@ -277,9 +367,9 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
       )
     }
 
-    let namesKeyCached: string | null = null
+    let foldedNamesKey: string | null = null
     if (plan.search !== null) {
-      namesKeyCached = need(`n|${namesKey(version)}`, (batch) => {
+      foldedNamesKey = need(`n|${namesKey(version)}`, (batch) => {
         const fields = batch.hgetall(namesKey(version))
         return () => ({
           kind: 'names',
@@ -290,22 +380,44 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
       })
     }
 
+    const fetched: [string, CachedRead][] = []
     if (missing.length > 0) {
       const batch = this.commands.pipeline()
-      const readers = missing.map((entry) => ({ key: entry.key, read: entry.queue(batch) }))
-      await batch.exec()
-      for (const { key, read } of readers) reads.set(key, read())
+      const readers = missing.map((entry) => ({ ...entry, read: entry.queue(batch) }))
+      try {
+        await batch.exec()
+      } catch (error) {
+        for (const entry of readers) {
+          reads.inflight.delete(entry.key)
+          entry.settle.reject(error)
+        }
+        throw error
+      }
+      for (const entry of readers) {
+        const value = entry.read()
+        held.set(entry.key, value)
+        fetched.push([entry.key, value])
+        reads.inflight.delete(entry.key)
+        entry.settle.resolve(value)
+      }
     }
+    for (const entry of awaited) held.set(entry.key, await entry.wait)
 
-    const order = reads.get(orderKey)
-    if (order?.kind !== 'order') return { ...EMPTY_RESULT }
+    const order = held.get(orderKey)
+    if (order?.kind !== 'order') {
+      // Unreachable: every key `need` returned is in `held` by now. It is an assertion, not a
+      // fallback, because the quiet version of this was a page that answered nothing.
+      throw new Error(`The order set ${plan.order} was not read`)
+    }
     const constraints = constraintKeys
-      .map((key) => reads.get(key))
-      .filter((cached) => cached?.kind === 'members')
-      .map((cached) => cached.ids)
+      .map((key) => held.get(key))
+      .map((cached) => {
+        if (cached?.kind !== 'members') throw new Error('A constraint set was not read')
+        return cached.ids
+      })
       // Smallest first: most ids fail on the first set and never reach the others.
       .sort((left, right) => left.size - right.size)
-    const names = namesKeyCached ? reads.get(namesKeyCached) : undefined
+    const names = foldedNamesKey === null ? undefined : held.get(foldedNamesKey)
     const folded = names?.kind === 'names' ? names.names : null
 
     const matched: number[] = []
@@ -321,6 +433,10 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
       if (plan.search !== null && !(folded?.get(id) ?? '').includes(plan.search)) continue
       matched.push(id)
     }
+
+    // The answer is settled; only now is any of it offered to the cache, which may keep as much
+    // of it as it has room for and drop the rest.
+    for (const [key, value] of fetched) reads.set(key, value)
 
     const ids = matched.slice(plan.offset, plan.offset + plan.limit)
     if (ids.length === 0) return { ids: [], total: matched.length, games: [] }
@@ -357,13 +473,23 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     return decodeMeta(await this.read((batch) => batch.hgetall(metaKey(Number(pointer)))))
   }
 
-  async beginVersion(): Promise<number> {
-    await this.claimLock()
+  async beginVersion(options: BeginVersionOptions = {}): Promise<number> {
+    await this.claimLock(options.force === true)
     const version = await this.read((batch) => batch.incr(VERSION_SEQUENCE_KEY))
+    // The draft says which version the lock holder is building, so a publication can prove that
+    // the version it is about to move the pointer to is the one this run began.
     await this.send([
       {
         add: (batch) => batch.sadd(VERSIONS_KEY, [String(version)]),
         bytes: commandBytes(['SADD', VERSIONS_KEY, version]),
+      },
+      {
+        add: (batch) => batch.set(DRAFT_KEY, String(version)),
+        bytes: commandBytes(['SET', DRAFT_KEY, version]),
+      },
+      {
+        add: (batch) => batch.expire(DRAFT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', DRAFT_KEY, this.lockTtlSeconds]),
       },
     ])
     return version
@@ -393,6 +519,14 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
 
     const plan = buildIndexPlan(version, games)
     const queued: QueuedCommand[] = []
+    // Writing three thousand games takes a while. `EXPIRE` gives the lock a fresh life without
+    // changing whose it is, so a live run's lock cannot lapse under it and let a second run in.
+    for (const key of [LOCK_KEY, DRAFT_KEY]) {
+      queued.push({
+        add: (batch) => batch.expire(key, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', key, this.lockTtlSeconds]),
+      })
+    }
     const keys = [
       registryKey(version),
       metaKey(version),
@@ -456,9 +590,9 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     const registered = opening.smembers(registryKey(version))
     const pointer = opening.get(CURRENT_VERSION_KEY)
     const holder = opening.get(LOCK_KEY)
+    const draft = opening.get(DRAFT_KEY)
     await opening.exec()
 
-    this.assertLockIsMine(holder.value)
     if (registered.value.length === 0) {
       throw new Error(`Index version ${version} was never written`)
     }
@@ -467,22 +601,47 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     // Publishing the live version again only refreshes its metadata: it must not become its own
     // predecessor, and none of its keys may be set to expire.
     if (current === version) {
+      this.assertLockIsMine(holder.value)
       const refresh = this.commands.multi()
       refresh.hset(metaKey(version), encodeMeta(meta))
-      refresh.del([LOCK_KEY])
+      if (holder.value === this.runId) this.releaseInto(refresh)
       await refresh.exec()
       return
     }
 
-    // Only the two facts a reader can observe are in the transaction: after it, every reader is
-    // on the new version and its metadata is there to be read. Expiring what it replaced is
+    this.assertLockIsHeld(holder.value)
+    if (draft.value !== String(version)) {
+      throw new Error(
+        `Index version ${version} is not the draft this run began (${draft.value ?? 'none'})`,
+      )
+    }
+    // A publication may only ever move the pointer forward. It is what makes the window below
+    // harmless: a run whose lock lapsed while a later run published cannot put the pointer back
+    // on its own, older version — it is refused here instead.
+    if (current !== null && version < current) {
+      throw new Error(`Index version ${version} is older than the published ${current}`)
+    }
+
+    // Read the lock and the draft once more, immediately before the transaction, so the window
+    // between deciding and acting is one request rather than the whole of the checks above.
+    const reread = this.commands.pipeline()
+    const stillMine = reread.get(LOCK_KEY)
+    const stillDraft = reread.get(DRAFT_KEY)
+    await reread.exec()
+    this.assertLockIsHeld(stillMine.value)
+    if (stillDraft.value !== String(version)) {
+      throw new Error(`Index version ${version} stopped being this run's draft`)
+    }
+
+    // Only the facts a reader can observe are in the transaction: after it, every reader is on
+    // the new version and its metadata is there to be read. Expiring what it replaced is
     // bookkeeping that no reader waits for, and it is chunked below.
     const swap = this.commands.multi()
     swap.hset(metaKey(version), encodeMeta(meta))
     swap.set(CURRENT_VERSION_KEY, String(version))
     if (current === null) swap.del([PREVIOUS_VERSION_KEY])
     else swap.set(PREVIOUS_VERSION_KEY, String(current))
-    swap.del([LOCK_KEY])
+    this.releaseInto(swap)
     await swap.exec()
     this.resolved = { version, at: this.now() }
 
@@ -502,13 +661,20 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     this.assertLockIsMine(holder.value)
 
     await this.dropKeys(registered.value)
-    await this.send([
+    const queued: QueuedCommand[] = [
       {
         add: (batch) => batch.srem(VERSIONS_KEY, [String(version)]),
         bytes: commandBytes(['SREM', VERSIONS_KEY, version]),
       },
-      { add: (batch) => batch.del([LOCK_KEY]), bytes: commandBytes(['DEL', LOCK_KEY]) },
-    ])
+    ]
+    // Never delete a lock this run does not hold.
+    if (holder.value === this.runId) {
+      queued.push({
+        add: (batch) => this.releaseInto(batch),
+        bytes: commandBytes(['DEL', LOCK_KEY, LOCK_TAKEN_AT_KEY, DRAFT_KEY]),
+      })
+    }
+    await this.send(queued)
   }
 
   async currentVersion(): Promise<number | null> {
@@ -582,18 +748,61 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     return this.reads
   }
 
-  private async claimLock(): Promise<void> {
+  private async claimLock(force: boolean): Promise<void> {
     const batch = this.commands.pipeline()
     const taken = batch.setNx(LOCK_KEY, this.runId, this.lockTtlSeconds)
     const holder = batch.get(LOCK_KEY)
+    const takenAt = batch.get(LOCK_TAKEN_AT_KEY)
     await batch.exec()
-    if (!taken.value) this.assertLockIsMine(holder.value)
+
+    if (!taken.value && holder.value !== this.runId) {
+      const heldFor = this.now() - Number(takenAt.value ?? 0)
+      if (!force || heldFor < this.forceAfterMs) {
+        throw lockHeldBy(holder.value ?? 'an unnamed run', heldFor)
+      }
+      // Taking over a lock nobody is using any more: the run that held it left a draft behind,
+      // which the next publication sweeps like any other abandoned version.
+      await this.send([
+        {
+          add: (batch) => batch.set(LOCK_KEY, this.runId),
+          bytes: commandBytes(['SET', LOCK_KEY, this.runId]),
+        },
+        {
+          add: (batch) => batch.expire(LOCK_KEY, this.lockTtlSeconds),
+          bytes: commandBytes(['EXPIRE', LOCK_KEY, this.lockTtlSeconds]),
+        },
+      ])
+    }
+
+    await this.send([
+      {
+        add: (batch) => batch.set(LOCK_TAKEN_AT_KEY, String(this.now())),
+        bytes: commandBytes(['SET', LOCK_TAKEN_AT_KEY, this.now()]),
+      },
+      {
+        add: (batch) => batch.expire(LOCK_TAKEN_AT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', LOCK_TAKEN_AT_KEY, this.lockTtlSeconds]),
+      },
+    ])
+  }
+
+  /** The lock, its age and the draft go together; nothing releases one without the others. */
+  private releaseInto(batch: RedisBatch): void {
+    batch.del([LOCK_KEY, LOCK_TAKEN_AT_KEY, DRAFT_KEY])
   }
 
   /** A lock nobody holds is free to act under; one another run holds is not. */
   private assertLockIsMine(holder: string | null): void {
     if (holder !== null && holder !== this.runId) {
-      throw new Error(`Another index run (${holder}) holds the write lock`)
+      throw lockHeldBy(holder, Number.NaN)
+    }
+  }
+
+  /** A publication or a discard must hold the lock, not merely find it free. */
+  private assertLockIsHeld(holder: string | null): void {
+    this.assertLockIsMine(holder)
+    if (holder !== this.runId) {
+      throw new Error('This run does not hold the index write lock')
     }
   }
 

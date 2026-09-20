@@ -19,6 +19,8 @@ export interface GameIndexAdapter {
   writer: GameIndexWriter
   /** A second run against the same store: what an overlapping job process is. */
   rival: GameIndexWriter
+  /** Moves the clock both runs read, so a lock can be old enough to take over. */
+  advance: (ms: number) => void
   /** Called once the suite is done with the adapter; a remote store drops its keys here. */
   teardown?: () => void | Promise<void>
 }
@@ -503,6 +505,23 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
         await adapter.writer.discardVersion(version)
         await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
+      })
+
+      it('says who holds the lock and how to take it over', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+        await expect(adapter.rival.beginVersion()).rejects.toThrow(/held the write lock/)
+        await expect(adapter.rival.beginVersion()).rejects.toThrow(/force/)
+      })
+
+      it('takes over a lock that has been held far too long, when a run forces it', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+        await expect(adapter.rival.beginVersion({ force: true })).rejects.toThrow()
+        adapter.advance(31 * 60 * 1000)
+        await expect(adapter.rival.beginVersion({ force: true })).resolves.toBeGreaterThan(0)
+        // The run that lost the lock can no longer write with it.
+        await expect(adapter.writer.beginVersion()).rejects.toThrow(/held the write lock/)
       })
 
       it('refuses every write from a run that does not hold the lock', async () => {

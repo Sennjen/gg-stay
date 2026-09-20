@@ -100,6 +100,11 @@ export interface GameIndex {
  * nothing behind; `meta()` is what that check reads, and `previousMeta()` reports the version the
  * last publish replaced.
  *
+ * A run takes the write lock when it begins a version and gives it back when it publishes or
+ * discards. A second run that finds the lock held is refused, and told who holds it and for how
+ * long; `beginVersion({ force: true })` takes over a lock that has been held past the adapter's
+ * limit, which is how an operator recovers from a run that died holding it.
+ *
  * Three edges a retried run runs into. Publishing the version that is already live only refreshes
  * its metadata — it does not make that version its own predecessor, and none of its keys are set
  * to expire. Discarding the live version is refused, because that would empty the index. Rewriting
@@ -110,8 +115,13 @@ export interface GameIndex {
  * resolved once in the life of the index. Both are batched: a run touches 3 000 games and a REST
  * round trip per game is not affordable.
  */
+export interface BeginVersionOptions {
+  /** Take over a write lock that has been held longer than the adapter allows. */
+  force?: boolean
+}
+
 export interface GameIndexWriter {
-  beginVersion(): Promise<number>
+  beginVersion(options?: BeginVersionOptions): Promise<number>
   writeVersion(version: number, games: IndexedGame[]): Promise<void>
   publish(version: number, meta: IndexMeta): Promise<void>
   discardVersion(version: number): Promise<void>

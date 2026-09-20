@@ -27,16 +27,26 @@ const adapterFor = (index: ReturnType<typeof createUpstashIndex>, redis: FakeRed
   index,
   writer: index,
   rival: createUpstashIndex(redis, { runId: 'another-run' }),
+  advance: (ms: number) => redis.advance(ms),
 })
 
 describeGameIndexContract('upstashIndex', () => {
+  let clock = 1_000
+  const now = () => clock
   const redis = createFakeRedis()
-  const adapter = createUpstashIndex(redis, { runId: 'the-run' })
+  const adapter = createUpstashIndex(redis, { runId: 'the-run', now })
   return {
     index: adapter,
     writer: adapter,
-    rival: createUpstashIndex(redis, { runId: 'another-run' }),
-    teardown: () => redis.reset(),
+    rival: createUpstashIndex(redis, { runId: 'another-run', now }),
+    advance: (ms: number) => {
+      clock += ms
+      redis.advance(ms)
+    },
+    teardown: () => {
+      redis.reset()
+      clock = 1_000
+    },
   }
 })
 
@@ -47,13 +57,21 @@ describeGameIndexContract('upstashIndex', () => {
  * see is published by a different adapter object.
  */
 describeGameIndexContract('upstashIndex over a read-only token', () => {
+  let clock = 1_000
+  const now = () => clock
   const redis = createFakeRedis()
-  const writer = createUpstashIndex(redis, { runId: 'the-run' })
   return {
-    index: createUpstashIndex(redis.readOnly(), { currentVersionTtlMs: 0 }),
-    writer,
-    rival: createUpstashIndex(redis, { runId: 'another-run' }),
-    teardown: () => redis.reset(),
+    index: createUpstashIndex(redis.readOnly(), { currentVersionTtlMs: 0, now }),
+    writer: createUpstashIndex(redis, { runId: 'the-run', now }),
+    rival: createUpstashIndex(redis, { runId: 'another-run', now }),
+    advance: (ms: number) => {
+      clock += ms
+      redis.advance(ms)
+    },
+    teardown: () => {
+      redis.reset()
+      clock = 1_000
+    },
   }
 })
 
@@ -423,6 +441,82 @@ describe('upstashIndex', () => {
   })
 
   describe('the write lock', () => {
+    it('never deletes a lock another run holds', async () => {
+      const redis = createFakeRedis()
+      const first = createUpstashIndex(redis, { runId: 'the-run' })
+      const second = createUpstashIndex(redis, { runId: 'another-run' })
+      const version = await first.beginVersion()
+      await first.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
+
+      await expect(second.discardVersion(version)).rejects.toThrow(/held the write lock/)
+      const holder = redis.pipeline()
+      const value = holder.get('idx:lock')
+      await holder.exec()
+      expect(value.value).toBe('the-run')
+    })
+
+    it('keeps its own lock alive while it writes a long version', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, { runId: 'the-run', lockTtlSeconds: 600 })
+      const version = await index.beginVersion()
+      redis.advance(500_000)
+      expect(redis.ttl('idx:lock')).toBeLessThan(200_000)
+      await index.writeVersion(version, FIXTURE_GAMES)
+      // The write gave the lock and the draft a fresh life without changing whose they are.
+      expect(redis.ttl('idx:lock')).toBe(600_000)
+      expect(redis.ttl('idx:draft')).toBe(600_000)
+    })
+
+    it('refuses to publish a version that is not the draft this run began', async () => {
+      const redis = createFakeRedis()
+      let clock = 1_000
+      const now = () => clock
+      const first = createUpstashIndex(redis, { runId: 'the-run', now })
+      const second = createUpstashIndex(redis, { runId: 'another-run', now })
+      const abandoned = await first.beginVersion()
+      await first.writeVersion(abandoned, FIXTURE_GAMES.slice(0, 3))
+
+      // The second run takes the lock over and begins a draft of its own.
+      clock += 31 * 60 * 1000
+      redis.advance(31 * 60 * 1000)
+      await second.beginVersion({ force: true })
+      await expect(
+        second.publish(abandoned, { ...FIXTURE_META, version: abandoned, gameCount: 3 }),
+      ).rejects.toThrow(/not the draft/)
+      // And the run that lost the lock cannot publish either.
+      await expect(
+        first.publish(abandoned, { ...FIXTURE_META, version: abandoned, gameCount: 3 }),
+      ).rejects.toThrow(/write lock/)
+    })
+
+    it('refuses to move the pointer back to a version older than the published one', async () => {
+      const redis = createFakeRedis()
+      let clock = 1_000
+      const now = () => clock
+      const stale = createUpstashIndex(redis, { runId: 'stale-run', now })
+      const live = createUpstashIndex(redis, { runId: 'live-run', now })
+
+      const first = await stale.beginVersion()
+      await stale.writeVersion(first, FIXTURE_GAMES.slice(0, 3))
+      // The stale run's lock lapses and a later run publishes a newer version.
+      clock += 31 * 60 * 1000
+      redis.advance(31 * 60 * 1000)
+      const second = await live.beginVersion({ force: true })
+      await live.writeVersion(second, FIXTURE_GAMES.slice(3, 6))
+      await live.publish(second, { ...FIXTURE_META, version: second, gameCount: 3 })
+
+      // The state the stale run would act under if it woke up believing it still held the lock.
+      const revived = redis.pipeline()
+      revived.set('idx:lock', 'stale-run')
+      revived.set('idx:draft', String(first))
+      await revived.exec()
+
+      await expect(
+        stale.publish(first, { ...FIXTURE_META, version: first, gameCount: 3 }),
+      ).rejects.toThrow(/older than the published/)
+      expect((await live.search({})).ids).toEqual([4, 5, 6])
+    })
+
     it('frees the lock of a run that died holding it, once its life has passed', async () => {
       const redis = createFakeRedis()
       const first = createUpstashIndex(redis, { runId: 'the-run', lockTtlSeconds: 3_600 })

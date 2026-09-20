@@ -1,6 +1,12 @@
 import type { IndexPlan } from './buildPlan'
 import { buildIndexPlan } from './buildPlan'
-import type { GameIndex, GameIndexWriter, IndexQuery, IndexSearchResult } from './GameIndex'
+import type {
+  BeginVersionOptions,
+  GameIndex,
+  GameIndexWriter,
+  IndexQuery,
+  IndexSearchResult,
+} from './GameIndex'
 import type { IndexMeta, IndexedGame } from './document'
 import type { PlannedRange, QueryPlan } from './queryPlan'
 import { planQuery } from './queryPlan'
@@ -15,6 +21,8 @@ interface MemoryStore {
   cursors: Map<string, string>
   /** The run that may write, or `null` when nobody is writing. */
   lock: string | null
+  /** When that run took it, so an operator can take a dead run's lock over. */
+  lockedAt: number
 }
 
 /**
@@ -87,6 +95,21 @@ function store(version: number, games: IndexedGame[], meta: IndexMeta): StoredVe
   return { version, plan, facets, orders, ranges, meta }
 }
 
+export interface MemoryIndexOptions {
+  now?: () => number
+  /** How long a lock must have been held before another run may take it over. */
+  forceAfterMs?: number
+}
+
+/** The one error message a blocked run sees, wherever it is blocked. */
+function lockHeldBy(holder: string, heldForMs: number): Error {
+  const minutes = Math.round(heldForMs / 60_000)
+  return new Error(
+    `Another index run (${holder}) has held the write lock for ${minutes} minute(s). ` +
+      'Begin the version with { force: true } to take it over.',
+  )
+}
+
 /** `null` means "no constraint at all", which is not the same as "an empty set of matches". */
 function intersect(sets: Set<number>[]): Set<number> | null {
   if (sets.length === 0) return null
@@ -105,7 +128,10 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   private readonly store: MemoryStore
   private readonly runId: string
 
-  constructor(store?: MemoryStore, runId?: string) {
+  private readonly now: () => number
+  private readonly forceAfterMs: number
+
+  constructor(store?: MemoryStore, runId?: string, options: MemoryIndexOptions = {}) {
     this.store = store ?? {
       live: null,
       drafts: new Map(),
@@ -114,13 +140,16 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
       appIds: new Map(),
       cursors: new Map(),
       lock: null,
+      lockedAt: 0,
     }
     this.runId = runId ?? `run-${Math.random().toString(36).slice(2, 10)}`
+    this.now = options.now ?? Date.now
+    this.forceAfterMs = options.forceAfterMs ?? 30 * 60 * 1000
   }
 
   /** Another run against the same store — what a second job process is, for the write lock. */
-  connect(runId: string): MemoryGameIndex {
-    return new MemoryGameIndex(this.store, runId)
+  connect(runId: string, options: MemoryIndexOptions = {}): MemoryGameIndex {
+    return new MemoryGameIndex(this.store, runId, { now: this.now, ...options })
   }
 
   private get live(): StoredVersion | null {
@@ -173,8 +202,8 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     return this.store.previous ? { ...this.store.previous } : null
   }
 
-  async beginVersion(): Promise<number> {
-    this.claimLock()
+  async beginVersion(options: BeginVersionOptions = {}): Promise<number> {
+    this.claimLock(options.force === true)
     this.store.lastVersion += 1
     this.store.drafts.set(this.store.lastVersion, [])
     return this.store.lastVersion
@@ -197,14 +226,18 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     // Publishing the version that is already live is a no-op that refreshes the run metadata: a
     // job that finishes its checks twice must not make the live version its own predecessor and
     // set its keys to expire.
-    this.assertLockIsMine()
     if (this.live?.version === version) {
+      this.assertLockIsMine()
       this.live.meta = { ...meta }
       this.releaseLock()
       return
     }
     const draft = this.store.drafts.get(version)
     if (!draft) throw new Error(`Index version ${version} was never written`)
+    this.assertLockIsHeld()
+    if (this.live !== null && version < this.live.version) {
+      throw new Error(`Index version ${version} is older than the published ${this.live.version}`)
+    }
     // The replaced version would expire on Upstash; here it is simply dropped.
     this.store.previous = this.store.live?.meta ?? null
     this.store.live = store(version, draft, { ...meta })
@@ -251,19 +284,36 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 
   /** One run writes at a time: two overlapping runs would each publish over the other. */
-  private claimLock(): void {
-    this.assertLockIsMine()
+  private claimLock(force: boolean): void {
+    const holder = this.store.lock
+    if (holder !== null && holder !== this.runId) {
+      const heldFor = this.now() - this.store.lockedAt
+      if (!force || heldFor < this.forceAfterMs) throw lockHeldBy(holder, heldFor)
+    }
     this.store.lock = this.runId
+    this.store.lockedAt = this.now()
   }
 
+  /** A lock nobody holds is free to act under; one another run holds is not. */
   private assertLockIsMine(): void {
     if (this.store.lock !== null && this.store.lock !== this.runId) {
-      throw new Error(`Another index run (${this.store.lock}) holds the write lock`)
+      throw lockHeldBy(this.store.lock, this.now() - this.store.lockedAt)
+    }
+  }
+
+  /** A publication or a discard must hold the lock, not merely find it free. */
+  private assertLockIsHeld(): void {
+    this.assertLockIsMine()
+    if (this.store.lock !== this.runId) {
+      throw new Error('This run does not hold the index write lock')
     }
   }
 
   private releaseLock(): void {
-    if (this.store.lock === this.runId) this.store.lock = null
+    if (this.store.lock === this.runId) {
+      this.store.lock = null
+      this.store.lockedAt = 0
+    }
   }
 
   /** The versions this adapter still holds — a test's way of seeing that a publish freed one. */
@@ -291,6 +341,6 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 }
 
-export function createMemoryGameIndex(): MemoryGameIndex {
-  return new MemoryGameIndex()
+export function createMemoryGameIndex(options: MemoryIndexOptions = {}): MemoryGameIndex {
+  return new MemoryGameIndex(undefined, undefined, options)
 }
