@@ -229,10 +229,15 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       else if (options.mode === 'prices') {
         // A price run that confirmed almost nothing has nothing to publish: every document would
         // be the one already live, only with a newer `updatedAt` that would hide the outage from
-        // the staleness rule. Failing says what happened, and saves a whole republication.
-        throw new Error(
-          `only ${prices.answered} of ${prices.requested} app ids were priced; ` +
-            'this run has nothing new to publish',
+        // the staleness rule. Failing says what happened, and saves a whole republication. It is
+        // the price stage's verdict, so it is tagged as one: an operator reading "failed in
+        // start-up" would go looking at the credentials.
+        throw Object.assign(
+          new Error(
+            `only ${prices.answered} of ${prices.requested} app ids were priced; ` +
+              'this run has nothing new to publish',
+          ),
+          { stage: 'prices' },
         )
       }
     }
@@ -271,7 +276,11 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // version that was actually begun: nothing is discarded that does not exist. `discardVersion`
     // is allowed to fail too, because the original error is what the owner needs to see.
     if (version !== null) await deps.writer.discardVersion(version).catch(() => {})
-    throw error
+    // What the run had already done goes out with the failure. The summary of a failed run is the
+    // whole of the alert, and one full of zeroes says less than the run knew.
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      report: report({ pricesFetched, languagesFetched, failures }),
+    })
   }
 }
 
@@ -385,17 +394,18 @@ export async function runCli(
   } catch (error) {
     // The message only: an upstream error object can carry the request it failed on.
     const message = error instanceof Error ? error.message : String(error)
-    const named = error as { stage?: unknown }
+    const named = error as { stage?: unknown; report?: JobReport }
     console.error(message)
+    const reached = named.report
     report = {
-      mode,
+      mode: reached?.mode ?? mode,
       dryRun,
       outcome: null,
-      pricesFetched: 0,
-      languagesFetched: 0,
-      failures: 0,
-      durationMs: 0,
-      writes: writerStats?.() ?? null,
+      pricesFetched: reached?.pricesFetched ?? 0,
+      languagesFetched: reached?.languagesFetched ?? 0,
+      failures: reached?.failures ?? 0,
+      durationMs: reached?.durationMs ?? 0,
+      writes: reached?.writes ?? writerStats?.() ?? null,
       failedStage: typeof named.stage === 'string' ? named.stage : 'start-up',
       error: message,
     }

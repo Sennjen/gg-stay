@@ -134,9 +134,13 @@ describe('runJob', () => {
       later.steamPrices[appId] = { success: false }
     }
 
-    await expect(
-      runJob(later.deps, { mode: 'prices', pages: 1, forceUnlock: false }),
-    ).rejects.toThrow(/nothing new to publish/)
+    const refusal = await runJob(later.deps, {
+      mode: 'prices',
+      pages: 1,
+      forceUnlock: false,
+    }).catch((error: Error) => error)
+
+    expect(refusal).toMatchObject({ stage: 'prices' })
 
     // The published version is untouched, prices and stamp alike.
     expect(await later.writer.currentVersion()).toBe(1)
@@ -247,6 +251,22 @@ describe('runJob', () => {
     expect(await harness.writer.currentVersion()).toBeNull()
   })
 
+  it('carries what it had already done out with a failure', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    for (const appId of ['411000', '412000', '415000']) harness.failLanguagesOnce(appId)
+
+    const failure = await runJob(harness.deps, FULL).catch(
+      (error: Error & { report?: JobReport }) => error,
+    )
+
+    expect(failure.report).toMatchObject({
+      mode: 'full',
+      outcome: null,
+      pricesFetched: 6,
+      failures: 0,
+    })
+  })
+
   it('names the stage a failure came out of', async () => {
     const harness = createJobHarness({ start: RUN_AT })
     for (const appId of ['411000', '412000', '415000']) harness.failLanguagesOnce(appId)
@@ -297,6 +317,31 @@ describe('formatSummary', () => {
     })
 
     expect(summary).toContain('| Result | refused — the run priced no games |')
+  })
+
+  it('names the prices stage and the counts a refused price run reached', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, { mode: 'full', pages: JOB_PAGE_COUNT, forceUnlock: false })
+    const later = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    for (const appId of ['411000', '412000', '416000']) {
+      later.steamPrices[appId] = { success: false }
+    }
+
+    const failure = await runJob(later.deps, {
+      mode: 'prices',
+      pages: 1,
+      forceUnlock: false,
+    }).catch((error: Error & { stage?: string; report?: JobReport }) => error)
+
+    // What `runCli` builds out of a failure, and what the operator reads in the job summary.
+    const summary = formatSummary({
+      ...failure.report!,
+      failedStage: failure.stage,
+      error: failure.message,
+    })
+    expect(summary).toContain('| Result | failed in prices |')
+    expect(summary).toContain('| Error | only 3 of 6 app ids were priced')
+    expect(summary).toContain('| Prices read | 3 |')
   })
 
   it('reports a failure with the stage, the error and the way out of a held lock', () => {
@@ -379,6 +424,18 @@ describe('runCli', () => {
     expect(vi.mocked(console.error).mock.calls[0]?.[0]).toMatch(/Unknown --mode/)
     expect(vi.mocked(console.log).mock.calls.at(-1)?.[0]).toContain(
       '| Result | failed in start-up |',
+    )
+    vi.restoreAllMocks()
+  })
+
+  it('names the stage in the summary it writes for a failed run', async () => {
+    quiet()
+
+    const code = await runCli(['--mode=prices'], { INDEX_DRY_RUN: '1', RAWG_FIXTURES: '1' })
+
+    expect(code).toBe(1)
+    expect(vi.mocked(console.log).mock.calls.at(-1)?.[0]).toContain(
+      '| Result | failed in published documents |',
     )
     vi.restoreAllMocks()
   })
