@@ -42,6 +42,8 @@ export interface RedisBatch {
   setNx(key: string, value: string, seconds: number): RedisResult<boolean>
   mset(entries: Record<string, string>): void
   del(keys: string[]): void
+  /** `UNLINK`: the same removal as `DEL`, reclaimed in the background. Used to sweep a version. */
+  unlink(keys: string[]): void
   incr(key: string): RedisResult<number>
   expire(key: string, seconds: number): void
   sadd(key: string, members: string[]): void
@@ -85,6 +87,7 @@ export function withKeyPrefix(commands: RedisCommands, prefix: string): RedisCom
     setNx: (key, value, seconds) => batch.setNx(moved(key), value, seconds),
     mset: (entries) => batch.mset(movedEntries(entries)),
     del: (keys) => batch.del(movedKeys(keys)),
+    unlink: (keys) => batch.unlink(movedKeys(keys)),
     incr: (key) => batch.incr(moved(key)),
     expire: (key, seconds) => batch.expire(moved(key), seconds),
     sadd: (key, members) => batch.sadd(moved(key), members),
@@ -100,6 +103,89 @@ export function withKeyPrefix(commands: RedisCommands, prefix: string): RedisCom
   return {
     pipeline: () => wrap(commands.pipeline()),
     multi: () => wrap(commands.multi()),
+  }
+}
+
+/** What a run cost the store, counted as the commands were queued and the requests were sent. */
+export interface RedisUsage {
+  /** `exec` calls that actually sent something. */
+  requests: number
+  /** Commands inside them. */
+  commands: number
+  /** Bytes of argument payload, measured as JSON writes them — the way a request body is built. */
+  bytes: number
+}
+
+/** What one command's arguments cost in a request body: the adapter's own measure, shared. */
+export function commandBytes(parts: readonly (string | number)[]): number {
+  let total = 2
+  for (const part of parts) total += JSON.stringify(part).length + 1
+  return total
+}
+
+/**
+ * The same store, counting what goes through it. The refresh job prints the total in its summary,
+ * because the design runs on a free tier and "five complete rebuilds a day" has to be a number
+ * somebody can look at rather than an argument. Counting happens here, at the only place every
+ * command passes through, so no caller can forget to count.
+ */
+export function withUsage(commands: RedisCommands): {
+  commands: RedisCommands
+  usage: () => RedisUsage
+} {
+  const usage: RedisUsage = { requests: 0, commands: 0, bytes: 0 }
+
+  const count = (...parts: (string | number)[]): void => {
+    usage.commands += 1
+    usage.bytes += commandBytes(parts)
+  }
+
+  const wrap = (batch: RedisBatch): RedisBatch => ({
+    get: (key) => (count('GET', key), batch.get(key)),
+    mget: (keys) => (count('MGET', ...keys), batch.mget(keys)),
+    smembers: (key) => (count('SMEMBERS', key), batch.smembers(key)),
+    sunion: (keys) => (count('SUNION', ...keys), batch.sunion(keys)),
+    zrangeAll: (key) => (count('ZRANGE', key, 0, -1), batch.zrangeAll(key)),
+    zrangebyscore: (key, min, max) => (
+      count('ZRANGEBYSCORE', key, min, max),
+      batch.zrangebyscore(key, min, max)
+    ),
+    hgetall: (key) => (count('HGETALL', key), batch.hgetall(key)),
+    set: (key, value) => (count('SET', key, value), batch.set(key, value)),
+    setNx: (key, value, seconds) => (
+      count('SET', key, value, 'NX', 'EX', seconds),
+      batch.setNx(key, value, seconds)
+    ),
+    mset: (entries) => (count('MSET', ...Object.entries(entries).flat()), batch.mset(entries)),
+    del: (keys) => (count('DEL', ...keys), batch.del(keys)),
+    unlink: (keys) => (count('UNLINK', ...keys), batch.unlink(keys)),
+    incr: (key) => (count('INCR', key), batch.incr(key)),
+    expire: (key, seconds) => (count('EXPIRE', key, seconds), batch.expire(key, seconds)),
+    sadd: (key, members) => (count('SADD', key, ...members), batch.sadd(key, members)),
+    srem: (key, members) => (count('SREM', key, ...members), batch.srem(key, members)),
+    zadd: (key, entries) => (
+      count('ZADD', key, ...entries.flatMap(([score, member]) => [score, member])),
+      batch.zadd(key, entries)
+    ),
+    hset: (key, entries) => (
+      count('HSET', key, ...Object.entries(entries).flat()),
+      batch.hset(key, entries)
+    ),
+    exec: async () => {
+      if (batch.size > 0) usage.requests += 1
+      await batch.exec()
+    },
+    get size() {
+      return batch.size
+    },
+  })
+
+  return {
+    commands: {
+      pipeline: () => wrap(commands.pipeline()),
+      multi: () => wrap(commands.multi()),
+    },
+    usage: () => ({ ...usage }),
   }
 }
 

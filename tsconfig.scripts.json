@@ -1,0 +1,23 @@
+{
+  // `scripts/` runs outside Nuxt — no `.nuxt` types, no auto-imports — and was therefore not
+  // covered by `pnpm typecheck`, which only looks at the four generated Nuxt projects. This
+  // project fills that gap. The compiler options mirror `.nuxt/tsconfig.server.json` (the closest
+  // relative: plain Node-side TypeScript reaching into `server/` and `shared/`), minus the Nitro
+  // and DOM libraries a script has no business using.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["esnext"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["scripts/**/*.ts"]
+}

@@ -24,6 +24,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm typecheck
+      # `pnpm typecheck` only covers the four projects Nuxt generates (app, server, shared, node).
+      # The refresh job under `scripts/` belongs to none of them, so it gets its own project.
+      - run: pnpm typecheck:scripts
       - run: pnpm test
       - run: pnpm build
         env:

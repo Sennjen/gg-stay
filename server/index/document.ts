@@ -13,6 +13,13 @@ export interface IndexedLocalisation {
   audio: boolean
   /** Where the flags came from, e.g. `steam`. */
   source: string
+  /**
+   * ISO timestamp of the read the flags came from. The refresh job re-reads a game's languages
+   * only when this is missing or older than a week — the list needs one unfiltered Steam request
+   * per game and changes very rarely — and carries the flags forward from the published version
+   * otherwise. Optional: a document written before the job existed simply looks stale.
+   */
+  updatedAt?: string
 }
 
 export interface IndexedGame {
@@ -20,6 +27,14 @@ export interface IndexedGame {
   slug: string
   name: string
   cover: string | null
+  /**
+   * One screenshot for the card's hover preview, or `null` when RAWG's list response carried
+   * none. It comes from `short_screenshots` on the same page the candidate was read from, so it
+   * costs no request of its own, and it deliberately never repeats the cover: RAWG's list puts
+   * the cover in that array under the id `-1`, and a preview identical to the image already on
+   * the card would make the hover look broken.
+   */
+  preview: string | null
   /** ISO date (`YYYY-MM-DD`); `null` when the release date is unknown. */
   released: string | null
   /** RAWG's "added" count — the popularity score and the tie-break of every sort. */
@@ -45,18 +60,47 @@ export interface IndexedGame {
   priceUpdatedAt: string | null
 }
 
+/**
+ * What Steam said about one app's languages, kept outside the version prefix under
+ * `lang:{appId}` so it survives publications. It is the refresh job's work list: an app with no
+ * record, or a record older than a week, is due; everything else is applied from here without a
+ * request. Storing the answer rather than a position in a list is what makes the language stage
+ * resumable — a run that dies has still saved every app it read.
+ */
+export interface IndexedLanguages {
+  text: boolean
+  audio: boolean
+  /** Steam's `is_free`, which is the only thing that tells a free game from an unsold one. */
+  isFree: boolean
+  /** ISO timestamp of the read. */
+  updatedAt: string
+}
+
 export interface IndexRunStats {
   gamesIndexed: number
   pricesFetched: number
   languagesFetched: number
   failures: number
   durationMs: number
+  /** Games published with a price. The blue/green check refuses a run that drops this to zero. */
+  pricedCount: number
+  /** Games published with Ukrainian text, and with Ukrainian audio. */
+  textCount: number
+  audioCount: number
 }
 
 export interface IndexMeta {
   version: number
-  /** ISO timestamp of the publication; the staleness check reads this. */
+  /** ISO timestamp of the publication. Every publication moves it, whatever the run refreshed. */
   updatedAt: string
+  /**
+   * When the prices in this version were last confirmed — not when they were last written.
+   *
+   * It moves only on a publication whose price stage heard a definitive answer for nearly every
+   * app it asked about; a run that Steam soft-failed keeps the prices it had and keeps this
+   * timestamp with them. Price staleness is therefore read from here and never from `updatedAt`,
+   * which moves on every publication including the ones that refreshed only languages.
+   */
   pricesUpdatedAt: string | null
   gameCount: number
   stats?: Partial<IndexRunStats>

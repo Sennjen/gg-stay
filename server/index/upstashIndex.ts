@@ -1,26 +1,30 @@
 import { Redis } from '@upstash/redis'
 import type { Requester } from '@upstash/redis'
 import { buildIndexPlan } from './buildPlan'
-import type { IndexMeta, IndexedGame } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
 import type {
   BeginVersionOptions,
   GameIndex,
   GameIndexWriter,
   IndexQuery,
   IndexSearchResult,
+  IndexWriteStats,
 } from './GameIndex'
+import { DEFAULT_SORT } from './GameIndex'
 import {
   CURRENT_VERSION_KEY,
   appIdKey,
   cursorKey,
   gameKey,
+  languagesKey,
   metaKey,
   namesKey,
+  orderKey as orderSetKey,
   versionPrefix,
 } from './keys'
 import { planQuery } from './queryPlan'
-import type { RedisBatch, RedisCommands, RedisResult } from './redisCommands'
-import { createRedisResult, withKeyPrefix } from './redisCommands'
+import type { RedisBatch, RedisCommands, RedisResult, RedisUsage } from './redisCommands'
+import { commandBytes, createRedisResult, withKeyPrefix, withUsage } from './redisCommands'
 
 /**
  * The Upstash adapter: a thin executor of `buildIndexPlan` and `planQuery`, exactly like the
@@ -60,9 +64,11 @@ import { createRedisResult, withKeyPrefix } from './redisCommands'
  *
  * **Every key a version consists of is recorded in a registry** as it is written, and the version
  * number in `idx:versions`. That is what `discardVersion` deletes, and what a publication sweeps
- * afterwards — every version that is neither the new current one nor a live draft is given its
- * 48 h expiry, which also reclaims a version an interrupted run abandoned. Neither path needs
- * `SCAN` over a key space shared with the job's cursors and the permanent Steam app ids.
+ * afterwards — every version older than the one just replaced is
+ * deleted outright, which also reclaims a version an interrupted run abandoned. Exactly one
+ * predecessor is kept whole, so a reader holding a stale pointer still finds its documents.
+ * Neither path needs `SCAN` over a key space shared with the job's cursors and the permanent
+ * Steam app ids.
  */
 
 /** The counter `beginVersion` draws from; outside every version, it must survive them all. */
@@ -73,8 +79,15 @@ const PREVIOUS_VERSION_KEY = 'idx:previous'
 const VERSIONS_KEY = 'idx:versions'
 /** Held by the one run allowed to write; its value is that run's id and nothing else. */
 const LOCK_KEY = 'idx:lock'
-/** When the lock was taken, so a blocked run can say how old it is and an operator can force it. */
+/** When the lock was taken, so a blocked run can say how old it is. Renewals never move it. */
 const LOCK_TAKEN_AT_KEY = 'idx:lock:at'
+/**
+ * The holder's last sign of life, moved by every `renewLock`. Forcing measures this and not the
+ * acquisition time: the workflow runs one job at a time, so a holder that has gone quiet is an
+ * orphan of a job that is already dead, while a run that is still working keeps saying so however
+ * long it takes.
+ */
+const LOCK_HEARTBEAT_KEY = 'idx:lock:beat'
 /** The version the run holding the lock is building; the publication checks it against its own. */
 const DRAFT_KEY = 'idx:draft'
 
@@ -95,12 +108,26 @@ export interface UpstashIndexOptions {
   maxBytesPerRequest?: number
   /** Members, fields or keys one command carries. */
   itemsPerCommand?: number
-  /** The life the write lock is given, in case a run dies holding it. */
+  /**
+   * The life the write lock is given, in case a run dies holding it. Half an hour by default,
+   * which is what the refresh job needs: it renews the lock between stages and inside the long
+   * ones, so this has to cover the longest gap between two renewals (about 90 s), not a run.
+   */
   lockTtlSeconds?: number
-  /** How long a lock must have been held before `beginVersion({ force: true })` may take it. */
+  /**
+   * How long a holder must have been silent before `beginVersion({ force: true })` takes its lock.
+   * Five minutes by default, comfortably longer than the job's renewal interval and comfortably
+   * shorter than `lockTtlSeconds`, so forcing is useful in the whole window where a plain retry
+   * still fails.
+   */
   forceAfterMs?: number
-  /** The life a replaced or abandoned version is given by a publication. */
-  replacedTtlSeconds?: number
+  /**
+   * The shortest time between two renewals that actually reach the store. The job calls
+   * `renewLock` after every stage, every batch and every chunk — hundreds of times in a run — and
+   * all a renewal has to do is keep the holder from looking dead, so the rest are skipped. It must
+   * stay well under `forceAfterMs`, or a live run could be mistaken for a dead one.
+   */
+  renewIntervalMs?: number
   /** How many sets of one version are kept in this process. */
   cacheEntries?: number
   /**
@@ -120,11 +147,13 @@ export interface UpstashIndexOptions {
 const EMPTY_RESULT: IndexSearchResult = { ids: [], total: 0, games: [] }
 
 /** The one message a blocked run sees: who holds the lock, for how long, and how to take it. */
-function lockHeldBy(holder: string, heldForMs: number): Error {
-  const age = Number.isFinite(heldForMs) ? `${Math.round(heldForMs / 60_000)} minute(s)` : 'a while'
+function lockHeldBy(holder: string, heldForMs: number, silentForMs: number): Error {
+  const minutes = (ms: number): string =>
+    Number.isFinite(ms) ? `${Math.max(0, Math.round(ms / 60_000))} minute(s)` : 'an unknown time'
   return new Error(
-    `Another index run (${holder}) has held the write lock for ${age}. ` +
-      'Begin the version with { force: true } to take it over.',
+    `Another index run (${holder}) is refreshing the index. It has held the write lock for ` +
+      `${minutes(heldForMs)} and was last heard from ${minutes(silentForMs)} ago. ` +
+      'If that run is dead, re-run the workflow with the force_unlock input to take the lock over.',
   )
 }
 
@@ -141,16 +170,6 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
     chunks.push(items.slice(start, start + size))
   }
   return chunks
-}
-
-/**
- * What a command costs in the request body: the body is a JSON array of command arrays, so each
- * argument is measured as JSON writes it — escaping included, which a card document is full of.
- */
-function commandBytes(parts: readonly (string | number)[]): number {
-  let total = 2
-  for (const part of parts) total += JSON.stringify(part).length + 1
-  return total
 }
 
 function encodeMeta(meta: IndexMeta): Record<string, string> {
@@ -267,23 +286,28 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
   private readonly itemsPerCommand: number
   private readonly lockTtlSeconds: number
   private readonly forceAfterMs: number
-  private readonly replacedTtlSeconds: number
+  private readonly renewIntervalMs: number
   private readonly cacheEntries: number
   private readonly cacheBytes: number
   private readonly runId: string
+  private readonly usage: () => RedisUsage
+  private lastRenewedAt = Number.NEGATIVE_INFINITY
   private resolved: { version: number | null; at: number } | null = null
   private reads: VersionReads | null = null
 
   constructor(commands: RedisCommands, options: UpstashIndexOptions = {}) {
-    this.commands = withKeyPrefix(commands, options.keyPrefix ?? '')
+    // Counting sits outside the prefixing, so it counts what actually goes on the wire.
+    const counted = withUsage(withKeyPrefix(commands, options.keyPrefix ?? ''))
+    this.commands = counted.commands
+    this.usage = counted.usage
     this.now = options.now ?? Date.now
     this.currentVersionTtlMs = options.currentVersionTtlMs ?? 60_000
     this.maxCommandsPerRequest = options.maxCommandsPerRequest ?? 500
     this.maxBytesPerRequest = options.maxBytesPerRequest ?? 700_000
     this.itemsPerCommand = options.itemsPerCommand ?? 500
-    this.lockTtlSeconds = options.lockTtlSeconds ?? 3_600
-    this.forceAfterMs = options.forceAfterMs ?? 30 * 60 * 1000
-    this.replacedTtlSeconds = options.replacedTtlSeconds ?? 48 * 60 * 60
+    this.lockTtlSeconds = options.lockTtlSeconds ?? 30 * 60
+    this.forceAfterMs = options.forceAfterMs ?? 5 * 60 * 1000
+    this.renewIntervalMs = options.renewIntervalMs ?? 60_000
     this.cacheEntries = options.cacheEntries ?? 200
     this.cacheBytes = options.cacheBytes ?? 8_000_000
     this.runId = options.runId ?? `run-${Math.random().toString(36).slice(2, 10)}`
@@ -686,6 +710,106 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     return version
   }
 
+  /**
+   * Gives this run's lock and draft a fresh life. The long stages of a refresh — the candidate
+   * walk, the app-id lookups, the hour-long language sweep — all happen before `writeVersion`
+   * reaches its own `EXPIRE`, so without this the lock would have to be given a life long enough
+   * to cover a whole run, and a run that died would block the next one for that long.
+   *
+   * A run that does not hold the lock does nothing rather than failing: renewing is bookkeeping,
+   * and the guards on `writeVersion`, `publish` and `discardVersion` are what refuse a stranger.
+   */
+  async renewLock(): Promise<void> {
+    // The job renews far more often than it needs to — after every stage, batch and chunk — so
+    // that no call site has to reason about time. Cheap because most of the calls stop here.
+    if (this.now() - this.lastRenewedAt < this.renewIntervalMs) return
+    const holder = await this.read((batch) => batch.get(LOCK_KEY))
+    if (holder !== this.runId) return
+    this.lastRenewedAt = this.now()
+    await this.send([
+      {
+        // The heartbeat, and only the heartbeat. Moving the acquisition time as well would make a
+        // wedged run look freshly started and put it out of a forcing run's reach for good.
+        add: (batch) => batch.set(LOCK_HEARTBEAT_KEY, String(this.now())),
+        bytes: commandBytes(['SET', LOCK_HEARTBEAT_KEY, this.now()]),
+      },
+      {
+        add: (batch) => batch.expire(LOCK_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', LOCK_KEY, this.lockTtlSeconds]),
+      },
+      {
+        add: (batch) => batch.expire(LOCK_TAKEN_AT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', LOCK_TAKEN_AT_KEY, this.lockTtlSeconds]),
+      },
+      {
+        add: (batch) => batch.expire(LOCK_HEARTBEAT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', LOCK_HEARTBEAT_KEY, this.lockTtlSeconds]),
+      },
+      {
+        add: (batch) => batch.expire(DRAFT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', DRAFT_KEY, this.lockTtlSeconds]),
+      },
+    ])
+  }
+
+  /**
+   * Every document of the published version. The ids come from the default order set — the one
+   * sorted set that holds every game, priced or not — and the documents from one chunked `MGET`,
+   * so a price-only run costs two requests here instead of the seventy-five pages of `search`
+   * calls it would otherwise take, and asks RAWG nothing at all.
+   */
+  async allGames(): Promise<IndexedGame[]> {
+    const version = await this.currentVersion()
+    if (version === null) return []
+    const ranked = await this.read((batch) => batch.zrangeAll(orderSetKey(version, DEFAULT_SORT)))
+    const ids = ranked.map(Number)
+    if (ids.length === 0) return []
+    const documents = await this.readDocuments(version, ids)
+    return ids.flatMap((id) => {
+      const game = documents.get(id)
+      return game ? [game] : []
+    })
+  }
+
+  async getLanguages(appIds: string[]): Promise<Map<string, IndexedLanguages>> {
+    const found = new Map<string, IndexedLanguages>()
+    if (appIds.length === 0) return found
+    const values = await this.readKeys(appIds.map((appId) => languagesKey(appId)))
+    appIds.forEach((appId, position) => {
+      const value = values[position]
+      if (!value) return
+      try {
+        found.set(appId, JSON.parse(value) as IndexedLanguages)
+      } catch {
+        // A record is a cache of what Steam said. One that will not parse is worth exactly as
+        // much as one that is absent: the app goes back on the work list and is rewritten.
+        console.warn(`[index] the language record for app ${appId} is unreadable; re-reading it`)
+      }
+    })
+    return found
+  }
+
+  async setLanguages(entries: Iterable<[string, IndexedLanguages]>): Promise<void> {
+    const pairs = [...entries]
+    if (pairs.length === 0) return
+    await this.send(
+      chunk(pairs, this.itemsPerCommand).map((part) => {
+        const values = Object.fromEntries(
+          part.map(([appId, record]) => [languagesKey(appId), JSON.stringify(record)]),
+        )
+        return {
+          add: (batch: RedisBatch) => batch.mset(values),
+          bytes: commandBytes(['MSET', ...Object.entries(values).flat()]),
+        }
+      }),
+    )
+  }
+
+  /** Requests, commands and payload bytes this adapter has put on the wire since it was built. */
+  stats(): IndexWriteStats {
+    return this.usage()
+  }
+
   async getAppIds(ids: number[]): Promise<Map<number, string>> {
     const found = new Map<number, string>()
     if (ids.length === 0) return found
@@ -753,12 +877,16 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     const taken = batch.setNx(LOCK_KEY, this.runId, this.lockTtlSeconds)
     const holder = batch.get(LOCK_KEY)
     const takenAt = batch.get(LOCK_TAKEN_AT_KEY)
+    const heartbeat = batch.get(LOCK_HEARTBEAT_KEY)
     await batch.exec()
 
     if (!taken.value && holder.value !== this.runId) {
       const heldFor = this.now() - Number(takenAt.value ?? 0)
-      if (!force || heldFor < this.forceAfterMs) {
-        throw lockHeldBy(holder.value ?? 'an unnamed run', heldFor)
+      // A holder that has gone quiet is a dead one: the job renews every stage and every batch,
+      // and the workflow never runs two jobs at once, so silence has no innocent explanation.
+      const silentFor = this.now() - Number(heartbeat.value ?? takenAt.value ?? 0)
+      if (!force || silentFor < this.forceAfterMs) {
+        throw lockHeldBy(holder.value ?? 'an unnamed run', heldFor, silentFor)
       }
       // Taking over a lock nobody is using any more: the run that held it left a draft behind,
       // which the next publication sweeps like any other abandoned version.
@@ -774,27 +902,39 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
       ])
     }
 
+    // The acquisition time is written once, here, and never moved again: it is what the blocked
+    // run reports, while the heartbeat beside it is what decides whether the holder is alive.
+    const stamped = String(this.now())
+    this.lastRenewedAt = this.now()
     await this.send([
       {
-        add: (batch) => batch.set(LOCK_TAKEN_AT_KEY, String(this.now())),
-        bytes: commandBytes(['SET', LOCK_TAKEN_AT_KEY, this.now()]),
+        add: (batch) => batch.set(LOCK_TAKEN_AT_KEY, stamped),
+        bytes: commandBytes(['SET', LOCK_TAKEN_AT_KEY, stamped]),
       },
       {
         add: (batch) => batch.expire(LOCK_TAKEN_AT_KEY, this.lockTtlSeconds),
         bytes: commandBytes(['EXPIRE', LOCK_TAKEN_AT_KEY, this.lockTtlSeconds]),
       },
+      {
+        add: (batch) => batch.set(LOCK_HEARTBEAT_KEY, stamped),
+        bytes: commandBytes(['SET', LOCK_HEARTBEAT_KEY, stamped]),
+      },
+      {
+        add: (batch) => batch.expire(LOCK_HEARTBEAT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', LOCK_HEARTBEAT_KEY, this.lockTtlSeconds]),
+      },
     ])
   }
 
-  /** The lock, its age and the draft go together; nothing releases one without the others. */
+  /** The lock, its age, its heartbeat and the draft go together; nothing releases one alone. */
   private releaseInto(batch: RedisBatch): void {
-    batch.del([LOCK_KEY, LOCK_TAKEN_AT_KEY, DRAFT_KEY])
+    batch.del([LOCK_KEY, LOCK_TAKEN_AT_KEY, LOCK_HEARTBEAT_KEY, DRAFT_KEY])
   }
 
   /** A lock nobody holds is free to act under; one another run holds is not. */
   private assertLockIsMine(holder: string | null): void {
     if (holder !== null && holder !== this.runId) {
-      throw lockHeldBy(holder, Number.NaN)
+      throw lockHeldBy(holder, Number.NaN, Number.NaN)
     }
   }
 
@@ -807,14 +947,30 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
   }
 
   /**
-   * Gives every version that is neither the new current one nor a live draft its expiry. It runs
-   * after the pointer has moved, it is idempotent, and a failure leaves the publication standing:
-   * the next one sweeps whatever was missed.
+   * Deletes the versions nobody can still be reading, after the pointer has moved. It runs after
+   * the publication, it is idempotent, and a failure leaves the publication standing: the next one
+   * sweeps whatever was missed.
+   *
+   * Exactly one predecessor is kept, whole and without an expiry of any kind. A reader may hold a
+   * pointer for up to `currentVersionTtlMs`, and a `search` followed by a `getMany` may straddle a
+   * publication, so the version just replaced has to stay readable; it is deleted by the next
+   * publication rather than by a clock, which is both simpler and cheaper than a per-key TTL.
+   *
+   * Everything older — the version before that, and any version an interrupted run abandoned —
+   * goes in multi-key `UNLINK`s of at most `itemsPerCommand` keys each, inside the same byte and
+   * command budget as any other write. That is the difference between about nine commands per
+   * publication and one per key of the catalog.
    */
   private async sweep(current: number): Promise<void> {
     try {
-      const begun = await this.read((batch) => batch.smembers(VERSIONS_KEY))
-      const stale = begun.map(Number).filter((version) => version !== current)
+      const opening = this.commands.pipeline()
+      const begun = opening.smembers(VERSIONS_KEY)
+      const keptBack = opening.get(PREVIOUS_VERSION_KEY)
+      await opening.exec()
+
+      const keep = new Set([current])
+      if (keptBack.value !== null) keep.add(Number(keptBack.value))
+      const stale = begun.value.map(Number).filter((version) => !keep.has(version))
       if (stale.length === 0) return
 
       const reading = this.commands.pipeline()
@@ -824,13 +980,14 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
       }))
       await reading.exec()
 
-      const expiries: QueuedCommand[] = []
+      const deletions: QueuedCommand[] = []
       const forgets: QueuedCommand[] = []
       for (const { version, keys } of registries) {
-        for (const key of keys.value) {
-          expiries.push({
-            add: (batch) => batch.expire(key, this.replacedTtlSeconds),
-            bytes: commandBytes(['EXPIRE', key, this.replacedTtlSeconds]),
+        // The registry itself goes with the keys it records.
+        for (const part of chunk([...keys.value, registryKey(version)], this.itemsPerCommand)) {
+          deletions.push({
+            add: (batch) => batch.unlink(part),
+            bytes: commandBytes(['UNLINK', ...part]),
           })
         }
         forgets.push({
@@ -838,9 +995,9 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
           bytes: commandBytes(['SREM', VERSIONS_KEY, version]),
         })
       }
-      // The version is forgotten only once its keys are counting down, so a failure half way
-      // leaves it in `idx:versions` for the next publication to finish.
-      await this.send(expiries)
+      // The version is forgotten only once its keys are gone, so a failure half way leaves it in
+      // `idx:versions` for the next publication to finish.
+      await this.send(deletions)
       await this.send(forgets)
     } catch (error) {
       console.warn('[index] the published version stands; sweeping the old ones failed', error)
@@ -991,6 +1148,7 @@ export function createRedisCommands(send: SendCommands): RedisCommands {
         read((raw) => raw !== null, 'SET', key, value, 'NX', 'EX', seconds),
       mset: (entries) => write('MSET', ...Object.entries(entries).flat()),
       del: (keys) => write('DEL', ...keys),
+      unlink: (keys) => write('UNLINK', ...keys),
       incr: (key) => read(Number, 'INCR', key),
       expire: (key, seconds) => write('EXPIRE', key, seconds),
       sadd: (key, members) => write('SADD', key, ...members),

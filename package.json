@@ -17,10 +17,12 @@
     "format": "git ls-files -z --cached --others --exclude-standard | xargs -0 prettier --write --ignore-unknown",
     "format:check": "git ls-files -z --cached --others --exclude-standard | xargs -0 prettier --check --ignore-unknown",
     "typecheck": "nuxt typecheck",
+    "typecheck:scripts": "tsc --project tsconfig.scripts.json",
     "test": "vitest run",
     "test:unit": "vitest run --project unit --project nuxt",
     "check:vercel-headers": "node scripts/check-vercel-headers.mjs",
-    "smoke:index": "tsx scripts/index/smoke.ts"
+    "smoke:index": "tsx scripts/index/smoke.ts",
+    "index:refresh": "tsx scripts/index/run.ts"
   },
   "dependencies": {
     "@nuxt/fonts": "^0.14.0",
@@ -47,6 +49,7 @@
     "@graphql-typed-document-node/core": "^3.2.0",
     "@nuxt/eslint": "^1.17.0",
     "@nuxt/test-utils": "^4.3.2",
+    "@types/node": "^22.20.4",
     "@vue/test-utils": "^2.5.1",
     "eslint": "^10.10.0",
     "happy-dom": "^20.14.5",

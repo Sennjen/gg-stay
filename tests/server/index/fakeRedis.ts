@@ -74,6 +74,7 @@ const WRITE_COMMANDS = new Set([
   'setNx',
   'mset',
   'del',
+  'unlink',
   'incr',
   'expire',
   'sadd',
@@ -211,6 +212,12 @@ export function createFakeRedis(): FakeRedis {
 
       del: (keys) =>
         queue('del', () => {
+          for (const key of keys) store.delete(key)
+        }),
+
+      // Redis reclaims the memory in the background; from a caller's side it is a DEL.
+      unlink: (keys) =>
+        queue('unlink', () => {
           for (const key of keys) store.delete(key)
         }),
 

@@ -7,7 +7,7 @@ import type {
   IndexQuery,
   IndexSearchResult,
 } from './GameIndex'
-import type { IndexMeta, IndexedGame } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
 import type { PlannedRange, QueryPlan } from './queryPlan'
 import { planQuery } from './queryPlan'
 
@@ -18,11 +18,14 @@ interface MemoryStore {
   lastVersion: number
   previous: IndexMeta | null
   appIds: Map<number, string>
+  languages: Map<string, IndexedLanguages>
   cursors: Map<string, string>
   /** The run that may write, or `null` when nobody is writing. */
   lock: string | null
-  /** When that run took it, so an operator can take a dead run's lock over. */
+  /** When that run took it. Renewals never move this; it is what a blocked run reports. */
   lockedAt: number
+  /** The holder's last sign of life. This is what decides whether its lock can be taken over. */
+  heartbeatAt: number
 }
 
 /**
@@ -102,11 +105,12 @@ export interface MemoryIndexOptions {
 }
 
 /** The one error message a blocked run sees, wherever it is blocked. */
-function lockHeldBy(holder: string, heldForMs: number): Error {
-  const minutes = Math.round(heldForMs / 60_000)
+function lockHeldBy(holder: string, heldForMs: number, silentForMs: number): Error {
+  const minutes = (ms: number): string => `${Math.max(0, Math.round(ms / 60_000))} minute(s)`
   return new Error(
-    `Another index run (${holder}) has held the write lock for ${minutes} minute(s). ` +
-      'Begin the version with { force: true } to take it over.',
+    `Another index run (${holder}) is refreshing the index. It has held the write lock for ` +
+      `${minutes(heldForMs)} and was last heard from ${minutes(silentForMs)} ago. ` +
+      'If that run is dead, re-run the workflow with the force_unlock input to take the lock over.',
   )
 }
 
@@ -138,13 +142,15 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
       lastVersion: 0,
       previous: null,
       appIds: new Map(),
+      languages: new Map(),
       cursors: new Map(),
       lock: null,
       lockedAt: 0,
+      heartbeatAt: 0,
     }
     this.runId = runId ?? `run-${Math.random().toString(36).slice(2, 10)}`
     this.now = options.now ?? Date.now
-    this.forceAfterMs = options.forceAfterMs ?? 30 * 60 * 1000
+    this.forceAfterMs = options.forceAfterMs ?? 5 * 60 * 1000
   }
 
   /** Another run against the same store — what a second job process is, for the write lock. */
@@ -258,6 +264,29 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     return this.live?.version ?? null
   }
 
+  async renewLock(): Promise<void> {
+    // The heartbeat, and only the heartbeat: a renewal says the run is alive, not that it has
+    // just started. Nothing expires in this adapter, so there is nothing else to refresh.
+    if (this.store.lock === this.runId) this.store.heartbeatAt = this.now()
+  }
+
+  async allGames(): Promise<IndexedGame[]> {
+    return [...(this.live?.plan.docs.values() ?? [])].map(clone)
+  }
+
+  async getLanguages(appIds: string[]): Promise<Map<string, IndexedLanguages>> {
+    const found = new Map<string, IndexedLanguages>()
+    for (const appId of appIds) {
+      const record = this.store.languages.get(appId)
+      if (record) found.set(appId, { ...record })
+    }
+    return found
+  }
+
+  async setLanguages(entries: Iterable<[string, IndexedLanguages]>): Promise<void> {
+    for (const [appId, record] of entries) this.store.languages.set(appId, { ...record })
+  }
+
   async getAppIds(ids: number[]): Promise<Map<number, string>> {
     const found = new Map<number, string>()
     for (const id of ids) {
@@ -288,16 +317,23 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     const holder = this.store.lock
     if (holder !== null && holder !== this.runId) {
       const heldFor = this.now() - this.store.lockedAt
-      if (!force || heldFor < this.forceAfterMs) throw lockHeldBy(holder, heldFor)
+      // Silence, not age, is what says a holder is dead: a live run renews as it works.
+      const silentFor = this.now() - this.store.heartbeatAt
+      if (!force || silentFor < this.forceAfterMs) throw lockHeldBy(holder, heldFor, silentFor)
     }
     this.store.lock = this.runId
     this.store.lockedAt = this.now()
+    this.store.heartbeatAt = this.now()
   }
 
   /** A lock nobody holds is free to act under; one another run holds is not. */
   private assertLockIsMine(): void {
     if (this.store.lock !== null && this.store.lock !== this.runId) {
-      throw lockHeldBy(this.store.lock, this.now() - this.store.lockedAt)
+      throw lockHeldBy(
+        this.store.lock,
+        this.now() - this.store.lockedAt,
+        this.now() - this.store.heartbeatAt,
+      )
     }
   }
 
@@ -313,6 +349,7 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     if (this.store.lock === this.runId) {
       this.store.lock = null
       this.store.lockedAt = 0
+      this.store.heartbeatAt = 0
     }
   }
 

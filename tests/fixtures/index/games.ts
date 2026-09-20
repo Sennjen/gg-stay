@@ -21,6 +21,7 @@ function game(id: number, name: string, overrides: Partial<IndexedGame> = {}): I
     slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     name,
     cover: `https://cdn.test/${id}.jpg`,
+    preview: `https://cdn.test/${id}-preview.jpg`,
     released: '2020-06-01',
     popularity: 1000 - id * 10,
     platforms: [4],
