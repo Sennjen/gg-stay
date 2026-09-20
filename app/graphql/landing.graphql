@@ -23,6 +23,18 @@ fragment RowGameCard on GameCard {
     url
   }
   platformFamilies
+  price {
+    bestUah
+    regularUah
+    discountPercent
+    isFree
+    updatedAt
+  }
+  localisation {
+    text
+    audio
+    source
+  }
 }
 
 query Landing {
