@@ -29,6 +29,15 @@ describe('server-side rendering', async () => {
     expect(html).toContain('var(--header-h)')
   })
 
+  it('preloads the hero poster at high fetch priority', async () => {
+    // A preload link without `fetchpriority` makes Chrome fetch the LCP image at Low priority,
+    // whatever the <img> itself says: the link is what starts the request.
+    const html = await $fetch<string>('/')
+    const preload = html.match(/<link[^>]*rel="preload"[^>]*as="image"[^>]*>/)?.[0] ?? ''
+    expect(preload).toContain('imagesrcset=')
+    expect(preload).toContain('fetchpriority="high"')
+  })
+
   it('renders the featured game title inside the "now on screen" caption link', async () => {
     const html = await $fetch<string>('/')
     const caption = html.match(/Зараз на екрані:[\s\S]*?<\/p>/)?.[0]
