@@ -146,6 +146,11 @@ export interface GameIndexWriter {
    * happens before `writeVersion` is reached, so the job renews the lock itself between stages
    * and between batches. Without it the lock's life would have to cover a whole run, and a run
    * that died would block the next one for that long.
+   *
+   * A renewal is also this run's sign of life: it resets what `beginVersion({ force: true })`
+   * measures, so the threshold means "nothing has been heard from the holder for that long"
+   * rather than "the run started that long ago", and a live run cannot be forced out from under
+   * an operator rescuing a dead one.
    */
   renewLock(): Promise<void>
   currentVersion(): Promise<number | null>

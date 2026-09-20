@@ -175,7 +175,7 @@ describe('publishVersion', () => {
 
     // Nothing of the refused version is left: it cannot even be published after the fact.
     await expect(harness.writer.writeVersion(refused.meta.version, games)).rejects.toThrow(
-      /Unknown index version/,
+      /was never begun/,
     )
     expect(await harness.writer.currentVersion()).toBe(1)
   })

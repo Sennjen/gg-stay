@@ -553,3 +553,113 @@ describe('upstashIndex', () => {
     })
   })
 })
+
+describe('upstashIndex: what the refresh job asks of it', () => {
+  const languageRecord = (appId: string) => ({
+    text: true,
+    audio: appId === '292030',
+    isFree: false,
+    updatedAt: '2026-09-20T03:00:00.000Z',
+  })
+
+  describe('allGames', () => {
+    it('reads the whole published version in two requests', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      redis.requests.length = 0
+
+      const games = await index.allGames()
+
+      expect(games).toHaveLength(FIXTURE_GAMES.length)
+      expect(games.map((game) => game.id).sort((a, b) => a - b)).toEqual(
+        FIXTURE_GAMES.map((game) => game.id).sort((a, b) => a - b),
+      )
+      // One ZRANGE over the popularity order set, one chunked MGET. No `search` paging.
+      expect(redis.requests).toHaveLength(2)
+      expect(redis.requests.flatMap((request) => request.commands)).toEqual(['zrangeAll', 'mget'])
+    })
+
+    it('answers nothing before a version is published', async () => {
+      const { index } = makeAdapter()
+      expect(await index.allGames()).toEqual([])
+    })
+  })
+
+  describe('language records', () => {
+    it('keeps them outside every version, so a publication cannot take them away', async () => {
+      const { redis, index } = makeAdapter()
+      await index.setLanguages([
+        ['292030', languageRecord('292030')],
+        ['413150', languageRecord('413150')],
+      ])
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(0, 3))
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(3, 6))
+
+      const found = await index.getLanguages(['292030', '413150', '620'])
+
+      expect(found.get('292030')).toEqual(languageRecord('292030'))
+      expect(found.get('413150')?.audio).toBe(false)
+      expect(found.has('620')).toBe(false)
+      expect(redis.keys()).toContain('lang:292030')
+    })
+
+    it('writes them in requests bounded by commands and by bytes', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, {
+        itemsPerCommand: 25,
+        maxCommandsPerRequest: 4,
+        maxBytesPerRequest: 100_000,
+      })
+      const records: [string, ReturnType<typeof languageRecord>][] = Array.from(
+        { length: 500 },
+        (_, position) => [String(700_000 + position), languageRecord(String(position))],
+      )
+
+      await index.setLanguages(records)
+
+      // 500 records at 25 per MSET is 20 commands, at 4 commands per request is 5 requests.
+      expect(redis.requests).toHaveLength(5)
+      for (const request of redis.requests) {
+        expect(request.commands).toEqual(request.commands.map(() => 'mset'))
+        expect(request.commands.length).toBeLessThanOrEqual(4)
+      }
+      expect((await index.getLanguages(['700499'])).get('700499')).toEqual(languageRecord('499'))
+    })
+
+    it('asks for nothing when there is nothing to ask about', async () => {
+      const { redis, index } = makeAdapter()
+      expect(await index.getLanguages([])).toEqual(new Map())
+      await index.setLanguages([])
+      expect(redis.requests).toHaveLength(0)
+    })
+  })
+
+  describe('discarding', () => {
+    it('gives the lock back for a version that was begun and never written', async () => {
+      const { redis, index } = makeAdapter()
+      const version = await index.beginVersion()
+
+      await index.discardVersion(version)
+
+      const rival = createUpstashIndex(redis, { runId: 'another-run' })
+      await expect(rival.beginVersion()).resolves.toBeGreaterThan(0)
+    })
+  })
+
+  describe('stats', () => {
+    it('counts the requests, the commands and the bytes a run put on the wire', async () => {
+      const { redis, index } = makeAdapter()
+      expect(index.stats()).toEqual({ requests: 0, commands: 0, bytes: 0 })
+
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      const stats = index.stats()
+
+      expect(stats.requests).toBe(redis.requests.length)
+      expect(stats.commands).toBe(
+        redis.requests.reduce((total, request) => total + request.commands.length, 0),
+      )
+      // The payload of a forty-game version, measured the way the request bodies are built.
+      expect(stats.bytes).toBeGreaterThan(JSON.stringify(FIXTURE_GAMES).length)
+    })
+  })
+})

@@ -536,6 +536,42 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await expect(adapter.writer.beginVersion()).rejects.toThrow(/held the write lock/)
       })
 
+      it("keeps a lock a run keeps renewing out of a forcing run's reach", async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+
+        // The long stages of a refresh run here, well past the forcing threshold, renewing as
+        // they go. A live run must not lose its lock to an operator's rescue of a dead one.
+        for (let stage = 0; stage < 4; stage += 1) {
+          adapter.advance(20 * 60 * 1000)
+          await adapter.writer.renewLock()
+        }
+
+        await expect(adapter.rival.beginVersion({ force: true })).rejects.toThrow(
+          /held the write lock/,
+        )
+      })
+
+      it('renews nothing for a run that does not hold the lock', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+
+        await expect(adapter.rival.renewLock()).resolves.toBeUndefined()
+
+        adapter.advance(31 * 60 * 1000)
+        await expect(adapter.rival.beginVersion({ force: true })).resolves.toBeGreaterThan(0)
+      })
+
+      it('gives the lock back when a version nobody wrote is discarded', async () => {
+        const adapter = await fresh()
+        const version = await adapter.writer.beginVersion()
+
+        // A run that died before writing anything: the draft exists, the keys do not.
+        await adapter.writer.discardVersion(version)
+
+        await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
+      })
+
       it('refuses every write from a run that does not hold the lock', async () => {
         const adapter = await fresh()
         const version = await adapter.writer.beginVersion()

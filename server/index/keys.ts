@@ -99,6 +99,11 @@ export function appIdKey(rawgId: number): string {
   return `appid:${rawgId}`
 }
 
+/** What Steam said about one app's languages, kept for the life of the index. */
+export function languagesKey(appId: string): string {
+  return `lang:${appId}`
+}
+
 /** The resume point of one job stage. */
 export function cursorKey(stage: string): string {
   return `job:cursor:${stage}`

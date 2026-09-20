@@ -1,26 +1,30 @@
 import { Redis } from '@upstash/redis'
 import type { Requester } from '@upstash/redis'
 import { buildIndexPlan } from './buildPlan'
-import type { IndexMeta, IndexedGame } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
 import type {
   BeginVersionOptions,
   GameIndex,
   GameIndexWriter,
   IndexQuery,
   IndexSearchResult,
+  IndexWriteStats,
 } from './GameIndex'
+import { DEFAULT_SORT } from './GameIndex'
 import {
   CURRENT_VERSION_KEY,
   appIdKey,
   cursorKey,
   gameKey,
+  languagesKey,
   metaKey,
   namesKey,
+  orderKey as orderSetKey,
   versionPrefix,
 } from './keys'
 import { planQuery } from './queryPlan'
-import type { RedisBatch, RedisCommands, RedisResult } from './redisCommands'
-import { createRedisResult, withKeyPrefix } from './redisCommands'
+import type { RedisBatch, RedisCommands, RedisResult, RedisUsage } from './redisCommands'
+import { commandBytes, createRedisResult, withKeyPrefix, withUsage } from './redisCommands'
 
 /**
  * The Upstash adapter: a thin executor of `buildIndexPlan` and `planQuery`, exactly like the
@@ -143,16 +147,6 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return chunks
 }
 
-/**
- * What a command costs in the request body: the body is a JSON array of command arrays, so each
- * argument is measured as JSON writes it — escaping included, which a card document is full of.
- */
-function commandBytes(parts: readonly (string | number)[]): number {
-  let total = 2
-  for (const part of parts) total += JSON.stringify(part).length + 1
-  return total
-}
-
 function encodeMeta(meta: IndexMeta): Record<string, string> {
   return {
     version: String(meta.version),
@@ -271,11 +265,15 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
   private readonly cacheEntries: number
   private readonly cacheBytes: number
   private readonly runId: string
+  private readonly usage: () => RedisUsage
   private resolved: { version: number | null; at: number } | null = null
   private reads: VersionReads | null = null
 
   constructor(commands: RedisCommands, options: UpstashIndexOptions = {}) {
-    this.commands = withKeyPrefix(commands, options.keyPrefix ?? '')
+    // Counting sits outside the prefixing, so it counts what actually goes on the wire.
+    const counted = withUsage(withKeyPrefix(commands, options.keyPrefix ?? ''))
+    this.commands = counted.commands
+    this.usage = counted.usage
     this.now = options.now ?? Date.now
     this.currentVersionTtlMs = options.currentVersionTtlMs ?? 60_000
     this.maxCommandsPerRequest = options.maxCommandsPerRequest ?? 500
@@ -684,6 +682,92 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     const version = pointer === null ? null : Number(pointer)
     this.resolved = { version, at: this.now() }
     return version
+  }
+
+  /**
+   * Gives this run's lock and draft a fresh life. The long stages of a refresh — the candidate
+   * walk, the app-id lookups, the hour-long language sweep — all happen before `writeVersion`
+   * reaches its own `EXPIRE`, so without this the lock would have to be given a life long enough
+   * to cover a whole run, and a run that died would block the next one for that long.
+   *
+   * A run that does not hold the lock does nothing rather than failing: renewing is bookkeeping,
+   * and the guards on `writeVersion`, `publish` and `discardVersion` are what refuse a stranger.
+   */
+  async renewLock(): Promise<void> {
+    const holder = await this.read((batch) => batch.get(LOCK_KEY))
+    if (holder !== this.runId) return
+    await this.send([
+      {
+        // `idx:lock:at` is what a forcing run measures, so a renewal moves it: the threshold is
+        // "no sign of life for half an hour", not "started over half an hour ago". A run that is
+        // still working keeps proving it.
+        add: (batch) => batch.set(LOCK_TAKEN_AT_KEY, String(this.now())),
+        bytes: commandBytes(['SET', LOCK_TAKEN_AT_KEY, this.now()]),
+      },
+      {
+        add: (batch) => batch.expire(LOCK_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', LOCK_KEY, this.lockTtlSeconds]),
+      },
+      {
+        add: (batch) => batch.expire(LOCK_TAKEN_AT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', LOCK_TAKEN_AT_KEY, this.lockTtlSeconds]),
+      },
+      {
+        add: (batch) => batch.expire(DRAFT_KEY, this.lockTtlSeconds),
+        bytes: commandBytes(['EXPIRE', DRAFT_KEY, this.lockTtlSeconds]),
+      },
+    ])
+  }
+
+  /**
+   * Every document of the published version. The ids come from the default order set — the one
+   * sorted set that holds every game, priced or not — and the documents from one chunked `MGET`,
+   * so a price-only run costs two requests here instead of the seventy-five pages of `search`
+   * calls it would otherwise take, and asks RAWG nothing at all.
+   */
+  async allGames(): Promise<IndexedGame[]> {
+    const version = await this.currentVersion()
+    if (version === null) return []
+    const ranked = await this.read((batch) => batch.zrangeAll(orderSetKey(version, DEFAULT_SORT)))
+    const ids = ranked.map(Number)
+    if (ids.length === 0) return []
+    const documents = await this.readDocuments(version, ids)
+    return ids.flatMap((id) => {
+      const game = documents.get(id)
+      return game ? [game] : []
+    })
+  }
+
+  async getLanguages(appIds: string[]): Promise<Map<string, IndexedLanguages>> {
+    const found = new Map<string, IndexedLanguages>()
+    if (appIds.length === 0) return found
+    const values = await this.readKeys(appIds.map((appId) => languagesKey(appId)))
+    appIds.forEach((appId, position) => {
+      const value = values[position]
+      if (value) found.set(appId, JSON.parse(value) as IndexedLanguages)
+    })
+    return found
+  }
+
+  async setLanguages(entries: Iterable<[string, IndexedLanguages]>): Promise<void> {
+    const pairs = [...entries]
+    if (pairs.length === 0) return
+    await this.send(
+      chunk(pairs, this.itemsPerCommand).map((part) => {
+        const values = Object.fromEntries(
+          part.map(([appId, record]) => [languagesKey(appId), JSON.stringify(record)]),
+        )
+        return {
+          add: (batch: RedisBatch) => batch.mset(values),
+          bytes: commandBytes(['MSET', ...Object.entries(values).flat()]),
+        }
+      }),
+    )
+  }
+
+  /** Requests, commands and payload bytes this adapter has put on the wire since it was built. */
+  stats(): IndexWriteStats {
+    return this.usage()
   }
 
   async getAppIds(ids: number[]): Promise<Map<number, string>> {
