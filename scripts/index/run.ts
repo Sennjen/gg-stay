@@ -173,17 +173,20 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     ...extra,
   })
 
-  // The version — and, under the Upstash adapter, the writer lock — is taken first and released
-  // on every path out of this function. An orphaned draft is never swept and the lock would block
-  // the owner's own retry.
-  const version = await deps.writer.beginVersion(options.forceUnlock ? { force: true } : undefined)
   const stage = runStage(deps)
 
+  // The version — and, under the Upstash adapter, the writer lock — is taken first and given back
+  // on every path out of this function. An orphaned draft is never swept, and a lock nobody
+  // released blocks the owner's own retry.
+  let version: number | null = null
   let pricesFetched = 0
   let languagesFetched = 0
   let failures = 0
 
   try {
+    version = await stage('starting the version', () =>
+      deps.writer.beginVersion(options.forceUnlock ? { force: true } : undefined),
+    )
     await stage('tidying up', () => dropAbandonedCursors(deps))
 
     let games: IndexedGame[]
@@ -223,6 +226,15 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       // Only a run that heard back about nearly everything may claim its prices are fresh: the
       // staleness banner the design relies on is only as truthful as this stamp.
       if (prices.fresh) pricesUpdatedAt = isoNow(deps.clock)
+      else if (options.mode === 'prices') {
+        // A price run that confirmed almost nothing has nothing to publish: every document would
+        // be the one already live, only with a newer `updatedAt` that would hide the outage from
+        // the staleness rule. Failing says what happened, and saves a whole republication.
+        throw new Error(
+          `only ${prices.answered} of ${prices.requested} app ids were priced; ` +
+            'this run has nothing new to publish',
+        )
+      }
     }
 
     if (options.mode !== 'prices') {
@@ -243,7 +255,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
 
     const outcome = await stage('publish', () =>
       publishVersion(deps, {
-        version,
+        version: version!,
         games,
         pricesUpdatedAt,
         pricesFetched,
@@ -255,9 +267,10 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
 
     return report({ outcome, pricesFetched, languagesFetched, failures })
   } catch (error) {
-    // Give the draft and the lock back before the failure leaves this function. `discardVersion`
-    // is allowed to fail too — the original error is what the owner needs to see.
-    await deps.writer.discardVersion(version).catch(() => {})
+    // Give the draft and the lock back before the failure leaves this function — but only a
+    // version that was actually begun: nothing is discarded that does not exist. `discardVersion`
+    // is allowed to fail too, because the original error is what the owner needs to see.
+    if (version !== null) await deps.writer.discardVersion(version).catch(() => {})
     throw error
   }
 }
@@ -344,6 +357,7 @@ export async function runCli(
   const log = (message: string) => console.log(message)
   let mode: JobMode = 'full'
   let dryRun = false
+  let writerStats: (() => IndexWriteStats | null) | null = null
   let report: JobReport
 
   try {
@@ -363,6 +377,8 @@ export async function runCli(
       clock,
       log,
     }
+    // A failed run is the one whose traffic is most worth knowing; the catch below has no `deps`.
+    writerStats = () => fromEnv.writer.stats?.() ?? null
 
     await writeProbe(deps)
     report = { ...(await runJob(deps, options)), dryRun }
@@ -379,7 +395,7 @@ export async function runCli(
       languagesFetched: 0,
       failures: 0,
       durationMs: 0,
-      writes: null,
+      writes: writerStats?.() ?? null,
       failedStage: typeof named.stage === 'string' ? named.stage : 'start-up',
       error: message,
     }

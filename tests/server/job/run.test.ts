@@ -10,7 +10,11 @@ import {
   writeProbe,
   type JobReport,
 } from '../../../scripts/index/run'
-import { createWriterFromEnv, INDEX_LOCK_TTL_SECONDS } from '../../../scripts/index/writer'
+import {
+  createWriterFromEnv,
+  INDEX_FORCE_AFTER_MS,
+  INDEX_LOCK_TTL_SECONDS,
+} from '../../../scripts/index/writer'
 import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
 import { RedisBatchError } from '../../../server/index/upstashIndex'
 import { createJobHarness, type RawgCall } from './harness'
@@ -120,7 +124,7 @@ describe('runJob', () => {
     })
   })
 
-  it('leaves the price stamp where it was when too few prices came back', async () => {
+  it('publishes nothing when a price run confirmed too few prices', async () => {
     const harness = createJobHarness({ start: RUN_AT })
     await runJob(harness.deps, FULL)
 
@@ -129,8 +133,30 @@ describe('runJob', () => {
     for (const appId of ['411000', '412000', '416000']) {
       later.steamPrices[appId] = { success: false }
     }
-    const report = await runJob(later.deps, { mode: 'prices', pages: 1, forceUnlock: false })
 
+    await expect(
+      runJob(later.deps, { mode: 'prices', pages: 1, forceUnlock: false }),
+    ).rejects.toThrow(/nothing new to publish/)
+
+    // The published version is untouched, prices and stamp alike.
+    expect(await later.writer.currentVersion()).toBe(1)
+    expect((await later.writer.meta())?.pricesUpdatedAt).toBe(RUN_AT)
+    expect(await later.writer.getOne(101)).toMatchObject({ priceUah: 675, priceUpdatedAt: RUN_AT })
+  })
+
+  it('still publishes a full run that priced too little, keeping the price stamp', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+
+    const later = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    for (const appId of ['411000', '412000', '416000']) {
+      later.steamPrices[appId] = { success: false }
+    }
+    const report = await runJob(later.deps, { ...FULL })
+
+    // A full run brings a new candidate list with it, so it is worth publishing; only the claim
+    // that its prices are fresh is withheld.
+    expect(report.outcome?.published).toBe(true)
     expect(report.outcome?.meta.pricesUpdatedAt).toBe(RUN_AT)
     expect(await later.writer.getOne(101)).toMatchObject({ priceUah: 675, priceUpdatedAt: RUN_AT })
   })
@@ -316,6 +342,13 @@ describe('createWriterFromEnv', () => {
     expect(INDEX_LOCK_TTL_SECONDS).toBeLessThan(6 * 60 * 60)
     // And long enough to cover the longest gap between two renewals with room to spare.
     expect(INDEX_LOCK_TTL_SECONDS).toBeGreaterThanOrEqual(10 * 60)
+  })
+
+  it('lets a forced run act well before the lock would have lapsed on its own', () => {
+    // If these were the same number, forcing could only work where a plain retry already did,
+    // and the workflow's force_unlock input would be a no-op at every moment it is needed.
+    expect(INDEX_FORCE_AFTER_MS).toBeLessThan(INDEX_LOCK_TTL_SECONDS * 1000)
+    expect(INDEX_FORCE_AFTER_MS * 3).toBeLessThan(INDEX_LOCK_TTL_SECONDS * 1000)
   })
 })
 

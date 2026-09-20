@@ -127,6 +127,8 @@ export async function refreshLanguages(
   let fetched = 0
   let failures = 0
   let batch: [string, IndexedLanguages][] = []
+  /** Apps this run actually asked Steam about; their records are authoritative, the rest age. */
+  const readThisRun = new Set<string>()
   // Prices this run happened to see. A stored record carries no price, so only an app actually
   // read this run can fill one in.
   const pricesSeen = new Map<string, SteamPrice>()
@@ -152,6 +154,7 @@ export async function refreshLanguages(
         }
         stored.set(appId, record)
         batch.push([appId, record])
+        readThisRun.add(appId)
         if (details.price) pricesSeen.set(appId, details.price)
         fetched += 1
         if (batch.length >= batchSize) await flush()
@@ -167,6 +170,7 @@ export async function refreshLanguages(
   }
   assertWithinFailureBudget('languages', failures, queue.length)
 
+  const confirmedAt = isoNow(deps.clock)
   let fromStore = 0
   let pricesTouched = 0
   let pricesFilled = 0
@@ -181,15 +185,21 @@ export async function refreshLanguages(
     }
     fromStore += 1
 
-    if (record.isFree) {
+    // A stored record can be a week old, and a game can stop being free inside that week. A price
+    // the price stage confirmed this run therefore wins over an `isFree` nobody checked today; a
+    // record read this run is the newer fact and wins in its turn.
+    if (record.isFree && (readThisRun.has(appId) || game.priceUah === null)) {
       if (!game.free || game.priceUah !== 0) pricesTouched += 1
       game.free = true
       game.priceUah = 0
       game.regularPriceUah = 0
       game.discountPercent = 0
-      game.priceUpdatedAt = record.updatedAt
+      // When this run confirmed it, not when the record was written: the game page turns this
+      // into "updated N hours ago", and a week-old language read is not a week-old price.
+      game.priceUpdatedAt = confirmedAt
       continue
     }
+    if (record.isFree) continue
 
     if (game.free) {
       // Steam no longer calls it free. A real price may already have been attached this run;
@@ -209,7 +219,7 @@ export async function refreshLanguages(
       game.priceUah = seen.priceUah
       game.regularPriceUah = seen.regularPriceUah
       game.discountPercent = seen.discountPercent
-      game.priceUpdatedAt = record.updatedAt
+      game.priceUpdatedAt = confirmedAt
       pricesFilled += 1
       pricesTouched += 1
     }

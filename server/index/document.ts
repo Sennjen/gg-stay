@@ -83,8 +83,16 @@ export interface IndexRunStats {
 
 export interface IndexMeta {
   version: number
-  /** ISO timestamp of the publication; the staleness check reads this. */
+  /** ISO timestamp of the publication. Every publication moves it, whatever the run refreshed. */
   updatedAt: string
+  /**
+   * When the prices in this version were last confirmed — not when they were last written.
+   *
+   * It moves only on a publication whose price stage heard a definitive answer for nearly every
+   * app it asked about; a run that Steam soft-failed keeps the prices it had and keeps this
+   * timestamp with them. Price staleness is therefore read from here and never from `updatedAt`,
+   * which moves on every publication including the ones that refreshed only languages.
+   */
   pricesUpdatedAt: string | null
   gameCount: number
   stats?: Partial<IndexRunStats>

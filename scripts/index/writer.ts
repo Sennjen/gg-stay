@@ -33,6 +33,15 @@ import { createUpstashCommands, createUpstashIndex } from '../../server/index/up
  */
 export const INDEX_LOCK_TTL_SECONDS = 30 * 60
 
+/**
+ * How long a holder must have been silent before a forced run takes its lock. Five minutes: the
+ * job renews at most once a minute and at least once a stage, and the workflow's concurrency group
+ * runs one job at a time, so a holder that has said nothing for five minutes is an orphan of a job
+ * that is already gone. It has to stay well under `INDEX_LOCK_TTL_SECONDS`, or forcing would only
+ * become possible after a plain retry already worked — which is the whole point of the input.
+ */
+export const INDEX_FORCE_AFTER_MS = 5 * 60 * 1000
+
 export interface WriterEnv {
   UPSTASH_REDIS_REST_URL?: string | undefined
   UPSTASH_REDIS_REST_TOKEN?: string | undefined
@@ -58,6 +67,7 @@ export function createWriterFromEnv(env: WriterEnv = process.env): WriterFromEnv
   return {
     writer: createUpstashIndex(createUpstashCommands({ url, token }), {
       lockTtlSeconds: INDEX_LOCK_TTL_SECONDS,
+      forceAfterMs: INDEX_FORCE_AFTER_MS,
     }),
     dryRun: false,
   }
