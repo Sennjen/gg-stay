@@ -14,11 +14,15 @@
 // exported so that the comparison itself is covered by the ordinary test suite, against the fake;
 // what only a run with credentials can prove is the transport underneath it.
 import { pathToFileURL } from 'node:url'
-import { Redis } from '@upstash/redis'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../server/index/GameIndex'
 import type { IndexedGame } from '../../server/index/document'
 import { createMemoryGameIndex } from '../../server/index/memoryIndex'
-import { createUpstashCommands, createUpstashIndex } from '../../server/index/upstashIndex'
+import type { UpstashClient } from '../../server/index/upstashIndex'
+import {
+  createUpstashClient,
+  createUpstashCommandsOn,
+  createUpstashIndex,
+} from '../../server/index/upstashIndex'
 import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../tests/fixtures/index/games'
 
 export type IndexAdapter = GameIndex & GameIndexWriter
@@ -136,7 +140,7 @@ async function publish(
 
 async function compareReads(
   found: Comparison,
-  live: IndexAdapter,
+  live: GameIndex,
   memory: IndexAdapter,
 ): Promise<void> {
   const shape = (result: Awaited<ReturnType<GameIndex['search']>>) => ({
@@ -162,7 +166,6 @@ async function compareReads(
   )
   found.same('getMany([])', [...(await live.getMany([]))], [...(await memory.getMany([]))])
   found.same('meta()', await live.meta(), await memory.meta())
-  found.same('currentVersion()', await live.currentVersion(), await memory.currentVersion())
 }
 
 async function compareWrites(
@@ -256,11 +259,14 @@ async function compareWrites(
 
 /**
  * Asks both adapters — which must both start empty — every question the contract answers, and
- * reports where they disagreed.
+ * reports where they disagreed. `reader` is the same store seen through the token the site holds
+ * when one is configured: the reads are compared through it, so a read path that writes fails here
+ * rather than in production.
  */
 export async function compareAdapters(
   live: IndexAdapter,
   memory: IndexAdapter,
+  reader: GameIndex = live,
 ): Promise<SmokeResult> {
   const found = new Comparison()
   const versions: number[] = []
@@ -270,14 +276,14 @@ export async function compareAdapters(
 
   versions.push(await publish(live, FIXTURE_GAMES))
   await publish(memory, FIXTURE_GAMES)
-  await compareReads(found, live, memory)
+  await compareReads(found, reader, memory)
   await compareWrites(found, live, memory, versions)
 
   return { mismatches: found.mismatches, versions }
 }
 
 /** Every key under the namespace, read with SCAN — the one command the adapter deliberately lacks. */
-async function namespaceKeys(client: Redis, prefix: string): Promise<string[]> {
+async function namespaceKeys(client: UpstashClient, prefix: string): Promise<string[]> {
   const found: string[] = []
   let cursor = '0'
   do {
@@ -300,8 +306,28 @@ async function main(): Promise<void> {
   console.log(`Running the index smoke test under the key namespace ${prefix}`)
   console.log(`${FIXTURE_GAMES.length} games, ${QUERIES.length} queries`)
 
-  const client = new Redis({ url, token, automaticDeserialization: false })
-  const live = createUpstashIndex(createUpstashCommands({ url, token }), { keyPrefix: prefix })
+  // One client for the adapter and for the SCAN the cleanup needs: `readYourWrites` sync tokens
+  // are kept per client, so a second one could read a replica that has not seen these writes.
+  const client = createUpstashClient({ url, token })
+  const live = createUpstashIndex(createUpstashCommandsOn(client), { keyPrefix: prefix })
+
+  // The site's token, when the owner has one: the reads are compared through it, so the whole
+  // read path is proved to need no write permission at all.
+  const readOnlyToken = process.env.UPSTASH_REDIS_REST_READONLY_TOKEN
+  const reader = readOnlyToken
+    ? createUpstashIndex(
+        createUpstashCommandsOn(createUpstashClient({ url, token: readOnlyToken })),
+        {
+          keyPrefix: prefix,
+          currentVersionTtlMs: 0,
+        },
+      )
+    : live
+  console.log(
+    readOnlyToken
+      ? 'Reading through the read-only token as the site does'
+      : 'No read-only token configured; reading through the write token',
+  )
   const mismatches: string[] = []
   let versions: number[] = []
 
@@ -309,7 +335,7 @@ async function main(): Promise<void> {
     const start = await namespaceKeys(client, prefix)
     if (start.length > 0) mismatches.push(`the namespace was not empty\n  ${text(start)}`)
 
-    const result = await compareAdapters(live, createMemoryGameIndex())
+    const result = await compareAdapters(live, createMemoryGameIndex(), reader)
     versions = result.versions
     mismatches.push(...result.mismatches)
   } finally {
@@ -320,19 +346,19 @@ async function main(): Promise<void> {
       const keys = await client.smembers<string[]>(registry)
       if (keys.length > 0) await client.del(...keys.map((key) => `${prefix}${key}`), registry)
     }
-    await client.del(`${prefix}idx:current`, `${prefix}idx:previous`, `${prefix}idx:sequence`)
+    await client.del(
+      `${prefix}idx:current`,
+      `${prefix}idx:previous`,
+      `${prefix}idx:sequence`,
+      `${prefix}idx:versions`,
+      `${prefix}idx:lock`,
+    )
 
     const left = await namespaceKeys(client, prefix)
-    const borrowed = left.filter((key) => key.startsWith(`${prefix}idx:tmp:`))
-    const survivors = left.filter((key) => !borrowed.includes(key))
-    if (survivors.length > 0) {
-      mismatches.push(`keys survived the cleanup\n  ${text(survivors)}`)
-    }
     if (left.length > 0) {
-      // The keys a read borrows would expire on their own within 60 s; the namespace is emptied
-      // now, so the database is left exactly as it was found.
+      // A read borrows nothing, so anything still here is a key the cleanup should have taken.
+      mismatches.push(`keys survived the cleanup\n  ${text(left)}`)
       await client.del(...left)
-      console.log(`Removed ${borrowed.length} temporary keys the reads had borrowed`)
     }
     const remaining = await namespaceKeys(client, prefix)
     if (remaining.length > 0) mismatches.push(`the namespace is not empty\n  ${text(remaining)}`)
