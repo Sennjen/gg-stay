@@ -25,6 +25,30 @@ export function formatDecimal(value: number, localeTag: string, fractionDigits =
   }).format(value)
 }
 
+/** Formats a whole-number hryvnia amount, localised (e.g. "1 349 ₴" in uk-UA). */
+export function formatUah(value: number, localeTag: string): string {
+  return new Intl.NumberFormat(localeTag, {
+    style: 'currency',
+    currency: 'UAH',
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+/**
+ * Whole hours between an ISO timestamp and a reference "now", rounded to the nearest hour and
+ * never negative (a price refreshed a moment ago, timestamped a few seconds in the future of a
+ * caller's own clock skew, still reads as "0 hours ago"). Pure — takes `now` as an argument
+ * instead of reading the clock, so it is safe to call from a render path: the caller supplies the
+ * same `now` on the server and on the client (see `useServerNow`), so SSR and hydration agree.
+ */
+export function hoursSince(iso: string | null | undefined, nowIso: string): number | null {
+  if (!iso) return null
+  const then = Date.parse(iso)
+  const now = Date.parse(nowIso)
+  if (Number.isNaN(then) || Number.isNaN(now)) return null
+  return Math.max(0, Math.round((now - then) / 3_600_000))
+}
+
 /**
  * Splits a RAWG `description_raw` block into paragraphs. Handles `\n`, `\r\n` and blank-line
  * separated paragraphs, trims each one, and drops empty paragraphs (including leading/trailing
