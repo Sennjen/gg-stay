@@ -102,6 +102,21 @@ Individual runs — landing: 82 / 82 / 79; catalog: 98 / 98 / 90; game page: 95 
 
 The catalog is now faster than it was before the redesign (96). The landing page is still the slowest, and the report says why: the hero poster is requested through a `<link rel="preload">` that carries no `fetchpriority`, so Chrome fetches the LCP image at **Low** priority, and the LCP breakdown shows 1.1 s of resource load delay plus 0.9 s of render delay. That is the next step.
 
+## Step 4 — hero preload at high priority: fixed, and not the bottleneck
+
+Measured 2026-09-20 on commit `cffb751`, landing page only. One change: the hero poster's `<link rel="preload">` now carries `fetchpriority="high"`.
+
+| Landing | Performance  | LCP (simulated)   | LCP (observed, unthrottled) | Hero request priority |
+| ------- | ------------ | ----------------- | --------------------------- | --------------------- |
+| Step 3  | 82 / 82 / 79 | 4.1 / 4.1 / 4.9 s | 2.39 / 2.32 s               | Low                   |
+| Step 4  | 80 / 79 / 80 | 4.6 / 4.9 / 4.5 s | 1.53 / 1.44 / 2.33 s        | High                  |
+
+Report: [landing](step4-hero-preload/home.report.html).
+
+The request priority is fixed and the unthrottled paint came earlier in two runs out of three, but the score did not move: the difference between 82 and 80 is run-to-run noise. Lighthouse's simulated LCP is a model of the whole dependency chain on a slow phone, and in that model the poster was never waiting on bandwidth — it is 45 KB and arrives with the first wave of requests either way. The breakdown is the same in both steps: about 1.1 s of load delay and 0.9 s of render delay, which is the render-blocking stylesheet plus main-thread work during hydration on a 4x-slowed CPU.
+
+The change stays: a Low-priority LCP image is wrong regardless of what the model says, and it is one attribute. The landing page's remaining cost is first render, not the image; that is where the next step would go (the 9 KB blocking stylesheet and the amount of JavaScript evaluated before first paint).
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
