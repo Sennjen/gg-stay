@@ -50,7 +50,7 @@ Order and range sets are separate on purpose: one sorted set per field cannot gi
 
 ## Query
 
-One pipelined round trip per page:
+Two dependent round trips per page — one pipeline that builds the result and returns the ids, then one `MGET` for the documents (three when searching, because the names are read first):
 
 1. For each facet with several selected values, union them (`SUNIONSTORE` into a temporary key); facets are then intersected with each other and with the sort order's sorted set (`ZINTERSTORE`, weights chosen so the sort score survives).
 2. Ranges are trimmed on the relevant sorted sets before intersection: price ≤ N, discount ≥ N, Metacritic ≥ N, rating ≥ N, release date range.
@@ -114,7 +114,7 @@ Vitest, no network, test-first.
 - `GameIndex` contract on both adapters: facet intersection, union within a facet, every range, exact totals, paging, every sort, empty result, unpriced games absent from price sorts.
 - Steam parsers on recorded fixtures: price, discount, free, unavailable in region, Ukrainian text, Ukrainian audio, no Ukrainian, markup inside the language list.
 - Job: full run on fixtures, resume from a cursor, blue/green refusal below 50 %, app ids never re-resolved, the 40 requests per minute limit on a fake clock.
-- Resolvers: path selection, `indexedOnly`, `indexStale`, Redis down, one round trip per indexed page (call counter), live refresh on the game page and its failure.
+- Resolvers: path selection, `indexedOnly`, `indexStale`, Redis down, two round trips per indexed page, three when searching (call counter), live refresh on the game page and its failure.
 - Components: price line in every state, localisation badge, new filter sections, note, banner.
 - SSR acceptance: `/games?priceMaxUah=300&onSaleMinPercent=50&sort=DISCOUNT_DESC`, `/games?ukrainianLocalisation=AUDIO&platforms=4`, a card outside the index, the stale index.
 
