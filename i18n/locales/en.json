@@ -124,6 +124,14 @@
     "PEGI16": "PEGI 16",
     "PEGI18": "PEGI 18"
   },
+  "price": {
+    "free": "Free",
+    "was": "was"
+  },
+  "localisation": {
+    "text": "Ukrainian: text",
+    "audio": "Ukrainian: text and voice acting"
+  },
   "card": {
     "metacriticLabel": "Metacritic {score}",
     "metacriticCaption": "Metacritic",
