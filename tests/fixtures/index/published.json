@@ -79,8 +79,8 @@
       "metacritic": 95,
       "playtime": 11,
       "priceUah": 225,
-      "regularPriceUah": 225,
-      "discountPercent": 0,
+      "regularPriceUah": 900,
+      "discountPercent": 75,
       "free": false,
       "localisation": {
         "text": true,

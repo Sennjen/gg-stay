@@ -152,18 +152,30 @@ describe('server-side rendering', async () => {
   /**
    * The design's acceptance URLs, served from the fixture-mode seed.
    *
-   * The seed holds the three games the RAWG fixtures show: The Witcher 3 at 675 ₴ with −50 %,
-   * Portal 2 at 225 ₴ with no discount, Stardew Valley free, and a fourth RAWG game the index
-   * never saw. That is why the design's literal first URL (≤ 300 ₴ *and* ≥ 50 % off) matches
-   * nothing here — nothing in this seed is both cheap and discounted — so it is asserted as the
-   * empty answer it honestly is, and the same query with a ceiling the seed can satisfy is
-   * asserted beside it for the cards, the order and the total.
+   * The seed holds the three games the RAWG fixtures show — Portal 2 at 225 ₴ with −75 % on PC,
+   * The Witcher 3 at 675 ₴ with −50 %, Stardew Valley free — and a fourth RAWG game the index
+   * never saw. Portal 2 is deliberately both cheap and heavily discounted so the literal URL from
+   * the design has something to match and the resolver's AND between the price ceiling and the
+   * discount floor is really exercised; `tests/server/index/publishedFixture.test.ts` pins that
+   * property of the seed, so this suite cannot go quietly vacuous again.
    */
   describe('the acceptance URLs', () => {
     /** The catalog card slugs in the order the page rendered them. */
     function slugsOf(html: string): string[] {
       const grid = html.slice(html.indexOf('<article'))
       return [...grid.matchAll(/href="\/games\/([a-z0-9-]+)"/g)].map((match) => match[1]!)
+    }
+
+    /** The price line of every card on the page, as `{ best, regular, discount }`. */
+    function pricesOf(html: string): { best: number; regular: number; discount: number }[] {
+      const lines = html.match(/data-test="price"[\s\S]*?<\/p>/g) ?? []
+      return lines.map((line) => {
+        const numbers = [...line.matchAll(/>[^<]*?(\d[\d\u00a0,]*)[^<]*?</g)].map((match) =>
+          Number(match[1]!.replace(/[\u00a0,]/g, '')),
+        )
+        const [discount, best, regular] = numbers
+        return { discount: discount ?? 0, best: best ?? 0, regular: regular ?? 0 }
+      })
     }
 
     it('answers ?priceMaxUah=300&onSaleMinPercent=50&sort=DISCOUNT_DESC from the index', async () => {
@@ -177,34 +189,58 @@ describe('server-side rendering', async () => {
       expect(html).toContain('Пошук серед ')
       expect(html).toContain('3 000')
       expect(html).toContain('найпопулярніших ігор — ціни й мови ми знаємо лише для них.')
-      // Exact total, and no card that breaks either constraint — there is no such game in the seed.
-      expect(html).toContain('Знайдено:')
-      expect(html).toContain('Нічого не знайдено')
-      expect(slugsOf(html)).toEqual([])
+
+      // Cards are present, and every one satisfies BOTH constraints.
+      const slugs = slugsOf(html)
+      expect(slugs).toEqual(['portal-2'])
+      const prices = pricesOf(html)
+      expect(prices).toHaveLength(slugs.length)
+      for (const price of prices) {
+        expect(price.best).toBeLessThanOrEqual(300)
+        expect(price.discount).toBeGreaterThanOrEqual(50)
+      }
+      expect(prices[0]).toEqual({ discount: 75, best: 225, regular: 900 })
+      // Exact total, not a page size: one game in the seed is both cheap and discounted.
+      expect(html).toMatch(/Знайдено:[\s\S]{0,300}?>1</)
+      expect(html).not.toContain('Нічого не знайдено')
       // Both filters are on the page, each with a chip that names it and removes it.
       expect(html).toContain('aria-label="Прибрати до 300 ₴"')
       expect(html).toContain('aria-label="Прибрати від 50 %"')
       expect(html).not.toContain('data-test="ignored-chip"')
     })
 
-    it('answers the same query with a reachable ceiling, ordered by discount', async () => {
+    it('orders by discount, biggest first, when several cards match', async () => {
+      // The ceiling raised so both discounted games qualify: Portal 2 at −75 % before
+      // The Witcher 3 at −50 %, which is the order the sort — not popularity — produces.
       const html = await $fetch<string>(
         '/games?priceMaxUah=700&onSaleMinPercent=50&sort=DISCOUNT_DESC',
       )
-      expect(slugsOf(html)).toEqual(['the-witcher-3-wild-hunt'])
-      // ≤ 700 ₴ and ≥ 50 % off: the one card costs 675 ₴ and carries the −50 % chip.
-      expect(html).toContain('675')
-      expect(html).toContain('50%')
+      expect(slugsOf(html)).toEqual(['portal-2', 'the-witcher-3-wild-hunt'])
+      const discounts = pricesOf(html).map((price) => price.discount)
+      expect(discounts).toEqual([75, 50])
       expect(html).toContain('data-test="index-note"')
-      expect(html).not.toContain('Portal 2')
       expect(html).not.toContain('Stardew Valley')
     })
 
-    it('orders the whole index by discount when only the sort asks for it', async () => {
+    it('takes the index path on a price sort alone, with no filter at all', async () => {
       const html = await $fetch<string>('/games?sort=DISCOUNT_DESC')
-      // Only the priced games are in the discount order, biggest first.
-      expect(slugsOf(html)[0]).toBe('the-witcher-3-wild-hunt')
+      // Every game the index knows, biggest discount first; the free one has none and comes last.
+      expect(slugsOf(html)).toEqual(['portal-2', 'the-witcher-3-wild-hunt', 'stardew-valley'])
       expect(html).toContain('data-test="index-note"')
+      // The catalog is the index's now, so the RAWG-only game is not on it.
+      expect(html).not.toContain('Unreleased Sample')
+    })
+
+    it('answers a query nothing in the index matches with the empty state, not an error', async () => {
+      // Cheaper than the cheapest priced game and more discounted than the biggest discount.
+      const html = await $fetch<string>('/games?priceMaxUah=100&onSaleMinPercent=90')
+      expect(slugsOf(html)).toEqual([])
+      expect(html).toContain('Нічого не знайдено')
+      // The index still answered, so the note and both removable chips are still there.
+      expect(html).toContain('data-test="index-note"')
+      expect(html).toContain('aria-label="Прибрати до 100 ₴"')
+      expect(html).toContain('aria-label="Прибрати від 90 %"')
+      expect(html).not.toContain('data-test="ignored-chip"')
     })
 
     it('answers ?ukrainianLocalisation=AUDIO&platforms=4 with a badge on every card', async () => {

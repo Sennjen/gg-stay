@@ -67,9 +67,14 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     ratingsCount: 5400,
     metacritic: 95,
     playtime: 11,
+    // Cheap AND heavily discounted, on PC: the one game in this seed that satisfies a price
+    // ceiling and a discount floor at the same time, so the design's own acceptance URL
+    // (`?priceMaxUah=300&onSaleMinPercent=50`) has something to match and the resolver's AND
+    // between the two ranges is actually exercised. Its 75 % also beats The Witcher 3's 50 %, so
+    // `DISCOUNT_DESC` has a real order rather than a tie broken by popularity.
     priceUah: 225,
-    regularPriceUah: 225,
-    discountPercent: 0,
+    regularPriceUah: 900,
+    discountPercent: 75,
     free: false,
     localisation: { text: true, audio: false, source: 'steam' },
     madeInUkraine: false,
