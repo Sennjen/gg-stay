@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createSteamPriceFetch, type SteamPriceFetchDeps } from '../../server/steam/steamPriceFetch'
 import { UpstreamError } from '../../server/upstream/errors'
 import type { SteamFetch } from '../../server/steam/steamFetch'
+import realPricesFixture from '../fixtures/steam/prices.json'
 
 function makeDeps(overrides: Partial<SteamPriceFetchDeps> = {}) {
   let clock = 1_000_000
@@ -133,13 +134,61 @@ describe('fetchPrices', () => {
     expect(fetchJson).toHaveBeenCalledTimes(2)
   })
 
-  it('reads fixtures instead of fetching when fixture mode is on', async () => {
+  it('reads the single "prices" fixture asset instead of fetching, in fixture mode', async () => {
     const readFixture = vi.fn(async (name: string) =>
-      name === 'prices-292030' ? { '292030': { success: false } } : null,
+      name === 'prices'
+        ? { '292030': { success: false }, '413150': { success: true, data: {} } }
+        : null,
     )
     const { deps } = makeDeps({ fixtures: true, readFixture })
-    const result = await createSteamPriceFetch(deps).fetchPrices(['292030'])
+    const result = await createSteamPriceFetch(deps).fetchPrices(['292030', '413150', '999'])
+    expect(readFixture).toHaveBeenCalledWith('prices')
     expect(result.get('292030')).toBeNull()
+    expect(result.get('413150')).toBeNull()
+    // '999' is asked but absent from the fixture map — same "asked but absent" null as live.
+    expect(result.get('999')).toBeNull()
+    expect(deps.fetchJson).not.toHaveBeenCalled()
+  })
+
+  it('reads the fixture asset only once across several calls', async () => {
+    const readFixture = vi.fn(async (name: string) => (name === 'prices' ? { '1': {} } : null))
+    const { deps } = makeDeps({ fixtures: true, readFixture })
+    const steamPrices = createSteamPriceFetch(deps)
+    await steamPrices.fetchPrices(['1'])
+    await steamPrices.fetchPrices(['1'])
+    expect(readFixture).toHaveBeenCalledTimes(1)
+  })
+
+  it('projects the real tests/fixtures/steam/prices.json asset (not a mock)', async () => {
+    const readFixture = vi.fn(async (name: string) =>
+      name === 'prices' ? realPricesFixture : null,
+    )
+    const { deps } = makeDeps({ fixtures: true, readFixture })
+    // 292030 (The Witcher 3) and 413150 (Stardew Valley) are the same Steam app ids the RAWG
+    // store-link fixtures point at (tests/fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json,
+    // game-stardew-valley-stores.json) — a discounted game and a full-price game. 570 (Dota 2) is
+    // the documented free/not-for-sale batched ambiguity (`data: []` -> null, see price.ts).
+    // '99999999' stands in for an id the fixture map simply does not have.
+    const result = await createSteamPriceFetch(deps).fetchPrices([
+      '292030',
+      '413150',
+      '570',
+      '99999999',
+    ])
+    expect(result.get('292030')).toEqual({
+      priceUah: 675,
+      regularPriceUah: 1349,
+      discountPercent: 50,
+      isFree: false,
+    })
+    expect(result.get('413150')).toEqual({
+      priceUah: 449,
+      regularPriceUah: 449,
+      discountPercent: 0,
+      isFree: false,
+    })
+    expect(result.get('570')).toBeNull()
+    expect(result.get('99999999')).toBeNull()
     expect(deps.fetchJson).not.toHaveBeenCalled()
   })
 })

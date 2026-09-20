@@ -34,6 +34,11 @@ describe('parseUkrainianSupport', () => {
       { text: false, audio: false },
       'must not match "Ukrainian" inside a longer word',
     ],
+    [
+      'nbspPaddedUkrainian',
+      { text: true, audio: true },
+      '&nbsp; padding around the name and before the asterisk marker is trimmed',
+    ],
   ])('%s -> %j (%s)', (key, expected) => {
     expect(parseUkrainianSupport(fixtures[key])).toEqual(expected)
   })

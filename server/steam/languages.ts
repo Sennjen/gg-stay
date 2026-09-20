@@ -18,6 +18,15 @@ const TRAILING_ASTERISK_MARKER = /<strong>\s*\*\s*<\/strong>\s*$/i
 // match — so "Ukrainian" inside a longer word or phrase is never mistaken for the language.
 const UKRAINIAN_NAMES = /^(українська|ukrainian|украинский)$/i
 
+// A literal "&nbsp;" (the HTML entity, not a whitespace character `\s` already matches) at either
+// edge of a segment or name — Steam's markup sometimes pads a name with one instead of a plain
+// space.
+const EDGE_NBSP = /^(?:&nbsp;)+|(?:&nbsp;)+$/gi
+
+function trimSegment(input: string): string {
+  return input.trim().replace(EDGE_NBSP, '').trim()
+}
+
 /**
  * Parses Steam's `supported_languages` HTML into Ukrainian text/audio support. Robust to the
  * response language Steam actually returned the list in (we request `l=ukrainian`, but Steam does
@@ -45,11 +54,11 @@ export function parseUkrainianSupport(
   let audio = false
 
   for (const rawSegment of listPart.split(',')) {
-    const segment = rawSegment.trim()
+    const segment = trimSegment(rawSegment)
     if (!segment) continue
 
     const hasAsterisk = TRAILING_ASTERISK_MARKER.test(segment)
-    const name = (hasAsterisk ? segment.replace(TRAILING_ASTERISK_MARKER, '') : segment).trim()
+    const name = trimSegment(hasAsterisk ? segment.replace(TRAILING_ASTERISK_MARKER, '') : segment)
 
     if (UKRAINIAN_NAMES.test(name)) {
       text = true
