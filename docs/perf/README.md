@@ -82,6 +82,26 @@ The catalog dropped from 96 to 83 and the game page from 95 to 86; accessibility
 
 These are the inputs for the next optimisation steps; each will land as its own commit with a measurement here.
 
+## Step 3 — no trailer on phones, prioritised cover, fewer fonts, valid image sizes
+
+Measured 2026-09-20 on commit `4072111`. Same method. Changes since the regression above: the hero trailer is not created below 768 px, on connections slower than 4G or with Save-Data; the first catalog cover has `fetchpriority="high"` and only two covers load eagerly; only the font faces that render are shipped and only the interface face is preloaded; image `sizes` are written in the syntax `@nuxt/image` expects, so the emitted `srcset` is valid; card queries select only rendered fields; the GraphQL printer is loaded on demand.
+
+| Page            | Performance | LCP   | CLS | TBT   | Page weight | Accessibility | Best practices | SEO |
+| --------------- | ----------- | ----- | --- | ----- | ----------- | ------------- | -------------- | --- |
+| `/` (landing)   | 82          | 4.1 s | 0   | 70 ms | 0.8 MB      | 100           | 100            | 100 |
+| `/games`        | 98          | 2.3 s | 0   | 30 ms | 0.75 MB     | 100           | 100            | 100 |
+| `/games/[slug]` | 93          | 2.9 s | 0   | 20 ms | 0.5 MB      | 100           | 100            | 100 |
+
+Individual runs — landing: 82 / 82 / 79; catalog: 98 / 98 / 90; game page: 95 / 92 / 93. Reports: [landing](step3-after-fixes/home.report.html), [catalog](step3-after-fixes/catalog.report.html), [game page](step3-after-fixes/detail.report.html).
+
+| Page      | After redesign      | Step 3              |
+| --------- | ------------------- | ------------------- |
+| Landing   | 69 / 7.5 s / 7.2 MB | 82 / 4.1 s / 0.8 MB |
+| Catalog   | 83 / 4.2 s          | 98 / 2.3 s          |
+| Game page | 86 / 3.5 s          | 93 / 2.9 s          |
+
+The catalog is now faster than it was before the redesign (96). The landing page is still the slowest, and the report says why: the hero poster is requested through a `<link rel="preload">` that carries no `fetchpriority`, so Chrome fetches the LCP image at **Low** priority, and the LCP breakdown shows 1.1 s of resource load delay plus 0.9 s of render delay. That is the next step.
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
