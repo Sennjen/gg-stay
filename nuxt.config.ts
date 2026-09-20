@@ -54,6 +54,9 @@ export default defineNuxtConfig({
     upstashRedisRestToken: process.env.UPSTASH_REDIS_REST_TOKEN ?? '',
     // How long one index call may take before the page gives up on it; see `withDeadline`.
     indexTimeoutMs: process.env.INDEX_TIMEOUT_MS ?? '',
+    // Past this an answer counts as slow, and three slow ones in a row close the index for a
+    // while; see `withCircuit`.
+    indexSlowMs: process.env.INDEX_SLOW_MS ?? '',
   },
   routeRules: {
     // Static headers only. The Content-Security-Policy is deliberately NOT here: the Vercel preset

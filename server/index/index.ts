@@ -4,17 +4,30 @@ import { createMemoryGameIndex } from './memoryIndex'
 import { createUpstashCommands, createUpstashIndex } from './upstashIndex'
 
 /**
- * Which index a request reads: Upstash when both credentials are configured, and otherwise the
- * in-memory adapter seeded from the fixture, so development and CI work without credentials.
+ * Which index a request reads: Upstash when both credentials are configured, the in-memory
+ * adapter seeded from the fixture in fixture mode, and an index that knows nothing otherwise —
+ * see `createGameIndex` for why that last case is not the fixture.
  *
- * Nothing here ever throws at the caller. The design's failure behaviour is that the catalog runs
- * on RAWG without prices when the index is unreachable and that no page fails, so an index that
- * cannot answer says so in one way, always: `meta()` is `null`, `getMany` and `getOne` find
- * nothing, and `search` rejects with `IndexUnavailableError` — one error type for a resolver to
- * catch and fall back on, rather than whatever the transport happened to raise.
+ * Whatever a page gets back, it is one of exactly two shapes, and the difference between them
+ * matters:
  *
- * One instance per server process, and a failed attempt is never remembered: a store that was
- * unreachable when the first request arrived may answer the next one.
+ * - **Configured to know nothing** (`unavailableGameIndex`) answers quietly: `meta()` is `null`,
+ *   `getMany` and `getOne` find nothing, only `search` rejects. Nothing failed, so nothing is
+ *   logged and no page reports the index as stale.
+ * - **Something went wrong** — a rejection, or a call that passed its deadline —
+ *   (`degradeOnFailure`) rejects from *every* method with `IndexUnavailableError`. A caller has to
+ *   be able to tell "this index holds nothing" from "this index just let me down", because a
+ *   request that has been let down once stops asking (`indexFailed` in
+ *   `server/graphql/indexPath.ts`) and the process skips the index for half a minute
+ *   (`withCircuit`). Every caller in the site catches; the design's rule is that no page fails
+ *   because of the index, not that no call rejects.
+ *
+ * Three wrappers enforce that, innermost first: `withDeadline` turns a hang into a failure,
+ * `withCircuit` stops paying for a store that is failing or merely slow, and `degradeOnFailure`
+ * gives whatever comes out its one name.
+ *
+ * One instance per server process, and a failed attempt to build one is never remembered: a store
+ * that was unreachable when the first request arrived may answer the next one.
  */
 
 export interface PublishedFixture {
@@ -84,6 +97,16 @@ export const DEFAULT_INDEX_TIMEOUT_MS = 1_500
 /** How long the whole process skips the index after one call failed or timed out. */
 export const CIRCUIT_OPEN_MS = 30_000
 
+/**
+ * Past this, a call that *succeeded* still counts against the index. The deadline catches a store
+ * that has stopped answering; this catches one that answers, every time, too late to be worth
+ * waiting for — which no failure count would ever notice.
+ */
+export const DEFAULT_INDEX_SLOW_MS = 700
+
+/** How many consecutive slow answers open the circuit. A fast one puts the count back to zero. */
+export const SLOW_STRIKES = 3
+
 /** The timer pair, injected so a test can drive a deadline without waiting for one. */
 export interface TimerFunctions {
   setTimeout: (handler: () => void, ms: number) => unknown
@@ -140,31 +163,67 @@ export function withDeadline(
 }
 
 /**
- * One failure takes the index out of play for the whole process for `CIRCUIT_OPEN_MS`, so a store
- * that is down costs one deadline rather than one per request — and, while it is open, not even
- * one: the calls do not leave the process at all. It is deliberately tiny: no half-open state, no
- * failure counting. The index is an enhancement, the cost of skipping it for thirty seconds is a
- * page without prices, and the cost of not skipping it is a second and a half on every request.
+ * One failure — or three slow answers in a row — takes the index out of play for the whole
+ * process for `CIRCUIT_OPEN_MS`, so a store that is down costs one deadline rather than one per
+ * request, and one that is merely slow costs three answers rather than one on every request for
+ * as long as it lasts. While the circuit is open the calls do not leave the process at all.
+ *
+ * The slow count is what a failure count cannot see. A store answering steadily at 1 400 ms never
+ * rejects and never reaches its deadline, so nothing else here would ever notice it — and every
+ * page would keep paying for an enhancement it is not getting in time. Three *consecutive* slow
+ * answers, rather than three anywhere, is what keeps a single slow call during normal traffic
+ * from closing the index: one fast answer puts the count back to zero.
+ *
+ * Deliberately tiny otherwise: no half-open state, no failure rate. The index is an enhancement,
+ * the cost of skipping it for thirty seconds is a page without prices, and the cost of not
+ * skipping it is paid by every visitor.
  */
 export function withCircuit(
   index: GameIndex,
-  options: { openMs?: number; now?: () => number; onOpen?: () => void } = {},
+  options: {
+    openMs?: number
+    slowMs?: number
+    strikes?: number
+    now?: () => number
+    onOpen?: (reason: 'failed' | 'slow') => void
+  } = {},
 ): GameIndex {
   const openMs = options.openMs ?? CIRCUIT_OPEN_MS
+  const slowMs = options.slowMs ?? DEFAULT_INDEX_SLOW_MS
+  const strikeLimit = options.strikes ?? SLOW_STRIKES
   const now = options.now ?? (() => Date.now())
   let openedAt: number | null = null
+  let strikes = 0
 
   const isOpen = () => openedAt !== null && now() - openedAt < openMs
 
-  function through<T>(call: () => Promise<T>): Promise<T> {
+  function open(reason: 'failed' | 'slow'): void {
+    openedAt = now()
+    strikes = 0
+    options.onOpen?.(reason)
+  }
+
+  async function through<T>(call: () => Promise<T>): Promise<T> {
     if (isOpen()) {
-      return Promise.reject(new IndexUnavailableError('it failed recently and is being skipped'))
+      throw new IndexUnavailableError('it failed recently and is being skipped')
     }
-    return call().catch((error: unknown) => {
-      openedAt = now()
-      options.onOpen?.()
+    const startedAt = now()
+    let value: T
+    try {
+      value = await call()
+    } catch (error) {
+      open('failed')
       throw error as Error
-    })
+    }
+    if (now() - startedAt <= slowMs) {
+      strikes = 0
+      return value
+    }
+    strikes += 1
+    // The answer this call waited for is still served: it is already here, and throwing it away
+    // would make the page worse for the sake of the one after it.
+    if (strikes >= strikeLimit) open('slow')
+    return value
   }
 
   return {
@@ -192,6 +251,8 @@ export interface GameIndexSources {
   timeoutMs?: number
   /** How long a failure keeps the index out of play for this process; see `withCircuit`. */
   circuitOpenMs?: number
+  /** Past this, an answer counts as slow even though it arrived; see `withCircuit`. */
+  slowMs?: number
   /** Injected for the tests; the default races a real timer. */
   setTimer?: TimerFunctions
   /** Injected for the tests; the default reads the clock. */
@@ -249,7 +310,19 @@ function guard(
     setTimer: sources.setTimer,
   })
   return degradeOnFailure(
-    withCircuit(deadlined, { openMs: sources.circuitOpenMs, now: sources.now }),
+    withCircuit(deadlined, {
+      openMs: sources.circuitOpenMs,
+      slowMs: sources.slowMs,
+      now: sources.now,
+      onOpen: (reason) =>
+        report(
+          new Error(
+            reason === 'slow'
+              ? 'The game index answered too slowly too many times; skipping it for a while.'
+              : 'The game index failed; skipping it for a while.',
+          ),
+        ),
+    }),
     report,
   )
 }
@@ -310,6 +383,7 @@ export function useGameIndex(): Promise<GameIndex> {
       upstashRedisRestToken: String(config.upstashRedisRestToken ?? ''),
       fixtures,
       timeoutMs: Number(config.indexTimeoutMs) || undefined,
+      slowMs: Number(config.indexSlowMs) || undefined,
       // Read only in fixture mode: outside it the asset is never touched, so nothing can serve
       // its prices by accident.
       readFixture: () =>

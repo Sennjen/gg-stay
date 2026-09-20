@@ -204,6 +204,84 @@ describe('withCircuit', () => {
     expect(calls).toHaveBeenCalledTimes(2)
   })
 
+  it('opens on three slow answers in a row, and a fast one puts the count back', async () => {
+    // A store that answers every time, 1 400 ms late, never rejects and never reaches its
+    // deadline: a failure count alone would never notice it, and every page would keep paying.
+    let now = 1_000
+    let takes = 1_400
+    const slow: GameIndex = {
+      ...broken,
+      meta: async () => {
+        now += takes
+        return null
+      },
+    }
+    const index = withCircuit(slow, { slowMs: 700, strikes: 3, openMs: 30_000, now: () => now })
+
+    expect(await index.meta()).toBeNull()
+    expect(await index.meta()).toBeNull()
+
+    // A fast answer between them clears the strikes, so ordinary jitter cannot close the index.
+    takes = 100
+    expect(await index.meta()).toBeNull()
+    takes = 1_400
+    expect(await index.meta()).toBeNull()
+    expect(await index.meta()).toBeNull()
+    // The third consecutive slow answer is still served — it is already here — and closes the
+    // index behind it.
+    expect(await index.meta()).toBeNull()
+
+    await expect(index.meta()).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.meta()).rejects.toThrow(/skipped/)
+
+    now += 30_000
+    expect(await index.meta()).toBeNull()
+  })
+
+  it('says why it closed the index, so a log can tell slow from broken', async () => {
+    let now = 1_000
+    const reasons: string[] = []
+    const slow: GameIndex = {
+      ...broken,
+      meta: async () => {
+        now += 1_400
+        return null
+      },
+    }
+    const index = withCircuit(slow, {
+      slowMs: 700,
+      strikes: 2,
+      now: () => now,
+      onOpen: (reason) => reasons.push(reason),
+    })
+    await index.meta()
+    await index.meta()
+    expect(reasons).toEqual(['slow'])
+
+    const failing = withCircuit(broken, { now: () => now, onOpen: (r) => reasons.push(r) })
+    await expect(failing.meta()).rejects.toThrow('ECONNRESET')
+    expect(reasons).toEqual(['slow', 'failed'])
+  })
+
+  it('counts every method towards the same strike count', async () => {
+    let now = 1_000
+    const tick = <T>(value: T) => {
+      now += 1_400
+      return Promise.resolve(value)
+    }
+    const slow: GameIndex = {
+      search: () => tick({ ids: [], total: 0, games: [] }),
+      getMany: () => tick(new Map()),
+      getOne: () => tick(null),
+      meta: () => tick(null),
+    }
+    const index = withCircuit(slow, { slowMs: 700, strikes: 3, now: () => now })
+    await index.meta()
+    await index.getOne(1)
+    await index.getMany([1])
+    await expect(index.search({})).rejects.toBeInstanceOf(IndexUnavailableError)
+  })
+
   it('leaves a healthy index alone', async () => {
     const index = withCircuit(await createGameIndex(sources()))
     expect((await index.getOne(4200))?.name).toBe('Portal 2')
