@@ -161,13 +161,18 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       appIds = resolved.appIds
       failures += resolved.failures
     } else {
-      games = await stage('published documents', () => deps.writer.allGames())
-      if (games.length === 0) {
-        throw new Error(
-          `--mode=${options.mode} refreshes a published version; run --mode=full first.`,
-        )
-      }
-      appIds = await deps.writer.getAppIds(games.map((game) => game.id))
+      games = await stage('published documents', async () => {
+        const documents = await deps.writer.allGames()
+        if (documents.length === 0) {
+          throw new Error(
+            `--mode=${options.mode} refreshes a published version; run --mode=full first.`,
+          )
+        }
+        return documents
+      })
+      appIds = await stage('published documents', () =>
+        deps.writer.getAppIds(games.map((game) => game.id)),
+      )
     }
 
     const published = await deps.writer.meta()
