@@ -348,3 +348,11 @@ and its remove button, struck through, with the reason spelled out beside it as
 visible text — not a `title`, because nothing here may depend on hover. An
 ignored sort is named in the same words next to the select, which falls back to
 showing the order the page is actually in.
+
+The "Фільтри (N)" badge counts only the filters the answer **applied**. A filter
+the server declined keeps its chip and its remove button — it is in the URL, so
+it has to be — but it is not shaping the list, and a badge that counted it would
+disagree with the results two lines below it. The chip row itself is shown
+whenever the URL carries any filter at all, applied or not, so a page whose only
+filter was declined still shows that filter and still lets a visitor take it
+off.
