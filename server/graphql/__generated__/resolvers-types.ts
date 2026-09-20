@@ -195,6 +195,8 @@ export type PriceSummary = {
   bestUah: Scalars['Int']['output'];
   discountPercent: Scalars['Int']['output'];
   isFree: Scalars['Boolean']['output'];
+  /** The pre-discount price, so the interface can render it struck through. Null when not on sale. */
+  regularUah?: Maybe<Scalars['Int']['output']>;
   updatedAt: Scalars['String']['output'];
 };
 
@@ -457,6 +459,7 @@ export type PriceSummaryResolvers<ContextType = GraphQLContext, ParentType exten
   bestUah?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   discountPercent?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   isFree?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  regularUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   updatedAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
