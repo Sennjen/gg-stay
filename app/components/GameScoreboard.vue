@@ -22,17 +22,22 @@ const steamOffer = computed(() => props.game.stores?.find((offer) => offer.store
 const steamPrice = computed(() => {
   const offer = steamOffer.value
   if (!offer || offer.priceUah == null) return null
+  // `isFree` may be missing (an older/partial index entry) even though the price itself is
+  // already 0 — a 0 ₴ price is free either way, never a formatted "0 ₴".
   return {
     bestUah: offer.priceUah,
     regularUah: offer.regularPriceUah,
     discountPercent: offer.discountPercent ?? 0,
-    isFree: false,
+    isFree: offer.isFree ?? offer.priceUah === 0,
   }
 })
 const priceUpdatedHours = computed(() => {
   const updatedAt = steamOffer.value?.updatedAt
   return updatedAt && props.now ? hoursSince(updatedAt, props.now) : null
 })
+// `hoursSince` rounds to 0 for anything under ~30 minutes — "updated 0 hours ago" would read like
+// a broken counter, so that case gets its own "just now" string instead of the plural form.
+const priceUpdatedRecently = computed(() => priceUpdatedHours.value === 0)
 
 const localisationLabel = computed(() => {
   const localisation = props.game.localisation
@@ -108,8 +113,11 @@ const ratingAriaLabel = computed(() => {
       <dt class="text-xs text-fg-2">{{ t('game.priceLabel') }}</dt>
       <dd class="flex flex-col gap-0.5">
         <PriceTag :price="steamPrice" />
+        <span v-if="priceUpdatedRecently" class="text-xs text-fg-2">{{
+          t('game.priceUpdatedRecently')
+        }}</span>
         <i18n-t
-          v-if="priceUpdatedHours !== null"
+          v-else-if="priceUpdatedHours !== null"
           keypath="game.priceUpdated"
           tag="span"
           :plural="priceUpdatedHours"

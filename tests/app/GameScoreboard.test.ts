@@ -19,6 +19,7 @@ const game = {
     priceUah: number | null
     regularPriceUah: number | null
     discountPercent: number | null
+    isFree?: boolean | null
     updatedAt: string | null
   }[],
   localisation: null as { text: boolean; audio: boolean } | null,
@@ -181,6 +182,74 @@ describe('GameScoreboard', () => {
         },
       })
       expect(wrapper.findComponent(PriceTag).exists()).toBe(false)
+    })
+
+    it('shows "just now" instead of "0 hours ago" for a price updated under an hour ago', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'steam',
+                priceUah: 1349,
+                regularPriceUah: null,
+                discountPercent: null,
+                updatedAt: '2026-09-18T11:40:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.text()).toContain('оновлено щойно')
+      expect(wrapper.text()).not.toContain('0 годин')
+      expect(wrapper.text()).not.toContain('оновлено 0')
+    })
+
+    it('shows "Безкоштовно" for a free Steam game with an explicit isFree flag, not "0 ₴"', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'steam',
+                priceUah: 0,
+                regularPriceUah: null,
+                discountPercent: null,
+                isFree: true,
+                updatedAt: '2026-09-18T09:00:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.text()).toContain('Безкоштовно')
+      expect(wrapper.text()).not.toContain('₴')
+    })
+
+    it('also treats a 0 ₴ Steam price as free when isFree is missing (older/partial data)', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'steam',
+                priceUah: 0,
+                regularPriceUah: null,
+                discountPercent: null,
+                updatedAt: '2026-09-18T09:00:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.text()).toContain('Безкоштовно')
+      expect(wrapper.text()).not.toContain('₴')
     })
   })
 

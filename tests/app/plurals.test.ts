@@ -38,6 +38,20 @@ const EXPECTED = {
     uk: { 1: '1 оцінка', 2: '2 оцінки', 5: '5 оцінок', 21: '21 оцінка' },
     en: { 1: '1 rating', 2: '2 ratings', 5: '5 ratings', 21: '21 ratings' },
   },
+  priceUpdated: {
+    uk: {
+      1: 'оновлено 1 годину тому',
+      2: 'оновлено 2 години тому',
+      5: 'оновлено 5 годин тому',
+      21: 'оновлено 21 годину тому',
+    },
+    en: {
+      1: 'updated 1 hour ago',
+      2: 'updated 2 hours ago',
+      5: 'updated 5 hours ago',
+      21: 'updated 21 hours ago',
+    },
+  },
 } as const
 
 /**
@@ -200,5 +214,38 @@ describe('plural forms at the call sites', () => {
       expect(wrapper.text()).toContain(EXPECTED.ratings[locale][count])
       wrapper.unmount()
     })
+
+    it.each(COUNTS)(
+      'the scoreboard "updated N hours ago" caption reads correctly for %i',
+      async (count) => {
+        await switchLocale(locale)
+        const now = '2026-09-18T12:00:00.000Z'
+        const updatedAt = new Date(Date.parse(now) - count * 3_600_000).toISOString()
+        const wrapper = await mountSuspended(GameScoreboard, {
+          props: {
+            game: {
+              released: null,
+              metacritic: null,
+              rating: null,
+              ratingsCount: null,
+              platformFamilies: [] as const,
+              stores: [
+                {
+                  store: 'steam',
+                  priceUah: 337,
+                  regularPriceUah: 1349,
+                  discountPercent: 75,
+                  updatedAt,
+                },
+              ],
+              localisation: null,
+            },
+            now,
+          },
+        })
+        expect(wrapper.text()).toContain(EXPECTED.priceUpdated[locale][count])
+        wrapper.unmount()
+      },
+    )
   })
 })

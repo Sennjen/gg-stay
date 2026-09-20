@@ -180,6 +180,7 @@
     "descriptionSourceSteam": "Опис: Steam",
     "metaFallback": "{name} — платформи, жанри, рейтинг і магазини.",
     "priceLabel": "Ціна в Steam",
+    "priceUpdatedRecently": "оновлено щойно",
     "priceUpdated": "оновлено {count} годину тому | оновлено {count} години тому | оновлено {count} годин тому",
     "localisationLabel": "Українська",
     "localisationText": "Текст",

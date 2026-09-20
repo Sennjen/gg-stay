@@ -180,6 +180,7 @@
     "descriptionSourceSteam": "Description: Steam",
     "metaFallback": "{name} — platforms, genres, ratings and stores.",
     "priceLabel": "Steam price",
+    "priceUpdatedRecently": "updated just now",
     "priceUpdated": "updated {count} hour ago | updated {count} hours ago",
     "localisationLabel": "Ukrainian",
     "localisationText": "Text",
