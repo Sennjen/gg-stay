@@ -2,8 +2,16 @@
 import { STORE_OPTIONS } from '#shared/catalog'
 import { safeExternalUrl } from '#shared/url'
 
-const props = defineProps<{ offers: { store: string; url: string }[] }>()
+const props = defineProps<{
+  offers: {
+    store: string
+    url: string
+    priceUah?: number | null
+    discountPercent?: number | null
+  }[]
+}>()
 const { t } = useI18n()
+const { formatUah } = useFormatters()
 const storeName = (slug: string) =>
   STORE_OPTIONS.find((option) => option.slug === slug)?.name ?? slug
 
@@ -32,6 +40,13 @@ const safeOffers = computed(() =>
           class="inline-flex items-center gap-1.5 rounded-chip border border-line bg-surface-1 px-3 py-1.5 text-sm text-fg transition-colors duration-200 ease-out hover:bg-surface-2 focus-visible:outline-2"
         >
           {{ storeName(offer.store) }}
+          <template v-if="offer.priceUah != null">
+            <span aria-hidden="true">·</span>
+            <span class="font-numeric">{{ formatUah(offer.priceUah) }}</span>
+            <span v-if="offer.discountPercent" class="font-numeric"
+              >−{{ offer.discountPercent }}%</span
+            >
+          </template>
           <svg
             aria-hidden="true"
             viewBox="0 0 16 16"

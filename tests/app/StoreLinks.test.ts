@@ -55,4 +55,59 @@ describe('StoreLinks', () => {
     const wrapper = await mountSuspended(StoreLinks, { props: { offers: [] } })
     expect(wrapper.find('section').exists()).toBe(false)
   })
+
+  it('shows the Steam price and discount inline with the store name', async () => {
+    const wrapper = await mountSuspended(StoreLinks, {
+      props: {
+        offers: [
+          {
+            store: 'steam',
+            url: 'https://store.steampowered.com/app/292030/',
+            priceUah: 337,
+            discountPercent: 75,
+          },
+        ],
+      },
+    })
+    const link = wrapper.get('a')
+    const text = link.text().replace(/\s+/g, ' ')
+    expect(text).toContain('Steam')
+    expect(text).toContain('337')
+    expect(text).toContain('₴')
+    expect(text).toContain('−75%')
+  })
+
+  it('shows the Steam price with no discount chip when there is no sale', async () => {
+    const wrapper = await mountSuspended(StoreLinks, {
+      props: {
+        offers: [
+          {
+            store: 'steam',
+            url: 'https://store.steampowered.com/app/292030/',
+            priceUah: 1349,
+            discountPercent: 0,
+          },
+        ],
+      },
+    })
+    const link = wrapper.get('a')
+    const text = link.text().replace(/\s+/g, ' ')
+    expect(text).toContain('Steam')
+    expect(text).toContain('349')
+    expect(text).toContain('₴')
+    expect(text).not.toContain('%')
+  })
+
+  it('leaves a store link plain when it has no price (also true for every non-Steam store today)', async () => {
+    const wrapper = await mountSuspended(StoreLinks, {
+      props: {
+        offers: [
+          { store: 'steam', url: 'https://store.steampowered.com/app/292030/' },
+          { store: 'gog', url: 'https://www.gog.com/x' },
+        ],
+      },
+    })
+    const links = wrapper.findAll('a')
+    expect(links.map((link) => link.text())).toEqual(['Steam', 'GOG'])
+  })
 })
