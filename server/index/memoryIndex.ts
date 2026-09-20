@@ -155,6 +155,13 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 
   async publish(version: number, meta: IndexMeta): Promise<void> {
+    // Publishing the version that is already live is a no-op that refreshes the run metadata: a
+    // job that finishes its checks twice must not make the live version its own predecessor and
+    // set its keys to expire.
+    if (this.live?.version === version) {
+      this.live.meta = { ...meta }
+      return
+    }
     const draft = this.drafts.get(version)
     if (!draft) throw new Error(`Unknown index version ${version}`)
     // The replaced version would expire on Upstash; here it is simply dropped.
@@ -164,6 +171,9 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 
   async discardVersion(version: number): Promise<void> {
+    if (this.live?.version === version) {
+      throw new Error(`Index version ${version} is published and cannot be discarded`)
+    }
     this.drafts.delete(version)
   }
 
