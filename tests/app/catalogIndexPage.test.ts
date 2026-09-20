@@ -89,6 +89,23 @@ describe('the catalog on the index path', () => {
     ])
   })
 
+  it('keeps the chip row when every filter on the page was declined, with no badge', async () => {
+    const wrapper = await renderCatalog('/games?priceMaxUah=300', {
+      total: 9,
+      ignoredFilters: ['priceMaxUah'],
+    })
+    // Nothing is being applied, so there is no count to show — but the filter is in the URL, so
+    // it must still be on screen and removable.
+    expect(wrapper.text()).not.toContain('Фільтри (')
+    expect(wrapper.text()).toContain('Фільтри')
+    const struck = wrapper.findAll('[data-test="ignored-chip"]')
+    expect(struck).toHaveLength(1)
+    // Still removable: the chip carries its own remove control. (What the click then does to the
+    // URL is `useGameFilters`' job and is pinned in its own suite — `mountSuspended` mounts
+    // against a router detached from the app's real one, see tests/app/useGameFilters.test.ts.)
+    expect(struck[0]!.get('button[aria-label]').attributes('aria-label')).toBe('Прибрати до 300 ₴')
+  })
+
   it('offers the index total on the drawer button while an index filter is set', async () => {
     await renderCatalog('/games?free=1', { total: 12, indexedOnly: true })
     useFiltersStore().panelOpen = true
@@ -112,9 +129,12 @@ describe('the catalog on the index path', () => {
       const struck = wrapper.findAll('[data-test="ignored-chip"]')
       expect(struck).toHaveLength(1)
       expect(struck[0]!.text()).toContain('не застосовано: ціни тимчасово не оновлюються')
-      // Struck through, but still counted and still removable.
-      expect(wrapper.text()).toContain('Фільтри (2)')
+      // Two filters in the URL, one of them declined: the badge counts the one that is actually
+      // shaping the list, and the declined one stays on screen, struck through and removable.
+      expect(wrapper.text()).toContain('Фільтри (1)')
+      expect(wrapper.text()).not.toContain('Фільтри (2)')
       expect(struck[0]!.find('button[aria-label]').exists()).toBe(true)
+      expect(wrapper.findAll('button[aria-label^="Прибрати"]')).toHaveLength(2)
 
       useFiltersStore().panelOpen = true
       await nextTick()

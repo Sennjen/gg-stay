@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CatalogTaxonomiesDocument, GamesDocument } from '~/graphql/__generated__/operations'
+import { countActiveFilters } from '~/utils/filterUrl'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE } from '#shared/catalog'
 
 const { t } = useI18n()
@@ -40,6 +41,14 @@ const indexedOnly = computed(() => page.value?.indexedOnly ?? false)
 const ignoredFilters = computed<readonly string[]>(() => page.value?.ignoredFilters ?? [])
 const sortIgnored = computed(() => ignoredFilters.value.includes('sort'))
 
+/**
+ * Two counts, on purpose. `activeCount` is what the URL carries, and it decides whether the chip
+ * row exists at all — a page whose only filter was declined must still show that filter, struck
+ * through and removable. `appliedCount` is what the badge says, and it leaves the declined ones
+ * out, so "Фільтри (N)" never claims to be shaping the list with a filter the answer dropped.
+ */
+const appliedCount = computed(() => countActiveFilters(state.value.filter, ignoredFilters.value))
+
 const filtersButtonEl = ref<HTMLButtonElement>()
 
 useSeoMeta({
@@ -63,9 +72,9 @@ useSeoMeta({
         class="rounded-chip border border-line bg-surface-1 px-4 py-2 text-sm text-fg focus-visible:outline-2"
         @click="store.panelOpen = true"
       >
-        <i18n-t v-if="activeCount" keypath="drawer.openButton" tag="span">
+        <i18n-t v-if="appliedCount" keypath="drawer.openButton" tag="span">
           <template #count
-            ><span class="font-numeric">{{ activeCount }}</span></template
+            ><span class="font-numeric">{{ appliedCount }}</span></template
           >
         </i18n-t>
         <template v-else>{{ t('catalog.filters') }}</template>

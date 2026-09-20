@@ -270,4 +270,26 @@ describe('countActiveFilters', () => {
     expect(countActiveFilters({})).toBe(0)
     expect(countActiveFilters({ genres: ['rpg', 'action'], upcoming: true, search: 'x' })).toBe(3)
   })
+
+  it('leaves out a filter the answer could not apply', () => {
+    // The badge says how many filters are shaping the list on screen. A filter the server
+    // declined is still in the URL, still has its chip and is still removable — but it is not
+    // shaping anything, and counting it would make the badge disagree with the results.
+    const filter = { genres: ['rpg'], priceMaxUah: 300, ukrainianLocalisation: 'TEXT' } as const
+    expect(countActiveFilters(filter)).toBe(3)
+    expect(countActiveFilters(filter, ['priceMaxUah'])).toBe(2)
+    expect(countActiveFilters(filter, ['priceMaxUah', 'ukrainianLocalisation'])).toBe(1)
+  })
+
+  it('counts a multi-value filter once, and drops it once when it is ignored', () => {
+    const filter = { developers: ['cd-projekt-red', 'valve'], free: true }
+    expect(countActiveFilters(filter)).toBe(2)
+    expect(countActiveFilters(filter, ['developers'])).toBe(1)
+  })
+
+  it('ignores names that are not filters, and names of filters that are not set', () => {
+    // `sort` is in `ignoredFilters` too, and it is not a filter; a name for a field the URL does
+    // not carry must not push the count below what is actually there.
+    expect(countActiveFilters({ free: true }, ['sort', 'onSaleMinPercent', 'publishers'])).toBe(1)
+  })
 })

@@ -178,10 +178,21 @@ export function serializeFilterState({ filter, sort, page }: CatalogState): Reco
   return Object.fromEntries(entries.filter((entry): entry is [string, string] => Boolean(entry[1])))
 }
 
-export function countActiveFilters(filter: CatalogFilter): number {
-  return Object.values(filter).filter((value) =>
-    Array.isArray(value)
+/**
+ * How many filters are shaping the list on screen.
+ *
+ * `ignored` is `GamePage.ignoredFilters` — the schema field names the answer could not apply. A
+ * filter named there is still in the URL, still has its chip and is still removable, but it is not
+ * shaping anything, so it does not belong in the "Фільтри (N)" badge: a visitor comparing the
+ * badge with the results would otherwise be counting a filter that is visibly struck through two
+ * lines below. Names that are not filter fields (`sort`) and names of fields the URL does not
+ * carry are simply not found, so they cannot push the count below what is really set.
+ */
+export function countActiveFilters(filter: CatalogFilter, ignored: readonly string[] = []): number {
+  return Object.entries(filter).filter(([key, value]) => {
+    if (ignored.includes(key)) return false
+    return Array.isArray(value)
       ? value.length > 0
-      : value !== undefined && value !== '' && value !== false,
-  ).length
+      : value !== undefined && value !== '' && value !== false
+  }).length
 }
