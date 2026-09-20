@@ -37,11 +37,11 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
 
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/50 to-transparent"
+      class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/75 to-ink/25"
     />
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/10 to-transparent"
+      class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/90 via-ink/45 to-transparent"
     />
     <!-- Keeps the transparent sticky header's nav text readable over any poster, even on the
          landing route where AppHeader has no background of its own — see DESIGN.md/#header-h.
