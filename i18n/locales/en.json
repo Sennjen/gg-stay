@@ -78,7 +78,13 @@
     "noCover": "No cover",
     "view": "Catalog layout",
     "viewGrid": "Grid",
-    "viewList": "List"
+    "viewList": "List",
+    "indexedOnlyNote": "Searching the {count} most popular games — they are the only ones we know prices and languages for.",
+    "pricesUpdated": "Prices updated {count} hour ago | Prices updated {count} hours ago",
+    "pricesUpdatedRecently": "Prices updated just now",
+    "staleTitle": "Prices are not being refreshed right now",
+    "staleBody": "We do not show stale prices, so the price filters and sorts are off for now. The rest of the catalog works as usual.",
+    "sortIgnored": "“{name}” was not applied"
   },
   "filters": {
     "platform": "Platform",
@@ -96,7 +102,18 @@
     "store": "Store",
     "developer": "Developer",
     "developerPlaceholder": "Start typing a studio name",
-    "remove": "Remove {name}"
+    "remove": "Remove {name}",
+    "price": "Price",
+    "priceUpTo": "up to {price}",
+    "priceOwn": "Your own amount, ₴",
+    "priceOwnPlaceholder": "e.g. 450",
+    "discount": "Discount",
+    "discountFrom": "from {value}%",
+    "localisation": "Ukrainian localisation",
+    "localisationAny": "Any",
+    "localisationText": "Text",
+    "localisationAudio": "Voice acting",
+    "localisationNotImportant": "Does not matter"
   },
   "sorts": {
     "POPULARITY_DESC": "Popularity",
@@ -104,7 +121,10 @@
     "METACRITIC_DESC": "Metacritic",
     "RELEASED_DESC": "Newest first",
     "RELEASED_ASC": "Oldest first",
-    "NAME_ASC": "Name"
+    "NAME_ASC": "Name",
+    "PRICE_ASC": "Cheapest first",
+    "PRICE_DESC": "Most expensive first",
+    "DISCOUNT_DESC": "Biggest discount"
   },
   "playtimes": {
     "SHORT": "Short (under 10 h)",
@@ -157,7 +177,13 @@
     "search": "“{term}”",
     "yearFrom": "from {year}",
     "yearTo": "up to {year}",
-    "resetAll": "Reset all"
+    "resetAll": "Reset all",
+    "localisationANY": "Ukrainian: any",
+    "localisationTEXT": "Ukrainian: text",
+    "localisationAUDIO": "Ukrainian: voice acting",
+    "ignored": "not applied: {reason}",
+    "ignoredStalePrices": "prices are not being refreshed right now",
+    "ignoredWithPriceFilter": "cannot be combined with the price filters"
   },
   "game": {
     "backToCatalog": "← Back to the catalog",
