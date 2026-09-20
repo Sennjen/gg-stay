@@ -27,6 +27,7 @@
     "@nuxtjs/i18n": "^10.6.0",
     "@pinia/nuxt": "^1.0.2",
     "@tailwindcss/vite": "^4.3.3",
+    "@upstash/redis": "^1.38.4",
     "graphql": "^17.0.2",
     "graphql-yoga": "^5.24.0",
     "hls.js": "^1.7.3",
