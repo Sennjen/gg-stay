@@ -5,7 +5,7 @@ import type {
   LocalisationValue,
   PlaytimeValue,
 } from '../../shared/catalog'
-import type { IndexMeta, IndexedGame } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
 
 /**
  * The port the catalog reads the price and localisation index through, and the port the refresh
@@ -116,26 +116,68 @@ export interface GameIndex {
  * round trip per game is not affordable.
  */
 export interface BeginVersionOptions {
-  /** Take over a write lock that has been held longer than the adapter allows. */
+  /**
+   * Take over a write lock that has been held longer than the adapter allows. Only a human sets
+   * this, through the workflow's `force_unlock` input, after a run died holding the lock.
+   */
   force?: boolean
+}
+
+/** What one run cost the store, when the adapter counts it. Reported in the job summary. */
+export interface IndexWriteStats {
+  /** HTTP requests made to the store. */
+  requests: number
+  /** Redis commands sent inside them. */
+  commands: number
+  /** Bytes of command payload written, as the request bodies measure them. */
+  bytes: number
 }
 
 export interface GameIndexWriter {
   beginVersion(options?: BeginVersionOptions): Promise<number>
   writeVersion(version: number, games: IndexedGame[]): Promise<void>
   publish(version: number, meta: IndexMeta): Promise<void>
+  /** Drops the draft and releases the writer lock, whether or not the draft is known. */
   discardVersion(version: number): Promise<void>
+  /**
+   * Gives this run's write lock a fresh life without changing what it holds, and does nothing
+   * when the run does not hold it. `writeVersion` refreshes the lock as it goes, but every long
+   * stage of a refresh — the candidate walk, the app-id lookups, the hour-long language sweep —
+   * happens before `writeVersion` is reached, so the job renews the lock itself between stages
+   * and between batches. Without it the lock's life would have to cover a whole run, and a run
+   * that died would block the next one for that long.
+   */
+  renewLock(): Promise<void>
   currentVersion(): Promise<number | null>
   /** The published version's meta — the blue/green check compares against it. */
   meta(): Promise<IndexMeta | null>
   /** The meta of the version the last publish replaced, or `null` when there was none. */
   previousMeta(): Promise<IndexMeta | null>
+  /**
+   * Every document of the published version, in no particular order; empty when nothing is
+   * published. `--mode=prices` and `--mode=languages` rebuild from these, so they never ask RAWG
+   * for a catalog they already hold.
+   */
+  allGames(): Promise<IndexedGame[]>
   /** Only the ids that were resolved appear; the empty string means "has no Steam app id". */
   getAppIds(ids: number[]): Promise<Map<number, string>>
   setAppIds(entries: Iterable<[number, string]>): Promise<void>
+  /**
+   * Steam language records by app id, outside the version prefix. Only the app ids that have a
+   * record appear. The refresh job's work list is "no record, or a record older than a week", so
+   * every app the job reads is saved the moment it is read and no run repeats another's work.
+   */
+  getLanguages(appIds: string[]): Promise<Map<string, IndexedLanguages>>
+  setLanguages(entries: Iterable<[string, IndexedLanguages]>): Promise<void>
   getCursor(stage: string): Promise<string | null>
   setCursor(stage: string, cursor: string): Promise<void>
   clearCursor(stage: string): Promise<void>
+  /**
+   * What this adapter has written since it was created, when it counts — the job prints it in the
+   * summary so the free tier's command and storage budgets can be watched. Optional: an adapter
+   * that counts nothing simply does not implement it.
+   */
+  stats?(): IndexWriteStats | null
 }
 
 export const DEFAULT_SORT: GameSortValue = 'POPULARITY_DESC'

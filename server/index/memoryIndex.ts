@@ -7,7 +7,7 @@ import type {
   IndexQuery,
   IndexSearchResult,
 } from './GameIndex'
-import type { IndexMeta, IndexedGame } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
 import type { PlannedRange, QueryPlan } from './queryPlan'
 import { planQuery } from './queryPlan'
 
@@ -18,6 +18,7 @@ interface MemoryStore {
   lastVersion: number
   previous: IndexMeta | null
   appIds: Map<number, string>
+  languages: Map<string, IndexedLanguages>
   cursors: Map<string, string>
   /** The run that may write, or `null` when nobody is writing. */
   lock: string | null
@@ -138,6 +139,7 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
       lastVersion: 0,
       previous: null,
       appIds: new Map(),
+      languages: new Map(),
       cursors: new Map(),
       lock: null,
       lockedAt: 0,
@@ -256,6 +258,29 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
 
   async currentVersion(): Promise<number | null> {
     return this.live?.version ?? null
+  }
+
+  async renewLock(): Promise<void> {
+    // Nothing here expires, so renewing only resets when the lock was taken — which is what a
+    // forced take-over measures against, so a run that keeps renewing cannot be taken over.
+    if (this.store.lock === this.runId) this.store.lockedAt = this.now()
+  }
+
+  async allGames(): Promise<IndexedGame[]> {
+    return [...(this.live?.plan.docs.values() ?? [])].map(clone)
+  }
+
+  async getLanguages(appIds: string[]): Promise<Map<string, IndexedLanguages>> {
+    const found = new Map<string, IndexedLanguages>()
+    for (const appId of appIds) {
+      const record = this.store.languages.get(appId)
+      if (record) found.set(appId, { ...record })
+    }
+    return found
+  }
+
+  async setLanguages(entries: Iterable<[string, IndexedLanguages]>): Promise<void> {
+    for (const [appId, record] of entries) this.store.languages.set(appId, { ...record })
   }
 
   async getAppIds(ids: number[]): Promise<Map<number, string>> {

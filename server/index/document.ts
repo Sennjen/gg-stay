@@ -52,6 +52,22 @@ export interface IndexedGame {
   priceUpdatedAt: string | null
 }
 
+/**
+ * What Steam said about one app's languages, kept outside the version prefix under
+ * `lang:{appId}` so it survives publications. It is the refresh job's work list: an app with no
+ * record, or a record older than a week, is due; everything else is applied from here without a
+ * request. Storing the answer rather than a position in a list is what makes the language stage
+ * resumable — a run that dies has still saved every app it read.
+ */
+export interface IndexedLanguages {
+  text: boolean
+  audio: boolean
+  /** Steam's `is_free`, which is the only thing that tells a free game from an unsold one. */
+  isFree: boolean
+  /** ISO timestamp of the read. */
+  updatedAt: string
+}
+
 export interface IndexRunStats {
   gamesIndexed: number
   pricesFetched: number

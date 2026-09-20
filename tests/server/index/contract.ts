@@ -308,6 +308,17 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           expect(await adapter.index.getMany([])).toEqual(new Map())
         })
 
+        it('hands the whole published version to the refresh job', async () => {
+          const all = await adapter.writer.allGames()
+          expect(all).toHaveLength(FIXTURE_GAMES.length)
+          expect(all.map((entry) => entry.id).sort((a, b) => a - b)).toEqual(
+            FIXTURE_GAMES.map((entry) => entry.id).sort((a, b) => a - b),
+          )
+          expect(all.find((entry) => entry.id === 3)).toEqual(
+            FIXTURE_GAMES.find((entry) => entry.id === 3),
+          )
+        })
+
         it('reports the published meta, version included', async () => {
           const meta = await adapter.index.meta()
           expect(meta).toMatchObject({
@@ -345,6 +356,7 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(await adapter.index.getMany([1, 2])).toEqual(new Map())
         expect(await adapter.index.meta()).toBeNull()
         expect(await adapter.writer.meta()).toBeNull()
+        expect(await adapter.writer.allGames()).toEqual([])
         expect(await adapter.writer.previousMeta()).toBeNull()
         expect(await adapter.writer.currentVersion()).toBeNull()
       })
@@ -561,6 +573,53 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(resolved.get(3328)).toBe('292030')
         expect(resolved.get(4200)).toBe('')
         expect(resolved.has(5000)).toBe(false)
+      })
+
+      it('stores Steam language records in batches, across publications', async () => {
+        expect(await adapter.writer.getLanguages(['292030'])).toEqual(new Map())
+        await adapter.writer.setLanguages([
+          [
+            '292030',
+            { text: true, audio: true, isFree: false, updatedAt: '2026-09-13T00:00:00.000Z' },
+          ],
+          [
+            '413150',
+            { text: true, audio: false, isFree: false, updatedAt: '2026-09-20T00:00:00.000Z' },
+          ],
+        ])
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+
+        const records = await adapter.writer.getLanguages(['292030', '413150', '999'])
+        expect(records.get('292030')).toEqual({
+          text: true,
+          audio: true,
+          isFree: false,
+          updatedAt: '2026-09-13T00:00:00.000Z',
+        })
+        expect(records.get('413150')?.audio).toBe(false)
+        expect(records.has('999')).toBe(false)
+      })
+
+      it('overwrites a language record with a newer read', async () => {
+        await adapter.writer.setLanguages([
+          [
+            '620',
+            { text: false, audio: false, isFree: false, updatedAt: '2026-09-01T00:00:00.000Z' },
+          ],
+        ])
+        await adapter.writer.setLanguages([
+          [
+            '620',
+            { text: true, audio: false, isFree: true, updatedAt: '2026-09-20T00:00:00.000Z' },
+          ],
+        ])
+
+        expect((await adapter.writer.getLanguages(['620'])).get('620')).toEqual({
+          text: true,
+          audio: false,
+          isFree: true,
+          updatedAt: '2026-09-20T00:00:00.000Z',
+        })
       })
 
       it('stores and clears a resume cursor per stage', async () => {
