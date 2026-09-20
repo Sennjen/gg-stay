@@ -46,6 +46,11 @@ export default defineNuxtConfig({
   runtimeConfig: {
     rawgApiKey: process.env.RAWG_API_KEY ?? '',
     rawgFixtures: process.env.RAWG_FIXTURES ?? '',
+    // The price and localisation index. Server-side only, and deliberately not under `public`:
+    // even the read-only token must never reach the browser. Without both values the site falls
+    // back to the in-memory index, so development and CI need no credentials.
+    upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL ?? '',
+    upstashRedisRestToken: process.env.UPSTASH_REDIS_REST_TOKEN ?? '',
   },
   routeRules: {
     // Static headers only. The Content-Security-Policy is deliberately NOT here: the Vercel preset
@@ -77,6 +82,10 @@ export default defineNuxtConfig({
       {
         baseName: 'steam-fixtures',
         dir: fileURLToPath(new URL('./tests/fixtures/steam', import.meta.url)),
+      },
+      {
+        baseName: 'index-fixtures',
+        dir: fileURLToPath(new URL('./tests/fixtures/index', import.meta.url)),
       },
     ],
   },
