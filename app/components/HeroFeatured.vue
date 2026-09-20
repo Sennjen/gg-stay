@@ -26,7 +26,7 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
       :sizes="HERO_IMAGE_SIZES"
       loading="eager"
       fetchpriority="high"
-      preload
+      :preload="{ fetchPriority: 'high' }"
       class="hero-poster absolute inset-0 h-full w-full object-cover"
       :class="{ 'hero-poster--paused': paused }"
     />
