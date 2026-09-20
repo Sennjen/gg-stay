@@ -16,7 +16,6 @@ import {
   orderKey,
   platformFacetKey,
   playtimeFacetKey,
-  pricedFacetKey,
   rangeKey,
   storeFacetKey,
   versionPrefix,
@@ -37,7 +36,6 @@ describe('index keys', () => {
     expect(localisationFacetKey(2, 'audio')).toBe('idx:v2:f:loc:audio')
     expect(freeFacetKey(2)).toBe('idx:v2:f:free')
     expect(madeInUkraineFacetKey(2)).toBe('idx:v2:f:ua')
-    expect(pricedFacetKey(2)).toBe('idx:v2:f:priced')
     expect(metaKey(2)).toBe('idx:v2:meta')
     expect(namesKey(2)).toBe('idx:v2:names')
   })
@@ -80,19 +78,18 @@ describe('index keys', () => {
     }
   })
 
-  it('leaves a game out of the priced and free facets when it has no price', () => {
-    const game = FIXTURE_GAMES.find((entry) => entry.id === 14)!
-    const keys = facetKeysOf(1, game)
-    expect(keys).not.toContain('idx:v1:f:priced')
-    expect(keys).not.toContain('idx:v1:f:free')
-  })
-
-  it('puts a priced game in the priced facet and a free game in both', () => {
+  it('puts only a free game in the free facet', () => {
+    const unpriced = FIXTURE_GAMES.find((entry) => entry.id === 14)!
+    expect(facetKeysOf(1, unpriced)).not.toContain('idx:v1:f:free')
     const free = FIXTURE_GAMES.find((entry) => entry.id === 28)!
     expect(facetKeysOf(1, free)).toContain('idx:v1:f:free')
-    expect(facetKeysOf(1, free)).toContain('idx:v1:f:priced')
     const paid = FIXTURE_GAMES.find((entry) => entry.id === 27)!
-    expect(facetKeysOf(1, paid)).toContain('idx:v1:f:priced')
     expect(facetKeysOf(1, paid)).not.toContain('idx:v1:f:free')
+  })
+
+  it('writes no "has a price" facet: the price and discount range sets hold those games', () => {
+    for (const game of FIXTURE_GAMES) {
+      for (const key of facetKeysOf(1, game)) expect(key).not.toContain(':f:priced')
+    }
   })
 })

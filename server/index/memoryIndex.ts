@@ -2,7 +2,6 @@ import type { IndexPlan } from './buildPlan'
 import { buildIndexPlan } from './buildPlan'
 import type { GameIndex, GameIndexWriter, IndexQuery, IndexSearchResult } from './GameIndex'
 import type { IndexMeta, IndexedGame } from './document'
-import { pricedFacetKey } from './keys'
 import type { PlannedRange, QueryPlan } from './queryPlan'
 import { planQuery } from './queryPlan'
 
@@ -209,9 +208,6 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
       const union = new Set<number>()
       for (const key of group) for (const id of live.facets.get(key) ?? []) union.add(id)
       sets.push(union)
-    }
-    if (plan.requirePriced) {
-      sets.push(new Set(live.facets.get(pricedFacetKey(live.version)) ?? []))
     }
     for (const range of plan.ranges) sets.push(this.rangeSet(live, range))
     return sets

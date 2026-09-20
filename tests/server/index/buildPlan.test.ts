@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndexPlan } from '../../../server/index/buildPlan'
 import { daysSinceEpoch } from '../../../server/index/document'
-import { orderKey, pricedFacetKey, rangeKey } from '../../../server/index/keys'
+import { orderKey, rangeKey } from '../../../server/index/keys'
 import { FIXTURE_GAMES } from '../../fixtures/index/games'
 
 const plan = buildIndexPlan(1, FIXTURE_GAMES)
@@ -49,7 +49,6 @@ describe('buildIndexPlan', () => {
     expect(order('DISCOUNT_DESC')).toHaveLength(priced.length)
     expect([...range('price').keys()].sort((a, b) => a - b)).toEqual(priced)
     expect([...range('discount').keys()].sort((a, b) => a - b)).toEqual(priced)
-    expect(plan.facets.get(pricedFacetKey(1))!.sort((a, b) => a - b)).toEqual(priced)
   })
 
   it('leaves games without a release date out of the release orders and range', () => {
