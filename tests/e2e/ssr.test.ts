@@ -94,13 +94,62 @@ describe('server-side rendering', async () => {
     expect(html).toContain('Каталог ігор')
   })
 
-  it('renders no price line or localisation badge on cards while the index has nothing (resolvers still return null)', async () => {
-    // PR 5 fills the price/localisation resolvers; until then every card must render exactly as
-    // it did before this PR — no empty line, no "₴", no placeholder for the missing index data.
+  it('renders the price line and the localisation badge on the cards the index knows', async () => {
+    // Fixture mode seeds the in-memory index from tests/fixtures/index/published.json, which
+    // holds exactly the games the RAWG fixtures show — so the RAWG path attaches a real price to
+    // three of the four cards and leaves the fourth (unreleased-sample) without one.
     const html = await $fetch<string>('/games')
-    expect(html).not.toContain('data-test="price"')
-    expect(html).not.toContain('data-test="localisation"')
-    expect(html).not.toContain('₴')
+    expect(html).toContain('data-test="price"')
+    expect(html).toContain('data-test="localisation"')
+    expect(html).toContain('₴')
+    // The Witcher 3 is on sale in the fixture: the chip, the new price and the old one.
+    expect(html).toContain('675')
+    expect(html).toContain('1\u00a0349\u00a0\u20b4')
+    expect(html).toContain('Безкоштовно')
+    // One card per priced game, and no price line at all on the game the index never saw.
+    expect(html.match(/data-test="price"/g)?.length).toBe(3)
+  })
+
+  // The catalog URL does not carry the index filters yet — `app/utils/filterUrl.ts` gains them
+  // with the drawer sections and the chips in PR 7 — so the index path is exercised here through
+  // the BFF the page talks to, against the running server, rather than through a `/games?…` URL.
+  it('serves a price-filtered page from the index alone, through the running BFF', async () => {
+    const body = await $fetch<{ data: { games: Record<string, unknown> } }>('/api/graphql', {
+      method: 'POST',
+      body: {
+        query: `query($filter: GameFilter, $sort: GameSort) {
+          games(filter: $filter, sort: $sort) {
+            total indexedOnly indexStale ignoredFilters
+            items { slug price { bestUah isFree } }
+          }
+        }`,
+        variables: { filter: { priceMaxUah: 600 }, sort: 'PRICE_ASC' },
+      },
+    })
+    const page = body.data.games as {
+      total: number
+      indexedOnly: boolean
+      indexStale: boolean
+      items: { slug: string; price: { bestUah: number; isFree: boolean } }[]
+    }
+    expect(page).toMatchObject({ total: 2, indexedOnly: true, indexStale: false })
+    // Under 600 ₴, cheapest first: the free Stardew Valley, then Portal 2. The Witcher 3 (675 ₴)
+    // and the sample game the index never saw are both out.
+    expect(page.items.map((item) => item.slug)).toEqual(['stardew-valley', 'portal-2'])
+    expect(page.items[0]!.price).toEqual({ bestUah: 0, isFree: true })
+  })
+
+  it('serves a localisation-filtered page from the index alone, through the running BFF', async () => {
+    const body = await $fetch<{ data: { games: { items: { slug: string }[] } } }>('/api/graphql', {
+      method: 'POST',
+      body: {
+        query: `query($filter: GameFilter) {
+          games(filter: $filter) { indexedOnly items { slug localisation { text audio } } }
+        }`,
+        variables: { filter: { ukrainianLocalisation: 'AUDIO' } },
+      },
+    })
+    expect(body.data.games.items.map((item) => item.slug)).toEqual(['the-witcher-3-wild-hunt'])
   })
 
   it('renders the filters button and numbered pagination', async () => {
@@ -151,15 +200,16 @@ describe('server-side rendering', async () => {
     expect(html).toContain('92')
   })
 
-  it('shows "Немає" for localisation and no price item on the game page while the index has nothing', async () => {
-    // Same fixture-mode premise as the catalog: resolvers hard-code price/localisation to null
-    // today, so the scoreboard's price item must be entirely absent and its localisation item
-    // must show the explicit "no Ukrainian" state — never a blank or a "₴".
+  it('shows the Steam price and the Ukrainian localisation on the game page', async () => {
     const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
-    expect(html).not.toContain('Ціна в Steam')
-    expect(html).not.toContain('₴')
+    expect(html).toContain('Ціна в Steam')
+    expect(html).toContain('₴')
     expect(html).toContain('Українська')
-    expect(html).toContain('Немає')
+    expect(html).toContain('Текст і озвучка')
+    // Server-computed from the index timestamp against the request's own clock read, so the
+    // caption is the same string in the server HTML and after hydration. The number sits in its
+    // own `font-numeric` span, so the sentence is not one contiguous string in the markup.
+    expect(html).toContain('оновлено')
   })
 
   it('applies the Ukrainian plural rule server-side for the ratings count', async () => {

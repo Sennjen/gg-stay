@@ -1215,7 +1215,19 @@ export class UpstashClient extends Redis {
   }
 }
 
-export function createUpstashClient(config: { url: string; token: string }): UpstashClient {
+export interface UpstashClientConfig {
+  url: string
+  token: string
+  /**
+   * The client's retry behaviour, passed through. Its own default is five attempts with an
+   * exponential backoff, which is right for the refresh job — it can afford to wait out an
+   * incident — and wrong for the site, which races every index call against a deadline of a
+   * second and a half and has a RAWG page to render instead. `false` means one attempt.
+   */
+  retry?: false | { retries?: number; backoff?: (retryCount: number) => number }
+}
+
+export function createUpstashClient(config: UpstashClientConfig): UpstashClient {
   return new UpstashClient({
     url: config.url,
     token: config.token,
@@ -1227,6 +1239,7 @@ export function createUpstashClient(config: { url: string; token: string }): Ups
     // command, in the command layer a batch of command arrays does not go through: the replies
     // would arrive still encoded and every string a read returns would be nonsense.
     responseEncoding: false,
+    ...(config.retry === undefined ? {} : { retry: config.retry }),
   })
 }
 
@@ -1241,6 +1254,6 @@ export function createUpstashCommandsOn(client: UpstashClient): RedisCommands {
   )
 }
 
-export function createUpstashCommands(config: { url: string; token: string }): RedisCommands {
+export function createUpstashCommands(config: UpstashClientConfig): RedisCommands {
   return createUpstashCommandsOn(createUpstashClient(config))
 }

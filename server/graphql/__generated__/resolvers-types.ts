@@ -121,6 +121,12 @@ export type GameMode =
 
 export type GamePage = {
   hasNext: Scalars['Boolean']['output'];
+  /**
+   * Names of the filter fields this answer could not apply, so the interface can say so: a
+   * RAWG-only filter (developers, publishers, tags) combined with an index filter, or an index
+   * filter — or "sort" — dropped because the index is stale or unavailable. Empty otherwise.
+   */
+  ignoredFilters: Array<Scalars['String']['output']>;
   /** The index has not been refreshed for too long, so prices are withheld. */
   indexStale: Scalars['Boolean']['output'];
   /** ISO timestamp of the last index publication, when there is one. */
@@ -420,6 +426,7 @@ export type GameCardResolvers<ContextType = GraphQLContext, ParentType extends R
 
 export type GamePageResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['GamePage'] = ResolversParentTypes['GamePage']> = {
   hasNext?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  ignoredFilters?: Resolver<Array<ResolversTypes['String']>, ParentType, ContextType>;
   indexStale?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   indexUpdatedAt?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   indexedOnly?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;

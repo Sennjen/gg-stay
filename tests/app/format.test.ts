@@ -4,6 +4,7 @@ import {
   formatDecimal,
   formatNumber,
   formatUah,
+  groupInteger,
   hoursSince,
   splitParagraphs,
 } from '~/utils/format'
@@ -45,14 +46,47 @@ describe('formatDecimal', () => {
 })
 
 describe('formatUah', () => {
-  it('formats a whole-number hryvnia amount, no fraction digits', () => {
-    expect(formatUah(1349, 'uk-UA').replace(/\s/g, ' ')).toBe('1 349 ₴')
+  // Every assertion here is on exact code points, never on whitespace normalised away: JavaScript's
+  // `\s` matches U+00A0 and U+202F alike, so a separator that changed under a new ICU version
+  // would pass a normalising test green — and would be a hydration mismatch on every priced card.
+  it('groups the thousands with a non-breaking space and ends with a non-breaking ₴', () => {
+    expect(formatUah(1349, 'uk-UA')).toBe('1\u00a0349\u00a0\u20b4')
+    expect(formatUah(1234567, 'uk-UA')).toBe('1\u00a0234\u00a0567\u00a0\u20b4')
   })
-  it('formats zero', () => {
-    expect(formatUah(0, 'uk-UA').replace(/\s/g, ' ')).toBe('0 ₴')
+
+  it('groups with a comma in en-US, and still writes the symbol rather than a currency code', () => {
+    expect(formatUah(1349, 'en-US')).toBe('1,349\u00a0\u20b4')
+    expect(formatUah(675, 'en-US')).toBe('675\u00a0\u20b4')
   })
-  it('formats in en-US too', () => {
-    expect(formatUah(337, 'en-US').replace(/\s/g, ' ')).toBe('UAH 337')
+
+  it('needs no separator below a thousand, and formats zero', () => {
+    expect(formatUah(675, 'uk-UA')).toBe('675\u00a0\u20b4')
+    expect(formatUah(0, 'uk-UA')).toBe('0\u00a0\u20b4')
+  })
+
+  it('falls back to the non-breaking space for a locale the app does not ship', () => {
+    expect(formatUah(1349, 'fr-FR')).toBe('1\u00a0349\u00a0\u20b4')
+  })
+
+  it('writes a plain hyphen for a negative amount rather than the runtime minus sign', () => {
+    // Unreachable today — no price is negative — but the sign is one more character that must not
+    // come from CLDR if it ever becomes reachable.
+    expect(formatUah(-50, 'uk-UA')).toBe('-50\u00a0\u20b4')
+  })
+})
+
+describe('groupInteger', () => {
+  it('groups in threes from the right, in both locales the app ships', () => {
+    expect(groupInteger(6800, 'uk-UA')).toBe('6\u00a0800')
+    expect(groupInteger(6800, 'en-US')).toBe('6,800')
+    expect(groupInteger(900000, 'uk-UA')).toBe('900\u00a0000')
+    expect(groupInteger(12, 'uk-UA')).toBe('12')
+  })
+
+  it('is what formatNumber uses for a whole number, so a count is hydration-safe too', () => {
+    expect(formatNumber(6800, 'uk-UA')).toBe('6\u00a0800')
+    expect(formatNumber(6800, 'en-US')).toBe('6,800')
+    expect(formatNumber(3, 'uk-UA')).toBe('3')
   })
 })
 

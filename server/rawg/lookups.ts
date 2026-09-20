@@ -93,3 +93,41 @@ export function platformFamiliesFromSlugs(
   const present = new Set(slugs.map(platformFamilyFromSlug))
   return PLATFORM_FAMILIES.filter((family) => present.has(family))
 }
+
+/**
+ * RAWG platform ids to families, for the index path: the index document keeps platform ids (they
+ * are what the catalog's platform facet is keyed by) rather than the slugs the RAWG card path
+ * reads. Every id the catalog can filter on (`PLATFORM_OPTIONS`) is here, plus the previous
+ * generations RAWG lists for older games; anything else is `OTHER`, exactly as an unrecognised
+ * slug is.
+ */
+const PLATFORM_FAMILY_BY_ID: Record<number, PlatformFamilyValue> = {
+  4: 'PC',
+  187: 'PLAYSTATION',
+  18: 'PLAYSTATION',
+  16: 'PLAYSTATION',
+  15: 'PLAYSTATION',
+  27: 'PLAYSTATION',
+  19: 'PLAYSTATION',
+  17: 'PLAYSTATION',
+  186: 'XBOX',
+  1: 'XBOX',
+  14: 'XBOX',
+  80: 'XBOX',
+  7: 'NINTENDO',
+  8: 'NINTENDO',
+  9: 'NINTENDO',
+  13: 'NINTENDO',
+  83: 'NINTENDO',
+  10: 'NINTENDO',
+  11: 'NINTENDO',
+  105: 'NINTENDO',
+  3: 'MOBILE',
+  21: 'MOBILE',
+}
+
+/** De-duplicated and ordered like `platformFamiliesFromSlugs`, so both paths agree on a card. */
+export function platformFamiliesFromIds(ids: readonly number[]): PlatformFamilyValue[] {
+  const present = new Set(ids.map((id) => PLATFORM_FAMILY_BY_ID[id] ?? 'OTHER'))
+  return PLATFORM_FAMILIES.filter((family) => present.has(family))
+}

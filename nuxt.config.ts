@@ -47,10 +47,16 @@ export default defineNuxtConfig({
     rawgApiKey: process.env.RAWG_API_KEY ?? '',
     rawgFixtures: process.env.RAWG_FIXTURES ?? '',
     // The price and localisation index. Server-side only, and deliberately not under `public`:
-    // even the read-only token must never reach the browser. Without both values the site falls
-    // back to the in-memory index, so development and CI need no credentials.
+    // even the read-only token must never reach the browser. Without both values the site serves
+    // no prices — unless `rawgFixtures` is on, which is the one configuration where the in-memory
+    // index seeded from the recorded fixture answers, so development and CI need no credentials.
     upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL ?? '',
     upstashRedisRestToken: process.env.UPSTASH_REDIS_REST_TOKEN ?? '',
+    // How long one index call may take before the page gives up on it; see `withDeadline`.
+    indexTimeoutMs: process.env.INDEX_TIMEOUT_MS ?? '',
+    // Past this an answer counts as slow, and three slow ones in a row close the index for a
+    // while; see `withCircuit`.
+    indexSlowMs: process.env.INDEX_SLOW_MS ?? '',
   },
   routeRules: {
     // Static headers only. The Content-Security-Policy is deliberately NOT here: the Vercel preset
