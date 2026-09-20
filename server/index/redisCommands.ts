@@ -60,6 +60,51 @@ export interface RedisCommands {
   multi(): RedisBatch
 }
 
+/**
+ * The same store, with every key name of every command prefixed. It is how the live smoke test
+ * exercises a real database without touching the index the site reads: the adapter builds its keys
+ * exactly as it always does and this is the only place that knows they are moved aside.
+ */
+export function withKeyPrefix(commands: RedisCommands, prefix: string): RedisCommands {
+  if (!prefix) return commands
+
+  const moved = (key: string): string => `${prefix}${key}`
+  const movedKeys = (keys: string[]): string[] => keys.map(moved)
+  const movedEntries = (entries: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(Object.entries(entries).map(([key, value]) => [moved(key), value]))
+
+  const wrap = (batch: RedisBatch): RedisBatch => ({
+    get: (key) => batch.get(moved(key)),
+    set: (key, value) => batch.set(moved(key), value),
+    mget: (keys) => batch.mget(movedKeys(keys)),
+    mset: (entries) => batch.mset(movedEntries(entries)),
+    del: (keys) => batch.del(movedKeys(keys)),
+    incr: (key) => batch.incr(moved(key)),
+    expire: (key, seconds) => batch.expire(moved(key), seconds),
+    sadd: (key, members) => batch.sadd(moved(key), members),
+    smembers: (key) => batch.smembers(moved(key)),
+    sunionstore: (destination, keys) => batch.sunionstore(moved(destination), movedKeys(keys)),
+    zadd: (key, entries) => batch.zadd(moved(key), entries),
+    zinterstore: (destination, keys, weights) =>
+      batch.zinterstore(moved(destination), movedKeys(keys), weights),
+    zrangestore: (destination, source, min, max) =>
+      batch.zrangestore(moved(destination), moved(source), min, max),
+    zcard: (key) => batch.zcard(moved(key)),
+    zrange: (key, offset, limit) => batch.zrange(moved(key), offset, limit),
+    hgetall: (key) => batch.hgetall(moved(key)),
+    hset: (key, entries) => batch.hset(moved(key), entries),
+    exec: () => batch.exec(),
+    get size() {
+      return batch.size
+    },
+  })
+
+  return {
+    pipeline: () => wrap(commands.pipeline()),
+    multi: () => wrap(commands.multi()),
+  }
+}
+
 /** The box a queued read hands back, and the setter the batch fills it with. */
 export function createRedisResult<T>(): {
   result: RedisResult<T>

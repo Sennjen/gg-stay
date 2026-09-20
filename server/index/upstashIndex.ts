@@ -16,7 +16,7 @@ import {
 import type { PlannedRange } from './queryPlan'
 import { planQuery } from './queryPlan'
 import type { RedisBatch, RedisCommands, RedisResult } from './redisCommands'
-import { createRedisResult } from './redisCommands'
+import { createRedisResult, withKeyPrefix } from './redisCommands'
 
 /**
  * The Upstash adapter: a thin executor of `buildIndexPlan` and `planQuery`, exactly like the
@@ -65,6 +65,12 @@ export interface UpstashIndexOptions {
   tempTtlSeconds?: number
   /** The life the replaced version is given by a publication. */
   replacedTtlSeconds?: number
+  /**
+   * Moves every key this adapter touches aside, under a namespace of its own. Empty in the site
+   * and in the job; the live smoke test sets it so that it can exercise a real database without
+   * coming near the index the site reads.
+   */
+  keyPrefix?: string
 }
 
 const EMPTY_RESULT: IndexSearchResult = { ids: [], total: 0, games: [] }
@@ -121,7 +127,7 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
   private resolved: { version: number | null; at: number } | null = null
 
   constructor(commands: RedisCommands, options: UpstashIndexOptions = {}) {
-    this.commands = commands
+    this.commands = withKeyPrefix(commands, options.keyPrefix ?? '')
     this.now = options.now ?? Date.now
     this.currentVersionTtlMs = options.currentVersionTtlMs ?? 60_000
     this.commandsPerRequest = options.commandsPerRequest ?? 500
@@ -424,33 +430,22 @@ export function createUpstashIndex(
 }
 
 /**
- * The REST transport. `@upstash/redis` brings the authentication, the retries and the error
- * shapes; its typed command methods do not cover ZRANGESTORE, so the batch is sent as command
- * arrays through the client's own requester — one HTTP request per `exec`, `/pipeline` for a
- * pipeline and `/multi-exec` for a transaction.
+ * The Redis interface as command arrays, over a transport of any kind: this is the half that says
+ * what a command looks like on the wire, and it has no idea how it travels.
  */
-class RequesterRedis extends Redis {
-  get requester(): Requester {
-    return this.client
-  }
-}
-
-interface CommandReply {
+export interface CommandReply {
   result?: unknown
   error?: string
 }
 
+export type SendCommands = (
+  path: 'pipeline' | 'multi-exec',
+  commands: (string | number)[][],
+) => Promise<CommandReply[]>
+
 type Argument = string | number
 
-export function createUpstashCommands(config: { url: string; token: string }): RedisCommands {
-  const redis = new RequesterRedis({
-    url: config.url,
-    token: config.token,
-    // Values are written and read as the strings this adapter encodes; nothing may be parsed on
-    // the way back, or a card document would arrive as an object and a number as a number.
-    automaticDeserialization: false,
-  })
-
+export function createRedisCommands(send: SendCommands): RedisCommands {
   const makeBatch = (path: 'pipeline' | 'multi-exec'): RedisBatch => {
     const queued: Argument[][] = []
     const decoders: ((raw: unknown) => void)[] = []
@@ -519,10 +514,7 @@ export function createUpstashCommands(config: { url: string; token: string }): R
         if (executed) throw new Error('This batch has already been executed')
         executed = true
         if (queued.length === 0) return
-        const replies = (await redis.requester.request({
-          path: [path],
-          body: queued,
-        })) as unknown as CommandReply[]
+        const replies = await send(path, queued)
         const failure = replies.find((reply) => reply.error)
         if (failure) throw new Error(failure.error)
         replies.forEach((reply, position) => decoders[position]?.(reply.result ?? null))
@@ -537,4 +529,38 @@ export function createUpstashCommands(config: { url: string; token: string }): R
     pipeline: () => makeBatch('pipeline'),
     multi: () => makeBatch('multi-exec'),
   }
+}
+
+/**
+ * The REST transport. `@upstash/redis` brings the authentication, the retries and the error
+ * shapes; its typed command methods do not cover ZRANGESTORE, so a batch is sent as command
+ * arrays through the client's own requester — one HTTP request per `exec`, `/pipeline` for a
+ * pipeline and `/multi-exec` for a transaction.
+ */
+class RequesterRedis extends Redis {
+  get requester(): Requester {
+    return this.client
+  }
+}
+
+export function createUpstashCommands(config: { url: string; token: string }): RedisCommands {
+  const redis = new RequesterRedis({
+    url: config.url,
+    token: config.token,
+    // Values are written and read as the strings this adapter encodes; nothing may be parsed on
+    // the way back, or a card document would arrive as an object and a number as a number.
+    automaticDeserialization: false,
+    // The client asks Upstash to base64 its replies and undoes that per command, in the command
+    // layer a batch of command arrays does not go through — the replies would arrive still
+    // encoded, and every string a read returns would be nonsense.
+    responseEncoding: false,
+  })
+
+  return createRedisCommands(
+    async (path, commands) =>
+      (await redis.requester.request({
+        path: [path],
+        body: commands,
+      })) as unknown as CommandReply[],
+  )
 }

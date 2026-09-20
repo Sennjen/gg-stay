@@ -204,6 +204,34 @@ describe('upstashIndex', () => {
     })
   })
 
+  describe('an isolated key namespace', () => {
+    it('keeps a prefixed adapter out of the index another one published', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames({ index, writer: index }, FIXTURE_GAMES.slice(0, 3))
+      const site = redis.keys().sort()
+
+      const smoke = createUpstashIndex(redis, { keyPrefix: 'smoke:1700000000:' })
+      expect(await smoke.currentVersion()).toBeNull()
+      await publishGames({ index: smoke, writer: smoke }, FIXTURE_GAMES)
+      await smoke.search({ genres: ['indie', 'strategy'], priceMaxUah: 1000 })
+
+      // Every key the prefixed adapter wrote is in its own namespace, and it published a first
+      // version of its own although the store already holds one.
+      expect(await smoke.currentVersion()).toBe(1)
+      for (const key of redis.keys().filter((key) => !site.includes(key))) {
+        expect(key.startsWith('smoke:1700000000:')).toBe(true)
+      }
+      // The published index is untouched: same keys, same answer.
+      expect(
+        redis
+          .keys()
+          .filter((key) => !key.startsWith('smoke:'))
+          .sort(),
+      ).toEqual(site)
+      expect((await index.search({})).ids).toEqual([1, 2, 3])
+    })
+  })
+
   describe('publishing', () => {
     it('moves the pointer and expires the replaced version in one transaction', async () => {
       const { redis, index } = makeAdapter()
