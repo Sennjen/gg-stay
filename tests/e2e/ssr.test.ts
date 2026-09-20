@@ -110,9 +110,6 @@ describe('server-side rendering', async () => {
     expect(html.match(/data-test="price"/g)?.length).toBe(3)
   })
 
-  // The catalog URL does not carry the index filters yet — `app/utils/filterUrl.ts` gains them
-  // with the drawer sections and the chips in PR 7 — so the index path is exercised here through
-  // the BFF the page talks to, against the running server, rather than through a `/games?…` URL.
   it('serves a price-filtered page from the index alone, through the running BFF', async () => {
     const body = await $fetch<{ data: { games: Record<string, unknown> } }>('/api/graphql', {
       method: 'POST',
@@ -150,6 +147,91 @@ describe('server-side rendering', async () => {
       },
     })
     expect(body.data.games.items.map((item) => item.slug)).toEqual(['the-witcher-3-wild-hunt'])
+  })
+
+  /**
+   * The design's acceptance URLs, served from the fixture-mode seed.
+   *
+   * The seed holds the three games the RAWG fixtures show: The Witcher 3 at 675 ₴ with −50 %,
+   * Portal 2 at 225 ₴ with no discount, Stardew Valley free, and a fourth RAWG game the index
+   * never saw. That is why the design's literal first URL (≤ 300 ₴ *and* ≥ 50 % off) matches
+   * nothing here — nothing in this seed is both cheap and discounted — so it is asserted as the
+   * empty answer it honestly is, and the same query with a ceiling the seed can satisfy is
+   * asserted beside it for the cards, the order and the total.
+   */
+  describe('the acceptance URLs', () => {
+    /** The catalog card slugs in the order the page rendered them. */
+    function slugsOf(html: string): string[] {
+      const grid = html.slice(html.indexOf('<article'))
+      return [...grid.matchAll(/href="\/games\/([a-z0-9-]+)"/g)].map((match) => match[1]!)
+    }
+
+    it('answers ?priceMaxUah=300&onSaleMinPercent=50&sort=DISCOUNT_DESC from the index', async () => {
+      const html = await $fetch<string>(
+        '/games?priceMaxUah=300&onSaleMinPercent=50&sort=DISCOUNT_DESC',
+      )
+      // The index answered: the note says what the search covered, and says it server-side.
+      // (The count sits in its own `<span>` for the mono face, so the sentence is asserted in the
+      // two pieces the markup actually splits it into.)
+      expect(html).toContain('data-test="index-note"')
+      expect(html).toContain('Пошук серед ')
+      expect(html).toContain('3 000')
+      expect(html).toContain('найпопулярніших ігор — ціни й мови ми знаємо лише для них.')
+      // Exact total, and no card that breaks either constraint — there is no such game in the seed.
+      expect(html).toContain('Знайдено:')
+      expect(html).toContain('Нічого не знайдено')
+      expect(slugsOf(html)).toEqual([])
+      // Both filters are on the page, each with a chip that names it and removes it.
+      expect(html).toContain('aria-label="Прибрати до 300 ₴"')
+      expect(html).toContain('aria-label="Прибрати від 50 %"')
+      expect(html).not.toContain('data-test="ignored-chip"')
+    })
+
+    it('answers the same query with a reachable ceiling, ordered by discount', async () => {
+      const html = await $fetch<string>(
+        '/games?priceMaxUah=700&onSaleMinPercent=50&sort=DISCOUNT_DESC',
+      )
+      expect(slugsOf(html)).toEqual(['the-witcher-3-wild-hunt'])
+      // ≤ 700 ₴ and ≥ 50 % off: the one card costs 675 ₴ and carries the −50 % chip.
+      expect(html).toContain('675')
+      expect(html).toContain('50%')
+      expect(html).toContain('data-test="index-note"')
+      expect(html).not.toContain('Portal 2')
+      expect(html).not.toContain('Stardew Valley')
+    })
+
+    it('orders the whole index by discount when only the sort asks for it', async () => {
+      const html = await $fetch<string>('/games?sort=DISCOUNT_DESC')
+      // Only the priced games are in the discount order, biggest first.
+      expect(slugsOf(html)[0]).toBe('the-witcher-3-wild-hunt')
+      expect(html).toContain('data-test="index-note"')
+    })
+
+    it('answers ?ukrainianLocalisation=AUDIO&platforms=4 with a badge on every card', async () => {
+      const html = await $fetch<string>('/games?ukrainianLocalisation=AUDIO&platforms=4')
+      const slugs = slugsOf(html)
+      expect(slugs).toEqual(['the-witcher-3-wild-hunt'])
+      expect(html.match(/data-test="localisation"/g)?.length).toBe(slugs.length)
+      // The badge spells itself out, and the chip names the level that was asked for.
+      expect(html).toContain('Українська: текст і озвучка')
+      expect(html).toContain('aria-label="Прибрати Українська: озвучка"')
+    })
+
+    it('leaves a card outside the index without a price line on the default catalog', async () => {
+      const html = await $fetch<string>('/games')
+      expect(html).toContain('Unreleased Sample')
+      // Four cards, three price lines: the game the index never saw has none, and no placeholder.
+      expect(html.match(/<article/g)?.length).toBe(4)
+      expect(html.match(/data-test="price"/g)?.length).toBe(3)
+      // The default catalog is RAWG's, so it carries no "top 3 000" note.
+      expect(html).not.toContain('data-test="index-note"')
+    })
+
+    it('reaches the free games through the URL alone', async () => {
+      const html = await $fetch<string>('/games?free=1')
+      expect(slugsOf(html)).toEqual(['stardew-valley'])
+      expect(html).toContain('Безкоштовно')
+    })
   })
 
   it('renders the filters button and numbered pagination', async () => {
