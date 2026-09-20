@@ -5,10 +5,13 @@ import {
   createGameIndex,
   degradeOnFailure,
   IndexUnavailableError,
+  STALE_SEED_AGE_MS,
+  staleSeedAt,
   unavailableGameIndex,
   withCircuit,
   withDeadline,
 } from '../../../server/index/index'
+import { INDEX_STALE_AFTER_MS } from '../../../server/graphql/indexPath'
 import published from '../../fixtures/index/published.json' with { type: 'json' }
 
 /**
@@ -71,6 +74,58 @@ describe('which index answers, by configuration', () => {
     // itself: building the adapter sends no request, and this suite never touches the network.
     expect(readFixture).not.toHaveBeenCalled()
     expect(index).not.toBe(null)
+  })
+})
+
+/**
+ * `INDEX_FIXTURE_STALE=1` exists so the stale banner and the controls it takes away can be looked
+ * at in a browser without waiting a week. It is production code, so the invariant its safety rests
+ * on gets a test of its own rather than an eyeballed `&&`: **outside fixture mode it does nothing
+ * at all**, whatever it is set to. A deployment with real credentials never sets `RAWG_FIXTURES`,
+ * so it can never reach the seed path — this pins that the flag cannot change the seeding of an
+ * index that is not the fixture one either.
+ */
+describe('INDEX_FIXTURE_STALE', () => {
+  const NOW = Date.parse('2026-09-20T12:00:00.000Z')
+  const at = (fixtures: boolean, flag: unknown) => staleSeedAt(fixtures, flag, () => NOW)
+
+  it('is ignored with fixtures off, whatever it is set to', () => {
+    for (const flag of ['1', 1, 'true', 'yes', '0', '', undefined, null]) {
+      expect(at(false, flag)).toBeUndefined()
+    }
+  })
+
+  it('is ignored in fixture mode unless it is exactly "1"', () => {
+    for (const flag of ['0', '', 'true', 'yes', 'stale', undefined, null]) {
+      expect(at(true, flag)).toBeUndefined()
+    }
+  })
+
+  it('backdates the seed only when fixture mode and the flag are both on', () => {
+    // destr parses an env override, so `1` can arrive as a number as well as a string.
+    for (const flag of ['1', 1]) {
+      const seededAt = at(true, flag)
+      expect(seededAt).toBeTypeOf('function')
+      expect(seededAt!()).toBe(new Date(NOW - STALE_SEED_AGE_MS).toISOString())
+    }
+  })
+
+  it('backdates it past the seven days the catalog calls stale, not onto the boundary', () => {
+    expect(STALE_SEED_AGE_MS).toBeGreaterThan(INDEX_STALE_AFTER_MS)
+  })
+
+  it('actually publishes a stale seed, and the default publishes a fresh one', async () => {
+    const stale = await createGameIndex(
+      sources({ seededAt: staleSeedAt(true, '1', () => NOW), fixtures: true }),
+    )
+    const age = NOW - Date.parse((await stale.meta())!.pricesUpdatedAt!)
+    expect(age).toBeGreaterThan(INDEX_STALE_AFTER_MS)
+
+    // With fixture mode off the helper hands back nothing, and `seedFromFixture` falls back to
+    // "published just now" — which is what every development server has always had.
+    const fresh = await createGameIndex(sources({ seededAt: staleSeedAt(false, '1', () => NOW) }))
+    const freshAge = Date.now() - Date.parse((await fresh.meta())!.pricesUpdatedAt!)
+    expect(freshAge).toBeLessThan(INDEX_STALE_AFTER_MS)
   })
 })
 

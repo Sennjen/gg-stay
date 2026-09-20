@@ -1,7 +1,9 @@
 import {
   AGE_RATINGS,
   GAME_MODES,
+  LOCALISATIONS,
   MAX_PAGE,
+  MAX_PRICE_UAH,
   METACRITIC_STEPS,
   PLAYTIMES,
   STORE_OPTIONS,
@@ -10,6 +12,7 @@ import {
   type AgeRatingValue,
   type GameModeValue,
   type GameSortValue,
+  type LocalisationValue,
   type PlaytimeValue,
 } from '#shared/catalog'
 
@@ -27,7 +30,31 @@ export interface CatalogFilter {
   ageRating?: AgeRatingValue[]
   stores?: string[]
   developers?: string[]
+  /** Highest price a game may cost, in whole hryvnia. Index-backed. */
+  priceMaxUah?: number
+  /** Free games only. Index-backed. Mutually exclusive with `priceMaxUah` in the drawer. */
+  free?: boolean
+  /** Smallest discount a game must carry, in whole percent. Index-backed. */
+  onSaleMinPercent?: number
+  /** Which level of Ukrainian localisation a game must have. Index-backed. */
+  ukrainianLocalisation?: LocalisationValue
 }
+
+/**
+ * The filter fields the price index answers, under the names the BFF reports in
+ * `GamePage.ignoredFilters` — which is exactly the schema's own field names.
+ *
+ * `ActiveFilterChips` reads it to decide why a filter the answer declined was declined: one of
+ * these means the index could not serve it, anything else means a RAWG-only filter lost the page
+ * to the index. Kept beside `CatalogFilter` so a field added to the URL layer is added here in
+ * the same edit rather than drifting into the wrong explanation.
+ */
+export const INDEX_FILTER_FIELDS = [
+  'priceMaxUah',
+  'free',
+  'onSaleMinPercent',
+  'ukrainianLocalisation',
+] as const
 
 export interface CatalogState {
   filter: CatalogFilter
@@ -88,6 +115,14 @@ export function parseFilterQuery(query: Record<string, unknown>): CatalogState {
     ),
     stores: nonEmpty(list(query.stores).filter((slug) => STORE_SLUGS.includes(slug))),
     developers: nonEmpty(list(query.developers).filter((slug) => SLUG.test(slug))),
+    // "Up to 0 ₴" is not a price ceiling, it is the free filter, which has its own key — so the
+    // range starts at 1. The cap keeps a hand-written URL from becoming an unbounded cache key.
+    priceMaxUah: int(query.priceMaxUah, 1, MAX_PRICE_UAH),
+    free: first(query.free) === '1' ? true : undefined,
+    // Any whole percent, not only the three steps the drawer offers: a shared link with
+    // `onSaleMinPercent=33` is a legitimate filter, and the index answers it.
+    onSaleMinPercent: int(query.onSaleMinPercent, 1, 99),
+    ukrainianLocalisation: oneOf(first(query.ukrainianLocalisation), LOCALISATIONS),
   }
   // Each bound is range-checked on its own above, but the pair is not: a hand-edited
   // `?yearFrom=2020&yearTo=1990` would reach `filterToParams` as `dates=2020-01-01,1990-12-31`,
@@ -137,16 +172,31 @@ export function serializeFilterState({ filter, sort, page }: CatalogState): Reco
     ['ageRating', filter.ageRating?.join(',') || undefined],
     ['stores', filter.stores?.join(',') || undefined],
     ['developers', filter.developers?.join(',') || undefined],
+    ['free', filter.free ? '1' : undefined],
+    ['priceMaxUah', filter.priceMaxUah?.toString()],
+    ['onSaleMinPercent', filter.onSaleMinPercent?.toString()],
+    ['ukrainianLocalisation', filter.ukrainianLocalisation],
     ['sort', sort === DEFAULT_SORT ? undefined : sort],
     ['page', page > 1 ? String(page) : undefined],
   ]
   return Object.fromEntries(entries.filter((entry): entry is [string, string] => Boolean(entry[1])))
 }
 
-export function countActiveFilters(filter: CatalogFilter): number {
-  return Object.values(filter).filter((value) =>
-    Array.isArray(value)
+/**
+ * How many filters are shaping the list on screen.
+ *
+ * `ignored` is `GamePage.ignoredFilters` — the schema field names the answer could not apply. A
+ * filter named there is still in the URL, still has its chip and is still removable, but it is not
+ * shaping anything, so it does not belong in the "Фільтри (N)" badge: a visitor comparing the
+ * badge with the results would otherwise be counting a filter that is visibly struck through two
+ * lines below. Names that are not filter fields (`sort`) and names of fields the URL does not
+ * carry are simply not found, so they cannot push the count below what is really set.
+ */
+export function countActiveFilters(filter: CatalogFilter, ignored: readonly string[] = []): number {
+  return Object.entries(filter).filter(([key, value]) => {
+    if (ignored.includes(key)) return false
+    return Array.isArray(value)
       ? value.length > 0
-      : value !== undefined && value !== '' && value !== false,
-  ).length
+      : value !== undefined && value !== '' && value !== false
+  }).length
 }

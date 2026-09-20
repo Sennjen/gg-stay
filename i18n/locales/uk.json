@@ -78,7 +78,13 @@
     "noCover": "Немає обкладинки",
     "view": "Вигляд каталогу",
     "viewGrid": "Сітка",
-    "viewList": "Список"
+    "viewList": "Список",
+    "indexedOnlyNote": "Пошук серед {count} найпопулярніших ігор — ціни й мови ми знаємо лише для них.",
+    "pricesUpdated": "Ціни оновлено {count} годину тому | Ціни оновлено {count} години тому | Ціни оновлено {count} годин тому",
+    "pricesUpdatedRecently": "Ціни оновлено щойно",
+    "staleTitle": "Ціни тимчасово не оновлюються",
+    "staleBody": "Ми не показуємо застарілі ціни, тож фільтри й сортування за ціною зараз вимкнені. Решта каталогу працює як завжди.",
+    "sortIgnored": "«{name}» не застосовано"
   },
   "filters": {
     "platform": "Платформа",
@@ -96,7 +102,18 @@
     "store": "Магазин",
     "developer": "Розробник",
     "developerPlaceholder": "Почніть вводити назву студії",
-    "remove": "Прибрати {name}"
+    "remove": "Прибрати {name}",
+    "price": "Ціна",
+    "priceUpTo": "до {price}",
+    "priceOwn": "Своя сума, ₴",
+    "priceOwnPlaceholder": "напр. 450",
+    "discount": "Знижка",
+    "discountFrom": "від {value} %",
+    "localisation": "Українська локалізація",
+    "localisationAny": "Будь-яка",
+    "localisationText": "Текст",
+    "localisationAudio": "Озвучка",
+    "localisationNotImportant": "Не важливо"
   },
   "sorts": {
     "POPULARITY_DESC": "За популярністю",
@@ -104,7 +121,10 @@
     "METACRITIC_DESC": "За Metacritic",
     "RELEASED_DESC": "Спочатку нові",
     "RELEASED_ASC": "Спочатку старі",
-    "NAME_ASC": "За назвою"
+    "NAME_ASC": "За назвою",
+    "PRICE_ASC": "Спочатку дешевші",
+    "PRICE_DESC": "Спочатку дорожчі",
+    "DISCOUNT_DESC": "Найбільша знижка"
   },
   "playtimes": {
     "SHORT": "Коротка (до 10 год)",
@@ -157,7 +177,14 @@
     "search": "«{term}»",
     "yearFrom": "від {year}",
     "yearTo": "до {year}",
-    "resetAll": "Скинути все"
+    "resetAll": "Скинути все",
+    "localisationANY": "Українська: будь-яка",
+    "localisationTEXT": "Українська: текст",
+    "localisationAUDIO": "Українська: озвучка",
+    "ignored": "не застосовано: {reason}",
+    "ignoredStalePrices": "ціни тимчасово не оновлюються",
+    "ignoredWithPriceFilter": "не працює разом із фільтрами ціни",
+    "ignoredIndexDown": "дані про ціни зараз недоступні"
   },
   "game": {
     "backToCatalog": "← До каталогу",

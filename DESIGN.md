@@ -236,7 +236,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `GameRow`                       | Done — PR 7                                                                                                                                                                                                   |
 | `MetacriticBadge`               | Done — PR 3                                                                                                                                                                                                   |
 | `PlatformIcons`                 | Done — PR 3                                                                                                                                                                                                   |
-| `ActiveFilterChips`             | Done — PR 4                                                                                                                                                                                                   |
+| `ActiveFilterChips`             | Done — PR 4; PR 7 added the price/discount/localisation chips and the struck-through "not applied" state                                                                                                      |
 | `FilterDrawer`                  | Done — PR 4                                                                                                                                                                                                   |
 | `FilterSection`                 | Done — PR 4                                                                                                                                                                                                   |
 | `SegmentedControl`              | Done — PR 4                                                                                                                                                                                                   |
@@ -250,12 +250,16 @@ Status values: **exists** (unchanged since before the redesign),
 | `filters/CheckboxList`          | Done — PR 4                                                                                                                                                                                                   |
 | `filters/DeveloperAutocomplete` | Done — PR 4 — debounced client-only lookup against the BFF                                                                                                                                                    |
 | `pages/index.vue`               | Full landing page — PR 6/7                                                                                                                                                                                    |
-| `FilterPanel`                   | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4                                                                                                                                               |
+| `FilterPanel`                   | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4; "Ціна", "Знижка" and "Українська локалізація" sections added in PR 7                                                                         |
+| `filters/PriceFilter`           | Done — PR 7 — free/300/600/1 000 chips plus a labelled, debounced own-amount field                                                                                                                            |
+| `filters/DiscountFilter`        | Done — PR 7 — 25/50/75 %, single choice, pressed again to clear                                                                                                                                               |
+| `CatalogIndexNote`              | Done — PR 7 — the "top 3 000" note and the price age, both under the result count                                                                                                                             |
+| `CatalogStaleBanner`            | Done — PR 7 — above the grid when the index's prices are too old to show                                                                                                                                      |
 | `filters/RadioList`             | Replaced by `SegmentedControl` in PR 4                                                                                                                                                                        |
 | `filters/YearRange`             | Replaced by `YearRangeSlider` in PR 4                                                                                                                                                                         |
 | `GameCard`                      | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9                                           |
 | `GameGrid`                      | Restyled in PR 1; passes `heading-level="2"` to `GameCard` since PR 9                                                                                                                                         |
-| `SortSelect`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `SortSelect`                    | Restyled in PR 1 (dark pass); PR 7 added the three price sorts, hid them while the index is stale and named a sort the answer dropped                                                                         |
 | `Pagination`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `states/LoadingState`           | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `states/EmptyState`             | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
@@ -302,3 +306,53 @@ ownership sentence, both already present in the locale files.
   than hiding 23 of 24 items would, and implementing a stricter
   roving-tabindex/`aria-hidden` scheme risked behaviour regressions in a
   pass that is not supposed to change behaviour.
+
+### Price, discount and localisation filters (PR 7)
+
+The three index-backed sections sit at the top of the drawer, above "Платформа",
+because they are the ones a visitor reaches for first; each is collapsed until it
+holds a value, like every other section, and each is counted in the
+"Фільтри (N)" badge and carries its own chip.
+
+- **"Ціна"** — `filters/PriceFilter`: "Безкоштовно" and three ready-made
+  ceilings as `aria-pressed` toggle chips (the same chip pattern as
+  `filters/CheckboxList`), plus a hand-typed amount. `free` and `priceMaxUah`
+  are separate URL keys and separate chips, but the section never sets both:
+  choosing one clears the other. The own-amount field is a real `<label>` +
+  `<input type="number" inputmode="numeric" min="1">`, never a placeholder
+  standing in for a label, and it waits 400 ms after the last keystroke so
+  typing "1000" costs one navigation instead of four. Amounts outside 1–100 000
+  are not written to the URL at all.
+- **"Знижка"** — `filters/DiscountFilter`: 25/50/75 % as a single choice,
+  pressed again to clear. A percent from a shared link that is not one of the
+  three (`onSaleMinPercent=33`) is shown as a fourth pressed chip rather than
+  quietly left out — a filter that is counted has to be visible and removable.
+- **"Українська локалізація"** — `SegmentedControl` with "Не важливо" as the
+  cleared state and "Будь-яка / Текст / Озвучка" as the three levels, so the
+  radio-group keyboard behaviour is the one already shipped.
+
+Hryvnia in chips and section labels goes through `formatUah`, which writes the
+₴ and the group separator itself; the bare number inside "до 300 ₴" and
+"від 50 %" is wrapped in `.font-numeric` through an `<i18n-t>` slot, so the
+surrounding words stay in the interface face.
+
+**Notes and failure states.** When the index answered the page
+(`indexedOnly`), `CatalogIndexNote` sits under the result count in `fg-2`: what
+the search covered, and how old the prices are. The hour count is computed from
+`indexUpdatedAt` and a `now` the page reads **once** (`useState('catalog-now')`,
+so it comes from the server render and is carried in the payload) — no render
+path reads a clock. When `indexStale`, `CatalogStaleBanner` goes above the grid,
+the "Ціна" and "Знижка" sections and the three price sorts disappear, and
+localisation stays. A filter the answer names in `ignoredFilters` keeps its chip
+and its remove button, struck through, with the reason spelled out beside it as
+visible text — not a `title`, because nothing here may depend on hover. An
+ignored sort is named in the same words next to the select, which falls back to
+showing the order the page is actually in.
+
+The "Фільтри (N)" badge counts only the filters the answer **applied**. A filter
+the server declined keeps its chip and its remove button — it is in the URL, so
+it has to be — but it is not shaping the list, and a badge that counted it would
+disagree with the results two lines below it. The chip row itself is shown
+whenever the URL carries any filter at all, applied or not, so a page whose only
+filter was declined still shows that filter and still lets a visitor take it
+off.

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CatalogTaxonomiesDocument, GamesDocument } from '~/graphql/__generated__/operations'
+import { countActiveFilters } from '~/utils/filterUrl'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE } from '#shared/catalog'
 
 const { t } = useI18n()
@@ -30,6 +31,24 @@ const totalPages = computed(() =>
 const currentYear = useState('catalog-current-year', () => new Date().getFullYear())
 const maxSliderYear = computed(() => currentYear.value + 2)
 
+// The same trick for "prices updated N hours ago": read once on the server, carried to the client
+// in the payload, and handed to `CatalogIndexNote` as a prop — so the hour count in the server
+// HTML and the hydrated one are computed from the same instant and can never disagree.
+const now = useState('catalog-now', () => new Date().toISOString())
+
+const indexStale = computed(() => page.value?.indexStale ?? false)
+const indexedOnly = computed(() => page.value?.indexedOnly ?? false)
+const ignoredFilters = computed<readonly string[]>(() => page.value?.ignoredFilters ?? [])
+const sortIgnored = computed(() => ignoredFilters.value.includes('sort'))
+
+/**
+ * Two counts, on purpose. `activeCount` is what the URL carries, and it decides whether the chip
+ * row exists at all — a page whose only filter was declined must still show that filter, struck
+ * through and removable. `appliedCount` is what the badge says, and it leaves the declined ones
+ * out, so "Фільтри (N)" never claims to be shaping the list with a filter the answer dropped.
+ */
+const appliedCount = computed(() => countActiveFilters(state.value.filter, ignoredFilters.value))
+
 const filtersButtonEl = ref<HTMLButtonElement>()
 
 useSeoMeta({
@@ -53,9 +72,9 @@ useSeoMeta({
         class="rounded-chip border border-line bg-surface-1 px-4 py-2 text-sm text-fg focus-visible:outline-2"
         @click="store.panelOpen = true"
       >
-        <i18n-t v-if="activeCount" keypath="drawer.openButton" tag="span">
+        <i18n-t v-if="appliedCount" keypath="drawer.openButton" tag="span">
           <template #count
-            ><span class="font-numeric">{{ activeCount }}</span></template
+            ><span class="font-numeric">{{ appliedCount }}</span></template
           >
         </i18n-t>
         <template v-else>{{ t('catalog.filters') }}</template>
@@ -64,16 +83,32 @@ useSeoMeta({
       <ResultCount v-if="page" :total="page.total" />
 
       <div class="ml-auto flex items-center gap-3">
-        <SortSelect :model-value="state.sort" @update:model-value="setSort" />
+        <SortSelect
+          :model-value="state.sort"
+          :index-stale="indexStale"
+          :ignored="sortIgnored"
+          @update:model-value="setSort"
+        />
         <ViewToggle />
       </div>
     </div>
+
+    <!-- A sibling of `ResultCount`'s own paragraph, never inside it: a block element nested in a
+         `<p>` is re-parented by the browser's parser and cost this project a hydration bug once. -->
+    <CatalogIndexNote
+      v-if="indexedOnly"
+      class="mt-2"
+      :updated-at="page?.indexUpdatedAt"
+      :now="now"
+    />
 
     <ActiveFilterChips
       v-if="activeCount"
       class="mt-3"
       :filter="state.filter"
       :genres="genres"
+      :ignored="ignoredFilters"
+      :index-stale="indexStale"
       @change="setFilter"
       @clear="clear"
     />
@@ -83,9 +118,12 @@ useSeoMeta({
         :filter="state.filter"
         :genres="genres"
         :max-year="maxSliderYear"
+        :index-stale="indexStale"
         @change="setFilter"
       />
     </FilterDrawer>
+
+    <CatalogStaleBanner v-if="indexStale" class="mt-4" />
 
     <!-- No `aria-live` here: `ResultCount` already announces the total, and the state components
          below announce themselves. A live region around the whole results section re-announced

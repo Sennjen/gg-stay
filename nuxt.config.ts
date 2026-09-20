@@ -57,6 +57,10 @@ export default defineNuxtConfig({
     // Past this an answer counts as slow, and three slow ones in a row close the index for a
     // while; see `withCircuit`.
     indexSlowMs: process.env.INDEX_SLOW_MS ?? '',
+    // Test-only: publish the seeded fixture index with old prices, so the stale banner and the
+    // filters it takes away can be looked at in a browser. Read in the fixture-mode seed path
+    // alone (`useGameIndex`) — it cannot affect a deployment that has real credentials.
+    indexFixtureStale: process.env.INDEX_FIXTURE_STALE ?? '',
   },
   routeRules: {
     // Static headers only. The Content-Security-Policy is deliberately NOT here: the Vercel preset

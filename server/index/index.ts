@@ -370,6 +370,34 @@ async function seedFromFixture(sources: GameIndexSources): Promise<GameIndex> {
   return index
 }
 
+/**
+ * How old `INDEX_FIXTURE_STALE=1` pretends the seeded fixture's last price run is. Comfortably
+ * past the seven days `indexStale` uses, so the flag does not sit on the boundary.
+ */
+export const STALE_SEED_AGE_MS = 8 * 24 * 60 * 60 * 1000
+
+/**
+ * The `seededAt` the fixture seed is published with, or `undefined` for "now" — the whole of what
+ * `INDEX_FIXTURE_STALE` does.
+ *
+ * It is a named function rather than an `&&` inside `useGameIndex` so the one invariant the
+ * switch's safety rests on can be tested directly: **the flag does nothing unless fixture mode is
+ * already on.** A deployment with real credentials never sets `RAWG_FIXTURES`, so it can never
+ * reach the seed path at all — but that is worth a test rather than an eyeballed `&&`.
+ *
+ * Both values arrive from `runtimeConfig`, where an env override is parsed by destr and `1` may
+ * turn up as a number, so both are read as strings — the same reading `useRawg`, `useSteam` and
+ * `useSteamPrices` do.
+ */
+export function staleSeedAt(
+  fixtures: boolean,
+  indexFixtureStale: unknown,
+  now: () => number = () => Date.now(),
+): (() => string) | undefined {
+  if (!fixtures || String(indexFixtureStale) !== '1') return undefined
+  return () => new Date(now() - STALE_SEED_AGE_MS).toISOString()
+}
+
 let instance: Promise<GameIndex> | undefined
 
 export function useGameIndex(): Promise<GameIndex> {
@@ -384,6 +412,11 @@ export function useGameIndex(): Promise<GameIndex> {
       fixtures,
       timeoutMs: Number(config.indexTimeoutMs) || undefined,
       slowMs: Number(config.indexSlowMs) || undefined,
+      // Test-only, and only alongside the fixture seed: publish it as if its last price run had
+      // been more than a week ago, which is exactly what `indexStale` measures. It lets the stale
+      // banner, the withheld prices and the missing price controls be seen in a real browser
+      // without waiting a week or touching a resolver.
+      seededAt: staleSeedAt(fixtures, config.indexFixtureStale),
       // Read only in fixture mode: outside it the asset is never touched, so nothing can serve
       // its prices by accident.
       readFixture: () =>
