@@ -1,3 +1,4 @@
+import { MAX_SEARCH_LENGTH } from '../../shared/catalog'
 import type { GameFilter, GameSort } from '../graphql/__generated__/resolvers-types'
 import type { RawgParams } from './rawgFetch'
 import { storeIdsFromSlugs, tagsForGameModes } from './lookups'
@@ -41,7 +42,8 @@ export function filterToParams({
   today,
 }: FilterToParamsInput): RawgParams {
   const f = filter ?? {}
-  const search = f.search?.trim()
+  // Trimmed and capped before it reaches the params, which is what the cache key is built from.
+  const search = f.search?.trim().slice(0, MAX_SEARCH_LENGTH)
   // RAWG ranks search results by relevance only when no `ordering` is sent. The default
   // sort has no explicit user intent, so let relevance win; an explicitly chosen sort
   // still takes priority over relevance.

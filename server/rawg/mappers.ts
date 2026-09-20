@@ -15,6 +15,7 @@ import type {
   RawgStoreLink,
   RawgTaxonomy,
 } from './types'
+import { safeExternalUrl } from '../../shared/url'
 import {
   esrbToAgeRating,
   gameModesFromTags,
@@ -30,8 +31,15 @@ function mapTaxonomies(list?: RawgTaxonomy[] | null): Taxonomy[] {
   return (list ?? []).filter((item) => item.slug).map(mapTaxonomy)
 }
 
+/**
+ * Image URLs go through the same scheme allow-list as the links: `img-src` in the CSP already
+ * stops a `javascript:` value from doing anything, but it does allow `data:` (for the inline
+ * placeholders the image module emits), and C3's rule is every third-party URL bound to `href`
+ * **or** `src`. A cover that fails the check is dropped, and the card renders its no-cover state.
+ */
 function mapCover(url?: string | null): Image | null {
-  return url ? { url, width: null, height: null } : null
+  const safe = safeExternalUrl(url)
+  return safe ? { url: safe, width: null, height: null } : null
 }
 
 /** RAWG uses 0 for "unknown" on numeric fields; negative values are also treated as unknown. */
@@ -42,16 +50,20 @@ export function positive(value?: number | null): number | null {
 /** `short_screenshots`: exclude the id -1 entry (it duplicates the cover) and cap at 4. */
 function mapShortScreenshots(list?: RawgShortScreenshot[] | null): Image[] {
   return (list ?? [])
-    .filter((item) => item.id !== -1 && item.image)
+    .filter((item) => item.id !== -1)
+    .flatMap((item) => {
+      const url = safeExternalUrl(item.image)
+      return url ? [{ url, width: null, height: null }] : []
+    })
     .slice(0, 4)
-    .map((item) => ({ url: item.image!, width: null, height: null }))
 }
 
 /** Full screenshots from `GET games/{slug}/screenshots`, width/height passed through when present. */
 function mapScreenshots(list?: RawgScreenshot[] | null): Image[] {
-  return (list ?? [])
-    .filter((item) => item.image)
-    .map((item) => ({ url: item.image!, width: item.width ?? null, height: item.height ?? null }))
+  return (list ?? []).flatMap((item) => {
+    const url = safeExternalUrl(item.image)
+    return url ? [{ url, width: item.width ?? null, height: item.height ?? null }] : []
+  })
 }
 
 function platformFamilies(raw: RawgGameListItem): GameCard['platformFamilies'] {
@@ -83,11 +95,14 @@ export function mapGameCard(raw: RawgGameListItem): GameCard {
 function mapStoreOffers(links: RawgStoreLink[]): StoreOffer[] {
   return links.flatMap((link) => {
     const store = storeSlugFromId(link.store_id)
-    if (!store || !link.url) return []
+    // A store link with an unsafe scheme is dropped rather than passed through: the offer only
+    // exists to be clicked, so there is nothing left to render once the URL is refused.
+    const url = safeExternalUrl(link.url)
+    if (!store || !url) return []
     return [
       {
         store,
-        url: link.url,
+        url,
         priceUah: null,
         regularPriceUah: null,
         discountPercent: null,
@@ -118,7 +133,7 @@ export function mapGame(
     tags,
     developers: mapTaxonomies(raw.developers),
     publishers: mapTaxonomies(raw.publishers),
-    website: raw.website || null,
+    website: safeExternalUrl(raw.website),
     stores: mapStoreOffers(storeLinks),
     similar: [],
   }

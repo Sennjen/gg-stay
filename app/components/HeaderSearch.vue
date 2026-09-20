@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { SEARCH_THUMBNAIL_IMAGE_SIZES } from '~/utils/rawgImage'
+
 const MIN_LENGTH = 2
 
 const route = useRoute()
@@ -50,7 +52,10 @@ const activeOptionId = computed(() => {
 
 const liveMessage = computed(() => {
   if (!showDropdown.value || status.value !== 'success') return ''
-  return t('search.resultsAnnouncement', { count: items.value.length })
+  // `plural` picks the form; `count` is still interpolated so the number stays in the string.
+  // The uk one/few/many rule lives in i18n/i18n.config.ts and runs on the server too.
+  const count = items.value.length
+  return t('search.resultsAnnouncement', { count }, { plural: count })
 })
 
 function optionId(index: number) {
@@ -252,6 +257,7 @@ onBeforeUnmount(() => reset())
             alt=""
             width="96"
             height="54"
+            :sizes="SEARCH_THUMBNAIL_IMAGE_SIZES"
             loading="lazy"
             class="h-[54px] w-24 flex-none rounded object-cover"
           />

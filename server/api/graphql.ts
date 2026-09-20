@@ -1,4 +1,5 @@
 import { createYogaApp } from '../graphql/yoga'
+import { API_CONTENT_SECURITY_POLICY, CSP_HEADER } from '../security/headers'
 
 const yoga = createYogaApp(() => ({
   rawg: useRawg(),
@@ -19,5 +20,9 @@ export default defineEventHandler(async (event) => {
   // graphql-yoga's own request-parsing plugins expect, which breaks their `pipeThrough` calls.
   // Letting yoga build the Request internally keeps both sides on the same implementation.
   const response = await yoga.fetch(url.toString(), init)
+  // Set here rather than in the CSP plugin: `sendWebResponse` hands yoga's own Response straight
+  // to the client, so this route never reaches the `beforeResponse` hook the plugin back-fills
+  // from. See `API_CONTENT_SECURITY_POLICY` for why this endpoint gets its own, tighter policy.
+  setResponseHeader(event, CSP_HEADER, API_CONTENT_SECURITY_POLICY)
   return sendWebResponse(event, response)
 })

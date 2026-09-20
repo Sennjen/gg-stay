@@ -30,6 +30,27 @@ describe('StoreLinks', () => {
     expect(icon.attributes('aria-hidden')).toBe('true')
   })
 
+  it('drops an offer whose url is not http(s), even if one reaches the component', async () => {
+    const wrapper = await mountSuspended(StoreLinks, {
+      props: {
+        offers: [
+          { store: 'steam', url: 'javascript:alert(1)' },
+          { store: 'gog', url: 'https://www.gog.com/x' },
+        ],
+      },
+    })
+    const links = wrapper.findAll('a')
+    expect(links).toHaveLength(1)
+    expect(links[0]!.attributes('href')).toBe('https://www.gog.com/x')
+  })
+
+  it('renders nothing when every offer url is unsafe', async () => {
+    const wrapper = await mountSuspended(StoreLinks, {
+      props: { offers: [{ store: 'steam', url: 'data:text/html,x' }] },
+    })
+    expect(wrapper.find('section').exists()).toBe(false)
+  })
+
   it('renders nothing without offers', async () => {
     const wrapper = await mountSuspended(StoreLinks, { props: { offers: [] } })
     expect(wrapper.find('section').exists()).toBe(false)

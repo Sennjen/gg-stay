@@ -15,9 +15,6 @@ const game = {
   platformFamilies: ['PC'] as const,
   platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
   genres: [{ id: '4', slug: 'action', name: 'Action' }],
-  price: null,
-  localisation: null,
-  madeInUkraine: false,
 }
 
 const games = Array.from({ length: 7 }, (_, index) => ({
@@ -27,13 +24,22 @@ const games = Array.from({ length: 7 }, (_, index) => ({
 }))
 
 describe('GameGrid', () => {
-  it('eager-loads only the first five covers, matching the five-column first row', async () => {
+  it('eager-loads only the first two covers, matching the two-column phone first row', async () => {
     const wrapper = await mountSuspended(GameGrid, { props: { games } })
     const images = wrapper.findAll('img')
     expect(images).toHaveLength(7)
     images.forEach((image, index) => {
-      expect(image.attributes('loading')).toBe(index < 5 ? 'eager' : 'lazy')
+      expect(image.attributes('loading')).toBe(index < 2 ? 'eager' : 'lazy')
     })
+  })
+
+  it('marks only the first cover as the high-priority LCP candidate', async () => {
+    const wrapper = await mountSuspended(GameGrid, { props: { games } })
+    const images = wrapper.findAll('img')
+    expect(images[0]!.attributes('fetchpriority')).toBe('high')
+    for (const image of images.slice(1)) {
+      expect(image.attributes('fetchpriority')).toBeUndefined()
+    }
   })
 
   it('renders card titles as h2, since the grid sits directly under the page h1 with no heading in between', async () => {

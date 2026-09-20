@@ -5,7 +5,7 @@ import {
   type SteamCacheEntry,
   type SteamDeps,
 } from '../../server/steam/steamFetch'
-import { UpstreamError } from '../../server/rawg/rawgFetch'
+import { UpstreamError } from '../../server/upstream/errors'
 
 function makeDeps(overrides: Partial<SteamDeps> = {}) {
   const store = new Map<string, SteamCacheEntry>()
@@ -87,6 +87,12 @@ describe('createSteamFetch', () => {
     const { deps } = makeDeps({ fetchJson })
     await expect(createSteamFetch(deps)('292030')).rejects.toMatchObject({ kind: 'RATE_LIMITED' })
     expect(fetchJson).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports failures as Steam, not as RAWG', async () => {
+    const { deps } = makeDeps({ fetchJson: vi.fn().mockResolvedValue({ status: 500, body: null }) })
+    await expect(createSteamFetch(deps)('292030')).rejects.toMatchObject({ source: 'STEAM' })
+    await expect(createSteamFetch(deps)('292030')).rejects.toThrow(/^STEAM upstream failure/)
   })
 
   it('maps 404 to NOT_FOUND and 5xx to ERROR', async () => {

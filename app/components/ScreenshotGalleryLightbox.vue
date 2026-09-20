@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GameQuery } from '~/graphql/__generated__/operations'
+import { GALLERY_LIGHTBOX_IMAGE_SIZES } from '~/utils/rawgImage'
 
 type GalleryImage = NonNullable<GameQuery['game']>['screenshots'][number]
 
@@ -43,13 +44,20 @@ function close() {
   emit('close')
 }
 
+// Queried once per open rather than on every Tab: the dialog's focusable set is fixed for the
+// lifetime of the lightbox (a close button and, when there is more than one screenshot, the two
+// arrows), so re-reading the DOM on each keystroke only costs.
+let focusable: HTMLElement[] | null = null
+
 function focusableElements(): HTMLElement[] {
+  if (focusable) return focusable
   if (!dialogRef.value) return []
-  return Array.from(
+  focusable = Array.from(
     dialogRef.value.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ),
   )
+  return focusable
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -155,6 +163,7 @@ onBeforeUnmount(() => {
           :alt="activeAlt"
           width="1280"
           height="720"
+          :sizes="GALLERY_LIGHTBOX_IMAGE_SIZES"
           class="h-full w-full object-contain opacity-0 transition-opacity duration-200 ease-out"
           :class="{ 'opacity-100': imageLoaded }"
           @load="imageLoaded = true"

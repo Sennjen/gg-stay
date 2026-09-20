@@ -89,6 +89,28 @@ export function parseFilterQuery(query: Record<string, unknown>): CatalogState {
     stores: nonEmpty(list(query.stores).filter((slug) => STORE_SLUGS.includes(slug))),
     developers: nonEmpty(list(query.developers).filter((slug) => SLUG.test(slug))),
   }
+  // Each bound is range-checked on its own above, but the pair is not: a hand-edited
+  // `?yearFrom=2020&yearTo=1990` would reach `filterToParams` as `dates=2020-01-01,1990-12-31`,
+  // which RAWG answers with nothing. An inverted pair is a typo, not an intent, so it is dropped.
+  if (
+    typeof candidate.yearFrom === 'number' &&
+    typeof candidate.yearTo === 'number' &&
+    candidate.yearFrom > candidate.yearTo
+  ) {
+    candidate.yearFrom = undefined
+    candidate.yearTo = undefined
+  }
+
+  // `upcoming` and a year range are mutually exclusive: `filterToParams` already prefers
+  // `upcoming`, and the UI clears the years when it is toggled on, but a crafted URL could carry
+  // both — and then `countActiveFilters` counted two while `ActiveFilterChips` rendered one, so
+  // one filter was neither visible nor removable. Normalising here keeps the URL the one source
+  // of truth it is meant to be.
+  if (candidate.upcoming) {
+    candidate.yearFrom = undefined
+    candidate.yearTo = undefined
+  }
+
   const filter = Object.fromEntries(
     Object.entries(candidate).filter(([, value]) => value !== undefined),
   ) as CatalogFilter

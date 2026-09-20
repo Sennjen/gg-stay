@@ -147,7 +147,7 @@ Hero from `background_image` with the same gradient treatment, title in Tektur, 
 
 ## Accessibility
 
-WCAG AA contrast for text and controls on every surface; visible focus rings in amber; all filters, cards, the ring and the gallery operable by keyboard; covers have alt text from game names; decorative covers in the ring are hidden from assistive technology except the focused one; `prefers-reduced-motion` honoured by the hero, the ring, the drawer, the count ticker and hover transitions.
+WCAG AA contrast for text and controls on every surface; visible focus rings in amber; all filters, cards, the ring and the gallery operable by keyboard; covers have alt text from game names; decorative covers in the ring are hidden from assistive technology except the focused one (**deviation as built:** every ring cover is a real focusable link with its game's name, so the ring is a list a keyboard user can tab through rather than a single widget — see DESIGN.md, which records the same deviation); `prefers-reduced-motion` honoured by the hero, the ring, the drawer, the count ticker and hover transitions.
 
 ## Performance guardrails
 

@@ -36,7 +36,7 @@
     "loading": "Завантаження…",
     "empty": "Нічого не знайдено",
     "error": "Не вдалося завантажити результати",
-    "resultsAnnouncement": "{count} результатів"
+    "resultsAnnouncement": "{count} результат | {count} результати | {count} результатів"
   },
   "footer": {
     "nav": "Підвал сайту",
@@ -76,7 +76,7 @@
     "next": "Наступна",
     "page": "Сторінка {page}",
     "noCover": "Немає обкладинки",
-    "view": "Вигляд списку",
+    "view": "Вигляд каталогу",
     "viewGrid": "Сітка",
     "viewList": "Список"
   },
@@ -89,7 +89,7 @@
     "upcoming": "Скоро вийдуть",
     "metacritic": "Metacritic",
     "metacriticMin": "{value}+",
-    "userRating": "Оцінка гравців 4.0+",
+    "userRating": "Оцінка гравців 4,0+",
     "playtime": "Тривалість",
     "gameMode": "Режим гри",
     "ageRating": "Вікове обмеження",
@@ -142,7 +142,7 @@
     "title": "Фільтри",
     "close": "Закрити",
     "openButton": "Фільтри ({count})",
-    "showResults": "Показати {count} ігор",
+    "showResults": "Показати {count} гру | Показати {count} гри | Показати {count} ігор",
     "resetAll": "Скинути все"
   },
   "chips": {

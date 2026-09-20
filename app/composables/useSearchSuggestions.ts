@@ -1,5 +1,5 @@
 import { GamesDocument, type GamesQuery } from '~/graphql/__generated__/operations'
-import { print } from 'graphql/language/printer'
+import { printDocument } from '~/utils/printDocument'
 
 export type SearchSuggestion = GamesQuery['games']['items'][number]
 export type SearchStatus = 'idle' | 'loading' | 'success' | 'error'
@@ -19,7 +19,6 @@ export function useSearchSuggestions() {
   const term = ref('')
   const items = ref<SearchSuggestion[]>([])
   const status = ref<SearchStatus>('idle')
-  const query = print(GamesDocument)
 
   let timer: ReturnType<typeof setTimeout> | undefined
   let requestId = 0
@@ -27,6 +26,7 @@ export function useSearchSuggestions() {
   async function run(value: string) {
     const id = ++requestId
     try {
+      const query = await printDocument(GamesDocument as never)
       const response = await $fetch<{ data?: GamesQuery }>('/api/graphql', {
         method: 'POST',
         body: {

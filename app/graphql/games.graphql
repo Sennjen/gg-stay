@@ -1,16 +1,19 @@
+# Only what a card renders. `rating`, `platforms`, `genres`, `price`, `localisation` and
+# `madeInUkraine` stay in the schema (they document where the week-2 index plugs in) but are not
+# selected: nothing reads them, and the server hard-codes most of them to null today. Paging is
+# derived from `total`/`pageSize`, so `hasNext` is not selected either.
+# `screenshots` is a list because `GameCard.screenshots` takes no argument; the mapper already
+# caps it at four and only the first one is used, as the card's hover preview.
 query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
   games(filter: $filter, sort: $sort, page: $page, pageSize: $pageSize) {
     total
     page
     pageSize
-    hasNext
-    indexedOnly
     items {
       id
       slug
       name
       released
-      rating
       metacritic
       cover {
         url
@@ -19,27 +22,6 @@ query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
         url
       }
       platformFamilies
-      platforms {
-        id
-        slug
-        name
-      }
-      genres {
-        id
-        slug
-        name
-      }
-      price {
-        bestUah
-        discountPercent
-        isFree
-      }
-      localisation {
-        interface
-        subtitles
-        audio
-      }
-      madeInUkraine
     }
   }
 }

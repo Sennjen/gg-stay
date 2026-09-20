@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
-import { flushPromises, type DOMWrapper } from '@vue/test-utils'
+import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { readBody } from 'h3'
 import HeaderSearch from '~/components/HeaderSearch.vue'
 
@@ -22,9 +22,6 @@ function games(names: string[]) {
     cover: null,
     platforms: [],
     genres: [],
-    price: null,
-    localisation: null,
-    madeInUkraine: false,
   }))
 }
 
@@ -41,10 +38,32 @@ function mockGamesEndpoint(names: string[]) {
   return calls
 }
 
-async function typeAndSettle(input: DOMWrapper<Element>, value: string) {
-  await input.setValue(value)
+/**
+ * Types into the box and waits for the dropdown to settle. The debounce is driven by fake timers,
+ * but the fetch that follows it now awaits a dynamic import (`printDocument` loads the graphql
+ * printer on demand), which takes an unpredictable number of microtask turns the first time it
+ * runs in a worker — so this polls rather than guessing a fixed number of flushes.
+ */
+/**
+ * Types into the box and waits for the suggestion request to settle. The debounce is driven by
+ * fake timers, but the fetch that follows it awaits a dynamic import (`printDocument` loads the
+ * graphql printer on demand), which takes an unpredictable number of microtask turns the first
+ * time it runs in a worker — so this waits for the composable to leave its `loading` state rather
+ * than guessing a fixed number of flushes.
+ */
+async function settleSuggestions(wrapper: VueWrapper) {
+  const status = () => (wrapper.vm as unknown as { status: string }).status
+  for (let turn = 0; turn < 50 && status() === 'loading'; turn++) {
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+  }
+}
+
+async function typeAndSettle(wrapper: VueWrapper, value: string) {
+  await wrapper.get('input[role="combobox"]').setValue(value)
   await vi.advanceTimersByTimeAsync(250)
   await flushPromises()
+  await settleSuggestions(wrapper)
 }
 
 describe('HeaderSearch', () => {
@@ -65,7 +84,7 @@ describe('HeaderSearch', () => {
     expect(input.attributes('aria-expanded')).toBe('false')
     expect(input.attributes('aria-controls')).toBeTruthy()
 
-    await typeAndSettle(input, 'witcher')
+    await typeAndSettle(wrapper, 'witcher')
 
     expect(input.attributes('aria-expanded')).toBe('true')
     const listbox = wrapper.get(`#${input.attributes('aria-controls')}`)
@@ -82,8 +101,11 @@ describe('HeaderSearch', () => {
     await input.setValue('witcher')
     expect(wrapper.text()).toContain('Завантаження')
 
+    // Same settling rule as `typeAndSettle`, done inline here because this test asserts the
+    // loading row before the results arrive.
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
+    await settleSuggestions(wrapper)
 
     expect(wrapper.text()).toContain('The Witcher 3')
     expect(wrapper.text()).toContain('2015')
@@ -94,7 +116,7 @@ describe('HeaderSearch', () => {
     mockGamesEndpoint([])
     const wrapper = await mountSuspended(HeaderSearch, { route: '/games' })
     vi.useFakeTimers()
-    await typeAndSettle(wrapper.get('input[role="combobox"]'), 'zzz')
+    await typeAndSettle(wrapper, 'zzz')
 
     expect(wrapper.text()).toContain('Нічого не знайдено')
   })
@@ -108,7 +130,7 @@ describe('HeaderSearch', () => {
     })
     const wrapper = await mountSuspended(HeaderSearch, { route: '/games' })
     vi.useFakeTimers()
-    await typeAndSettle(wrapper.get('input[role="combobox"]'), 'zzz')
+    await typeAndSettle(wrapper, 'zzz')
 
     expect(wrapper.text()).toContain('Не вдалося завантажити результати')
     expect(wrapper.text()).not.toContain('network down')
@@ -133,7 +155,7 @@ describe('HeaderSearch', () => {
     const wrapper = await mountSuspended(HeaderSearch, { route: '/games' })
     vi.useFakeTimers()
     const input = wrapper.get('input[role="combobox"]')
-    await typeAndSettle(input, 'a')
+    await typeAndSettle(wrapper, 'a')
     await input.setValue('al')
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
@@ -176,7 +198,7 @@ describe('HeaderSearch', () => {
     mockGamesEndpoint(['Alpha'])
     const wrapper = await mountSuspended(HeaderSearch, { route: '/games' })
     vi.useFakeTimers()
-    await typeAndSettle(wrapper.get('input[role="combobox"]'), 'alpha')
+    await typeAndSettle(wrapper, 'alpha')
 
     vi.useRealTimers()
     await wrapper.get('input[role="combobox"]').trigger('keydown', { key: 'Enter' })
@@ -188,7 +210,7 @@ describe('HeaderSearch', () => {
     mockGamesEndpoint(['Alpha'])
     const wrapper = await mountSuspended(HeaderSearch, { route: '/en/games' })
     vi.useFakeTimers()
-    await typeAndSettle(wrapper.get('input[role="combobox"]'), 'alpha')
+    await typeAndSettle(wrapper, 'alpha')
 
     vi.useRealTimers()
     await wrapper.get('input[role="combobox"]').trigger('keydown', { key: 'Enter' })
@@ -201,7 +223,7 @@ describe('HeaderSearch', () => {
     const wrapper = await mountSuspended(HeaderSearch, { route: '/games' })
     vi.useFakeTimers()
     const input = wrapper.get('input[role="combobox"]')
-    await typeAndSettle(input, 'witcher')
+    await typeAndSettle(wrapper, 'witcher')
     await input.trigger('keydown', { key: 'ArrowDown' })
 
     vi.useRealTimers()
@@ -215,7 +237,7 @@ describe('HeaderSearch', () => {
     const wrapper = await mountSuspended(HeaderSearch, { route: '/games' })
     vi.useFakeTimers()
     const input = wrapper.get('input[role="combobox"]')
-    await typeAndSettle(input, 'alpha')
+    await typeAndSettle(wrapper, 'alpha')
     expect(input.attributes('aria-expanded')).toBe('true')
 
     await input.trigger('keydown', { key: 'Escape' })
@@ -232,7 +254,7 @@ describe('HeaderSearch', () => {
     })
     vi.useFakeTimers()
     const input = wrapper.get('input[role="combobox"]')
-    await typeAndSettle(input, 'alpha')
+    await typeAndSettle(wrapper, 'alpha')
     expect(input.attributes('aria-expanded')).toBe('true')
 
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
@@ -264,7 +286,7 @@ describe('HeaderSearch', () => {
     vi.useFakeTimers()
     const input = wrapper.get('input[role="combobox"]')
 
-    await typeAndSettle(input, 'witcher2')
+    await typeAndSettle(wrapper, 'witcher2')
 
     expect(input.attributes('aria-expanded')).toBe('true')
     expect(calls).toEqual(['witcher2'])

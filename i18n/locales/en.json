@@ -27,7 +27,7 @@
     "catalog": "Catalog",
     "language": "Language",
     "skipToContent": "Skip to content",
-    "primary": "Primary"
+    "primary": "Primary navigation"
   },
   "search": {
     "label": "Search games",
@@ -36,7 +36,7 @@
     "loading": "Loading…",
     "empty": "Nothing found",
     "error": "Could not load results",
-    "resultsAnnouncement": "{count} results"
+    "resultsAnnouncement": "{count} result | {count} results"
   },
   "footer": {
     "nav": "Footer",
@@ -76,7 +76,7 @@
     "next": "Next",
     "page": "Page {page}",
     "noCover": "No cover",
-    "view": "List layout",
+    "view": "Catalog layout",
     "viewGrid": "Grid",
     "viewList": "List"
   },
@@ -142,7 +142,7 @@
     "title": "Filters",
     "close": "Close",
     "openButton": "Filters ({count})",
-    "showResults": "Show {count} games",
+    "showResults": "Show {count} game | Show {count} games",
     "resetAll": "Reset all"
   },
   "chips": {

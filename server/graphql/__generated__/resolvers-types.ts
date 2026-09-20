@@ -54,6 +54,7 @@ export type Game = {
   ratingsCount?: Maybe<Scalars['Int']['output']>;
   released?: Maybe<Scalars['String']['output']>;
   screenshots: Array<Image>;
+  /** Index-backed field: always empty until the week 2 nightly index computes similarity. */
   similar: Array<GameCard>;
   slug: Scalars['String']['output'];
   stores: Array<StoreOffer>;

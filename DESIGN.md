@@ -129,16 +129,45 @@ package) provider, which does serve the full variable font file.
   `.font-tabular` instead of `.font-numeric` — `font-variant-numeric:
 tabular-nums` in the interface face, without switching to the mono family.
 
+### Image sizes
+
+`@nuxt/image`'s `sizes` prop is **not** a CSS `sizes` attribute. It takes
+`breakpoint:value` pairs keyed on `image.screens` in `nuxt.config.ts`
+(`sm` 420, `md` 640, `lg` 1280, plus the module's own `xl` 1280 / `2xl` 1536),
+and it fails silently on anything else: a CSS media-query string decomposes
+into a single fixed width, and a bare `33vw` with no breakpoint key produces
+one `0w` candidate, which is an invalid descriptor that voids the whole
+`srcset`. Both bugs shipped once. Only a bare pixel value (`200px`) is safe
+without a key.
+
+**The bands do not line up with Tailwind's.** `md:` here covers viewports from
+640 to 1279px, where the catalog grid is 2, 3 _and_ 4 columns, so a `vw` value
+cannot describe that band honestly — 50vw is right at its bottom and twice the
+slot at its top. Where a band spans several column counts, declare the widest
+slot the band actually renders as a fixed pixel value instead.
+
+Every `sizes` string lives as a named constant in `app/utils/rawgImage.ts`,
+written against the layout's real slot width across each breakpoint band
+(`sm:` covers viewports up to 639px, `md:` up to 1279px, `lg:` above), and
+every one is covered by a test in `tests/app/imageSizes.test.ts` that asserts
+the **emitted** `sizes` and `srcset` — and, for the grid, which candidate a
+given viewport and device pixel ratio actually resolve to. The input string
+alone says nothing about what the browser receives, and the candidate list
+alone says nothing about which one it picks.
+
 ### Card meta row
 
 - **Platforms are short text labels, not glyphs.** `PlatformIcons` renders a
   `<ul>` of plain text (`PC`, `PlayStation`, `Xbox`, `Nintendo`, `Mobile` /
   `Мобільні`), separated by a middle dot, 12–13px `fg-2`, in enum order with
   `OTHER` always hidden. Text needs no trademark artwork and is accessible by
-  default — no icon glyphs, no `sr-only` duplicate labels. A `max` prop
-  (default 5) caps how many labels show before a mono `+N`; the catalog card
-  passes `max="3"` so the row still fits a narrow column, and `+N` carries the
-  hidden platform names as its `title`/accessible name.
+  default. A `max` prop (default 5) caps how many labels show before a mono
+  `+N`. The catalog card passes `responsive` instead of a `max`: that mode
+  renders three container-query variants capped at 1, 2 and 3 labels, marks
+  all three `aria-hidden` and exposes one `sr-only` span with the full list,
+  so a narrow column never wraps and assistive technology still hears every
+  platform. `+N` carries the hidden platform names as its `title`/accessible
+  name.
 - **The Metacritic score is labelled.** `MetacriticBadge` takes an optional
   `caption` prop; when set (the catalog card — the game page scoreboard
   already has a visible `dt` caption, so it passes the badge unchanged), a
@@ -180,43 +209,48 @@ Status values: **exists** (unchanged since before the redesign),
 **restyled in PR 1** (tokens/classes only, no behaviour change),
 **done** (built and finished as designed).
 
-| Component                | Status                                                                                                                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AppHeader`              | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9                                                                                          |
-| `AppFooter`              | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                         |
-| `HeaderSearch`           | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                         |
-| `HeroFeatured`           | Done — PR 6                                                                                                                                                         |
-| `HeroVideo`              | Done — PR 6                                                                                                                                                         |
-| `CoverRing`              | Done — PR 7; `onFocusOut` hardened against a null `relatedTarget` in PR 9                                                                                           |
-| `CoverMarquee`           | Done — PR 7                                                                                                                                                         |
-| `WhyCards`               | Done — PR 7                                                                                                                                                         |
-| `GameRow`                | Done — PR 7                                                                                                                                                         |
-| `MetacriticBadge`        | Done — PR 3                                                                                                                                                         |
-| `PlatformIcons`          | Done — PR 3                                                                                                                                                         |
-| `ActiveFilterChips`      | Done — PR 4                                                                                                                                                         |
-| `FilterDrawer`           | Done — PR 4                                                                                                                                                         |
-| `FilterSection`          | Done — PR 4                                                                                                                                                         |
-| `SegmentedControl`       | Done — PR 4                                                                                                                                                         |
-| `YearRangeSlider`        | Done — PR 4                                                                                                                                                         |
-| `ViewToggle`             | Done — PR 4                                                                                                                                                         |
-| `ResultCount`            | Done — PR 4                                                                                                                                                         |
-| `ScreenshotGallery`      | Done — PR 8                                                                                                                                                         |
-| `pages/index.vue`        | Full landing page — PR 6/7                                                                                                                                          |
-| `FilterPanel`            | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4                                                                                                     |
-| `filters/RadioList`      | Replaced by `SegmentedControl` in PR 4                                                                                                                              |
-| `filters/YearRange`      | Replaced by `YearRangeSlider` in PR 4                                                                                                                               |
-| `GameCard`               | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9 |
-| `GameGrid`               | Restyled in PR 1; passes `heading-level="2"` to `GameCard` since PR 9                                                                                               |
-| `SortSelect`             | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `Pagination`             | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `states/LoadingState`    | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `states/EmptyState`      | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `states/ErrorState`      | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `StoreLinks`             | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `LocaleSwitcher`         | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `layouts/default`        | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9                                |
-| `error.vue`              | Restyled in PR 1 (dark pass)                                                                                                                                        |
-| `pages/games/[slug].vue` | Full restyle (scoreboard row, gallery) in PR 8                                                                                                                      |
+| Component                       | Status                                                                                                                                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AppHeader`                     | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9                                                                                                                                    |
+| `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                                                                   |
+| `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
+| `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
+| `HeroVideo`                     | Done — PR 6                                                                                                                                                                                                   |
+| `CoverRing`                     | Done — PR 7; `onFocusOut` hardened against a null `relatedTarget` in PR 9                                                                                                                                     |
+| `CoverMarquee`                  | Done — PR 7                                                                                                                                                                                                   |
+| `WhyCards`                      | Done — PR 7                                                                                                                                                                                                   |
+| `GameRow`                       | Done — PR 7                                                                                                                                                                                                   |
+| `MetacriticBadge`               | Done — PR 3                                                                                                                                                                                                   |
+| `PlatformIcons`                 | Done — PR 3                                                                                                                                                                                                   |
+| `ActiveFilterChips`             | Done — PR 4                                                                                                                                                                                                   |
+| `FilterDrawer`                  | Done — PR 4                                                                                                                                                                                                   |
+| `FilterSection`                 | Done — PR 4                                                                                                                                                                                                   |
+| `SegmentedControl`              | Done — PR 4                                                                                                                                                                                                   |
+| `YearRangeSlider`               | Done — PR 4                                                                                                                                                                                                   |
+| `ViewToggle`                    | Done — PR 4                                                                                                                                                                                                   |
+| `ResultCount`                   | Done — PR 4                                                                                                                                                                                                   |
+| `ScreenshotGallery`             | Done — PR 8                                                                                                                                                                                                   |
+| `ScreenshotGalleryLightbox`     | Done — PR 8; loaded as its own chunk when a thumbnail is opened                                                                                                                                               |
+| `GameHero`                      | Done — PR 8 — full-bleed cover with the scoreboard slotted over it                                                                                                                                            |
+| `GameScoreboard`                | Done — PR 8 — released / Metacritic / player rating / platforms as a `<dl>`                                                                                                                                   |
+| `filters/CheckboxList`          | Done — PR 4                                                                                                                                                                                                   |
+| `filters/DeveloperAutocomplete` | Done — PR 4 — debounced client-only lookup against the BFF                                                                                                                                                    |
+| `pages/index.vue`               | Full landing page — PR 6/7                                                                                                                                                                                    |
+| `FilterPanel`                   | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4                                                                                                                                               |
+| `filters/RadioList`             | Replaced by `SegmentedControl` in PR 4                                                                                                                                                                        |
+| `filters/YearRange`             | Replaced by `YearRangeSlider` in PR 4                                                                                                                                                                         |
+| `GameCard`                      | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9                                           |
+| `GameGrid`                      | Restyled in PR 1; passes `heading-level="2"` to `GameCard` since PR 9                                                                                                                                         |
+| `SortSelect`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `Pagination`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `states/LoadingState`           | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `states/EmptyState`             | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `states/ErrorState`             | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `StoreLinks`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `LocaleSwitcher`                | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
+| `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8                                                                                                                                                                |
 
 ### Footer (PR 9)
 

@@ -1,3 +1,4 @@
+import { MAX_SEARCH_LENGTH } from '../../../shared/catalog'
 import { mapTaxonomy } from '../../rawg/mappers'
 import type { RawgList, RawgTaxonomy } from '../../rawg/types'
 import { withUpstreamErrors } from '../errors'
@@ -21,7 +22,8 @@ export const platforms: QueryResolvers['platforms'] = (_parent, _args, context) 
 
 export const developers: QueryResolvers['developers'] = (_parent, { search }, context) =>
   withUpstreamErrors(async () => {
-    const term = search.trim()
+    // Capped for the same reason as the catalog's search term: it lands in a cache key.
+    const term = search.trim().slice(0, MAX_SEARCH_LENGTH)
     if (term.length < 2) return []
     return list(context, 'developers', { search: term, page_size: 10 })
   })

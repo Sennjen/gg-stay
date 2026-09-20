@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_SEARCH_LENGTH } from '../../shared/catalog'
 import { filterToParams } from '../../server/rawg/filterToParams'
 
 const base = { sort: 'POPULARITY_DESC', page: 1, pageSize: 20, today: '2026-09-18' } as const
@@ -68,6 +69,11 @@ describe('filterToParams', () => {
       expect(params.ordering).toBe('-added')
       expect(params).not.toHaveProperty('search')
     })
+  })
+
+  it('caps the search term, so the cache key space stays finite', () => {
+    const params = filterToParams({ ...base, filter: { search: `  ${'x'.repeat(5_000)}  ` } })
+    expect(params.search).toBe('x'.repeat(MAX_SEARCH_LENGTH))
   })
 
   it('ignores post-filter and index-backed fields', () => {

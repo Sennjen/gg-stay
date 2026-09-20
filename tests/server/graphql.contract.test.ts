@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { MAX_PAGE, MAX_PAGE_SIZE, MAX_SEARCH_LENGTH } from '../../shared/catalog'
 import { createYogaApp } from '../../server/graphql/yoga'
-import { UpstreamError, type RawgFetch } from '../../server/rawg/rawgFetch'
+import { UpstreamError } from '../../server/upstream/errors'
+import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../server/steam/steamFetch'
 import games from '../fixtures/rawg/games.json'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
@@ -26,7 +28,7 @@ const fixtureRawg: RawgFetch = async (path) => {
   if (path === 'genres') return genres
   if (path === 'platforms') return platforms
   if (path === 'developers') return developers
-  throw new UpstreamError('NOT_FOUND', 404)
+  throw new UpstreamError('RAWG', 'NOT_FOUND', 404)
 }
 
 // The fixture-mode e2e app (tests/e2e/ssr.test.ts) exercises the Steam trailer path for the
@@ -38,7 +40,7 @@ const fixtureRawg: RawgFetch = async (path) => {
 const fixtureSteam: SteamFetch = async (appId) => {
   if (appId === '292030') return steamAppdetails
   if (appId === '413150') return stardewSteamAppdetails
-  throw new UpstreamError('NOT_FOUND', 404)
+  throw new UpstreamError('STEAM', 'NOT_FOUND', 404)
 }
 
 async function run(
@@ -132,8 +134,30 @@ describe('Query.games', () => {
   it('clamps pageSize to 40', async () => {
     const rawg = vi.fn(fixtureRawg)
     const { data } = await run(rawg, GAMES, { pageSize: 500 })
-    expect(rawg.mock.calls[0]![1]).toMatchObject({ page_size: 40 })
-    expect(data!.games.pageSize).toBe(40)
+    expect(rawg.mock.calls[0]![1]).toMatchObject({ page_size: MAX_PAGE_SIZE })
+    expect(data!.games.pageSize).toBe(MAX_PAGE_SIZE)
+  })
+
+  it('caps every attacker-controlled part of the upstream cache key', async () => {
+    const rawg = vi.fn(fixtureRawg)
+    await run(rawg, GAMES, {
+      filter: { search: 'w'.repeat(5_000) },
+      pageSize: 10_000,
+      page: 2,
+    })
+    // Unbounded key material would mint one permanent cache entry per distinct request.
+    expect(rawg.mock.calls[0]![1]).toMatchObject({
+      search: 'w'.repeat(MAX_SEARCH_LENGTH),
+      page_size: MAX_PAGE_SIZE,
+      page: 2,
+    })
+  })
+
+  it('refuses a page past the maximum without calling upstream', async () => {
+    const rawg = vi.fn(fixtureRawg)
+    const { data } = await run(rawg, GAMES, { page: MAX_PAGE + 1 })
+    expect(rawg).not.toHaveBeenCalled()
+    expect(data!.games).toMatchObject({ items: [], total: 0 })
   })
 
   it.each([0, -3, 501])('returns an empty page for page=%i without calling RAWG', async (page) => {
@@ -190,7 +214,7 @@ describe('Query.game', () => {
 
   it('still returns the game when the store-links call fails', async () => {
     const rawg: RawgFetch = async (path, params) => {
-      if (path.endsWith('/stores')) throw new UpstreamError('ERROR', 500)
+      if (path.endsWith('/stores')) throw new UpstreamError('RAWG', 'ERROR', 500)
       return fixtureRawg(path, params)
     }
     const { data, errors } = await run(rawg, GAME, { slug: 'the-witcher-3-wild-hunt' })
@@ -200,7 +224,7 @@ describe('Query.game', () => {
 
   it('still returns the game, with empty screenshots, when the screenshots call fails', async () => {
     const rawg: RawgFetch = async (path, params) => {
-      if (path.endsWith('/screenshots')) throw new UpstreamError('ERROR', 500)
+      if (path.endsWith('/screenshots')) throw new UpstreamError('RAWG', 'ERROR', 500)
       return fixtureRawg(path, params)
     }
     const { data, errors } = await run(rawg, GAME, { slug: 'the-witcher-3-wild-hunt' })
@@ -303,7 +327,7 @@ describe('Game.localizedDescription', () => {
 
   it('falls back to RAWG English, without failing the query, when Steam fails', async () => {
     const steam: SteamFetch = async () => {
-      throw new UpstreamError('ERROR', 500)
+      throw new UpstreamError('RAWG', 'ERROR', 500)
     }
     const { data, errors } = await run(
       fixtureRawg,
@@ -460,7 +484,7 @@ describe('Query.landing', () => {
 
   it('returns clipUrl: null and the query still succeeds when Steam fails', async () => {
     const steam: SteamFetch = async () => {
-      throw new UpstreamError('ERROR', 500)
+      throw new UpstreamError('RAWG', 'ERROR', 500)
     }
     const { data, errors } = await run(fixtureRawg, LANDING, {}, steam)
     expect(errors).toBeUndefined()
@@ -476,7 +500,7 @@ describe('Query.landing', () => {
 
   it('returns clipUrl: null without failing the query when the RAWG movies call fails, then falls back to Steam', async () => {
     const rawg: RawgFetch = async (path, params) => {
-      if (path.endsWith('/movies')) throw new UpstreamError('ERROR', 500)
+      if (path.endsWith('/movies')) throw new UpstreamError('RAWG', 'ERROR', 500)
       return fixtureRawg(path, params)
     }
     const { data, errors } = await run(rawg, LANDING)
@@ -492,7 +516,7 @@ describe('Query.landing', () => {
     'fails the whole query with %s when the games list call fails',
     async (kind, code) => {
       const rawg: RawgFetch = async () => {
-        throw new UpstreamError(kind)
+        throw new UpstreamError('RAWG', kind)
       }
       const { errors } = await run(rawg, LANDING)
       expect(errors![0]!.extensions!.code).toBe(code)
@@ -525,6 +549,25 @@ describe('taxonomies', () => {
     expect(data!.platforms).toHaveLength(8)
     expect(data!.developers[0].slug).toBe('cd-projekt-red')
     expect(rawg).toHaveBeenCalledWith('developers', { search: 'cd', page_size: 10 })
+  })
+
+  it('caps the developer search term before it reaches the upstream cache key', async () => {
+    const rawg = vi.fn(fixtureRawg)
+    await run(
+      rawg,
+      /* GraphQL */ `
+        query Developers($search: String!) {
+          developers(search: $search) {
+            slug
+          }
+        }
+      `,
+      { search: 'c'.repeat(5_000) },
+    )
+    expect(rawg).toHaveBeenCalledWith('developers', {
+      search: 'c'.repeat(MAX_SEARCH_LENGTH),
+      page_size: 10,
+    })
   })
 
   it('returns no developers for a search shorter than 2 characters', async () => {
@@ -604,7 +647,7 @@ describe('error mapping', () => {
     // `game`, the detail call at "games/<slug>") so each resolver's own error handling is
     // exercised directly, not just its store-links enhancement call.
     const rawg: RawgFetch = async () => {
-      throw new UpstreamError(kind)
+      throw new UpstreamError('RAWG', kind)
     }
     const { query, variables } = RESOLVER_QUERIES[resolver]
     const { errors } = await run(rawg, query, variables)

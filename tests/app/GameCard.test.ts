@@ -16,9 +16,6 @@ const game = {
   platformFamilies: ['PC', 'PLAYSTATION'] as const,
   platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
   genres: [{ id: '4', slug: 'action', name: 'Action' }],
-  price: null,
-  localisation: null,
-  madeInUkraine: false,
 }
 
 describe('GameCard', () => {
@@ -221,16 +218,16 @@ describe('GameCard', () => {
       expect(cover.className).toContain('w-full')
     })
 
-    it('asks for a narrower image than the grid layout, keeping explicit width/height', async () => {
+    it('asks for its own slot width, not the grid layout, keeping explicit width/height', async () => {
       const grid = await mountSuspended(GameCard, { props: { game } })
       const list = await mountSuspended(GameCard, { props: { game, layout: 'list' } })
-      // `NuxtImg` resolves its own `sizes` attribute from the `sizes` prop; what matters here is
-      // that list asks for a narrower rendered size than grid, not the raw HTML sizes syntax.
+      // The exact emitted `sizes`/`srcset` of both layouts is asserted in imageSizes.test.ts.
+      // Here: the list cover is full-width on phones (where grid shows two columns) and a fixed
+      // 220px box from 640px up, so the two layouts must not share one `sizes` string.
       const gridSizes = grid.get('img').attributes('sizes')!
       const listSizes = list.get('img').attributes('sizes')!
       expect(listSizes).not.toBe(gridSizes)
-      expect(listSizes).toContain('220')
-      expect(gridSizes).toContain('420')
+      expect(listSizes).toBe('(max-width: 639px) 100vw, 220px')
 
       const cover = list.get('img')
       expect(cover.attributes('width')).toBe('420')

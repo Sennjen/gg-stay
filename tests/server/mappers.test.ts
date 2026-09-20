@@ -107,6 +107,37 @@ describe('mapGame', () => {
     expect(game.similar).toEqual([])
   })
 
+  it('drops a cover and screenshots whose url is not http(s)', () => {
+    // `img-src` already stops these from doing anything, but it allows `data:`, and the rule is
+    // every third-party url bound to href OR src.
+    const card = mapGameCard({
+      ...detail,
+      background_image: 'javascript:alert(1)',
+      short_screenshots: [
+        { id: 1, image: 'data:text/html,x' },
+        { id: 2, image: 'https://media.rawg.io/media/screenshots/1/ok.jpg' },
+      ],
+    })
+    expect(card.cover).toBeNull()
+    expect(card.screenshots.map((image) => image.url)).toEqual([
+      'https://media.rawg.io/media/screenshots/1/ok.jpg',
+    ])
+  })
+
+  it('drops a website with an unsafe scheme', () => {
+    for (const website of ['javascript:alert(1)', 'data:text/html,x', '//evil.test/x']) {
+      expect(mapGame({ ...detail, website }, []).website).toBeNull()
+    }
+  })
+
+  it('drops store links whose url has an unsafe scheme', () => {
+    const game = mapGame(detail, [
+      { store_id: 1, url: 'javascript:alert(1)' },
+      { store_id: 5, url: 'https://www.gog.com/x' },
+    ])
+    expect(game.stores.map((offer) => offer.url)).toEqual(['https://www.gog.com/x'])
+  })
+
   it('drops store links with unknown stores or empty urls', () => {
     const game = mapGame(detail, [
       { store_id: 999, url: 'https://x.test' },

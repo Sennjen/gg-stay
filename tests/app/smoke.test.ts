@@ -15,9 +15,6 @@ const rowGame = {
   platformFamilies: ['PC'],
   platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
   genres: [{ id: '4', slug: 'indie', name: 'Indie' }],
-  price: null,
-  localisation: null,
-  madeInUkraine: false,
 }
 
 const landingWithFeatured = {
@@ -59,7 +56,7 @@ describe('home page', () => {
     })
 
     const wrapper = await mountSuspended(IndexPage)
-    const root = wrapper.get('main')
+    const root = wrapper.get('[data-test="hero-bleed"]')
     expect(root.classes()).toContain('-mt-[calc(var(--header-h)+1.5rem)]')
   })
 

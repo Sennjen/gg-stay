@@ -28,3 +28,7 @@ jobs:
       - run: pnpm build
         env:
           NITRO_PRESET: vercel
+      # The Vercel preset compiles routeRules headers into a proxy-level route table. A
+      # Content-Security-Policy there would have no per-response script hashes and would stop every
+      # page hydrating, in production only — so the built output is checked, not just the source.
+      - run: pnpm check:vercel-headers

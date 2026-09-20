@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { RouteLocationRaw } from 'vue-router'
 import type { GamesQuery } from '~/graphql/__generated__/operations'
+import { CARD_ROW_IMAGE_SIZES } from '~/utils/rawgImage'
 
 const props = defineProps<{
   title: string
@@ -37,7 +38,7 @@ const headingId = useId()
     </div>
     <ul class="row-scroll mt-4 flex gap-4 overflow-x-auto pb-2" role="list">
       <li v-for="game in props.games" :key="game.id" class="w-[280px] shrink-0 snap-start">
-        <GameCard :game="game" :eager="false" />
+        <GameCard :game="game" :eager="false" :cover-sizes="CARD_ROW_IMAGE_SIZES" />
       </li>
     </ul>
   </section>

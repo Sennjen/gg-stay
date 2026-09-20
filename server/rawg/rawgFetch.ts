@@ -1,25 +1,17 @@
+import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
+
 const BASE_URL = 'https://api.rawg.io/api'
 const TIMEOUT_MS = 5_000
 const MIN_INTERVAL_MS = 250 // 4 requests per second
 const MAX_ATTEMPTS = 2
 
 export type RawgParams = Record<string, string | number | undefined>
-export type UpstreamKind = 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'NOT_FOUND'
 
-export class UpstreamError extends Error {
-  constructor(
-    public readonly kind: UpstreamKind,
-    public readonly status?: number,
-  ) {
-    super(`RAWG upstream failure: ${kind}${status ? ` (${status})` : ''}`)
-    this.name = 'UpstreamError'
-  }
-}
+/** Re-exported so existing importers keep one place to reach the transport's error type. */
+export { UpstreamError } from '../upstream/errors'
+export type { UpstreamKind, UpstreamSource } from '../upstream/errors'
 
-export interface CacheEntry {
-  value: unknown
-  expiresAt: number
-}
+export type CacheEntry = UpstreamCacheEntry
 
 export interface RawgDeps {
   apiKey: string
@@ -44,6 +36,12 @@ export type RawgFetch = (
   params?: RawgParams,
   options?: RawgFetchOptions,
 ) => Promise<unknown>
+
+interface RawgRequest {
+  path: string
+  params?: RawgParams
+  options?: RawgFetchOptions
+}
 
 function cleanParams(params: RawgParams = {}): [string, string][] {
   return Object.entries(params)
@@ -71,97 +69,30 @@ export function fixtureName(path: string): string {
   return root ?? path
 }
 
-function isTimeout(error: unknown): boolean {
-  const name = (error as { name?: string } | null)?.name
-  return name === 'TimeoutError' || name === 'AbortError'
-}
-
+/**
+ * RAWG's share of the shared upstream transport (see server/upstream/createUpstreamFetch.ts):
+ * the base URL and API key, the per-path ttl rule and the 4 rps limiter. Everything else —
+ * throttling, timeout, retry, cache, stale-if-error — lives there, once.
+ */
 export function createRawgFetch(deps: RawgDeps): RawgFetch {
-  let nextSlot = 0
+  const fetchUpstream = createUpstreamFetch<RawgRequest>(
+    {
+      source: 'RAWG',
+      minIntervalMs: MIN_INTERVAL_MS,
+      timeoutMs: TIMEOUT_MS,
+      maxAttempts: MAX_ATTEMPTS,
+      buildUrl: ({ path, params }) => {
+        const url = new URL(`${BASE_URL}/${path}`)
+        for (const [name, value] of cleanParams(params)) url.searchParams.set(name, value)
+        url.searchParams.set('key', deps.apiKey)
+        return url.toString()
+      },
+      cacheKey: ({ path, params }) => normalizeKey(path, params),
+      fixtureName: ({ path }) => fixtureName(path),
+      ttlFor: ({ path, options }) => options?.ttl ?? ttlFor(path),
+    },
+    deps,
+  )
 
-  async function throttle(now: number): Promise<void> {
-    const slot = Math.max(now, nextSlot)
-    nextSlot = slot + MIN_INTERVAL_MS
-    if (slot > now) await deps.sleep(slot - now)
-  }
-
-  async function attempt(url: string, now: number): Promise<unknown> {
-    await throttle(now)
-    let response: { status: number; body: unknown }
-    try {
-      response = await deps.fetchJson(url, AbortSignal.timeout(TIMEOUT_MS))
-    } catch (error) {
-      throw new UpstreamError(isTimeout(error) ? 'TIMEOUT' : 'ERROR')
-    }
-    if (response.status === 429) throw new UpstreamError('RATE_LIMITED', 429)
-    if (response.status === 404) throw new UpstreamError('NOT_FOUND', 404)
-    if (response.status < 200 || response.status >= 300) {
-      throw new UpstreamError('ERROR', response.status)
-    }
-    return response.body
-  }
-
-  function isRetryable(error: unknown): boolean {
-    if (!(error instanceof UpstreamError)) return false
-    if (error.kind === 'TIMEOUT') return true
-    return error.kind === 'ERROR' && (error.status === undefined || error.status >= 500)
-  }
-
-  async function fetchWithRetry(url: string, now: number): Promise<unknown> {
-    let lastError: unknown
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      // The first attempt reuses the `now` captured at the top of the logical
-      // call (see rawgFetch below) so that concurrent calls each reserve
-      // their throttle slot against a shared reference point. A retry
-      // attempt, however, happens strictly after real time has passed (the
-      // failed fetch, its timeout, etc.), so it must re-read the clock
-      // instead of reusing that stale value — otherwise throttle() would
-      // wait out a slot that has already elapsed, needlessly slowing down
-      // retries and dragging real throughput under the 4rps target.
-      const attemptNow = i === 0 ? now : deps.now()
-      try {
-        return await attempt(url, attemptNow)
-      } catch (error) {
-        lastError = error
-        if (!isRetryable(error)) break
-      }
-    }
-    throw lastError
-  }
-
-  return async function rawgFetch(path, params, options) {
-    // Capture `now` synchronously, before the first await, so concurrent
-    // calls (e.g. Promise.all(...)) all reserve throttle slots against the
-    // same reference point instead of one call's simulated sleep (in tests)
-    // or real elapsed time (in production) skewing another in-flight call's
-    // notion of "now". This is purely about keeping slot assignment
-    // deterministic across concurrent siblings — it is not a workaround for
-    // any production rate-limit bug.
-    const now = deps.now()
-
-    if (deps.fixtures) {
-      const fixture = await deps.readFixture(fixtureName(path))
-      if (fixture === null) throw new UpstreamError('NOT_FOUND', 404)
-      return fixture
-    }
-
-    const key = normalizeKey(path, params)
-    const cached = await deps.cache.get(key)
-    if (cached && cached.expiresAt > now) return cached.value
-
-    const url = new URL(`${BASE_URL}/${path}`)
-    for (const [name, value] of cleanParams(params)) url.searchParams.set(name, value)
-    url.searchParams.set('key', deps.apiKey)
-
-    try {
-      const value = await fetchWithRetry(url.toString(), now)
-      const ttl = options?.ttl ?? ttlFor(path)
-      await deps.cache.set(key, { value, expiresAt: now + ttl * 1000 })
-      return value
-    } catch (error) {
-      const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
-      if (cached && !notFound) return cached.value
-      throw error
-    }
-  }
+  return (path, params, options) => fetchUpstream({ path, params, options })
 }
