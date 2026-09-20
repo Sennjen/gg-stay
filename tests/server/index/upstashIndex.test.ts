@@ -111,6 +111,7 @@ const WRITE_COMMANDS = [
   'setNx',
   'mset',
   'del',
+  'unlink',
   'incr',
   'expire',
   'sadd',
@@ -372,7 +373,7 @@ describe('upstashIndex', () => {
       expect(transaction.commands).toEqual(['hset', 'set', 'set', 'del'])
     })
 
-    it('expires the replaced version after the pointer has moved', async () => {
+    it('keeps exactly one predecessor, whole and with no expiry on anything', async () => {
       const { redis, index } = makeAdapter()
       const adapter = adapterFor(index, redis)
       const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
@@ -380,15 +381,40 @@ describe('upstashIndex', () => {
       expect(firstKeys.length).toBeGreaterThan(3)
       const second = await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
 
-      for (const key of firstKeys) expect(redis.ttl(key)).toBe(48 * 60 * 60 * 1000)
-      for (const key of redis.keys().filter((key) => key.startsWith(versionPrefix(second)))) {
+      // A reader may hold the old pointer for up to a minute, so the replaced version stays
+      // readable — and it stays readable for good, not for 48 hours: nothing has an expiry.
+      for (const key of [
+        ...firstKeys,
+        ...redis.keys().filter((key) => key.startsWith(versionPrefix(second))),
+      ]) {
         expect(redis.ttl(key)).toBeNull()
       }
       expect(redis.ttl(CURRENT_VERSION_KEY)).toBeNull()
+      expect((await index.previousMeta())?.version).toBe(first)
+      redis.advance(48 * 60 * 60 * 1000)
+      expect((await index.previousMeta())?.version).toBe(first)
+    })
 
-      redis.advance(48 * 60 * 60 * 1000 + 1)
+    it('deletes every version older than the one it kept, in multi-key commands', async () => {
+      const { redis, index } = makeAdapter()
+      const adapter = adapterFor(index, redis)
+      const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      const second = await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
+      const before = redis.requests.length
+
+      const third = await publishGames(adapter, FIXTURE_GAMES.slice(6, 9))
+
       expect(redis.keys().filter((key) => key.startsWith(versionPrefix(first)))).toEqual([])
-      expect((await index.search({})).ids).toEqual([4, 5, 6])
+      expect(
+        redis.keys().filter((key) => key.startsWith(versionPrefix(second))).length,
+      ).toBeGreaterThan(3)
+      expect(
+        redis.keys().filter((key) => key.startsWith(versionPrefix(third))).length,
+      ).toBeGreaterThan(3)
+      // One UNLINK for the whole version, not one EXPIRE per key.
+      const swept = commandsSince(redis, before).filter((command) => command === 'unlink')
+      expect(swept).toEqual(['unlink'])
+      expect((await index.search({})).ids).toEqual([7, 8, 9])
     })
 
     it('sweeps a version an interrupted run abandoned', async () => {
@@ -399,24 +425,13 @@ describe('upstashIndex', () => {
       // A run that wrote a version and then died: it is neither published nor discarded.
       const abandoned = await index.beginVersion()
       await index.writeVersion(abandoned, FIXTURE_GAMES.slice(6, 9))
-      const abandonedKeys = redis.keys().filter((key) => key.startsWith(versionPrefix(abandoned)))
-      expect(abandonedKeys.length).toBeGreaterThan(3)
-      for (const key of abandonedKeys) expect(redis.ttl(key)).toBeNull()
+      expect(
+        redis.keys().filter((key) => key.startsWith(versionPrefix(abandoned))).length,
+      ).toBeGreaterThan(3)
 
       await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
-      for (const key of abandonedKeys) expect(redis.ttl(key)).toBe(48 * 60 * 60 * 1000)
-      redis.advance(48 * 60 * 60 * 1000 + 1)
+
       expect(redis.keys().filter((key) => key.startsWith(versionPrefix(abandoned)))).toEqual([])
-    })
-
-    it('keeps the replaced version readable until its expiry passes', async () => {
-      const { redis, index } = makeAdapter()
-      const adapter = adapterFor(index, redis)
-      const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
-      await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
-      expect((await index.previousMeta())?.version).toBe(first)
-      redis.advance(47 * 60 * 60 * 1000)
-      expect((await index.previousMeta())?.version).toBe(first)
     })
 
     it('stores the run metadata as a hash and reads it back whole', async () => {
@@ -496,8 +511,12 @@ describe('upstashIndex', () => {
       const stale = createUpstashIndex(redis, { runId: 'stale-run', now })
       const live = createUpstashIndex(redis, { runId: 'live-run', now })
 
+      // The version the stale run believes it is publishing is the one the index kept as its
+      // predecessor, so its keys are all still there and only the monotonic guard can refuse it.
       const first = await stale.beginVersion()
       await stale.writeVersion(first, FIXTURE_GAMES.slice(0, 3))
+      await stale.publish(first, { ...FIXTURE_META, version: first, gameCount: 3 })
+
       // The stale run's lock lapses and a later run publishes a newer version.
       clock += 31 * 60 * 1000
       redis.advance(31 * 60 * 1000)

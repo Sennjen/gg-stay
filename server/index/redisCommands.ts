@@ -42,6 +42,8 @@ export interface RedisBatch {
   setNx(key: string, value: string, seconds: number): RedisResult<boolean>
   mset(entries: Record<string, string>): void
   del(keys: string[]): void
+  /** `UNLINK`: the same removal as `DEL`, reclaimed in the background. Used to sweep a version. */
+  unlink(keys: string[]): void
   incr(key: string): RedisResult<number>
   expire(key: string, seconds: number): void
   sadd(key: string, members: string[]): void
@@ -85,6 +87,7 @@ export function withKeyPrefix(commands: RedisCommands, prefix: string): RedisCom
     setNx: (key, value, seconds) => batch.setNx(moved(key), value, seconds),
     mset: (entries) => batch.mset(movedEntries(entries)),
     del: (keys) => batch.del(movedKeys(keys)),
+    unlink: (keys) => batch.unlink(movedKeys(keys)),
     incr: (key) => batch.incr(moved(key)),
     expire: (key, seconds) => batch.expire(moved(key), seconds),
     sadd: (key, members) => batch.sadd(moved(key), members),
@@ -155,6 +158,7 @@ export function withUsage(commands: RedisCommands): {
     ),
     mset: (entries) => (count('MSET', ...Object.entries(entries).flat()), batch.mset(entries)),
     del: (keys) => (count('DEL', ...keys), batch.del(keys)),
+    unlink: (keys) => (count('UNLINK', ...keys), batch.unlink(keys)),
     incr: (key) => (count('INCR', key), batch.incr(key)),
     expire: (key, seconds) => (count('EXPIRE', key, seconds), batch.expire(key, seconds)),
     sadd: (key, members) => (count('SADD', key, ...members), batch.sadd(key, members)),

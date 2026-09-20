@@ -526,14 +526,47 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await expect(adapter.rival.beginVersion()).rejects.toThrow(/force/)
       })
 
-      it('takes over a lock that has been held far too long, when a run forces it', async () => {
+      it('takes over the lock of a holder that has gone quiet, when a run forces it', async () => {
         const adapter = await fresh()
         await adapter.writer.beginVersion()
+
+        // A holder heard from a moment ago is alive; four minutes of silence is still not enough.
         await expect(adapter.rival.beginVersion({ force: true })).rejects.toThrow()
-        adapter.advance(31 * 60 * 1000)
+        adapter.advance(4 * 60 * 1000)
+        await expect(adapter.rival.beginVersion({ force: true })).rejects.toThrow()
+
+        // Five minutes of silence, and the workflow never runs two jobs at once, so it is dead.
+        adapter.advance(1 * 60 * 1000 + 1)
         await expect(adapter.rival.beginVersion({ force: true })).resolves.toBeGreaterThan(0)
         // The run that lost the lock can no longer write with it.
-        await expect(adapter.writer.beginVersion()).rejects.toThrow(/held the write lock/)
+        await expect(adapter.writer.beginVersion()).rejects.toThrow(/write lock/)
+      })
+
+      it('lets a plain retry wait where forcing would work, so forcing is worth asking for', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+
+        adapter.advance(6 * 60 * 1000)
+
+        // The lock has not expired — it lives half an hour — so a plain retry is still refused.
+        await expect(adapter.rival.beginVersion()).rejects.toThrow(/write lock/)
+        await expect(adapter.rival.beginVersion({ force: true })).resolves.toBeGreaterThan(0)
+      })
+
+      it('names the holder, its age, its silence and the way to take the lock over', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+        adapter.advance(12 * 60 * 1000)
+        await adapter.writer.renewLock()
+        adapter.advance(3 * 60 * 1000)
+
+        const refusal = await adapter.rival.beginVersion().catch((error: Error) => error.message)
+
+        expect(refusal).toMatch(/held the write lock for 15 minute\(s\)/)
+        expect(refusal).toMatch(/last heard from 3 minute\(s\) ago/)
+        expect(refusal).toMatch(/force_unlock/)
+        // No internals in a message an operator reads.
+        expect(refusal).not.toMatch(/force: true|idx:lock/)
       })
 
       it("keeps a lock a run keeps renewing out of a forcing run's reach", async () => {
