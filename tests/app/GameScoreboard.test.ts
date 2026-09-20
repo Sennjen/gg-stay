@@ -3,7 +3,10 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import GameScoreboard from '~/components/GameScoreboard.vue'
 import MetacriticBadge from '~/components/MetacriticBadge.vue'
 import PlatformIcons from '~/components/PlatformIcons.vue'
+import PriceTag from '~/components/PriceTag.vue'
 import { formatDecimal, formatNumber } from '~/utils/format'
+
+const NOW = '2026-09-18T12:00:00.000Z'
 
 const game = {
   released: '2015-05-18',
@@ -11,6 +14,15 @@ const game = {
   rating: 4.65,
   ratingsCount: 6800,
   platformFamilies: ['PC', 'PLAYSTATION'] as const,
+  stores: [] as {
+    store: string
+    priceUah: number | null
+    regularPriceUah: number | null
+    discountPercent: number | null
+    isFree?: boolean | null
+    updatedAt: string | null
+  }[],
+  localisation: null as { text: boolean; audio: boolean } | null,
 }
 
 describe('GameScoreboard', () => {
@@ -20,7 +32,13 @@ describe('GameScoreboard', () => {
     const dts = wrapper.findAll('dt')
     expect(dts.every((dt) => !dt.classes().includes('sr-only'))).toBe(true)
     const captions = dts.map((dt) => dt.text())
-    expect(captions).toEqual(['Дата виходу', 'Metacritic', 'Оцінка гравців', 'Платформи'])
+    expect(captions).toEqual([
+      'Дата виходу',
+      'Metacritic',
+      'Оцінка гравців',
+      'Платформи',
+      'Українська',
+    ])
     expect(wrapper.text()).toContain('18 травня 2015')
     expect(wrapper.findComponent(MetacriticBadge).exists()).toBe(true)
     expect(wrapper.findComponent(PlatformIcons).exists()).toBe(true)
@@ -95,11 +113,168 @@ describe('GameScoreboard', () => {
           rating: null,
           ratingsCount: null,
           platformFamilies: [],
+          stores: [],
+          localisation: null,
         },
       },
     })
     expect(wrapper.findComponent(MetacriticBadge).exists()).toBe(false)
     expect(wrapper.findComponent(PlatformIcons).exists()).toBe(false)
-    expect(wrapper.findAll('dt')).toHaveLength(0)
+    // The localisation item is always shown (it has an explicit "None" state) — only the price
+    // item, released, Metacritic and rating disappear entirely without data.
+    expect(wrapper.findAll('dt')).toHaveLength(1)
+  })
+
+  describe('price', () => {
+    it('shows the Steam price and discount from the stores list, and when it was updated', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'steam',
+                priceUah: 337,
+                regularPriceUah: 1349,
+                discountPercent: 75,
+                updatedAt: '2026-09-18T09:00:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.text()).toContain('Ціна в Steam')
+      const priceTag = wrapper.findComponent(PriceTag)
+      expect(priceTag.exists()).toBe(true)
+      expect(priceTag.props('price')).toMatchObject({
+        bestUah: 337,
+        regularUah: 1349,
+        discountPercent: 75,
+      })
+      expect(wrapper.text()).toContain('оновлено 3 години тому')
+    })
+
+    it('omits the price item entirely when there is no Steam price', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: { game: { ...game, stores: [] }, now: NOW },
+      })
+      expect(wrapper.text()).not.toContain('Ціна в Steam')
+      expect(wrapper.findComponent(PriceTag).exists()).toBe(false)
+    })
+
+    it('ignores a non-Steam store offer for the scoreboard price', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'gog',
+                priceUah: 500,
+                regularPriceUah: null,
+                discountPercent: null,
+                updatedAt: '2026-09-18T09:00:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.findComponent(PriceTag).exists()).toBe(false)
+    })
+
+    it('shows "just now" instead of "0 hours ago" for a price updated under an hour ago', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'steam',
+                priceUah: 1349,
+                regularPriceUah: null,
+                discountPercent: null,
+                updatedAt: '2026-09-18T11:40:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.text()).toContain('оновлено щойно')
+      expect(wrapper.text()).not.toContain('0 годин')
+      expect(wrapper.text()).not.toContain('оновлено 0')
+    })
+
+    it('shows "Безкоштовно" for a free Steam game with an explicit isFree flag, not "0 ₴"', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'steam',
+                priceUah: 0,
+                regularPriceUah: null,
+                discountPercent: null,
+                isFree: true,
+                updatedAt: '2026-09-18T09:00:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.text()).toContain('Безкоштовно')
+      expect(wrapper.text()).not.toContain('₴')
+    })
+
+    it('also treats a 0 ₴ Steam price as free when isFree is missing (older/partial data)', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: {
+          game: {
+            ...game,
+            stores: [
+              {
+                store: 'steam',
+                priceUah: 0,
+                regularPriceUah: null,
+                discountPercent: null,
+                updatedAt: '2026-09-18T09:00:00.000Z',
+              },
+            ],
+          },
+          now: NOW,
+        },
+      })
+      expect(wrapper.text()).toContain('Безкоштовно')
+      expect(wrapper.text()).not.toContain('₴')
+    })
+  })
+
+  describe('localisation', () => {
+    it('shows "Текст і озвучка" when the game has Ukrainian audio', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: { game: { ...game, localisation: { text: true, audio: true } } },
+      })
+      expect(wrapper.text()).toContain('Українська')
+      expect(wrapper.text()).toContain('Текст і озвучка')
+    })
+
+    it('shows "Текст" when the game has Ukrainian text only', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: { game: { ...game, localisation: { text: true, audio: false } } },
+      })
+      expect(wrapper.text()).toContain('Текст')
+      expect(wrapper.text()).not.toContain('Текст і озвучка')
+    })
+
+    it('shows "Немає" when there is no Ukrainian localisation', async () => {
+      const wrapper = await mountSuspended(GameScoreboard, {
+        props: { game: { ...game, localisation: null } },
+      })
+      expect(wrapper.text()).toContain('Немає')
+    })
   })
 })

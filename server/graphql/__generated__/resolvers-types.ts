@@ -195,6 +195,8 @@ export type PriceSummary = {
   bestUah: Scalars['Int']['output'];
   discountPercent: Scalars['Int']['output'];
   isFree: Scalars['Boolean']['output'];
+  /** The pre-discount price, so the interface can render it struck through. Null when not on sale. */
+  regularUah?: Maybe<Scalars['Int']['output']>;
   updatedAt: Scalars['String']['output'];
 };
 
@@ -227,6 +229,7 @@ export type QueryGamesArgs = {
 
 export type StoreOffer = {
   discountPercent?: Maybe<Scalars['Int']['output']>;
+  isFree?: Maybe<Scalars['Boolean']['output']>;
   priceUah?: Maybe<Scalars['Int']['output']>;
   regularPriceUah?: Maybe<Scalars['Int']['output']>;
   store: Scalars['String']['output'];
@@ -457,6 +460,7 @@ export type PriceSummaryResolvers<ContextType = GraphQLContext, ParentType exten
   bestUah?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   discountPercent?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   isFree?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  regularUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   updatedAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
@@ -471,6 +475,7 @@ export type QueryResolvers<ContextType = GraphQLContext, ParentType extends Reso
 
 export type StoreOfferResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['StoreOffer'] = ResolversParentTypes['StoreOffer']> = {
   discountPercent?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  isFree?: Resolver<Maybe<ResolversTypes['Boolean']>, ParentType, ContextType>;
   priceUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   regularPriceUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   store?: Resolver<ResolversTypes['String'], ParentType, ContextType>;

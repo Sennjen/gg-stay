@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, formatDecimal, formatNumber, splitParagraphs } from '~/utils/format'
+import {
+  formatDate,
+  formatDecimal,
+  formatNumber,
+  formatUah,
+  hoursSince,
+  splitParagraphs,
+} from '~/utils/format'
 
 describe('formatDate', () => {
   it('formats Ukrainian dates without the trailing year marker', () => {
@@ -34,6 +41,35 @@ describe('formatDecimal', () => {
   it('pads and rounds to the requested fraction digits', () => {
     expect(formatDecimal(4, 'en-US')).toBe('4.0')
     expect(formatDecimal(3.14159, 'en-US', 2)).toBe('3.14')
+  })
+})
+
+describe('formatUah', () => {
+  it('formats a whole-number hryvnia amount, no fraction digits', () => {
+    expect(formatUah(1349, 'uk-UA').replace(/\s/g, ' ')).toBe('1 349 ₴')
+  })
+  it('formats zero', () => {
+    expect(formatUah(0, 'uk-UA').replace(/\s/g, ' ')).toBe('0 ₴')
+  })
+  it('formats in en-US too', () => {
+    expect(formatUah(337, 'en-US').replace(/\s/g, ' ')).toBe('UAH 337')
+  })
+})
+
+describe('hoursSince', () => {
+  it('rounds the difference between two ISO timestamps to whole hours', () => {
+    expect(hoursSince('2026-09-18T09:00:00.000Z', '2026-09-18T12:00:00.000Z')).toBe(3)
+  })
+  it('rounds to the nearest hour rather than truncating', () => {
+    expect(hoursSince('2026-09-18T09:00:00.000Z', '2026-09-18T11:40:00.000Z')).toBe(3)
+    expect(hoursSince('2026-09-18T09:00:00.000Z', '2026-09-18T11:20:00.000Z')).toBe(2)
+  })
+  it('never returns a negative number, even for a timestamp slightly in the future', () => {
+    expect(hoursSince('2026-09-18T12:00:05.000Z', '2026-09-18T12:00:00.000Z')).toBe(0)
+  })
+  it('returns null for a missing or malformed timestamp', () => {
+    expect(hoursSince(null, '2026-09-18T12:00:00.000Z')).toBeNull()
+    expect(hoursSince('not-a-date', '2026-09-18T12:00:00.000Z')).toBeNull()
   })
 })
 

@@ -27,6 +27,12 @@ const YEAR = /^(\d{4})-\d{2}-\d{2}/
 const year = computed(() => props.game.released?.match(YEAR)?.[1] ?? null)
 const previewUrl = computed(() => props.game.screenshots[0]?.url ?? null)
 
+// A game outside the week-2 index has neither a price nor a localisation flag: the whole line is
+// omitted (not a placeholder), so an unpriced card among priced ones is exactly as tall as before.
+const hasPriceLine = computed(
+  () => !!props.game.price || !!(props.game.localisation?.text || props.game.localisation?.audio),
+)
+
 // Grid markup/classes stay byte-identical to before this prop existed; list only adds a
 // horizontal layout at >= 640px (cover ~220px wide, stacked like grid below that) and asks
 // the browser for a narrower image instead of the grid's ~420px variant. Explicit width/height
@@ -107,7 +113,7 @@ function revealPreview(event: PointerEvent) {
           {{ game.name }}
         </component>
         <div
-          v-if="year || game.metacritic || game.platformFamilies.length"
+          v-if="year || game.metacritic || game.platformFamilies.length || hasPriceLine"
           class="@container mt-auto pt-2"
         >
           <!-- A `<div>`, not a `<p>`: `PlatformIcons` in `responsive` mode renders `<ul>`
@@ -135,6 +141,10 @@ function revealPreview(event: PointerEvent) {
           <p v-if="game.metacritic" class="mt-1 flex flex-nowrap items-center overflow-hidden">
             <MetacriticBadge :score="game.metacritic" caption />
           </p>
+          <div v-if="hasPriceLine" class="mt-1.5 flex items-center justify-between gap-2">
+            <PriceTag :price="game.price" />
+            <LocalisationBadge :localisation="game.localisation" />
+          </div>
         </div>
       </div>
     </NuxtLink>

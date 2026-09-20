@@ -124,6 +124,14 @@
     "PEGI16": "PEGI 16",
     "PEGI18": "PEGI 18"
   },
+  "price": {
+    "free": "Безкоштовно",
+    "was": "було"
+  },
+  "localisation": {
+    "text": "Українська: текст",
+    "audio": "Українська: текст і озвучка"
+  },
   "card": {
     "metacriticLabel": "Metacritic {score}",
     "metacriticCaption": "Metacritic",
@@ -170,7 +178,14 @@
     "whereToBuy": "Де купити",
     "about": "Про гру",
     "descriptionSourceSteam": "Опис: Steam",
-    "metaFallback": "{name} — платформи, жанри, рейтинг і магазини."
+    "metaFallback": "{name} — платформи, жанри, рейтинг і магазини.",
+    "priceLabel": "Ціна в Steam",
+    "priceUpdatedRecently": "оновлено щойно",
+    "priceUpdated": "оновлено {count} годину тому | оновлено {count} години тому | оновлено {count} годин тому",
+    "localisationLabel": "Українська",
+    "localisationText": "Текст",
+    "localisationAudio": "Текст і озвучка",
+    "localisationNone": "Немає"
   },
   "gallery": {
     "heading": "Скріншоти",

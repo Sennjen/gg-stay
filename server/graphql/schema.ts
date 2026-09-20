@@ -176,6 +176,8 @@ export const typeDefs = /* GraphQL */ `
 
   type PriceSummary {
     bestUah: Int!
+    "The pre-discount price, so the interface can render it struck through. Null when not on sale."
+    regularUah: Int
     bestStore: String!
     discountPercent: Int!
     isFree: Boolean!
@@ -187,6 +189,7 @@ export const typeDefs = /* GraphQL */ `
     priceUah: Int
     regularPriceUah: Int
     discountPercent: Int
+    isFree: Boolean
     updatedAt: String
   }
   type LocalisationInfo {

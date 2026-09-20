@@ -124,6 +124,14 @@
     "PEGI16": "PEGI 16",
     "PEGI18": "PEGI 18"
   },
+  "price": {
+    "free": "Free",
+    "was": "was"
+  },
+  "localisation": {
+    "text": "Ukrainian: text",
+    "audio": "Ukrainian: text and voice acting"
+  },
   "card": {
     "metacriticLabel": "Metacritic {score}",
     "metacriticCaption": "Metacritic",
@@ -170,7 +178,14 @@
     "whereToBuy": "Where to buy",
     "about": "About",
     "descriptionSourceSteam": "Description: Steam",
-    "metaFallback": "{name} — platforms, genres, ratings and stores."
+    "metaFallback": "{name} — platforms, genres, ratings and stores.",
+    "priceLabel": "Steam price",
+    "priceUpdatedRecently": "updated just now",
+    "priceUpdated": "updated {count} hour ago | updated {count} hours ago",
+    "localisationLabel": "Ukrainian",
+    "localisationText": "Text",
+    "localisationAudio": "Text and voice acting",
+    "localisationNone": "None"
   },
   "gallery": {
     "heading": "Screenshots",

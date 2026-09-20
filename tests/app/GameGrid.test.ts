@@ -59,6 +59,40 @@ describe('GameGrid', () => {
     }
   })
 
+  it('keeps every card the same height-stretching shape when only some have a price line', async () => {
+    const mixed = games.map((entry, index) =>
+      index % 2 === 0
+        ? {
+            ...entry,
+            price: {
+              bestUah: 1349,
+              regularUah: null,
+              bestStore: 'steam',
+              discountPercent: 0,
+              isFree: false,
+              updatedAt: '2026-09-18T09:00:00.000Z',
+            },
+          }
+        : entry,
+    )
+    const wrapper = await mountSuspended(GameGrid, { props: { games: mixed } })
+    // CSS Grid stretches every item in a row to the tallest by default (no per-card change
+    // needed), so the invariant this asserts is that the price line never opts a card out of
+    // that: every `<li>` and every card's own root keep the same `h-full` stretching classes,
+    // priced or not.
+    const gridItems = wrapper.get('ul.grid').element.querySelectorAll(':scope > li')
+    expect(gridItems.length).toBe(mixed.length)
+    for (const item of gridItems) {
+      expect(item.className).toContain('h-full')
+    }
+    for (const card of wrapper.findAllComponents(GameCard)) {
+      expect(card.get('[data-test="game-card"]').classes()).toContain('h-full')
+      expect(card.get('a').classes()).toEqual(
+        expect.arrayContaining(['flex', 'h-full', 'flex-col']),
+      )
+    }
+  })
+
   it('lays out a single column and passes layout="list" down to each card', async () => {
     const wrapper = await mountSuspended(GameGrid, { props: { games, layout: 'list' } })
     const classes = wrapper.get('ul').classes()
@@ -68,4 +102,41 @@ describe('GameGrid', () => {
       expect(card.props('layout')).toBe('list')
     }
   })
+
+  it(
+    'documents why list layout needs no mixed-price equal-height test: grid-cols-1 puts every ' +
+      'card in its own row, so there is no sibling in the same row for CSS Grid to stretch it ' +
+      "against — each card's height is independent of every other card's, priced or not. Still " +
+      'asserts the invariant that matters here (every card keeps the same shrink/flex shape as ' +
+      'the price line comes and goes), so a future change to a multi-column list would have a ' +
+      'failing test the moment it needs the grid-mode guarantee instead.',
+    async () => {
+      const mixed = games.map((entry, index) =>
+        index % 2 === 0
+          ? {
+              ...entry,
+              price: {
+                bestUah: 1349,
+                regularUah: null,
+                bestStore: 'steam',
+                discountPercent: 0,
+                isFree: false,
+                updatedAt: '2026-09-18T09:00:00.000Z',
+              },
+            }
+          : entry,
+      )
+      const wrapper = await mountSuspended(GameGrid, { props: { games: mixed, layout: 'list' } })
+      const classes = wrapper.get('ul').classes()
+      // Single column: one card per row, so no row-stretching mechanism is even in play.
+      expect(classes).toContain('grid-cols-1')
+
+      for (const card of wrapper.findAllComponents(GameCard)) {
+        expect(card.get('[data-test="game-card"]').classes()).toContain('h-full')
+        expect(card.get('a').classes()).toEqual(
+          expect.arrayContaining(['flex', 'h-full', 'flex-col', 'sm:flex-row']),
+        )
+      }
+    },
+  )
 })

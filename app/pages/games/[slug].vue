@@ -37,6 +37,13 @@ const description = computed(() => {
   return t('game.metaFallback', { name: game.value?.name ?? '' })
 })
 
+// Computed once (server or first client render) and reused from then on — see the comment on
+// `currentYear` in `pages/games/index.vue`, the same pattern for the same reason: the scoreboard's
+// "updated N hours ago" is derived from this, and no component may call `Date.now()` in its own
+// render path (server and client would then compute two different values as soon as a second
+// passes between the two renders, which is the exact shape of a hydration mismatch).
+const now = useState('game-page-now', () => new Date().toISOString())
+
 useSeoMeta({
   title: () => (game.value ? `${game.value.name} — GG Stay` : 'GG Stay'),
   description: () => description.value,
@@ -59,7 +66,7 @@ useSeoMeta({
 
     <article v-else-if="game" class="mt-4">
       <GameHero :name="game.name" :cover-url="game.cover?.url ?? null">
-        <GameScoreboard :game="game" />
+        <GameScoreboard :game="game" :now="now" />
       </GameHero>
 
       <div class="mt-8 grid gap-8 lg:grid-cols-[1fr_20rem]">

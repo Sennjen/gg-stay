@@ -1,9 +1,50 @@
 <script setup lang="ts">
 import type { GameQuery } from '~/graphql/__generated__/operations'
+import { hoursSince } from '~/utils/format'
 
-const props = defineProps<{ game: NonNullable<GameQuery['game']> }>()
+const props = defineProps<{
+  game: NonNullable<GameQuery['game']>
+  /**
+   * ISO timestamp of "now", computed once (server or first client render) and reused — see
+   * `useState('game-page-now', ...)` in `pages/games/[slug].vue`. Never read directly with
+   * `Date.now()` here: that would render a different "N hours ago" on the server than on the
+   * client the moment a second passes between the two, which is exactly the kind of hydration
+   * mismatch the design rules call out. Optional so existing callers/tests that never show a
+   * price do not need to supply it.
+   */
+  now?: string
+}>()
 const { t } = useI18n()
 const { formatDate, formatDecimal, formatNumber } = useFormatters()
+
+// The scoreboard only ever shows Steam's price — "Де купити" is where every other store lives.
+const steamOffer = computed(() => props.game.stores?.find((offer) => offer.store === 'steam'))
+const steamPrice = computed(() => {
+  const offer = steamOffer.value
+  if (!offer || offer.priceUah == null) return null
+  // `isFree` may be missing (an older/partial index entry) even though the price itself is
+  // already 0 — a 0 ₴ price is free either way, never a formatted "0 ₴".
+  return {
+    bestUah: offer.priceUah,
+    regularUah: offer.regularPriceUah,
+    discountPercent: offer.discountPercent ?? 0,
+    isFree: offer.isFree ?? offer.priceUah === 0,
+  }
+})
+const priceUpdatedHours = computed(() => {
+  const updatedAt = steamOffer.value?.updatedAt
+  return updatedAt && props.now ? hoursSince(updatedAt, props.now) : null
+})
+// `hoursSince` rounds to 0 for anything under ~30 minutes — "updated 0 hours ago" would read like
+// a broken counter, so that case gets its own "just now" string instead of the plural form.
+const priceUpdatedRecently = computed(() => priceUpdatedHours.value === 0)
+
+const localisationLabel = computed(() => {
+  const localisation = props.game.localisation
+  if (localisation?.audio) return t('game.localisationAudio')
+  if (localisation?.text) return t('game.localisationText')
+  return t('game.localisationNone')
+})
 
 // A single accessible name for the whole rating item ("Оцінка гравців: 4,6 з 5, 7 277 оцінок"),
 // so it reads naturally as one phrase instead of the caption, star, value, scale and count being
@@ -67,6 +108,30 @@ const ratingAriaLabel = computed(() => {
     <div v-if="game.platformFamilies.length" class="flex flex-col gap-0.5">
       <dt class="text-xs text-fg-2">{{ t('game.platforms') }}</dt>
       <dd><PlatformIcons class="flex-wrap" :families="game.platformFamilies" /></dd>
+    </div>
+    <div v-if="steamPrice" class="flex flex-col gap-0.5">
+      <dt class="text-xs text-fg-2">{{ t('game.priceLabel') }}</dt>
+      <dd class="flex flex-col gap-0.5">
+        <PriceTag :price="steamPrice" />
+        <span v-if="priceUpdatedRecently" class="text-xs text-fg-2">{{
+          t('game.priceUpdatedRecently')
+        }}</span>
+        <i18n-t
+          v-else-if="priceUpdatedHours !== null"
+          keypath="game.priceUpdated"
+          tag="span"
+          :plural="priceUpdatedHours"
+          class="text-xs text-fg-2"
+        >
+          <template #count
+            ><span class="font-numeric">{{ formatNumber(priceUpdatedHours) }}</span></template
+          >
+        </i18n-t>
+      </dd>
+    </div>
+    <div class="flex flex-col gap-0.5">
+      <dt class="text-xs text-fg-2">{{ t('game.localisationLabel') }}</dt>
+      <dd class="text-fg">{{ localisationLabel }}</dd>
     </div>
   </dl>
 </template>
