@@ -2,8 +2,13 @@
 import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
-const key = process.env.RAWG_API_KEY
-if (!key) throw new Error('RAWG_API_KEY is required')
+function requireApiKey(): string {
+  const key = process.env.RAWG_API_KEY
+  if (!key) throw new Error('RAWG_API_KEY is required')
+  return key
+}
+
+const key = requireApiKey()
 
 const targets: [file: string, path: string, params: Record<string, string>][] = [
   ['games', 'games', { page_size: '20', ordering: '-added' }],
