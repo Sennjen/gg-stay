@@ -1,0 +1,10 @@
+{
+  "textOnly": "English, French, German, Українська, Russian",
+  "withAudio": "English<strong>*</strong>, French, Italian, German, Українська<strong>*</strong><br><strong>*</strong>мови з повною аудіопідтримкою",
+  "none": "English, French, German, Spanish - Spain, Russian",
+  "englishResponseUkrainian": "English, French, German, Ukrainian, Russian, Polish",
+  "russianResponseUkrainian": "Английский, Французский, Украинский, Русский",
+  "legendPresentNoUkrainian": "English<strong>*</strong>, French<br><strong>*</strong>languages with full audio support",
+  "audioOnAnotherLanguageNotUkrainian": "English<strong>*</strong>, Українська, French<br><strong>*</strong>мови з повною аудіопідтримкою",
+  "substringNotUkrainian": "NonUkrainianLanguagePack, English"
+}
