@@ -76,15 +76,21 @@ beforeAll(async () => {
 })
 
 /**
- * Waits for the suggestion request to settle. The debounce runs on fake timers, but the fetch that
- * follows awaits a dynamic import (`printDocument` loads the graphql printer on demand), which
- * takes an unpredictable number of turns the first time it runs in a worker. `advanceTimersByTimeAsync(0)`
- * yields a real macrotask turn each time round, which is what lets that import resolve.
+ * Waits for the suggestion request to settle, once the debounce that gates it has already fired.
+ * Nothing past that point (the dynamic `import()` that loads the graphql printer on demand,
+ * the fetch itself) is driven by the component's own timers — but `vi.advanceTimersByTimeAsync(0)`
+ * only fires timers already due on the FAKE clock, so if anything on that path (module transform,
+ * fetch retry/backoff) ever schedules a real `setTimeout` with a nonzero delay, faking it freezes
+ * that step forever: advancing "by 0" every turn never reaches it. That only bites under load,
+ * which is exactly the flaky symptom. Real timers have no such ceiling, so switch to them here —
+ * the debounce has already done its job — and poll on wall-clock time instead of a fixed turn
+ * count.
  */
 async function settleSuggestions(wrapper: { vm: object }) {
   const status = () => (wrapper.vm as { status: string }).status
-  for (let turn = 0; turn < 50 && status() === 'loading'; turn++) {
-    await vi.advanceTimersByTimeAsync(0)
+  vi.useRealTimers()
+  const deadline = Date.now() + 5000
+  while (status() === 'loading' && Date.now() < deadline) {
     await flushPromises()
   }
 }
@@ -165,10 +171,10 @@ describe('plural forms at the call sites', () => {
       vi.useFakeTimers()
       const wrapper = await mountSuspended(HeaderSearch)
       await wrapper.get('input').setValue('witcher')
+      // Only the debounce itself needs the fake clock, to fire it deterministically rather than
+      // waiting out 250 real ms. `settleSuggestions` switches to real timers for everything after.
       await vi.advanceTimersByTimeAsync(250)
-      await flushPromises()
       await settleSuggestions(wrapper)
-      vi.useRealTimers()
 
       const announcement = wrapper
         .findAll('[aria-live="polite"]')
