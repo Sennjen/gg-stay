@@ -207,6 +207,29 @@ watch(
   },
 )
 
+// Trailers open on publisher logos and close on a wall of store badges and legal text, both of
+// which fight the headline. Long enough clips loop over the footage in between instead.
+const TRIM_MIN_DURATION_S = 45
+const TRIM_HEAD_S = 6
+const TRIM_TAIL_S = 14
+
+function trimWindow(duration: number): { start: number; end: number } | null {
+  if (!Number.isFinite(duration) || duration < TRIM_MIN_DURATION_S) return null
+  return { start: TRIM_HEAD_S, end: duration - TRIM_TAIL_S }
+}
+
+function onLoadedMetadata() {
+  const el = videoEl.value
+  const range = el && trimWindow(el.duration)
+  if (el && range) el.currentTime = range.start
+}
+
+function onTimeUpdate() {
+  const el = videoEl.value
+  const range = el && trimWindow(el.duration)
+  if (el && range && el.currentTime >= range.end) el.currentTime = range.start
+}
+
 function toggle() {
   emit('update:paused', !props.paused)
 }
@@ -224,12 +247,14 @@ function toggle() {
       :src="videoSrc"
       class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500 ease-out motion-reduce:transition-none"
       :class="visible ? 'opacity-100' : ''"
+      @loadedmetadata="onLoadedMetadata"
+      @timeupdate="onTimeUpdate"
       @canplay="visible = true"
       @error="errored = true"
     />
     <button
       type="button"
-      class="absolute bottom-24 left-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-chip border border-line bg-surface-1/80 text-fg backdrop-blur focus-visible:outline-2 sm:bottom-6 sm:left-6"
+      class="absolute bottom-20 right-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-chip border border-line bg-surface-1/80 text-fg backdrop-blur focus-visible:outline-2 sm:right-6"
       :aria-pressed="paused"
       :aria-label="paused ? t('home.hero.videoPlay') : t('home.hero.videoPause')"
       @click="toggle"

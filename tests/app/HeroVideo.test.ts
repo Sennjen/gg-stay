@@ -174,6 +174,44 @@ describe('HeroVideo', () => {
     expect(button.attributes('aria-pressed')).toBe('false')
   })
 
+  it('loops a long trailer over its middle, skipping the logo intro and the store-badge outro', async () => {
+    const wrapper = await mountSuspended(HeroVideo, {
+      props: { clipUrl: CLIP_URL, paused: false },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    const video = wrapper.get('video')
+    const el = video.element as HTMLVideoElement
+    Object.defineProperty(el, 'duration', { value: 120, configurable: true })
+
+    await video.trigger('loadedmetadata')
+    expect(el.currentTime).toBe(6)
+
+    el.currentTime = 105
+    await video.trigger('timeupdate')
+    expect(el.currentTime).toBe(105)
+
+    el.currentTime = 106.5
+    await video.trigger('timeupdate')
+    expect(el.currentTime).toBe(6)
+  })
+
+  it('leaves a short clip to loop whole', async () => {
+    const wrapper = await mountSuspended(HeroVideo, {
+      props: { clipUrl: CLIP_URL, paused: false },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    const video = wrapper.get('video')
+    const el = video.element as HTMLVideoElement
+    Object.defineProperty(el, 'duration', { value: 30, configurable: true })
+
+    await video.trigger('loadedmetadata')
+    el.currentTime = 29
+    await video.trigger('timeupdate')
+    expect(el.currentTime).toBe(29)
+  })
+
   it('toggling the button emits update:paused and calls pause()/play() on the element', async () => {
     const wrapper = await mountSuspended(HeroVideo, {
       props: { clipUrl: CLIP_URL, paused: false },

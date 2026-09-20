@@ -190,17 +190,17 @@
   "why": {
     "title": "Why GG Stay",
     "cards": {
-      "interface": {
-        "title": "Ukrainian interface",
-        "description": "The whole catalog interface is in Ukrainian — from filters to game cards."
+      "language": {
+        "title": "Descriptions in Ukrainian",
+        "description": "When a game has a Ukrainian description on Steam, that is the one you read. Filters, dates and scores are in Ukrainian too."
       },
       "filters": {
-        "title": "Deep filters",
-        "description": "Search by PEGI age rating, playtime and game mode — solo or co-op."
+        "title": "Filters the stores do not have",
+        "description": "PEGI age rating, time to beat, solo or co-op, player score and Metacritic — in one search."
       },
-      "data": {
-        "title": "Data from RAWG",
-        "description": "The catalog and ratings are updated from the RAWG database — hundreds of thousands of releases."
+      "stores": {
+        "title": "Every store on one page",
+        "description": "Steam, GOG, PlayStation, Xbox, Nintendo — a link to the game in each store, next to its trailer and screenshots."
       }
     }
   },

@@ -10,9 +10,12 @@ const localePath = useLocalePath()
 // hydration always matches; `onMounted` then reads the real position.
 const isLandingRoute = computed(() => route.path === localePath('/'))
 const scrolled = ref(false)
+// A few pixels of slack: trackpads and restored positions often rest at 1-2 px, which would
+// otherwise paint the solid bar over the top of the hero.
+const SCROLL_THRESHOLD_PX = 8
 
 function updateScrolled() {
-  scrolled.value = window.scrollY > 0
+  scrolled.value = window.scrollY > SCROLL_THRESHOLD_PX
 }
 
 onMounted(() => {
