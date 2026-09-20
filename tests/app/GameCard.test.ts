@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import GameCard from '~/components/GameCard.vue'
+import LocalisationBadge from '~/components/LocalisationBadge.vue'
 import MetacriticBadge from '~/components/MetacriticBadge.vue'
 import PlatformIcons from '~/components/PlatformIcons.vue'
+import PriceTag from '~/components/PriceTag.vue'
 
 const game = {
   id: '3328',
@@ -68,6 +70,110 @@ describe('GameCard', () => {
     expect(wrapper.find('[data-test="price"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="localisation"]').exists()).toBe(false)
     expect(wrapper.text()).not.toMatch(/N\/A|₴/)
+  })
+
+  it('renders a price line for an indexed game, price on the left and the badge on the right', async () => {
+    const priced = {
+      ...game,
+      price: {
+        bestUah: 337,
+        regularUah: 1349,
+        bestStore: 'steam',
+        discountPercent: 75,
+        isFree: false,
+        updatedAt: '2026-09-18T09:00:00.000Z',
+      },
+      localisation: { text: true, audio: true, source: 'steam' },
+    }
+    const wrapper = await mountSuspended(GameCard, { props: { game: priced } })
+    const price = wrapper.findComponent(PriceTag)
+    const badge = wrapper.findComponent(LocalisationBadge)
+    expect(price.exists()).toBe(true)
+    expect(badge.exists()).toBe(true)
+    expect(wrapper.find('[data-test="price"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="localisation"]').exists()).toBe(true)
+
+    const row = wrapper.get('[data-test="price"]').element.parentElement!
+    const children = Array.from(row.children)
+    expect(children.indexOf(price.element)).toBeLessThan(children.indexOf(badge.element))
+  })
+
+  it('renders only the price when there is no Ukrainian localisation', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: {
+        game: {
+          ...game,
+          price: {
+            bestUah: 1349,
+            regularUah: null,
+            bestStore: 'steam',
+            discountPercent: 0,
+            isFree: false,
+            updatedAt: '2026-09-18T09:00:00.000Z',
+          },
+          localisation: null,
+        },
+      },
+    })
+    expect(wrapper.find('[data-test="price"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="localisation"]').exists()).toBe(false)
+  })
+
+  it('renders only the badge when the game has Ukrainian localisation but no price', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: {
+        game: { ...game, price: null, localisation: { text: true, audio: false, source: 'steam' } },
+      },
+    })
+    expect(wrapper.find('[data-test="price"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="localisation"]').exists()).toBe(true)
+  })
+
+  it('stays the same flex column, h-full card regardless of the price line, so grid rows stay equal height', async () => {
+    const withPrice = await mountSuspended(GameCard, {
+      props: {
+        game: {
+          ...game,
+          price: {
+            bestUah: 1349,
+            regularUah: null,
+            bestStore: 'steam',
+            discountPercent: 0,
+            isFree: false,
+            updatedAt: '2026-09-18T09:00:00.000Z',
+          },
+        },
+      },
+    })
+    const without = await mountSuspended(GameCard, { props: { game } })
+    expect(withPrice.get('[data-test="game-card"]').classes()).toEqual(
+      without.get('[data-test="game-card"]').classes(),
+    )
+    expect(withPrice.get('a').classes()).toEqual(
+      expect.arrayContaining(['flex', 'h-full', 'flex-col']),
+    )
+  })
+
+  it('matches a browser-less HTML snapshot of a fully priced, localised card (no live browser to check against until PR 5 fills the resolvers)', async () => {
+    const priced = {
+      ...game,
+      price: {
+        bestUah: 337,
+        regularUah: 1349,
+        bestStore: 'steam',
+        discountPercent: 75,
+        isFree: false,
+        updatedAt: '2026-09-18T09:00:00.000Z',
+      },
+      localisation: { text: true, audio: true, source: 'steam' },
+    }
+    const wrapper = await mountSuspended(GameCard, { props: { game: priced } })
+    expect(wrapper.get('[data-test="price"]').html()).toMatchInlineSnapshot(
+      `"<p data-test="price" class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm"><span class="font-numeric inline-flex items-center rounded-chip bg-accent px-1.5 py-0.5 text-xs font-semibold text-on-accent"> −75% </span><span class="font-numeric font-medium text-fg">337&nbsp;₴</span><span class="sr-only">було</span><s class="font-numeric text-fg-2">1&nbsp;349&nbsp;₴</s></p>"`,
+    )
+    expect(wrapper.get('[data-test="localisation"]').html()).toMatchInlineSnapshot(
+      `"<span data-test="localisation" role="img" aria-label="Українська: текст і озвучка" title="Українська: текст і озвучка" class="inline-flex shrink-0 items-center gap-1 rounded-chip border border-line px-1.5 py-0.5 text-xs font-semibold text-fg-2"> UA <svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M2 6h2.5l3.3-2.9c.4-.3 1-.1 1 .5v8.8c0 .6-.6.9-1 .5L4.5 10H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"></path><path d="M11 5.2a3.2 3.2 0 0 1 0 5.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg></span>"`,
+    )
   })
 
   it('shows a text fallback without a cover', async () => {

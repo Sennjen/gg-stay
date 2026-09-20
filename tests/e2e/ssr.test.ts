@@ -94,6 +94,15 @@ describe('server-side rendering', async () => {
     expect(html).toContain('Каталог ігор')
   })
 
+  it('renders no price line or localisation badge on cards while the index has nothing (resolvers still return null)', async () => {
+    // PR 5 fills the price/localisation resolvers; until then every card must render exactly as
+    // it did before this PR — no empty line, no "₴", no placeholder for the missing index data.
+    const html = await $fetch<string>('/games')
+    expect(html).not.toContain('data-test="price"')
+    expect(html).not.toContain('data-test="localisation"')
+    expect(html).not.toContain('₴')
+  })
+
   it('renders the filters button and numbered pagination', async () => {
     const html = await $fetch<string>('/games')
     expect(html).toContain('Фільтри')
@@ -140,6 +149,17 @@ describe('server-side rendering', async () => {
     // The scoreboard row shows the same localised release date as the rest of the page.
     expect(html).toContain('18 травня 2015')
     expect(html).toContain('92')
+  })
+
+  it('shows "Немає" for localisation and no price item on the game page while the index has nothing', async () => {
+    // Same fixture-mode premise as the catalog: resolvers hard-code price/localisation to null
+    // today, so the scoreboard's price item must be entirely absent and its localisation item
+    // must show the explicit "no Ukrainian" state — never a blank or a "₴".
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    expect(html).not.toContain('Ціна в Steam')
+    expect(html).not.toContain('₴')
+    expect(html).toContain('Українська')
+    expect(html).toContain('Немає')
   })
 
   it('applies the Ukrainian plural rule server-side for the ratings count', async () => {
