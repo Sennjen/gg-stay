@@ -247,7 +247,10 @@ const chips = computed<Chip[]>(() => {
       <!-- An ignored filter keeps its chip and its remove button: the URL still carries it, so it
            has to stay visible and removable. The strike-through is the glance, the sentence beside
            it is the explanation — it is real text, not a title, so it never depends on hover. -->
-      <component :is="isIgnored(chip) ? 's' : 'span'" class="inline-flex items-center">
+      <component
+        :is="isIgnored(chip) ? 's' : 'span'"
+        class="inline-flex shrink-0 items-center whitespace-nowrap"
+      >
         <i18n-t v-if="chip.yearPart" :keypath="chip.yearPart.keypath" tag="span">
           <template #year
             ><span class="font-numeric">{{ chip.yearPart.year }}</span></template
