@@ -8,7 +8,7 @@ import type { RawgGameListItem, RawgList, RawgStoreLink } from '../../../server/
  * | --- | -------------------------------------------------------------------------- |
  * | 101 | the ordinary case: a Steam page, a discounted price, Ukrainian text и audio |
  * | 102 | Ukrainian text without audio                                               |
- * | 103 | no store links at all — never asked for an app id                          |
+ * | 103 | no store links at all, and a cover-only screenshot list — no hover preview  |
  * | 104 | store links without a Steam one — the empty-string "has none" marker        |
  * | 105 | a free game: `data: []` under `filters=price_overview`, `is_free` per app   |
  * | 106 | Ukrainian audio on a game whose name is not the first in the language list  |
@@ -43,6 +43,12 @@ export const JOB_GAMES: RawgGameListItem[] = [
     name: 'Hollow Cradle',
     released: '2021-03-11',
     background_image: 'https://media.rawg.io/media/games/101.jpg',
+    short_screenshots: [
+      // RAWG repeats the cover in this array under the id -1; the preview must skip it.
+      { id: -1, image: 'https://media.rawg.io/media/games/101.jpg' },
+      { id: 1011, image: 'https://media.rawg.io/media/screenshots/101-a.jpg' },
+      { id: 1012, image: 'https://media.rawg.io/media/screenshots/101-b.jpg' },
+    ],
     rating: 4.65,
     ratings_count: 6800,
     metacritic: 92,
@@ -77,6 +83,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     name: 'Paper Harbour',
     released: '2024-01-30',
     background_image: 'https://media.rawg.io/media/games/103.jpg',
+    short_screenshots: [{ id: -1, image: 'https://media.rawg.io/media/games/103.jpg' }],
     rating: 3.8,
     ratings_count: 210,
     metacritic: null,

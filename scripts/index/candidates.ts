@@ -2,7 +2,7 @@ import type { JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
 import { esrbToAgeRating, gameModesFromTags, storeSlugFromId } from '../../server/rawg/lookups'
 import { positive } from '../../server/rawg/mappers'
-import type { RawgGameListItem, RawgList } from '../../server/rawg/types'
+import type { RawgGameListItem, RawgList, RawgShortScreenshot } from '../../server/rawg/types'
 import { safeExternalUrl } from '../../shared/url'
 
 /**
@@ -37,6 +37,23 @@ export interface CandidatesResult {
   pagesFetched: number
 }
 
+/**
+ * The card's hover preview: the first of RAWG's short screenshots that is not the cover. RAWG
+ * carries the cover in that array under the id `-1`, and some entries repeat it by URL as well,
+ * so both are skipped.
+ */
+export function previewOf(
+  shots: RawgShortScreenshot[] | null | undefined,
+  cover: string | null,
+): string | null {
+  for (const shot of shots ?? []) {
+    if (shot.id === -1) continue
+    const url = safeExternalUrl(shot.image)
+    if (url && url !== cover) return url
+  }
+  return null
+}
+
 function taxonomySlugs(list: { slug?: string }[] | null | undefined): string[] {
   return (list ?? []).flatMap((item) => (item.slug ? [item.slug] : []))
 }
@@ -48,11 +65,13 @@ function taxonomySlugs(list: { slug?: string }[] | null | undefined): string[] {
  */
 export function toIndexedGame(raw: RawgGameListItem): IndexedGame | null {
   if (!raw.id || !raw.slug) return null
+  const cover = safeExternalUrl(raw.background_image)
   return {
     id: raw.id,
     slug: raw.slug,
     name: raw.name ?? '',
-    cover: safeExternalUrl(raw.background_image),
+    cover,
+    preview: previewOf(raw.short_screenshots, cover),
     released: raw.released ?? null,
     popularity: raw.added ?? 0,
     platforms: (raw.platforms ?? []).flatMap((entry) =>

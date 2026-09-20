@@ -27,6 +27,14 @@ export interface IndexedGame {
   slug: string
   name: string
   cover: string | null
+  /**
+   * One screenshot for the card's hover preview, or `null` when RAWG's list response carried
+   * none. It comes from `short_screenshots` on the same page the candidate was read from, so it
+   * costs no request of its own, and it deliberately never repeats the cover: RAWG's list puts
+   * the cover in that array under the id `-1`, and a preview identical to the image already on
+   * the card would make the hover look broken.
+   */
+  preview: string | null
   /** ISO date (`YYYY-MM-DD`); `null` when the release date is unknown. */
   released: string | null
   /** RAWG's "added" count — the popularity score and the tie-break of every sort. */

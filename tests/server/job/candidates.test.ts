@@ -3,6 +3,7 @@ import {
   CANDIDATE_PAGE_SIZE,
   carryPublishedForward,
   collectCandidates,
+  previewOf,
 } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
 import { JOB_GAMES, JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
@@ -43,6 +44,7 @@ describe('collectCandidates', () => {
       slug: 'hollow-cradle',
       name: 'Hollow Cradle',
       cover: 'https://media.rawg.io/media/games/101.jpg',
+      preview: 'https://media.rawg.io/media/screenshots/101-a.jpg',
       released: '2021-03-11',
       popularity: 21000,
       platforms: [4, 187],
@@ -75,6 +77,8 @@ describe('collectCandidates', () => {
       ageRating: null,
       stores: [],
       gameModes: ['SINGLE'],
+      // The only screenshot RAWG listed is the cover itself, so there is nothing to preview.
+      preview: null,
     })
   })
 
@@ -108,6 +112,7 @@ describe('carryPublishedForward', () => {
     slug: 'hollow-cradle',
     name: 'Hollow Cradle',
     cover: null,
+    preview: null,
     released: '2021-03-11',
     popularity: 21000,
     platforms: [4],
@@ -163,5 +168,32 @@ describe('carryPublishedForward', () => {
     const { games } = await collectCandidates(harness.deps, { pages: 1 })
 
     expect(await carryPublishedForward(harness.deps, games)).toBe(0)
+  })
+})
+
+describe('previewOf', () => {
+  const cover = 'https://media.rawg.io/media/games/1.jpg'
+
+  it('takes the first screenshot that is neither the cover entry nor the cover URL', () => {
+    expect(
+      previewOf(
+        [
+          { id: -1, image: cover },
+          { id: 2, image: cover },
+          { id: 3, image: 'https://media.rawg.io/media/screenshots/1-a.jpg' },
+        ],
+        cover,
+      ),
+    ).toBe('https://media.rawg.io/media/screenshots/1-a.jpg')
+  })
+
+  it('has nothing to preview when RAWG listed nothing else', () => {
+    expect(previewOf([{ id: -1, image: cover }], cover)).toBeNull()
+    expect(previewOf([], cover)).toBeNull()
+    expect(previewOf(undefined, cover)).toBeNull()
+  })
+
+  it('drops a screenshot whose URL would not be safe to render', () => {
+    expect(previewOf([{ id: 2, image: 'javascript:alert(1)' }], cover)).toBeNull()
   })
 })
