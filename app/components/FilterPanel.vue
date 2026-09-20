@@ -2,11 +2,13 @@
 import {
   AGE_RATINGS,
   GAME_MODES,
+  LOCALISATIONS,
   METACRITIC_STEPS,
   PLATFORM_OPTIONS,
   PLAYTIMES,
   STORE_OPTIONS,
   USER_RATING_MIN,
+  type LocalisationValue,
 } from '#shared/catalog'
 import type { CatalogFilter } from '~/utils/filterUrl'
 
@@ -15,6 +17,12 @@ const props = defineProps<{
   genres: { slug: string; name: string }[]
   /** Deterministic upper bound for the year slider (current year + 2), passed by the page. */
   maxYear: number
+  /**
+   * The index's prices are too old to be trusted. Price and discount are withheld — the server
+   * would drop them anyway — while Ukrainian localisation, which does not depend on the price
+   * stage, keeps working.
+   */
+  indexStale?: boolean
 }>()
 const emit = defineEmits<{ change: [patch: Partial<CatalogFilter>] }>()
 const { t } = useI18n()
@@ -42,6 +50,14 @@ const playtimeOptions = computed(() =>
 const metacriticOptions = computed(() =>
   METACRITIC_STEPS.map((value) => ({ value, label: t('filters.metacriticMin', { value }) })),
 )
+const localisationOptions = computed(() =>
+  LOCALISATIONS.map((value) => ({ value, label: t(`filters.localisation${labelOf(value)}`) })),
+)
+
+/** `ANY` → `Any`, `TEXT` → `Text`, `AUDIO` → `Audio`: the locale keys are camel-cased. */
+function labelOf(value: LocalisationValue): 'Any' | 'Text' | 'Audio' {
+  return value === 'ANY' ? 'Any' : value === 'TEXT' ? 'Text' : 'Audio'
+}
 
 /** Empty arrays become undefined so the URL stays canonical. */
 function orUndefined<T>(values: T[]): T[] | undefined {
@@ -93,6 +109,9 @@ const sectionActive = computed(() => ({
   ageRating: (props.filter.ageRating?.length ?? 0) > 0,
   store: (props.filter.stores?.length ?? 0) > 0,
   developer: (props.filter.developers?.length ?? 0) > 0,
+  price: props.filter.priceMaxUah !== undefined || props.filter.free === true,
+  discount: props.filter.onSaleMinPercent !== undefined,
+  localisation: props.filter.ukrainianLocalisation !== undefined,
 }))
 </script>
 
@@ -116,6 +135,45 @@ const sectionActive = computed(() => ({
         {{ t('catalog.searchButton') }}
       </button>
     </div>
+
+    <FilterSection
+      v-if="!indexStale"
+      section-id="price"
+      :title="t('filters.price')"
+      :active="sectionActive.price"
+    >
+      <FiltersPriceFilter
+        :price-max-uah="filter.priceMaxUah"
+        :free="filter.free"
+        @change="emit('change', $event)"
+      />
+    </FilterSection>
+
+    <FilterSection
+      v-if="!indexStale"
+      section-id="discount"
+      :title="t('filters.discount')"
+      :active="sectionActive.discount"
+    >
+      <FiltersDiscountFilter
+        :on-sale-min-percent="filter.onSaleMinPercent"
+        @change="emit('change', $event)"
+      />
+    </FilterSection>
+
+    <FilterSection
+      section-id="localisation"
+      :title="t('filters.localisation')"
+      :active="sectionActive.localisation"
+    >
+      <SegmentedControl
+        :legend="t('filters.localisation')"
+        :any-label="t('filters.localisationNotImportant')"
+        :options="localisationOptions"
+        :model-value="filter.ukrainianLocalisation"
+        @update:model-value="emit('change', { ukrainianLocalisation: $event })"
+      />
+    </FilterSection>
 
     <FilterSection
       section-id="platform"
