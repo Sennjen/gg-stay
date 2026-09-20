@@ -13,6 +13,13 @@ export interface IndexedLocalisation {
   audio: boolean
   /** Where the flags came from, e.g. `steam`. */
   source: string
+  /**
+   * ISO timestamp of the read the flags came from. The refresh job re-reads a game's languages
+   * only when this is missing or older than a week — the list needs one unfiltered Steam request
+   * per game and changes very rarely — and carries the flags forward from the published version
+   * otherwise. Optional: a document written before the job existed simply looks stale.
+   */
+  updatedAt?: string
 }
 
 export interface IndexedGame {
@@ -51,6 +58,11 @@ export interface IndexRunStats {
   languagesFetched: number
   failures: number
   durationMs: number
+  /** Games published with a price. The blue/green check refuses a run that drops this to zero. */
+  pricedCount: number
+  /** Games published with Ukrainian text, and with Ukrainian audio. */
+  textCount: number
+  audioCount: number
 }
 
 export interface IndexMeta {
