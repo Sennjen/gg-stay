@@ -96,6 +96,12 @@ export const typeDefs = /* GraphQL */ `
     indexStale: Boolean!
     "ISO timestamp of the last index publication, when there is one."
     indexUpdatedAt: String
+    """
+    Names of the filter fields this answer could not apply, so the interface can say so: a
+    RAWG-only filter (developers, publishers, tags) combined with an index filter, or an index
+    filter — or "sort" — dropped because the index is stale or unavailable. Empty otherwise.
+    """
+    ignoredFilters: [String!]!
   }
 
   type GameCard {

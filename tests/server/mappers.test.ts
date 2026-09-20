@@ -194,7 +194,23 @@ describe('mapTaxonomy / mapGamePage', () => {
       indexedOnly: false,
       indexStale: false,
       indexUpdatedAt: null,
+      ignoredFilters: [],
     })
     expect(mapGamePage({ count: 45, next: null }, [], 3, 20).hasNext).toBe(false)
+  })
+
+  it('carries the index metadata a caller hands it', () => {
+    const page = mapGamePage({ count: 3, next: null }, [], 1, 20, {
+      indexedOnly: true,
+      indexStale: true,
+      indexUpdatedAt: '2026-09-10T00:00:00.000Z',
+      ignoredFilters: ['priceMaxUah', 'sort'],
+    })
+    expect(page).toMatchObject({
+      indexedOnly: true,
+      indexStale: true,
+      indexUpdatedAt: '2026-09-10T00:00:00.000Z',
+      ignoredFilters: ['priceMaxUah', 'sort'],
+    })
   })
 })

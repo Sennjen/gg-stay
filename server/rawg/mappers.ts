@@ -37,7 +37,7 @@ function mapTaxonomies(list?: RawgTaxonomy[] | null): Taxonomy[] {
  * placeholders the image module emits), and C3's rule is every third-party URL bound to `href`
  * **or** `src`. A cover that fails the check is dropped, and the card renders its no-cover state.
  */
-function mapCover(url?: string | null): Image | null {
+export function mapCover(url?: string | null): Image | null {
   const safe = safeExternalUrl(url)
   return safe ? { url: safe, width: null, height: null } : null
 }
@@ -140,11 +140,20 @@ export function mapGame(
   }
 }
 
+/**
+ * What the index contributed to a page. The defaults describe a page the RAWG path answered with
+ * no index involved at all, which is what every caller that passes nothing gets.
+ */
+export type GamePageIndexState = Partial<
+  Pick<GamePage, 'indexedOnly' | 'indexStale' | 'indexUpdatedAt' | 'ignoredFilters'>
+>
+
 export function mapGamePage(
   raw: Pick<RawgList<unknown>, 'count' | 'next'>,
   items: GameCard[],
   page: number,
   pageSize: number,
+  index: GamePageIndexState = {},
 ): GamePage {
   return {
     items,
@@ -152,8 +161,9 @@ export function mapGamePage(
     page,
     pageSize,
     hasNext: Boolean(raw.next),
-    indexedOnly: false,
-    indexStale: false,
-    indexUpdatedAt: null,
+    indexedOnly: index.indexedOnly ?? false,
+    indexStale: index.indexStale ?? false,
+    indexUpdatedAt: index.indexUpdatedAt ?? null,
+    ignoredFilters: index.ignoredFilters ?? [],
   }
 }
