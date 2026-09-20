@@ -13,7 +13,44 @@ export function formatDate(iso: string | null | undefined, localeTag: string): s
   return formatted.replace(/\s*р\.$/, '')
 }
 
+/**
+ * The thousands separator of a locale, written out rather than read from the runtime.
+ *
+ * `Intl.NumberFormat` takes it from the runtime's CLDR data, and the two runtimes that have to
+ * agree here — Node, which renders the page, and the browser, which hydrates it — ship different
+ * CLDR versions. That is not hypothetical: CLDR 42 moved `fr-FR` from U+00A0 to U+202F, and the
+ * same data is what made the UAH symbol differ between the two (see `formatUah`). Any number the
+ * server renders into HTML and the client re-renders has to be built from characters we chose.
+ *
+ * Both locales this app ships are here; anything else falls back to the non-breaking space, which
+ * is what every locale the project might add next uses.
+ */
+const GROUP_SEPARATORS: Record<string, string> = { uk: '\u00a0', en: ',' }
+
+function groupSeparatorFor(localeTag: string): string {
+  return GROUP_SEPARATORS[localeTag.slice(0, 2).toLowerCase()] ?? '\u00a0'
+}
+
+/**
+ * A whole number with its digits grouped in threes, hydration-safe (see `GROUP_SEPARATORS`). The
+ * sign is a plain ASCII hyphen for the same reason the separator is ours — no value this app
+ * formats is negative today, and a minus sign the runtime chose would be one more character that
+ * could differ between the two halves of a render.
+ */
+export function groupInteger(value: number, localeTag: string): string {
+  const digits = Math.abs(Math.trunc(value)).toString()
+  const separator = groupSeparatorFor(localeTag)
+  const groups: string[] = []
+  for (let end = digits.length; end > 0; end -= 3) {
+    groups.unshift(digits.slice(Math.max(0, end - 3), end))
+  }
+  return `${value < 0 ? '-' : ''}${groups.join(separator)}`
+}
+
 export function formatNumber(value: number, localeTag: string): string {
+  // Whole numbers are grouped by hand; anything else is a decimal and goes to `formatDecimal`'s
+  // formatter, which is never used where a group separator can appear (ratings are under ten).
+  if (Number.isInteger(value)) return groupInteger(value, localeTag)
   return new Intl.NumberFormat(localeTag).format(value)
 }
 
@@ -25,13 +62,19 @@ export function formatDecimal(value: number, localeTag: string, fractionDigits =
   }).format(value)
 }
 
-/** Formats a whole-number hryvnia amount, localised (e.g. "1 349 ₴" in uk-UA). */
+/**
+ * Formats a whole-number hryvnia amount: "1 349 ₴" in uk-UA, "1,349 ₴" in en-US, with a
+ * non-breaking space before the symbol so a price never wraps across it.
+ *
+ * Every character of the result is this module's. `style: 'currency'` read the symbol out of the
+ * runtime's CLDR data, and Node and Chrome disagree about UAH — one writes "1 349 ₴", the other
+ * "1 349 грн" — so a price rendered on the server and hydrated in the browser was a guaranteed
+ * hydration mismatch on every priced card. The group separator came from the same data and is
+ * therefore built here too (`groupInteger`). The design names the symbol, and the currency is the
+ * same in both locales, so neither is the runtime's to choose.
+ */
 export function formatUah(value: number, localeTag: string): string {
-  return new Intl.NumberFormat(localeTag, {
-    style: 'currency',
-    currency: 'UAH',
-    maximumFractionDigits: 0,
-  }).format(value)
+  return `${groupInteger(value, localeTag)}\u00a0₴`
 }
 
 /**
