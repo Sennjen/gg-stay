@@ -98,6 +98,38 @@ describe('StoreLinks', () => {
     expect(text).not.toContain('%')
   })
 
+  it('shows "Безкоштовно" for a free offer with an explicit isFree flag, not "0 ₴"', async () => {
+    const wrapper = await mountSuspended(StoreLinks, {
+      props: {
+        offers: [
+          {
+            store: 'steam',
+            url: 'https://store.steampowered.com/app/292030/',
+            priceUah: 0,
+            discountPercent: null,
+            isFree: true,
+          },
+        ],
+      },
+    })
+    const link = wrapper.get('a')
+    expect(link.text()).toContain('Безкоштовно')
+    expect(link.text()).not.toContain('₴')
+  })
+
+  it('also treats a 0 ₴ offer as free when isFree is missing (older/partial data)', async () => {
+    const wrapper = await mountSuspended(StoreLinks, {
+      props: {
+        offers: [
+          { store: 'steam', url: 'https://store.steampowered.com/app/292030/', priceUah: 0 },
+        ],
+      },
+    })
+    const link = wrapper.get('a')
+    expect(link.text()).toContain('Безкоштовно')
+    expect(link.text()).not.toContain('₴')
+  })
+
   it('leaves a store link plain when it has no price (also true for every non-Steam store today)', async () => {
     const wrapper = await mountSuspended(StoreLinks, {
       props: {

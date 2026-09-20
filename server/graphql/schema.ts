@@ -189,6 +189,7 @@ export const typeDefs = /* GraphQL */ `
     priceUah: Int
     regularPriceUah: Int
     discountPercent: Int
+    isFree: Boolean
     updatedAt: String
   }
   type LocalisationInfo {

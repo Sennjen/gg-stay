@@ -8,12 +8,17 @@ const props = defineProps<{
     url: string
     priceUah?: number | null
     discountPercent?: number | null
+    isFree?: boolean | null
   }[]
 }>()
 const { t } = useI18n()
 const { formatUah } = useFormatters()
 const storeName = (slug: string) =>
   STORE_OPTIONS.find((option) => option.slug === slug)?.name ?? slug
+// A missing `isFree` flag (an older/partial index entry) still reads as free when the price
+// itself is already 0 — never a formatted "0 ₴".
+const isFreeOffer = (offer: { priceUah?: number | null; isFree?: boolean | null }) =>
+  offer.isFree ?? offer.priceUah === 0
 
 // The mapper already refuses anything that is not http(s) (server/rawg/mappers.ts), so this is
 // defence in depth: the scheme check sits next to the `:href` it protects, where a future
@@ -42,10 +47,13 @@ const safeOffers = computed(() =>
           {{ storeName(offer.store) }}
           <template v-if="offer.priceUah != null">
             <span aria-hidden="true">·</span>
-            <span class="font-numeric">{{ formatUah(offer.priceUah) }}</span>
-            <span v-if="offer.discountPercent" class="font-numeric"
-              >−{{ offer.discountPercent }}%</span
-            >
+            <span v-if="isFreeOffer(offer)" class="font-medium">{{ t('price.free') }}</span>
+            <template v-else>
+              <span class="font-numeric">{{ formatUah(offer.priceUah) }}</span>
+              <span v-if="offer.discountPercent" class="font-numeric"
+                >−{{ offer.discountPercent }}%</span
+              >
+            </template>
           </template>
           <svg
             aria-hidden="true"

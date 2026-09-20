@@ -92,6 +92,7 @@ describe('mapGame', () => {
         priceUah: null,
         regularPriceUah: null,
         discountPercent: null,
+        isFree: null,
         updatedAt: null,
       },
       {
@@ -100,6 +101,7 @@ describe('mapGame', () => {
         priceUah: null,
         regularPriceUah: null,
         discountPercent: null,
+        isFree: null,
         updatedAt: null,
       },
     ])

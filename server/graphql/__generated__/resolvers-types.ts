@@ -229,6 +229,7 @@ export type QueryGamesArgs = {
 
 export type StoreOffer = {
   discountPercent?: Maybe<Scalars['Int']['output']>;
+  isFree?: Maybe<Scalars['Boolean']['output']>;
   priceUah?: Maybe<Scalars['Int']['output']>;
   regularPriceUah?: Maybe<Scalars['Int']['output']>;
   store: Scalars['String']['output'];
@@ -474,6 +475,7 @@ export type QueryResolvers<ContextType = GraphQLContext, ParentType extends Reso
 
 export type StoreOfferResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['StoreOffer'] = ResolversParentTypes['StoreOffer']> = {
   discountPercent?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  isFree?: Resolver<Maybe<ResolversTypes['Boolean']>, ParentType, ContextType>;
   priceUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   regularPriceUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   store?: Resolver<ResolversTypes['String'], ParentType, ContextType>;

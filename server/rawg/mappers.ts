@@ -106,6 +106,7 @@ function mapStoreOffers(links: RawgStoreLink[]): StoreOffer[] {
         priceUah: null,
         regularPriceUah: null,
         discountPercent: null,
+        isFree: null,
         updatedAt: null,
       },
     ]

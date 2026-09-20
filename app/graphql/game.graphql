@@ -51,6 +51,7 @@ query Game($slug: String!, $locale: String!) {
       priceUah
       regularPriceUah
       discountPercent
+      isFree
       updatedAt
     }
     localisation {
