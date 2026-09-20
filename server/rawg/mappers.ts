@@ -152,5 +152,7 @@ export function mapGamePage(
     pageSize,
     hasNext: Boolean(raw.next),
     indexedOnly: false,
+    indexStale: false,
+    indexUpdatedAt: null,
   }
 }

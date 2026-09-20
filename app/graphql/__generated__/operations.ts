@@ -63,11 +63,11 @@ export type GameSort =
   | 'RELEASED_ASC'
   | 'RELEASED_DESC';
 
+/** Steam reports supported languages and full audio only, so localisation has two levels. */
 export type Localisation =
   | 'ANY'
   | 'AUDIO'
-  | 'INTERFACE'
-  | 'SUBTITLES';
+  | 'TEXT';
 
 export type PlatformFamily =
   | 'MOBILE'

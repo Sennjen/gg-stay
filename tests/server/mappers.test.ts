@@ -190,6 +190,8 @@ describe('mapTaxonomy / mapGamePage', () => {
       pageSize: 20,
       hasNext: true,
       indexedOnly: false,
+      indexStale: false,
+      indexUpdatedAt: null,
     })
     expect(mapGamePage({ count: 45, next: null }, [], 3, 20).hasNext).toBe(false)
   })
