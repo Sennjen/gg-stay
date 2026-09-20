@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CommandReply, SendCommands } from '../../../server/index/upstashIndex'
-import { createRedisCommands } from '../../../server/index/upstashIndex'
+import { createRedisCommands, RedisBatchError } from '../../../server/index/upstashIndex'
 
 /**
  * What a batch looks like on the wire. The fake store proves the adapter's reasoning; this proves
@@ -28,17 +28,20 @@ describe('the Redis wire format', () => {
     const { send, sent } = recorder()
     const batch = createRedisCommands(send).pipeline()
     batch.set('key', 'value')
+    batch.setNx('lock', 'run-1', 3600)
     batch.mset({ one: 'a', two: 'b' })
     batch.del(['one', 'two'])
     batch.expire('key', 60)
     batch.sadd('facet', ['1', '2'])
-    batch.sunionstore('union', ['left', 'right'])
+    batch.srem('versions', ['7'])
+    batch.smembers('facet')
+    batch.sunion(['left', 'right'])
     batch.zadd('order', [
       [0, '1'],
       [1, '2'],
     ])
-    batch.zrangestore('trimmed', 'range', '-inf', '300')
-    batch.zinterstore('page', ['order', 'union'], [1, 0])
+    batch.zrangeAll('order')
+    batch.zrangebyscore('range', '-inf', '300')
     batch.hset('names', { '1': 'alpha' })
     await batch.exec()
 
@@ -46,28 +49,31 @@ describe('the Redis wire format', () => {
     expect(sent[0]?.path).toBe('pipeline')
     expect(sent[0]?.commands).toEqual([
       ['SET', 'key', 'value'],
+      ['SET', 'lock', 'run-1', 'NX', 'EX', 3600],
       ['MSET', 'one', 'a', 'two', 'b'],
       ['DEL', 'one', 'two'],
       ['EXPIRE', 'key', 60],
       ['SADD', 'facet', '1', '2'],
-      ['SUNIONSTORE', 'union', 'left', 'right'],
+      ['SREM', 'versions', '7'],
+      ['SMEMBERS', 'facet'],
+      ['SUNION', 'left', 'right'],
       ['ZADD', 'order', 0, '1', 1, '2'],
-      ['ZRANGESTORE', 'trimmed', 'range', '-inf', '300', 'BYSCORE'],
-      ['ZINTERSTORE', 'page', 2, 'order', 'union', 'WEIGHTS', 1, 0, 'AGGREGATE', 'SUM'],
+      ['ZRANGE', 'order', 0, -1],
+      ['ZRANGEBYSCORE', 'range', '-inf', '300'],
       ['HSET', 'names', '1', 'alpha'],
     ])
   })
 
-  it('asks for a page by the ranks it covers', async () => {
-    const { send, sent } = recorder()
-    const batch = createRedisCommands(send).pipeline()
-    batch.zrange('page', 40, 20)
-    batch.zrange('page', 0, 1)
-    await batch.exec()
-    expect(sent[0]?.commands).toEqual([
-      ['ZRANGE', 'page', 40, 59],
-      ['ZRANGE', 'page', 0, 0],
-    ])
+  it('reads a lock as taken only when the store answers', async () => {
+    const taken: SendCommands = async () => [{ result: 'OK' }]
+    const refused: SendCommands = async () => [{ result: null }]
+    const first = createRedisCommands(taken).pipeline()
+    const mine = first.setNx('lock', 'run-1', 60)
+    await first.exec()
+    const second = createRedisCommands(refused).pipeline()
+    const theirs = second.setNx('lock', 'run-1', 60)
+    await second.exec()
+    expect([mine.value, theirs.value]).toEqual([true, false])
   })
 
   it('sends a transaction to the transaction endpoint', async () => {
@@ -92,8 +98,6 @@ describe('the Redis wire format', () => {
             return { result: '7' }
           case 'INCR':
             return { result: 4 }
-          case 'ZCARD':
-            return { result: 3 }
           case 'ZRANGE':
             return { result: ['10', '20'] }
           case 'MGET':
@@ -111,8 +115,7 @@ describe('the Redis wire format', () => {
     const batch = createRedisCommands(send).pipeline()
     const pointer = batch.get('idx:current')
     const sequence = batch.incr('idx:sequence')
-    const total = batch.zcard('page')
-    const ids = batch.zrange('page', 0, 10)
+    const ids = batch.zrangeAll('page')
     const documents = batch.mget(['a', 'b'])
     const members = batch.smembers('registry')
     const names = batch.hgetall('names')
@@ -120,7 +123,6 @@ describe('the Redis wire format', () => {
 
     expect(pointer.value).toBe('7')
     expect(sequence.value).toBe(4)
-    expect(total.value).toBe(3)
     expect(ids.value).toEqual(['10', '20'])
     expect(documents.value).toEqual(['{"id":10}', null])
     expect(members.value).toEqual(['a', 'b'])
@@ -143,8 +145,35 @@ describe('the Redis wire format', () => {
     const send: SendCommands = async () => [{ result: 'OK' }, { error: 'WRONGTYPE nope' }]
     const batch = createRedisCommands(send).pipeline()
     batch.set('a', '1')
-    batch.zcard('a')
-    await expect(batch.exec()).rejects.toThrow(/WRONGTYPE/)
+    batch.smembers('a')
+    await expect(batch.exec()).rejects.toThrow(/Command 2 \[ SMEMBERS \] failed: WRONGTYPE/)
+  })
+
+  it('refuses a reply that is not a list of the right length', async () => {
+    const notAList: SendCommands = async () => ({ result: 'OK' }) as unknown as CommandReply[]
+    const short: SendCommands = async () => [{ result: 'OK' }]
+
+    const first = createRedisCommands(notAList).pipeline()
+    first.set('a', '1')
+    await expect(first.exec()).rejects.toThrow(RedisBatchError)
+
+    const second = createRedisCommands(short).pipeline()
+    second.set('a', '1')
+    const unanswered = second.get('b')
+    await expect(second.exec()).rejects.toThrow(/2 commands/)
+    // The failure is reported where it happened, not later as an unanswered command.
+    expect(() => unanswered.value).toThrow()
+  })
+
+  it('names the failing command without naming the credentials', async () => {
+    const send: SendCommands = async () => [{ error: 'NOPERM no permission' }]
+    const batch = createRedisCommands(send).pipeline()
+    batch.smembers('idx:v1:f:genre:indie')
+    const failure = await batch.exec().catch((error: unknown) => error as RedisBatchError)
+    expect(failure).toBeInstanceOf(RedisBatchError)
+    expect((failure as RedisBatchError).command).toBe('SMEMBERS')
+    expect((failure as RedisBatchError).commandIndex).toBe(0)
+    expect((failure as RedisBatchError).message).not.toContain('token')
   })
 
   it('refuses to execute a batch twice', async () => {

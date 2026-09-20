@@ -5,6 +5,18 @@ import type { IndexMeta, IndexedGame } from './document'
 import type { PlannedRange, QueryPlan } from './queryPlan'
 import { planQuery } from './queryPlan'
 
+/** Everything one store holds. A second run against it is another `MemoryGameIndex` over this. */
+interface MemoryStore {
+  live: StoredVersion | null
+  drafts: Map<number, IndexedGame[]>
+  lastVersion: number
+  previous: IndexMeta | null
+  appIds: Map<number, string>
+  cursors: Map<string, string>
+  /** The run that may write, or `null` when nobody is writing. */
+  lock: string | null
+}
+
 /**
  * The in-memory adapter: a thin executor of the same two plans the Upstash adapter runs. A
  * publication is `buildIndexPlan`'s output stored in maps instead of Redis keys; a query is
@@ -90,12 +102,30 @@ function intersect(sets: Set<number>[]): Set<number> | null {
 }
 
 export class MemoryGameIndex implements GameIndex, GameIndexWriter {
-  private live: StoredVersion | null = null
-  private drafts = new Map<number, IndexedGame[]>()
-  private lastVersion = 0
-  private previous: IndexMeta | null = null
-  private appIds = new Map<number, string>()
-  private cursors = new Map<string, string>()
+  private readonly store: MemoryStore
+  private readonly runId: string
+
+  constructor(store?: MemoryStore, runId?: string) {
+    this.store = store ?? {
+      live: null,
+      drafts: new Map(),
+      lastVersion: 0,
+      previous: null,
+      appIds: new Map(),
+      cursors: new Map(),
+      lock: null,
+    }
+    this.runId = runId ?? `run-${Math.random().toString(36).slice(2, 10)}`
+  }
+
+  /** Another run against the same store — what a second job process is, for the write lock. */
+  connect(runId: string): MemoryGameIndex {
+    return new MemoryGameIndex(this.store, runId)
+  }
+
+  private get live(): StoredVersion | null {
+    return this.store.live
+  }
 
   async search(query: IndexQuery): Promise<IndexSearchResult> {
     const live = this.live
@@ -140,13 +170,14 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 
   async previousMeta(): Promise<IndexMeta | null> {
-    return this.previous ? { ...this.previous } : null
+    return this.store.previous ? { ...this.store.previous } : null
   }
 
   async beginVersion(): Promise<number> {
-    this.lastVersion += 1
-    this.drafts.set(this.lastVersion, [])
-    return this.lastVersion
+    this.claimLock()
+    this.store.lastVersion += 1
+    this.store.drafts.set(this.store.lastVersion, [])
+    return this.store.lastVersion
   }
 
   async writeVersion(version: number, games: IndexedGame[]): Promise<void> {
@@ -155,31 +186,39 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     if (this.live?.version === version) {
       throw new Error(`Index version ${version} is published and cannot be rewritten`)
     }
-    if (!this.drafts.has(version)) throw new Error(`Unknown index version ${version}`)
-    this.drafts.set(version, games.map(clone))
+    this.assertLockIsMine()
+    if (!this.store.drafts.has(version)) {
+      throw new Error(`Index version ${version} was never begun`)
+    }
+    this.store.drafts.set(version, games.map(clone))
   }
 
   async publish(version: number, meta: IndexMeta): Promise<void> {
     // Publishing the version that is already live is a no-op that refreshes the run metadata: a
     // job that finishes its checks twice must not make the live version its own predecessor and
     // set its keys to expire.
+    this.assertLockIsMine()
     if (this.live?.version === version) {
       this.live.meta = { ...meta }
+      this.releaseLock()
       return
     }
-    const draft = this.drafts.get(version)
-    if (!draft) throw new Error(`Unknown index version ${version}`)
+    const draft = this.store.drafts.get(version)
+    if (!draft) throw new Error(`Index version ${version} was never written`)
     // The replaced version would expire on Upstash; here it is simply dropped.
-    this.previous = this.live?.meta ?? null
-    this.live = store(version, draft, { ...meta })
-    this.drafts.delete(version)
+    this.store.previous = this.store.live?.meta ?? null
+    this.store.live = store(version, draft, { ...meta })
+    this.store.drafts.delete(version)
+    this.releaseLock()
   }
 
   async discardVersion(version: number): Promise<void> {
     if (this.live?.version === version) {
       throw new Error(`Index version ${version} is published and cannot be discarded`)
     }
-    this.drafts.delete(version)
+    this.assertLockIsMine()
+    this.store.drafts.delete(version)
+    this.releaseLock()
   }
 
   async currentVersion(): Promise<number | null> {
@@ -189,26 +228,42 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   async getAppIds(ids: number[]): Promise<Map<number, string>> {
     const found = new Map<number, string>()
     for (const id of ids) {
-      const appId = this.appIds.get(id)
+      const appId = this.store.appIds.get(id)
       if (appId !== undefined) found.set(id, appId)
     }
     return found
   }
 
   async setAppIds(entries: Iterable<[number, string]>): Promise<void> {
-    for (const [id, appId] of entries) this.appIds.set(id, appId)
+    for (const [id, appId] of entries) this.store.appIds.set(id, appId)
   }
 
   async getCursor(stage: string): Promise<string | null> {
-    return this.cursors.get(stage) ?? null
+    return this.store.cursors.get(stage) ?? null
   }
 
   async setCursor(stage: string, cursor: string): Promise<void> {
-    this.cursors.set(stage, cursor)
+    this.store.cursors.set(stage, cursor)
   }
 
   async clearCursor(stage: string): Promise<void> {
-    this.cursors.delete(stage)
+    this.store.cursors.delete(stage)
+  }
+
+  /** One run writes at a time: two overlapping runs would each publish over the other. */
+  private claimLock(): void {
+    this.assertLockIsMine()
+    this.store.lock = this.runId
+  }
+
+  private assertLockIsMine(): void {
+    if (this.store.lock !== null && this.store.lock !== this.runId) {
+      throw new Error(`Another index run (${this.store.lock}) holds the write lock`)
+    }
+  }
+
+  private releaseLock(): void {
+    if (this.store.lock === this.runId) this.store.lock = null
   }
 
   /** The versions this adapter still holds — a test's way of seeing that a publish freed one. */

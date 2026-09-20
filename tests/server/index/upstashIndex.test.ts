@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
 import { CURRENT_VERSION_KEY, versionPrefix } from '../../../server/index/keys'
-import { createUpstashIndex } from '../../../server/index/upstashIndex'
+import type { SendCommands } from '../../../server/index/upstashIndex'
+import { createRedisCommands, createUpstashIndex } from '../../../server/index/upstashIndex'
 import { FIXTURE_GAMES } from '../../fixtures/index/games'
 import { describeGameIndexContract, FIXTURE_META, publishGames } from './contract'
 import type { FakeRedis } from './fakeRedis'
@@ -9,39 +10,67 @@ import { createFakeRedis } from './fakeRedis'
 
 /**
  * The adapter against the fake store. The shared contract suite is the bulk of it — the rules an
- * adapter owes its callers are written once and run here too — and the cases below are the ones
- * only this adapter can fail: what a read costs, what it leaves behind, how a large version is
- * chunked, and what a publication does to the version it replaces.
+ * adapter owes its callers are written once and run here too, a second time through a read-only
+ * token — and the cases below are the ones only this adapter can fail: what a read costs, what it
+ * remembers, how a large version is chunked, and what a publication does to what it replaced.
  */
 
-function makeAdapter(): {
+function makeAdapter(options: { now?: () => number } = {}): {
   redis: FakeRedis
   index: ReturnType<typeof createUpstashIndex>
 } {
   const redis = createFakeRedis()
-  return { redis, index: createUpstashIndex(redis) }
+  return { redis, index: createUpstashIndex(redis, options) }
 }
+
+const adapterFor = (index: ReturnType<typeof createUpstashIndex>, redis: FakeRedis) => ({
+  index,
+  writer: index,
+  rival: createUpstashIndex(redis, { runId: 'another-run' }),
+})
 
 describeGameIndexContract('upstashIndex', () => {
   const redis = createFakeRedis()
-  const adapter = createUpstashIndex(redis)
-  return { index: adapter, writer: adapter, teardown: () => redis.reset() }
+  const adapter = createUpstashIndex(redis, { runId: 'the-run' })
+  return {
+    index: adapter,
+    writer: adapter,
+    rival: createUpstashIndex(redis, { runId: 'another-run' }),
+    teardown: () => redis.reset(),
+  }
 })
 
-/** Ids 1…count, enough of a game to be indexed, with values that differ between them. */
+/**
+ * The same suite again, with the reader holding the token the site holds: a read path that issues
+ * one write command fails every case here, because the fake refuses a write on this view exactly
+ * as Upstash refuses one. The reader re-reads the pointer every time, since the version it must
+ * see is published by a different adapter object.
+ */
+describeGameIndexContract('upstashIndex over a read-only token', () => {
+  const redis = createFakeRedis()
+  const writer = createUpstashIndex(redis, { runId: 'the-run' })
+  return {
+    index: createUpstashIndex(redis.readOnly(), { currentVersionTtlMs: 0 }),
+    writer,
+    rival: createUpstashIndex(redis, { runId: 'another-run' }),
+    teardown: () => redis.reset(),
+  }
+})
+
+/** Ids 1…count, the size and shape of a real card document. */
 function manyGames(count: number): IndexedGame[] {
   return Array.from({ length: count }, (_unused, position) => {
     const id = position + 1
     return {
       id,
-      slug: `game-${id}`,
-      name: `Game ${id}`,
-      cover: null,
+      slug: `a-reasonably-long-game-slug-number-${id}`,
+      name: `A Reasonably Long Game Title Number ${id}`,
+      cover: `https://media.rawg.io/media/games/${id % 97}/${id}-cover-image.jpg`,
       released: '2020-06-01',
       popularity: count - position,
-      platforms: [4, id % 7],
-      genres: [`genre-${id % 20}`],
-      stores: ['steam'],
+      platforms: [4, 18, 7, id % 11],
+      genres: ['action', 'adventure', `genre-${id % 20}`],
+      stores: ['steam', 'gog', 'epic-games'],
       gameModes: ['SINGLE'],
       ageRating: 'PEGI16',
       rating: (id % 50) / 10,
@@ -52,54 +81,86 @@ function manyGames(count: number): IndexedGame[] {
       regularPriceUah: id % 3 === 0 ? null : id * 2,
       discountPercent: id % 3 === 0 ? 0 : 50,
       free: false,
-      localisation: null,
+      localisation: { text: true, audio: id % 5 === 0, source: 'steam' },
       madeInUkraine: false,
       priceUpdatedAt: '2026-09-20T06:00:00.000Z',
     } satisfies IndexedGame
   })
 }
 
-const tempKeysOf = (redis: FakeRedis): string[] =>
-  redis.keys().filter((key) => key.startsWith('idx:tmp:'))
+const WRITE_COMMANDS = [
+  'set',
+  'setNx',
+  'mset',
+  'del',
+  'incr',
+  'expire',
+  'sadd',
+  'srem',
+  'zadd',
+  'hset',
+]
+
+const commandsSince = (redis: FakeRedis, from: number): string[] =>
+  redis.requests.slice(from).flatMap((request) => request.commands)
 
 describe('upstashIndex', () => {
   describe('what a read costs', () => {
-    it('answers a page in two round trips: the query, then the documents', async () => {
+    it('answers a page with a cold cache in two requests: the sets, then the documents', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES)
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
       const before = redis.roundTrips
-      const result = await index.search({ genres: ['indie'], sort: 'RATING_DESC' })
+      const result = await index.search({ genres: ['indie', 'strategy'], metacriticMin: 10 })
+      expect(result.ids.length).toBeGreaterThan(0)
       expect(result.games).toHaveLength(result.ids.length)
       expect(redis.roundTrips - before).toBe(2)
     })
 
-    it('answers a searching page in three: the names, the query, then the documents', async () => {
+    it('answers a searching page in two as well: the names travel with the sets', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES)
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
       const before = redis.roundTrips
       expect((await index.search({ search: 'kite' })).ids).toEqual([35])
-      expect(redis.roundTrips - before).toBe(3)
+      expect(redis.roundTrips - before).toBe(2)
     })
 
-    it('spends no round trip on the documents when a page is empty', async () => {
+    it('answers a warm page in one request, and asks for nothing when the page is empty', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES)
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      await index.search({ genres: ['indie'] })
       const before = redis.roundTrips
-      expect((await index.search({ genres: ['nothing-carries-this'] })).total).toBe(0)
+      expect((await index.search({ genres: ['indie'] })).ids).toEqual([2, 3, 5])
       expect(redis.roundTrips - before).toBe(1)
+
+      await index.search({ genres: ['nothing-carries-this'] })
+      const warm = redis.roundTrips
+      expect((await index.search({ genres: ['nothing-carries-this'] })).total).toBe(0)
+      expect(redis.roundTrips - warm).toBe(0)
     })
 
-    it('resolves the published version once and then trusts it for sixty seconds', async () => {
+    it('adds one request when the pointer is due to be checked again', async () => {
+      let clock = 1_000
+      const { redis, index } = makeAdapter({ now: () => clock })
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      await index.search({ genres: ['indie'] })
+
+      const warm = redis.roundTrips
+      await index.search({ genres: ['indie'] })
+      expect(redis.roundTrips - warm).toBe(1)
+
+      clock += 60_001
+      const due = redis.roundTrips
+      await index.search({ genres: ['indie'] })
+      expect(redis.roundTrips - due).toBe(2)
+    })
+
+    it('pays one request more on an instance that has never read the pointer', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES)
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
       const cold = createUpstashIndex(redis)
       const before = redis.roundTrips
       await cold.search({})
-      // A pointer it has never read costs one extra round trip.
       expect(redis.roundTrips - before).toBe(3)
-      const warm = redis.roundTrips
-      await cold.search({})
-      expect(redis.roundTrips - warm).toBe(2)
     })
 
     it('reads nothing but the pointer when no version is published', async () => {
@@ -108,66 +169,144 @@ describe('upstashIndex', () => {
       expect(await index.search({})).toEqual({ ids: [], total: 0, games: [] })
       expect(redis.roundTrips - before).toBe(1)
     })
+
+    it('issues no write command on any read, whatever the query asks for', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      const before = redis.roundTrips
+      for (const query of [
+        {},
+        { genres: ['indie', 'strategy'] },
+        { priceMaxUah: 300, onSaleMinPercent: 50, sort: 'DISCOUNT_DESC' as const },
+        { search: 'ar', page: 2, pageSize: 2 },
+        { ukrainianLocalisation: 'AUDIO' as const, yearFrom: 2015, yearTo: 2026 },
+      ]) {
+        await index.search(query)
+      }
+      await index.getOne(3)
+      await index.getMany([1, 2, 3])
+      await index.meta()
+
+      const used = [...new Set(commandsSince(redis, before))]
+      expect(used.length).toBeGreaterThan(4)
+      for (const write of WRITE_COMMANDS) expect(used).not.toContain(write)
+      const reads = ['get', 'hgetall', 'mget', 'smembers', 'sunion', 'zrangeAll', 'zrangebyscore']
+      for (const command of used) expect(reads).toContain(command)
+    })
   })
 
-  describe('the keys a read borrows', () => {
-    it('gives every temporary key a sixty second life', async () => {
+  describe('what a read remembers', () => {
+    it('keeps a version’s sets until the pointer moves', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES)
-      await index.search({ genres: ['indie', 'strategy'], priceMaxUah: 1000, metacriticMin: 10 })
-      const temporary = tempKeysOf(redis)
-      expect(temporary.length).toBeGreaterThan(2)
-      for (const key of temporary) expect(redis.ttl(key)).toBe(60_000)
-      redis.advance(60_001)
-      expect(tempKeysOf(redis)).toEqual([])
+      const adapter = adapterFor(index, redis)
+      await publishGames(adapter, FIXTURE_GAMES)
+      await index.search({ genres: ['indie'] })
+      expect(index.cached().entries).toBeGreaterThan(0)
+      expect(index.cached().version).toBe(await index.currentVersion())
+
+      await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      await index.search({})
+      // The sets of the version that was replaced are gone, not merely unused.
+      expect(index.cached().version).toBe(await index.currentVersion())
+      expect(index.cached().entries).toBe(1)
     })
 
-    it('never lets two reads share a temporary key', async () => {
+    it('answers from the cache without asking the store again', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES)
-      await index.search({ genres: ['indie', 'strategy'] })
-      const first = tempKeysOf(redis)
-      await index.search({ genres: ['indie', 'strategy'] })
-      const second = tempKeysOf(redis).filter((key) => !first.includes(key))
-      expect(first.length).toBeGreaterThan(0)
-      expect(second).toHaveLength(first.length)
-      const other = createUpstashIndex(redis)
-      await other.search({ genres: ['indie', 'strategy'] })
-      const third = tempKeysOf(redis).filter((key) => !first.includes(key) && !second.includes(key))
-      expect(third).toHaveLength(first.length)
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      const first = await index.search({ ukrainianLocalisation: 'ANY', page: 1, pageSize: 2 })
+      const before = redis.roundTrips
+      const second = await index.search({ ukrainianLocalisation: 'ANY', page: 1, pageSize: 2 })
+      expect(second).toEqual(first)
+      // Only the documents of the page are fetched again.
+      expect(redis.roundTrips - before).toBe(1)
     })
 
-    it('touches no key of another version while it reads', async () => {
-      const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES)
-      await index.search({ free: true })
-      for (const key of tempKeysOf(redis)) expect(key).not.toContain(versionPrefix(1))
+    it('keeps no more sets than it is allowed to', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, { cacheEntries: 3 })
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      for (const genre of ['indie', 'strategy', 'racing', 'action', 'shooter']) {
+        await index.search({ genres: [genre] })
+      }
+      expect(index.cached().entries).toBeLessThanOrEqual(3)
+    })
+
+    it('keeps no more than its byte budget', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, { cacheBytes: 600 })
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      for (const genre of ['indie', 'strategy', 'racing', 'action']) {
+        await index.search({ genres: [genre] })
+      }
+      expect(index.cached().bytes).toBeLessThanOrEqual(600)
     })
   })
 
   describe('writing a version', () => {
-    it('chunks three thousand games into requests of at most five hundred commands', async () => {
-      const { redis, index } = makeAdapter()
-      const version = await index.beginVersion()
-      const before = redis.roundTrips
-      await index.writeVersion(version, manyGames(3_000))
-      expect(redis.roundTrips - before).toBeGreaterThan(1)
-      for (const request of redis.requests.slice(before)) {
-        expect(request.commands.length).toBeLessThanOrEqual(500)
+    it('keeps every request under both the command and the byte budget', async () => {
+      const games = manyGames(3_000)
+      const documentBytes =
+        games.reduce((total, game) => total + JSON.stringify(game).length, 0) / games.length
+      // The cap is only worth testing against documents the size of the real ones.
+      expect(documentBytes).toBeGreaterThan(300)
+
+      const bodies: number[] = []
+      const counts: number[] = []
+      const send: SendCommands = async (_path, commands) => {
+        bodies.push(JSON.stringify(commands).length)
+        counts.push(commands.length)
+        return commands.map((command) => {
+          if (command[0] === 'INCR') return { result: 1 }
+          if (command[0] === 'SMEMBERS') {
+            return { result: command[1] === 'idx:versions' ? ['1'] : [] }
+          }
+          if (command[0] === 'GET') return { result: null }
+          return { result: 'OK' }
+        })
       }
+      const index = createUpstashIndex(createRedisCommands(send), { runId: 'the-run' })
+
+      const version = await index.beginVersion()
+      bodies.length = 0
+      counts.length = 0
+      await index.writeVersion(version, games)
+
+      expect(bodies.length).toBeGreaterThan(2)
+      for (const bytes of bodies) expect(bytes).toBeLessThanOrEqual(700_000)
+      for (const count of counts) expect(count).toBeLessThanOrEqual(500)
       // The documents go out in bulk, never one SET per game.
-      const written = redis.requests.slice(before).flatMap((request) => request.commands)
-      expect(written).toContain('mset')
-      expect(written).not.toContain('set')
-      await index.publish(version, { ...FIXTURE_META, version, gameCount: 3_000 })
-      const page = await index.search({ sort: 'PRICE_ASC', pageSize: 3 })
-      expect(page.total).toBe(2_000)
-      expect(page.ids).toEqual([1, 2, 4])
+      expect(bodies.reduce((total, bytes) => total + bytes, 0)).toBeGreaterThan(1_000_000)
+    })
+
+    it('cuts a request at the byte budget long before the command budget', async () => {
+      const bodies: number[] = []
+      const send: SendCommands = async (_path, commands) => {
+        bodies.push(JSON.stringify(commands).length)
+        return commands.map((command) => {
+          if (command[0] === 'INCR') return { result: 1 }
+          if (command[0] === 'SMEMBERS') {
+            return { result: command[1] === 'idx:versions' ? ['1'] : [] }
+          }
+          if (command[0] === 'GET') return { result: null }
+          return { result: 'OK' }
+        })
+      }
+      const index = createUpstashIndex(createRedisCommands(send), {
+        runId: 'the-run',
+        maxBytesPerRequest: 20_000,
+        itemsPerCommand: 20,
+      })
+      const version = await index.beginVersion()
+      bodies.length = 0
+      await index.writeVersion(version, manyGames(300))
+      expect(bodies.length).toBeGreaterThan(5)
+      for (const bytes of bodies) expect(bytes).toBeLessThanOrEqual(20_000)
     })
 
     it('scores every set with a safe integer', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, manyGames(500))
+      await publishGames(adapterFor(index, redis), manyGames(500))
       for (const key of redis.keys()) {
         if (!key.includes(':o:') && !key.includes(':r:')) continue
         for (const [, score] of redis.scores(key)) expect(Number.isSafeInteger(score)).toBe(true)
@@ -181,7 +320,6 @@ describe('upstashIndex', () => {
       const after = redis.keys().length
       await index.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
       expect(redis.keys().length).toBeLessThan(after)
-      // Writing the same games again must leave the same store behind.
       const settled = redis.keys().sort()
       await index.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
       expect(redis.keys().sort()).toEqual(settled)
@@ -192,57 +330,37 @@ describe('upstashIndex', () => {
       expect(redis.keys()).not.toContain(`${versionPrefix(version)}game:4`)
     })
 
-    it('discards a version by its registry, leaving no key behind and scanning nothing', async () => {
+    it('discards a version by its registry, leaving no key behind', async () => {
       const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES.slice(0, 3))
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(0, 3))
       const version = await index.beginVersion()
       await index.writeVersion(version, FIXTURE_GAMES)
       expect(redis.keys().some((key) => key.startsWith(versionPrefix(version)))).toBe(true)
       await index.discardVersion(version)
       expect(redis.keys().filter((key) => key.startsWith(versionPrefix(version)))).toEqual([])
-      expect(redis.requests.flatMap((request) => request.commands)).not.toContain('scan')
-    })
-  })
-
-  describe('an isolated key namespace', () => {
-    it('keeps a prefixed adapter out of the index another one published', async () => {
-      const { redis, index } = makeAdapter()
-      await publishGames({ index, writer: index }, FIXTURE_GAMES.slice(0, 3))
-      const site = redis.keys().sort()
-
-      const smoke = createUpstashIndex(redis, { keyPrefix: 'smoke:1700000000:' })
-      expect(await smoke.currentVersion()).toBeNull()
-      await publishGames({ index: smoke, writer: smoke }, FIXTURE_GAMES)
-      await smoke.search({ genres: ['indie', 'strategy'], priceMaxUah: 1000 })
-
-      // Every key the prefixed adapter wrote is in its own namespace, and it published a first
-      // version of its own although the store already holds one.
-      expect(await smoke.currentVersion()).toBe(1)
-      for (const key of redis.keys().filter((key) => !site.includes(key))) {
-        expect(key.startsWith('smoke:1700000000:')).toBe(true)
-      }
-      // The published index is untouched: same keys, same answer.
-      expect(
-        redis
-          .keys()
-          .filter((key) => !key.startsWith('smoke:'))
-          .sort(),
-      ).toEqual(site)
-      expect((await index.search({})).ids).toEqual([1, 2, 3])
     })
   })
 
   describe('publishing', () => {
-    it('moves the pointer and expires the replaced version in one transaction', async () => {
+    it('moves the pointer in a transaction that carries nothing else', async () => {
       const { redis, index } = makeAdapter()
-      const first = await publishGames({ index, writer: index }, FIXTURE_GAMES.slice(0, 3))
-      const firstKeys = redis.keys().filter((key) => key.startsWith(versionPrefix(first)))
-      const second = await publishGames({ index, writer: index }, FIXTURE_GAMES.slice(3, 6))
+      const adapter = adapterFor(index, redis)
+      await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
 
-      const transaction = redis.requests.at(-1)!
-      expect(transaction.multi).toBe(true)
-      expect(transaction.commands).toContain('set')
-      expect(transaction.commands).toContain('expire')
+      const transaction = redis.requests.filter((request) => request.multi).at(-1)!
+      // The metadata, the pointer, the predecessor and the lock: no expiry rides along, so the
+      // transaction does not grow with the catalog.
+      expect(transaction.commands).toEqual(['hset', 'set', 'set', 'del'])
+    })
+
+    it('expires the replaced version after the pointer has moved', async () => {
+      const { redis, index } = makeAdapter()
+      const adapter = adapterFor(index, redis)
+      const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      const firstKeys = redis.keys().filter((key) => key.startsWith(versionPrefix(first)))
+      expect(firstKeys.length).toBeGreaterThan(3)
+      const second = await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
 
       for (const key of firstKeys) expect(redis.ttl(key)).toBe(48 * 60 * 60 * 1000)
       for (const key of redis.keys().filter((key) => key.startsWith(versionPrefix(second)))) {
@@ -255,10 +373,29 @@ describe('upstashIndex', () => {
       expect((await index.search({})).ids).toEqual([4, 5, 6])
     })
 
+    it('sweeps a version an interrupted run abandoned', async () => {
+      const { redis, index } = makeAdapter()
+      const adapter = adapterFor(index, redis)
+      await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+
+      // A run that wrote a version and then died: it is neither published nor discarded.
+      const abandoned = await index.beginVersion()
+      await index.writeVersion(abandoned, FIXTURE_GAMES.slice(6, 9))
+      const abandonedKeys = redis.keys().filter((key) => key.startsWith(versionPrefix(abandoned)))
+      expect(abandonedKeys.length).toBeGreaterThan(3)
+      for (const key of abandonedKeys) expect(redis.ttl(key)).toBeNull()
+
+      await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
+      for (const key of abandonedKeys) expect(redis.ttl(key)).toBe(48 * 60 * 60 * 1000)
+      redis.advance(48 * 60 * 60 * 1000 + 1)
+      expect(redis.keys().filter((key) => key.startsWith(versionPrefix(abandoned)))).toEqual([])
+    })
+
     it('keeps the replaced version readable until its expiry passes', async () => {
       const { redis, index } = makeAdapter()
-      const first = await publishGames({ index, writer: index }, FIXTURE_GAMES.slice(0, 3))
-      await publishGames({ index, writer: index }, FIXTURE_GAMES.slice(3, 6))
+      const adapter = adapterFor(index, redis)
+      const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
       expect((await index.previousMeta())?.version).toBe(first)
       redis.advance(47 * 60 * 60 * 1000)
       expect((await index.previousMeta())?.version).toBe(first)
@@ -282,6 +419,43 @@ describe('upstashIndex', () => {
         gameCount: 2,
         stats: { gamesIndexed: 2, failures: 1 },
       })
+    })
+  })
+
+  describe('the write lock', () => {
+    it('frees the lock of a run that died holding it, once its life has passed', async () => {
+      const redis = createFakeRedis()
+      const first = createUpstashIndex(redis, { runId: 'the-run', lockTtlSeconds: 3_600 })
+      const second = createUpstashIndex(redis, { runId: 'another-run' })
+      await first.beginVersion()
+      await expect(second.beginVersion()).rejects.toThrow(/another-run|the-run/)
+      redis.advance(3_600_000 + 1)
+      await expect(second.beginVersion()).resolves.toBeGreaterThan(0)
+    })
+  })
+
+  describe('an isolated key namespace', () => {
+    it('keeps a prefixed adapter out of the index another one published', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(0, 3))
+      const site = redis.keys().sort()
+
+      const smoke = createUpstashIndex(redis, { keyPrefix: 'smoke:1700000000:' })
+      expect(await smoke.currentVersion()).toBeNull()
+      await publishGames(adapterFor(smoke, redis), FIXTURE_GAMES)
+      await smoke.search({ genres: ['indie', 'strategy'], priceMaxUah: 1000 })
+
+      expect(await smoke.currentVersion()).toBe(1)
+      for (const key of redis.keys().filter((key) => !site.includes(key))) {
+        expect(key.startsWith('smoke:1700000000:')).toBe(true)
+      }
+      expect(
+        redis
+          .keys()
+          .filter((key) => !key.startsWith('smoke:'))
+          .sort(),
+      ).toEqual(site)
+      expect((await index.search({})).ids).toEqual([1, 2, 3])
     })
   })
 })

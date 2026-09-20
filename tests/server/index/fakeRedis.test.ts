@@ -3,9 +3,10 @@ import { createFakeRedis } from './fakeRedis'
 
 /**
  * The fake stands in for Upstash in every adapter test, so the rules the adapter leans on have to
- * be the store's real rules — the weights of an intersection, the inclusive edges of a score
- * range, a set counting as score 1, a key disappearing when its TTL passes, a MULTI applying whole
- * or not at all. A fake that is merely convenient would make the adapter's tests prove nothing.
+ * be the store's real rules — the inclusive edges of a score range, a union that is returned and
+ * not stored, a key disappearing when its TTL passes, a batch that runs every command and undoes
+ * none of them, and a read-only token that refuses a write. A fake that is merely convenient would
+ * make the adapter's tests prove nothing.
  */
 
 describe('fakeRedis', () => {
@@ -64,19 +65,45 @@ describe('fakeRedis', () => {
     expect(gone.value).toBeNull()
   })
 
-  it('unions plain sets into a destination and drops an empty destination', async () => {
+  it('takes a key only when nobody holds it, and lets it go when its life passes', async () => {
+    const redis = createFakeRedis()
+    const first = redis.pipeline()
+    const mine = first.setNx('lock', 'me', 60)
+    const theirs = first.setNx('lock', 'you', 60)
+    const holder = first.get('lock')
+    await first.exec()
+    expect([mine.value, theirs.value, holder.value]).toEqual([true, false, 'me'])
+
+    redis.advance(60_001)
+    const later = redis.pipeline()
+    const taken = later.setNx('lock', 'you', 60)
+    await later.exec()
+    expect(taken.value).toBe(true)
+  })
+
+  it('adds to a set, reads it back and removes from it', async () => {
+    const redis = createFakeRedis()
+    const batch = redis.pipeline()
+    batch.sadd('one', ['1', '2', '3'])
+    batch.srem('one', ['2'])
+    const members = batch.smembers('one')
+    batch.srem('one', ['1', '3'])
+    const emptied = batch.smembers('one')
+    await batch.exec()
+    expect([...members.value].sort()).toEqual(['1', '3'])
+    expect(emptied.value).toEqual([])
+    expect(redis.keys()).not.toContain('one')
+  })
+
+  it('unions sets without storing anything', async () => {
     const redis = createFakeRedis()
     const batch = redis.pipeline()
     batch.sadd('one', ['1', '2'])
     batch.sadd('two', ['2', '3'])
-    batch.sunionstore('dest', ['one', 'two'])
-    const members = batch.smembers('dest')
-    batch.sunionstore('dest', ['nothing'])
-    const emptied = batch.smembers('dest')
+    const union = batch.sunion(['one', 'two', 'nothing'])
     await batch.exec()
-    expect([...members.value].sort()).toEqual(['1', '2', '3'])
-    expect(emptied.value).toEqual([])
-    expect(redis.keys()).not.toContain('dest')
+    expect([...union.value].sort()).toEqual(['1', '2', '3'])
+    expect(redis.keys().sort()).toEqual(['one', 'two'])
   })
 
   it('reads a sorted set by rank, lowest score first, ties by member', async () => {
@@ -87,15 +114,11 @@ describe('fakeRedis', () => {
       [1, '20'],
       [1, '10'],
     ])
-    const total = batch.zcard('order')
-    const page = batch.zrange('order', 0, 10)
-    const second = batch.zrange('order', 1, 1)
-    const past = batch.zrange('order', 99, 10)
+    const page = batch.zrangeAll('order')
+    const absent = batch.zrangeAll('nothing')
     await batch.exec()
-    expect(total.value).toBe(3)
     expect(page.value).toEqual(['10', '20', '30'])
-    expect(second.value).toEqual(['20'])
-    expect(past.value).toEqual([])
+    expect(absent.value).toEqual([])
   })
 
   it('overwrites the score of a member that is added twice', async () => {
@@ -103,50 +126,13 @@ describe('fakeRedis', () => {
     const batch = redis.pipeline()
     batch.zadd('order', [[5, 'a']])
     batch.zadd('order', [[1, 'a']])
-    const page = batch.zrange('order', 0, 10)
-    const total = batch.zcard('order')
+    const page = batch.zrangeAll('order')
     await batch.exec()
     expect(page.value).toEqual(['a'])
-    expect(total.value).toBe(1)
+    expect(redis.scores('order')).toEqual([['a', 1]])
   })
 
-  it('intersects with weights, a plain set counting as score 1', async () => {
-    const redis = createFakeRedis()
-    const batch = redis.pipeline()
-    batch.zadd('order', [
-      [0, 'a'],
-      [1, 'b'],
-      [2, 'c'],
-    ])
-    batch.sadd('facet', ['b', 'c'])
-    batch.zinterstore('dest', ['order', 'facet'], [1, 0])
-    const page = batch.zrange('dest', 0, 10)
-    batch.zinterstore('dest2', ['order', 'facet'], [1, 10])
-    await batch.exec()
-    expect(page.value).toEqual(['b', 'c'])
-    expect(redis.scores('dest')).toEqual([
-      ['b', 1],
-      ['c', 2],
-    ])
-    // Both members gain 10 from the facet, so their order is unchanged but their scores are not.
-    expect(redis.scores('dest2')).toEqual([
-      ['b', 11],
-      ['c', 12],
-    ])
-  })
-
-  it('intersects to nothing when one of the keys does not exist', async () => {
-    const redis = createFakeRedis()
-    const batch = redis.pipeline()
-    batch.zadd('order', [[0, 'a']])
-    batch.zinterstore('dest', ['order', 'absent'], [1, 0])
-    const total = batch.zcard('dest')
-    await batch.exec()
-    expect(total.value).toBe(0)
-    expect(redis.keys()).not.toContain('dest')
-  })
-
-  it('stores a score range with its scores, keeping both bounds', async () => {
+  it('reads a score range, keeping both bounds and reading the infinities', async () => {
     const redis = createFakeRedis()
     const batch = redis.pipeline()
     batch.zadd('range', [
@@ -154,31 +140,17 @@ describe('fakeRedis', () => {
       [20, 'b'],
       [30, 'c'],
     ])
-    batch.zrangestore('kept', 'range', '20', '30')
-    batch.zrangestore('open', 'range', '-inf', '+inf')
-    batch.zrangestore('exclusive', 'range', '(10', '(30')
-    const page = batch.zrange('kept', 0, 10)
+    const inclusive = batch.zrangebyscore('range', '20', '30')
+    const open = batch.zrangebyscore('range', '-inf', '+inf')
+    const exclusive = batch.zrangebyscore('range', '(10', '(30')
+    const none = batch.zrangebyscore('range', '40', '+inf')
     await batch.exec()
-    expect(page.value).toEqual(['b', 'c'])
-    expect(redis.scores('kept')).toEqual([
-      ['b', 20],
-      ['c', 30],
-    ])
-    expect(redis.scores('open')).toHaveLength(3)
-    expect(redis.scores('exclusive').map(([member]) => member)).toEqual(['b'])
-    // The source is left as it was: a trim is a copy, not a destructive edit.
+    expect(inclusive.value).toEqual(['b', 'c'])
+    expect(open.value).toEqual(['a', 'b', 'c'])
+    expect(exclusive.value).toEqual(['b'])
+    expect(none.value).toEqual([])
+    // A range is read, never trimmed: the source is untouched.
     expect(redis.scores('range')).toHaveLength(3)
-  })
-
-  it('writes no destination when a range matches nothing', async () => {
-    const redis = createFakeRedis()
-    const batch = redis.pipeline()
-    batch.zadd('range', [[10, 'a']])
-    batch.zrangestore('empty', 'range', '20', '+inf')
-    batch.zrangestore('absent', 'nothing', '-inf', '+inf')
-    await batch.exec()
-    expect(redis.keys()).not.toContain('empty')
-    expect(redis.keys()).not.toContain('absent')
   })
 
   it('forgets a key once its expiry passes on the fake clock', async () => {
@@ -217,31 +189,97 @@ describe('fakeRedis', () => {
     expect(absent.value).toEqual({})
   })
 
-  it('applies a multi whole or not at all', async () => {
+  it('runs every command of a batch and undoes none of them, as Redis does', async () => {
     const redis = createFakeRedis()
     const seed = redis.pipeline()
-    seed.set('kept', 'before')
+    seed.set('before', '1')
+    seed.sadd('a-set', ['x'])
+    await seed.exec()
+
+    const batch = redis.pipeline()
+    batch.set('written-before', 'yes')
+    batch.incr('a-set') // WRONGTYPE: a set is not a counter
+    batch.set('written-after', 'yes')
+    await expect(batch.exec()).rejects.toThrow(/WRONGTYPE/)
+
+    // Redis has no rollback: what ran, ran — before and after the command that failed.
+    expect(redis.keys().sort()).toEqual(['a-set', 'before', 'written-after', 'written-before'])
+    expect(redis.requests.at(-1)?.failed).toEqual([1])
+  })
+
+  it('does not roll a transaction back either, and says which command failed', async () => {
+    const redis = createFakeRedis()
+    const seed = redis.pipeline()
+    seed.sadd('a-set', ['x'])
     await seed.exec()
 
     const batch = redis.multi()
-    batch.set('kept', 'after')
-    batch.sadd('wrong', ['x'])
-    batch.incr('wrong')
-    await expect(batch.exec()).rejects.toThrow()
-
-    const read = redis.pipeline()
-    const kept = read.get('kept')
-    await read.exec()
-    expect(kept.value).toBe('before')
-    expect(redis.keys()).not.toContain('wrong')
-    expect(redis.requests.at(-2)?.multi).toBe(true)
+    batch.set('kept', 'yes')
+    batch.incr('a-set')
+    await expect(batch.exec()).rejects.toThrow(/Command 2 \[ incr \]/)
+    expect(redis.keys()).toContain('kept')
+    expect(redis.requests.at(-1)?.multi).toBe(true)
   })
 
   it('refuses a command against a key of the wrong type', async () => {
     const redis = createFakeRedis()
     const batch = redis.pipeline()
     batch.sadd('set', ['a'])
-    batch.zcard('set')
+    batch.zrangeAll('set')
     await expect(batch.exec()).rejects.toThrow(/WRONGTYPE/)
+  })
+
+  describe('through a read-only token', () => {
+    it('refuses every write command the way Upstash refuses it', async () => {
+      const redis = createFakeRedis()
+      const readOnly = redis.readOnly()
+      const writes: [string, (batch: ReturnType<typeof readOnly.pipeline>) => void][] = [
+        ['set', (batch) => batch.set('a', '1')],
+        ['setNx', (batch) => void batch.setNx('a', '1', 60)],
+        ['mset', (batch) => batch.mset({ a: '1' })],
+        ['del', (batch) => batch.del(['a'])],
+        ['incr', (batch) => void batch.incr('a')],
+        ['expire', (batch) => batch.expire('a', 60)],
+        ['sadd', (batch) => batch.sadd('a', ['1'])],
+        ['srem', (batch) => batch.srem('a', ['1'])],
+        ['zadd', (batch) => batch.zadd('a', [[1, 'x']])],
+        ['hset', (batch) => batch.hset('a', { one: '1' })],
+      ]
+      for (const [name, queue] of writes) {
+        const batch = readOnly.pipeline()
+        queue(batch)
+        await expect(batch.exec(), name).rejects.toThrow(/NOPERM/)
+      }
+      expect(redis.keys()).toEqual([])
+    })
+
+    it('answers every read command exactly as the full token does', async () => {
+      const redis = createFakeRedis()
+      const seed = redis.pipeline()
+      seed.mset({ doc: '{"id":1}' })
+      seed.sadd('facet', ['1', '2'])
+      seed.sadd('other', ['3'])
+      seed.zadd('order', [[0, '1']])
+      seed.hset('names', { '1': 'alpha' })
+      await seed.exec()
+
+      const batch = redis.readOnly().pipeline()
+      const document = batch.get('doc')
+      const many = batch.mget(['doc'])
+      const members = batch.smembers('facet')
+      const union = batch.sunion(['facet', 'other'])
+      const order = batch.zrangeAll('order')
+      const range = batch.zrangebyscore('order', '-inf', '+inf')
+      const names = batch.hgetall('names')
+      await batch.exec()
+
+      expect(document.value).toBe('{"id":1}')
+      expect(many.value).toEqual(['{"id":1}'])
+      expect([...members.value].sort()).toEqual(['1', '2'])
+      expect([...union.value].sort()).toEqual(['1', '2', '3'])
+      expect(order.value).toEqual(['1'])
+      expect(range.value).toEqual(['1'])
+      expect(names.value).toEqual({ '1': 'alpha' })
+    })
   })
 })

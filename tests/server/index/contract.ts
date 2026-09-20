@@ -17,6 +17,8 @@ import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
 export interface GameIndexAdapter {
   index: GameIndex
   writer: GameIndexWriter
+  /** A second run against the same store: what an overlapping job process is. */
+  rival: GameIndexWriter
   /** Called once the suite is done with the adapter; a remote store drops its keys here. */
   teardown?: () => void | Promise<void>
 }
@@ -451,12 +453,70 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         ).rejects.toThrow()
       })
 
+      it('refuses to write a version that was never begun', async () => {
+        const adapter = await fresh()
+        await expect(adapter.writer.writeVersion(9_999, FIXTURE_GAMES)).rejects.toThrow()
+      })
+
       it('refuses to publish a version that was never written', async () => {
         const adapter = await fresh()
         const version = 9_999
         await expect(
           adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 0 }),
         ).rejects.toThrow()
+      })
+    })
+
+    /**
+     * One run writes at a time. Two overlapping runs — a retried workflow beside the schedule —
+     * would each move the pointer and one of them would leave its whole version behind, so a run
+     * takes a lock before it begins a version and gives it back when it publishes or gives up.
+     */
+    describe('the write lock', () => {
+      const used: GameIndexAdapter[] = []
+
+      const fresh = async (): Promise<GameIndexAdapter> => {
+        const adapter = await makeAdapter()
+        used.push(adapter)
+        return adapter
+      }
+
+      afterEach(async () => {
+        while (used.length > 0) await used.pop()?.teardown?.()
+      })
+
+      it('refuses a second run while the first is between begin and publish', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+        await expect(adapter.rival.beginVersion()).rejects.toThrow()
+      })
+
+      it('lets the next run begin once the first has published', async () => {
+        const adapter = await fresh()
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+        await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
+      })
+
+      it('lets the next run begin once the first has given up', async () => {
+        const adapter = await fresh()
+        const version = await adapter.writer.beginVersion()
+        await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
+        await adapter.writer.discardVersion(version)
+        await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
+      })
+
+      it('refuses every write from a run that does not hold the lock', async () => {
+        const adapter = await fresh()
+        const version = await adapter.writer.beginVersion()
+        await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
+        await expect(adapter.rival.writeVersion(version, FIXTURE_GAMES)).rejects.toThrow()
+        await expect(
+          adapter.rival.publish(version, { ...FIXTURE_META, version, gameCount: 3 }),
+        ).rejects.toThrow()
+        await expect(adapter.rival.discardVersion(version)).rejects.toThrow()
+        // The run that does hold it is unaffected.
+        await adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 3 })
+        expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
       })
     })
 

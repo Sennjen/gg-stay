@@ -124,14 +124,3 @@ export function facetKeysOf(version: number, game: IndexedGame): string[] {
 
   return keys
 }
-
-/**
- * A key one request owns for the length of that request: the union of a facet, a trimmed range,
- * the intersection a page is read from. `requestId` is unique per request, so two requests running
- * the same query never share a key, and every one of them is given a 60 s life — nothing reads
- * them afterwards and nothing may be left behind. They stay outside the version prefix, so "every
- * key of the version" remains exactly what the writer registered.
- */
-export function tempKey(version: number, requestId: string, purpose: string): string {
-  return `idx:tmp:v${version}:${requestId}:${purpose}`
-}

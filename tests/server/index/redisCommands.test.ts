@@ -19,19 +19,20 @@ describe('withKeyPrefix', () => {
     const moved = withKeyPrefix(redis, 'smoke:')
     const batch = moved.pipeline()
     batch.set('string', 'a')
+    batch.setNx('lock', 'run-1', 60)
     batch.mset({ left: 'b', right: 'c' })
     batch.sadd('facet', ['1', '2'])
     batch.sadd('other', ['2', '3'])
-    batch.sunionstore('union', ['facet', 'other'])
+    const union = batch.sunion(['facet', 'other'])
     batch.zadd('order', [
       [0, '1'],
       [1, '2'],
       [2, '3'],
     ])
-    batch.zrangestore('trimmed', 'order', '1', '+inf')
-    batch.zinterstore('page', ['trimmed', 'union'], [1, 0])
+    const trimmed = batch.zrangebyscore('order', '1', '+inf')
+    batch.srem('other', ['3'])
     batch.hset('names', { '1': 'alpha' })
-    batch.expire('page', 60)
+    batch.expire('string', 60)
     batch.incr('counter')
     await batch.exec()
 
@@ -39,23 +40,19 @@ describe('withKeyPrefix', () => {
     expect(redis.keys().sort()).toEqual(
       [
         'smoke:string',
+        'smoke:lock',
         'smoke:left',
         'smoke:right',
         'smoke:facet',
         'smoke:other',
-        'smoke:union',
         'smoke:order',
-        'smoke:trimmed',
-        'smoke:page',
         'smoke:names',
         'smoke:counter',
       ].sort(),
     )
-    expect(redis.ttl('smoke:page')).toBe(60_000)
-    expect(redis.scores('smoke:page')).toEqual([
-      ['2', 1],
-      ['3', 2],
-    ])
+    expect(redis.ttl('smoke:string')).toBe(60_000)
+    expect([...union.value].sort()).toEqual(['1', '2', '3'])
+    expect(trimmed.value).toEqual(['2', '3'])
   })
 
   it('reads through the prefix and leaves the values alone', async () => {
@@ -73,15 +70,13 @@ describe('withKeyPrefix', () => {
     const single = read.get('one')
     const fields = read.hgetall('fields')
     const members = read.smembers('members')
-    const total = read.zcard('scores')
-    const page = read.zrange('scores', 0, 10)
+    const page = read.zrangeAll('scores')
     await read.exec()
 
     expect(values.value).toEqual(['1', null, '2'])
     expect(single.value).toBe('1')
     expect(fields.value).toEqual({ name: 'alpha' })
     expect(members.value).toEqual(['x'])
-    expect(total.value).toBe(1)
     expect(page.value).toEqual(['x'])
   })
 
