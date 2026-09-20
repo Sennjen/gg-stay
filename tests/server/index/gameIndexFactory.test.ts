@@ -6,6 +6,8 @@ import {
   degradeOnFailure,
   IndexUnavailableError,
   unavailableGameIndex,
+  withCircuit,
+  withDeadline,
 } from '../../../server/index/index'
 import published from '../../fixtures/index/published.json' with { type: 'json' }
 
@@ -20,19 +22,74 @@ const fixture = published as unknown as PublishedFixture
 const sources = (overrides: Partial<Parameters<typeof createGameIndex>[0]> = {}) => ({
   upstashRedisRestUrl: '',
   upstashRedisRestToken: '',
+  fixtures: true,
   readFixture: async () => fixture,
   seededAt: () => '2026-09-20T07:00:00.000Z',
   onError: () => undefined,
   ...overrides,
 })
 
+/**
+ * The seeded fixture describes real, named games with plausible commercial prices, so it may only
+ * ever answer in fixture mode. Every other configuration without credentials is "not configured",
+ * which the design says behaves exactly like "unreachable": RAWG, no prices, one warning.
+ */
+describe('which index answers, by configuration', () => {
+  const credentials = { upstashRedisRestUrl: 'https://x.upstash.io', upstashRedisRestToken: 't' }
+
+  it('uses the fixture in fixture mode without credentials', async () => {
+    const index = await createGameIndex(sources({ fixtures: true }))
+    expect((await index.meta())?.gameCount).toBe(fixture.games.length)
+  })
+
+  it('refuses to answer outside fixture mode without credentials, and says so once', async () => {
+    const onError = vi.fn()
+    const readFixture = vi.fn(async () => fixture)
+    const index = await createGameIndex(sources({ fixtures: false, onError, readFixture }))
+    expect(await index.meta()).toBeNull()
+    expect(await index.getMany([3328])).toEqual(new Map())
+    await expect(index.search({})).rejects.toBeInstanceOf(IndexUnavailableError)
+    // The seed asset is not even read outside fixture mode.
+    expect(readFixture).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledOnce()
+    expect(String(onError.mock.calls[0]![0])).toContain('no credentials are set')
+  })
+
+  it('refuses to answer outside fixture mode when only one credential is set', async () => {
+    const onError = vi.fn()
+    const index = await createGameIndex(
+      sources({ fixtures: false, onError, upstashRedisRestUrl: 'https://x.upstash.io' }),
+    )
+    expect(await index.meta()).toBeNull()
+    expect(String(onError.mock.calls[0]![0])).toContain('only one credential is configured')
+  })
+
+  it('prefers the credentials over the fixture whenever both are present', async () => {
+    const readFixture = vi.fn(async () => fixture)
+    const index = await createGameIndex(sources({ fixtures: true, readFixture, ...credentials }))
+    // The seed is never read, so nothing it holds can be served. Nothing is called on the index
+    // itself: building the adapter sends no request, and this suite never touches the network.
+    expect(readFixture).not.toHaveBeenCalled()
+    expect(index).not.toBe(null)
+  })
+})
+
 describe('createGameIndex', () => {
   it('seeds the in-memory index from the fixture when there are no credentials', async () => {
     const index = await createGameIndex(sources())
-    expect((await index.search({ ukrainianLocalisation: 'AUDIO' })).ids).toEqual([34, 35, 38])
+    expect((await index.search({ ukrainianLocalisation: 'AUDIO' })).ids).toEqual([3328])
     expect((await index.meta())?.gameCount).toBe(fixture.games.length)
     // Published as if it had just been built, so a development server is never stale.
     expect((await index.meta())?.updatedAt).toBe('2026-09-20T07:00:00.000Z')
+  })
+
+  it('moves every price timestamp forward by the same amount as the run itself', async () => {
+    // The fixture records a price fetched three hours before its run finished. Seeding shifts the
+    // whole recorded timeline to the seeding moment, so a development game page shows a plausible
+    // "updated N hours ago" and does not ask Steam to refresh a price on every request.
+    const index = await createGameIndex(sources())
+    expect((await index.getOne(3328))?.priceUpdatedAt).toBe('2026-09-20T04:00:00.000Z')
+    expect((await index.getOne(4200))?.priceUpdatedAt).toBe('2026-09-20T07:00:00.000Z')
   })
 
   it('answers an empty index rather than failing when there is no fixture', async () => {
@@ -68,6 +125,92 @@ describe('an unavailable index', () => {
   })
 })
 
+describe('withDeadline', () => {
+  const hung: GameIndex = {
+    search: () => new Promise(() => {}),
+    getMany: () => new Promise(() => {}),
+    getOne: () => new Promise(() => {}),
+    meta: () => new Promise(() => {}),
+  }
+
+  /** Fires every pending deadline immediately, so no test waits for a real timer. */
+  function immediateTimers() {
+    return {
+      setTimeout: (handler: () => void) => {
+        handler()
+        return 0
+      },
+      clearTimeout: () => undefined,
+    }
+  }
+
+  it('turns a call that never settles into an unavailable index', async () => {
+    const index = withDeadline(hung, { timeoutMs: 1500, setTimer: immediateTimers() })
+    await expect(index.search({})).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.search({})).rejects.toThrow(/within 1500ms/)
+    await expect(index.meta()).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.getOne(1)).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.getMany([1])).rejects.toBeInstanceOf(IndexUnavailableError)
+  })
+
+  it('lets an answer that arrives in time through, and cancels its timer', async () => {
+    const cleared: unknown[] = []
+    const index = withDeadline(await createGameIndex(sources()), {
+      setTimer: {
+        setTimeout: () => 'handle',
+        clearTimeout: (handle) => cleared.push(handle),
+      },
+    })
+    expect((await index.getOne(4200))?.name).toBe('Portal 2')
+    expect(cleared).toEqual(['handle'])
+  })
+
+  it('keeps the original failure rather than replacing it with a deadline', async () => {
+    const failing: GameIndex = {
+      ...hung,
+      meta: () => Promise.reject(new Error('ECONNRESET')),
+    }
+    const index = withDeadline(failing, {
+      setTimer: { setTimeout: () => 0, clearTimeout: () => {} },
+    })
+    await expect(index.meta()).rejects.toThrow('ECONNRESET')
+  })
+})
+
+describe('withCircuit', () => {
+  const broken: GameIndex = {
+    search: () => Promise.reject(new Error('ECONNRESET')),
+    getMany: () => Promise.reject(new Error('ECONNRESET')),
+    getOne: () => Promise.reject(new Error('ECONNRESET')),
+    meta: () => Promise.reject(new Error('ECONNRESET')),
+  }
+
+  it('skips the index for a while after one failure, then tries again', async () => {
+    let now = 1_000
+    const calls = vi.fn()
+    const counted: GameIndex = { ...broken, meta: () => (calls(), broken.meta()) }
+    const index = withCircuit(counted, { openMs: 30_000, now: () => now })
+
+    await expect(index.meta()).rejects.toThrow('ECONNRESET')
+    expect(calls).toHaveBeenCalledOnce()
+
+    // Inside the window nothing leaves the process at all.
+    await expect(index.meta()).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.search({})).rejects.toThrow(/skipped/)
+    expect(calls).toHaveBeenCalledOnce()
+
+    now += 30_000
+    await expect(index.meta()).rejects.toThrow('ECONNRESET')
+    expect(calls).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves a healthy index alone', async () => {
+    const index = withCircuit(await createGameIndex(sources()))
+    expect((await index.getOne(4200))?.name).toBe('Portal 2')
+    expect((await index.meta())?.gameCount).toBe(fixture.games.length)
+  })
+})
+
 describe('degradeOnFailure', () => {
   const broken: GameIndex = {
     search: () => Promise.reject(new Error('ECONNRESET')),
@@ -76,19 +219,37 @@ describe('degradeOnFailure', () => {
     meta: () => Promise.reject(new Error('ECONNRESET')),
   }
 
-  it('turns a store that stopped answering into the unavailable shape', async () => {
+  it('turns a store that stopped answering into the unavailable shape, on every method', async () => {
     const onError = vi.fn()
     const index = degradeOnFailure(broken, onError)
+    // Every method rejects, so a caller can tell "it failed" from "it holds nothing" and stop
+    // asking. `unavailableGameIndex` is the quiet one; a failure is not.
     await expect(index.search({})).rejects.toBeInstanceOf(IndexUnavailableError)
-    expect(await index.getMany([1])).toEqual(new Map())
-    expect(await index.getOne(1)).toBeNull()
-    expect(await index.meta()).toBeNull()
+    await expect(index.getMany([1])).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.getOne(1)).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.meta()).rejects.toBeInstanceOf(IndexUnavailableError)
     expect(onError).toHaveBeenCalledTimes(4)
+  })
+
+  it('keeps a deadline as the deadline it was, rather than renaming it', async () => {
+    const hung: GameIndex = {
+      search: () => new Promise(() => {}),
+      getMany: () => new Promise(() => {}),
+      getOne: () => new Promise(() => {}),
+      meta: () => new Promise(() => {}),
+    }
+    const index = degradeOnFailure(
+      withDeadline(hung, {
+        timeoutMs: 1500,
+        setTimer: { setTimeout: (handler) => (handler(), 0), clearTimeout: () => {} },
+      }),
+    )
+    await expect(index.meta()).rejects.toThrow(/within 1500ms/)
   })
 
   it('passes a working index through untouched', async () => {
     const index = degradeOnFailure(await createGameIndex(sources()))
-    expect((await index.search({ genres: ['indie'] })).ids).toEqual([2, 3, 5])
-    expect((await index.getOne(1))?.name).toBe('Alpha Quest')
+    expect((await index.search({ genres: ['indie'] })).ids).toEqual([654])
+    expect((await index.getOne(4200))?.name).toBe('Portal 2')
   })
 })
