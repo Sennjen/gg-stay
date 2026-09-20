@@ -1,0 +1,18 @@
+{
+  "620": {
+    "success": true,
+    "data": {
+      "is_free": false,
+      "supported_languages": "English<strong>*</strong>, French<strong>*</strong>, German<strong>*</strong>, Russian<strong>*</strong>, Українська<br><strong>*</strong>мови з повною аудіопідтримкою",
+      "short_description": "Portal 2 розширює механіку оригіналу новими елементами головоломок.",
+      "price_overview": {
+        "currency": "UAH",
+        "initial": 20500,
+        "final": 6150,
+        "discount_percent": 70,
+        "initial_formatted": "205 ₴",
+        "final_formatted": "61 ₴"
+      }
+    }
+  }
+}

@@ -1,0 +1,75 @@
+name: Index refresh
+# The price and localisation index is rebuilt here rather than on Vercel: a full run walks
+# seventy-five RAWG pages and reads Steam languages at forty requests a minute, which no
+# serverless function may run for. Three cadences, as the week 2A design sets them out.
+on:
+  schedule:
+    # Prices every six hours — one batched Steam call over the published documents.
+    - cron: '15 */6 * * *'
+    # The whole catalog nightly at 02:30 UTC: candidates, new app ids, prices, due languages.
+    - cron: '30 2 * * *'
+    # Languages weekly, Sunday 04:00 UTC: the slow per-app reads.
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to refresh
+        type: choice
+        default: prices
+        options:
+          - prices
+          - full
+          - languages
+      pages:
+        description: RAWG pages of candidates (full runs only; blank means the default 75)
+        type: string
+        required: false
+
+# One run at a time, and never cancelled half way: two runs would fight over the same cursors,
+# and a cancelled run leaves a draft version nobody discards.
+concurrency:
+  group: index-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # A full run is about an hour; the ceiling is there to end a wedged run, not to pace one.
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The schedule that fired decides the mode; a manual run says so itself. Both values come
+      # from this file, but they are passed through the environment rather than interpolated into
+      # the script, so the step stays safe if an input ever becomes free text.
+      - id: mode
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          case "$SCHEDULE" in
+            '30 2 * * *') mode=full ;;
+            '0 4 * * 0') mode=languages ;;
+            '15 */6 * * *') mode=prices ;;
+            *) mode="${INPUT_MODE:-prices}" ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      # The write token lives only here: the site on Vercel gets a read-only one. The job never
+      # prints either, and it proves it may write before it spends any RAWG quota.
+      - name: Refresh the index
+        env:
+          RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          INDEX_PAGES: ${{ inputs.pages }}
+        run: pnpm index:refresh --mode=${{ steps.mode.outputs.mode }}

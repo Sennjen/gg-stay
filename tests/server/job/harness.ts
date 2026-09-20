@@ -4,6 +4,7 @@ import { parseSteamPrice } from '../../../server/steam/price'
 import { parseUkrainianSupport } from '../../../server/steam/languages'
 import type { SteamAppLanguages, SteamPriceFetch } from '../../../server/steam/steamPriceFetch'
 import {
+  JOB_GAMES,
   JOB_STEAM_APPS,
   JOB_STEAM_PRICES,
   JOB_STORE_LINKS,
@@ -68,9 +69,10 @@ export function createFakeRawg(): FakeRawg {
       throw new Error(`RAWG upstream failure (${path})`)
     }
     if (path === 'games') return jobGamesPage(Number(flat.page ?? '1'))
-    const storeMatch = /^games\/(\d+)\/stores$/.exec(path)
+    const storeMatch = /^games\/([a-z0-9-]+)\/stores$/.exec(path)
     if (storeMatch) {
-      return JOB_STORE_LINKS[Number(storeMatch[1])] ?? { count: 0, next: null, results: [] }
+      const game = JOB_GAMES.find((entry) => entry.slug === storeMatch[1])
+      return (game?.id && JOB_STORE_LINKS[game.id]) ?? { count: 0, next: null, results: [] }
     }
     throw new Error(`Unexpected RAWG path ${path}`)
   }

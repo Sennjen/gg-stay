@@ -19,13 +19,13 @@ describe('resolveAppIds', () => {
     await resolveAppIds(harness.deps, games)
 
     expect(harness.storeCalls().map((call) => call.path)).toEqual([
-      'games/101/stores',
-      'games/102/stores',
-      'games/104/stores',
-      'games/105/stores',
-      'games/106/stores',
-      'games/107/stores',
-      'games/108/stores',
+      'games/hollow-cradle/stores',
+      'games/neon-district/stores',
+      'games/frost-relay/stores',
+      'games/quiet-orbit/stores',
+      'games/amber-trail/stores',
+      'games/deep-signal/stores',
+      'games/silent-meridian/stores',
     ])
   })
 
@@ -72,7 +72,7 @@ describe('resolveAppIds', () => {
   it('keeps the ids a crashed attempt had already written and resolves only the rest', async () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)
-    harness.failNext((call) => call.path === 'games/106/stores')
+    harness.failNext((call) => call.path === 'games/amber-trail/stores')
 
     await expect(resolveAppIds(harness.deps, games, { batchSize: 2 })).rejects.toThrow(
       /RAWG upstream failure/,
@@ -82,9 +82,9 @@ describe('resolveAppIds', () => {
     const appIds = await resolveAppIds(resumed.deps, games, { batchSize: 2 })
 
     expect(resumed.storeCalls().map((call) => call.path)).toEqual([
-      'games/106/stores',
-      'games/107/stores',
-      'games/108/stores',
+      'games/amber-trail/stores',
+      'games/deep-signal/stores',
+      'games/silent-meridian/stores',
     ])
     expect(appIds.get(106)).toBe('416000')
     expect(appIds.get(101)).toBe('411000')
@@ -95,12 +95,12 @@ describe('resolveAppIds', () => {
     const deps: JobDeps = {
       ...harness.deps,
       rawg: async (path, params) =>
-        path === 'games/999/stores'
+        path === 'games/no-such-game/stores'
           ? { count: 0, next: null, results: [] }
           : harness.deps.rawg(path, params),
     }
     const games = await candidatesOf(harness)
-    const unknown = { ...games[0]!, id: 999, stores: ['steam'] }
+    const unknown = { ...games[0]!, id: 999, slug: 'no-such-game', stores: ['steam'] }
 
     const appIds = await resolveAppIds(deps, [unknown])
 

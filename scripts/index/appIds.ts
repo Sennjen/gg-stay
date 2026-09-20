@@ -51,7 +51,9 @@ export async function resolveAppIds(
   }
 
   for (const game of pending) {
-    const response = (await deps.rawg(`games/${game.id}/stores`)) as RawgList<RawgStoreLink>
+    // By slug rather than by id: RAWG accepts either, and the slug is what the recorded
+    // fixtures are named after, so a fixture-mode run resolves app ids like a live one.
+    const response = (await deps.rawg(`games/${game.slug}/stores`)) as RawgList<RawgStoreLink>
     const appId =
       (response.results ?? [])
         .filter((link) => link.store_id === STEAM_STORE_ID)
