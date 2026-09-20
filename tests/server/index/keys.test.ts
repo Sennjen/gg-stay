@@ -18,6 +18,7 @@ import {
   playtimeFacetKey,
   rangeKey,
   storeFacetKey,
+  tempKey,
   versionPrefix,
 } from '../../../server/index/keys'
 import { FIXTURE_GAMES } from '../../fixtures/index/games'
@@ -91,5 +92,11 @@ describe('index keys', () => {
     for (const game of FIXTURE_GAMES) {
       for (const key of facetKeysOf(1, game)) expect(key).not.toContain(':f:priced')
     }
+  })
+
+  it('names a temporary key per request, outside the version prefix', () => {
+    expect(tempKey(2, 'a1b2c3', 'facet0')).toBe('idx:tmp:v2:a1b2c3:facet0')
+    expect(tempKey(2, 'a1b2c3', 'facet0')).not.toContain(versionPrefix(2))
+    expect(tempKey(2, 'd4e5f6', 'facet0')).not.toBe(tempKey(2, 'a1b2c3', 'facet0'))
   })
 })
