@@ -282,6 +282,8 @@ export async function compareAdapters(
   return { mismatches: found.mismatches, versions }
 }
 
+const UNVERSIONED_FAMILIES = ['appid:', 'lang:', 'idx:lock', 'idx:draft'] as const
+
 /** Every key under the namespace, read with SCAN — the one command the adapter deliberately lacks. */
 async function namespaceKeys(client: UpstashClient, prefix: string): Promise<string[]> {
   const found: string[] = []
@@ -353,6 +355,13 @@ async function main(): Promise<void> {
       `${prefix}idx:versions`,
       `${prefix}idx:lock`,
     )
+
+    // Keys that live outside any version — the permanent app-id and language records and the
+    // writer's lock bookkeeping — have no registry, so they are found by name.
+    const unversioned = (await namespaceKeys(client, prefix)).filter((key) =>
+      UNVERSIONED_FAMILIES.some((family) => key.startsWith(`${prefix}${family}`)),
+    )
+    if (unversioned.length > 0) await client.del(...unversioned)
 
     const left = await namespaceKeys(client, prefix)
     if (left.length > 0) {
