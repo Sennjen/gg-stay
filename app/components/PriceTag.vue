@@ -29,7 +29,7 @@ const onSale = computed(
     <span v-if="price.isFree" class="font-medium text-fg">{{ t('price.free') }}</span>
     <template v-else-if="onSale">
       <span
-        class="font-numeric inline-flex items-center rounded-chip bg-accent px-1.5 py-0.5 text-xs font-semibold text-on-accent"
+        class="font-numeric inline-flex items-center rounded-chip bg-sale px-1.5 py-0.5 text-xs font-semibold text-on-sale"
       >
         −{{ price.discountPercent }}%
       </span>

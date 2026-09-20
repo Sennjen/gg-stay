@@ -25,6 +25,12 @@
   --color-score-bad: #f87171;
   --color-score-bad-bg: #3b1212;
 
+  /* Sale/discount chip. Deliberately separate from --color-accent, which DESIGN.md reserves for
+     the primary CTA, active filter state and the focus ring and explicitly forbids as a status
+     colour — a discount badge is a status colour. See DESIGN.md's colour-usage rules. */
+  --color-sale: #b6f36a;
+  --color-on-sale: #0b0c10;
+
   /* Typography */
   --font-display: 'Tektur', sans-serif;
   --font-sans: 'Inter', sans-serif;

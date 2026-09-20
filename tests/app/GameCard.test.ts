@@ -169,7 +169,7 @@ describe('GameCard', () => {
     }
     const wrapper = await mountSuspended(GameCard, { props: { game: priced } })
     expect(wrapper.get('[data-test="price"]').html()).toMatchInlineSnapshot(
-      `"<p data-test="price" class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm"><span class="font-numeric inline-flex items-center rounded-chip bg-accent px-1.5 py-0.5 text-xs font-semibold text-on-accent"> −75% </span><span class="font-numeric font-medium text-fg">337&nbsp;₴</span><span class="sr-only">було</span><s class="font-numeric text-fg-2">1&nbsp;349&nbsp;₴</s></p>"`,
+      `"<p data-test="price" class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm"><span class="font-numeric inline-flex items-center rounded-chip bg-sale px-1.5 py-0.5 text-xs font-semibold text-on-sale"> −75% </span><span class="font-numeric font-medium text-fg">337&nbsp;₴</span><span class="sr-only">було</span><s class="font-numeric text-fg-2">1&nbsp;349&nbsp;₴</s></p>"`,
     )
     expect(wrapper.get('[data-test="localisation"]').html()).toMatchInlineSnapshot(
       `"<span data-test="localisation" role="img" aria-label="Українська: текст і озвучка" title="Українська: текст і озвучка" class="inline-flex shrink-0 items-center gap-1 rounded-chip border border-line px-1.5 py-0.5 text-xs font-semibold text-fg-2"> UA <svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M2 6h2.5l3.3-2.9c.4-.3 1-.1 1 .5v8.8c0 .6-.6.9-1 .5L4.5 10H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"></path><path d="M11 5.2a3.2 3.2 0 0 1 0 5.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg></span>"`,

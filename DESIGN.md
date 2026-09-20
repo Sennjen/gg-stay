@@ -31,6 +31,8 @@ surface colour".
 | `--color-score-mixed-bg` | `#3A2F05`    | `bg-score-mixed-bg`                         | Metacritic 50–74 (chip background)                           |
 | `--color-score-bad`      | `#F87171`    | `text-score-bad`, `bg-score-bad`            | Metacritic < 50 (foreground)                                 |
 | `--color-score-bad-bg`   | `#3B1212`    | `bg-score-bad-bg`                           | Metacritic < 50 (chip background)                            |
+| `--color-sale`           | `#B6F36A`    | `bg-sale`, `text-sale`, `border-sale`       | Discount/sale chip background (PR 6) — price reductions only |
+| `--color-on-sale`        | `#0B0C10`    | `text-on-sale`                              | Text/icons placed on a sale-chip background                  |
 
 Score-band chips (`MetacriticBadge`) land in PR 3 with the restyled card; this
 PR only reserves the tokens.
@@ -101,6 +103,12 @@ package) provider, which does serve the full variable font file.
 - **Accent (`--color-accent`) is reserved** for the primary call to action,
   active filter state, and the focus ring. It never appears as a decorative
   colour, a link colour, or a status colour.
+- **Sale (`--color-sale`) is reserved** for price-reduction status only: the
+  discount chip on `PriceTag` (catalog cards, the game page scoreboard). It is
+  a deliberately separate token from accent — a discount badge is a status
+  colour (a fact about the price), not a call to action, an active filter, or
+  a focus ring, so it must not borrow accent's meaning. Never used for
+  actions, links, or any other decorative purpose.
 - **Signal (`--color-signal`) is reserved** for live/ephemeral states: "now on
   screen" captions, "coming soon" labels, and the filter-drawer reset action.
   It is not a general-purpose highlight colour.
@@ -188,6 +196,12 @@ alone says nothing about which one it picks.
 | `fg-2` `#A3A7B3`      | `surface-1` `#13151B` | 7.59:1  | Yes                               |
 | `fg-3` `#6B7080`      | `surface-2` `#1A1D25` | 3.41:1  | **No — not allowed at any size**  |
 | `on-accent` `#1A1200` | `accent` `#F5A524`    | 9.10:1  | Yes                               |
+| `on-sale` `#0B0C10`   | `sale` `#B6F36A`      | 14.91:1 | Yes                               |
+
+The sale chip's background must also read as a distinct shape against the card surfaces it sits
+on (WCAG 1.4.11 non-text contrast, ≥ 3:1 for UI component boundaries), not just its own text:
+`sale` `#B6F36A` against `surface-1` `#13151B` is 13.92:1, and against `surface-2` `#1A1D25` is
+12.85:1 — both far past the 3:1 floor, no lightness adjustment needed.
 
 ## Accessibility
 
