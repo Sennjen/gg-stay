@@ -4,6 +4,7 @@ import {
   esrbToAgeRating,
   gameModesFromTags,
   matchesPlaytime,
+  platformFamiliesFromIds,
   platformFamiliesFromSlugs,
   platformFamilyFromSlug,
   storeIdsFromSlugs,
@@ -85,5 +86,18 @@ describe('lookups', () => {
 
   it('returns an empty list for no slugs', () => {
     expect(platformFamiliesFromSlugs([])).toEqual([])
+  })
+
+  it('maps the catalog platform ids to the same families as their slugs', () => {
+    // The index document keeps platform ids, so both card paths have to agree on the families.
+    expect(platformFamiliesFromIds([4])).toEqual(['PC'])
+    expect(platformFamiliesFromIds([7, 4, 187, 4])).toEqual(['PC', 'PLAYSTATION', 'NINTENDO'])
+    expect(platformFamiliesFromIds([186, 1])).toEqual(['XBOX'])
+    expect(platformFamiliesFromIds([3, 21])).toEqual(['MOBILE'])
+  })
+
+  it('calls a platform id it does not know OTHER, like an unknown slug', () => {
+    expect(platformFamiliesFromIds([6])).toEqual(['OTHER'])
+    expect(platformFamiliesFromIds([])).toEqual([])
   })
 })
