@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../shared/catalog'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../../server/index/GameIndex'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
@@ -17,6 +17,10 @@ import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
 export interface GameIndexAdapter {
   index: GameIndex
   writer: GameIndexWriter
+  /** A second run against the same store: what an overlapping job process is. */
+  rival: GameIndexWriter
+  /** Moves the clock both runs read, so a lock can be old enough to take over. */
+  advance: (ms: number) => void
   /** Called once the suite is done with the adapter; a remote store drops its keys here. */
   teardown?: () => void | Promise<void>
 }
@@ -316,18 +320,26 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
     })
 
+    /**
+     * Every case here builds the state it asserts on, on an adapter of its own: a version is what
+     * these cases are about, so one leaving its version behind would decide the next one's answer
+     * and a run of a single case would prove something else than the whole file does.
+     */
     describe('versions', () => {
-      let adapter: GameIndexAdapter
+      const used: GameIndexAdapter[] = []
 
-      beforeAll(async () => {
-        adapter = await makeAdapter()
-      })
+      const fresh = async (): Promise<GameIndexAdapter> => {
+        const adapter = await makeAdapter()
+        used.push(adapter)
+        return adapter
+      }
 
-      afterAll(async () => {
-        await adapter.teardown?.()
+      afterEach(async () => {
+        while (used.length > 0) await used.pop()?.teardown?.()
       })
 
       it('reads nothing before the first version is published', async () => {
+        const adapter = await fresh()
         expect(await adapter.index.search({})).toEqual({ ids: [], total: 0, games: [] })
         expect(await adapter.index.getOne(1)).toBeNull()
         expect(await adapter.index.getMany([1, 2])).toEqual(new Map())
@@ -338,6 +350,7 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
 
       it('keeps an unpublished version invisible and swaps on publish', async () => {
+        const adapter = await fresh()
         const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
         expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
         expect(await adapter.writer.currentVersion()).toBe(first)
@@ -361,11 +374,56 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
 
       it('remembers the meta of the version a publish replaced', async () => {
+        const adapter = await fresh()
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+        await publishGames(adapter, FIXTURE_GAMES.slice(3, 6), {
+          ...FIXTURE_META,
+          updatedAt: '2026-09-21T06:30:00.000Z',
+        })
         expect((await adapter.writer.previousMeta())?.updatedAt).toBe(FIXTURE_META.updatedAt)
         expect((await adapter.writer.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
       })
 
+      it('refuses to rewrite the version that is published', async () => {
+        const adapter = await fresh()
+        const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+        await expect(
+          adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(3, 6)),
+        ).rejects.toThrow()
+        // A rewrite empties the version before it fills it again; the live one must not be seen
+        // half-written, so it is refused rather than attempted.
+        expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
+        expect(await adapter.index.getOne(1)).not.toBeNull()
+      })
+
+      it('refuses to discard the version that is published', async () => {
+        const adapter = await fresh()
+        const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+        await expect(adapter.writer.discardVersion(version)).rejects.toThrow()
+        expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
+        expect(await adapter.writer.currentVersion()).toBe(version)
+      })
+
+      it('republishes the current version as a no-op that only refreshes the meta', async () => {
+        const adapter = await fresh()
+        const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+        await adapter.writer.publish(version, {
+          ...FIXTURE_META,
+          version,
+          gameCount: 3,
+          updatedAt: '2026-09-22T06:30:00.000Z',
+        })
+        expect(await adapter.writer.currentVersion()).toBe(version)
+        expect((await adapter.index.meta())?.updatedAt).toBe('2026-09-22T06:30:00.000Z')
+        // The version must not be treated as the one it replaced: its own keys stay untouched.
+        expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
+        expect(await adapter.index.getOne(1)).not.toBeNull()
+        expect(await adapter.writer.previousMeta()).toBeNull()
+      })
+
       it('never hands out a version number twice', async () => {
+        const adapter = await fresh()
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
         const current = await adapter.writer.currentVersion()
         const seen = new Set<number>(current === null ? [] : [current])
         for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -377,6 +435,7 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
 
       it('writes a version whole, replacing whatever was written before the publish', async () => {
+        const adapter = await fresh()
         const version = await adapter.writer.beginVersion()
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 5))
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(6, 8))
@@ -385,6 +444,8 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
 
       it('forgets a discarded version and refuses to publish it', async () => {
+        const adapter = await fresh()
+        await publishGames(adapter, FIXTURE_GAMES.slice(6, 8))
         const version = await adapter.writer.beginVersion()
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(8, 10))
         await adapter.writer.discardVersion(version)
@@ -394,11 +455,87 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         ).rejects.toThrow()
       })
 
+      it('refuses to write a version that was never begun', async () => {
+        const adapter = await fresh()
+        await expect(adapter.writer.writeVersion(9_999, FIXTURE_GAMES)).rejects.toThrow()
+      })
+
       it('refuses to publish a version that was never written', async () => {
+        const adapter = await fresh()
         const version = 9_999
         await expect(
           adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 0 }),
         ).rejects.toThrow()
+      })
+    })
+
+    /**
+     * One run writes at a time. Two overlapping runs — a retried workflow beside the schedule —
+     * would each move the pointer and one of them would leave its whole version behind, so a run
+     * takes a lock before it begins a version and gives it back when it publishes or gives up.
+     */
+    describe('the write lock', () => {
+      const used: GameIndexAdapter[] = []
+
+      const fresh = async (): Promise<GameIndexAdapter> => {
+        const adapter = await makeAdapter()
+        used.push(adapter)
+        return adapter
+      }
+
+      afterEach(async () => {
+        while (used.length > 0) await used.pop()?.teardown?.()
+      })
+
+      it('refuses a second run while the first is between begin and publish', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+        await expect(adapter.rival.beginVersion()).rejects.toThrow()
+      })
+
+      it('lets the next run begin once the first has published', async () => {
+        const adapter = await fresh()
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+        await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
+      })
+
+      it('lets the next run begin once the first has given up', async () => {
+        const adapter = await fresh()
+        const version = await adapter.writer.beginVersion()
+        await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
+        await adapter.writer.discardVersion(version)
+        await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
+      })
+
+      it('says who holds the lock and how to take it over', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+        await expect(adapter.rival.beginVersion()).rejects.toThrow(/held the write lock/)
+        await expect(adapter.rival.beginVersion()).rejects.toThrow(/force/)
+      })
+
+      it('takes over a lock that has been held far too long, when a run forces it', async () => {
+        const adapter = await fresh()
+        await adapter.writer.beginVersion()
+        await expect(adapter.rival.beginVersion({ force: true })).rejects.toThrow()
+        adapter.advance(31 * 60 * 1000)
+        await expect(adapter.rival.beginVersion({ force: true })).resolves.toBeGreaterThan(0)
+        // The run that lost the lock can no longer write with it.
+        await expect(adapter.writer.beginVersion()).rejects.toThrow(/held the write lock/)
+      })
+
+      it('refuses every write from a run that does not hold the lock', async () => {
+        const adapter = await fresh()
+        const version = await adapter.writer.beginVersion()
+        await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
+        await expect(adapter.rival.writeVersion(version, FIXTURE_GAMES)).rejects.toThrow()
+        await expect(
+          adapter.rival.publish(version, { ...FIXTURE_META, version, gameCount: 3 }),
+        ).rejects.toThrow()
+        await expect(adapter.rival.discardVersion(version)).rejects.toThrow()
+        // The run that does hold it is unaffected.
+        await adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 3 })
+        expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
       })
     })
 

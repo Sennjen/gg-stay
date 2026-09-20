@@ -36,8 +36,6 @@ export interface QueryPlan {
   /** Facet keys: OR inside a group, AND across groups. */
   facetGroups: string[][]
   ranges: PlannedRange[]
-  /** Intersect with the priced facet as well: a price or discount filter is set. */
-  requirePriced: boolean
   /** The folded needle, or `null` when the query does not search. */
   search: string | null
   offset: number
@@ -106,10 +104,10 @@ export function planQuery(version: number, query: IndexQuery): QueryPlan {
     })
   }
 
-  // The price orders hold priced games only and a price trim reads the price range, which holds
-  // the same games — this intersection is what keeps a *discount* floor from matching a game
-  // whose price the last run could not read.
-  const requirePriced = query.priceMaxUah !== undefined || query.onSaleMinPercent !== undefined
+  // A price or discount filter needs no separate "has a price" set to intersect with: the price
+  // and discount range sets hold exactly the games whose price is known (`rangeValueOf` returns
+  // null for the others), and each of those filters always plans its own range above. The price
+  // and discount orders hold the same games, so the sorts need nothing either.
 
   const pageSize = Math.min(Math.max(query.pageSize || DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
   const page = Math.min(Math.max(query.page || 1, 1), MAX_PAGE)
@@ -119,7 +117,6 @@ export function planQuery(version: number, query: IndexQuery): QueryPlan {
     order: orderKey(version, query.sort ?? DEFAULT_SORT),
     facetGroups,
     ranges,
-    requirePriced,
     search: needle || null,
     offset: (page - 1) * pageSize,
     limit: pageSize,

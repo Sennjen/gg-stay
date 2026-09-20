@@ -80,11 +80,6 @@ export function madeInUkraineFacetKey(version: number): string {
   return `${versionPrefix(version)}f:ua`
 }
 
-/** Games whose price is known; the price and discount filters start from this set. */
-export function pricedFacetKey(version: number): string {
-  return `${versionPrefix(version)}f:priced`
-}
-
 /** The sorted set of final ranks for one catalog sort. */
 export function orderKey(version: number, sort: GameSortValue): string {
   return `${versionPrefix(version)}o:${sort}`
@@ -126,7 +121,6 @@ export function facetKeysOf(version: number, game: IndexedGame): string[] {
   if (game.localisation?.audio) keys.push(localisationFacetKey(version, 'audio'))
   if (game.free) keys.push(freeFacetKey(version))
   if (game.madeInUkraine) keys.push(madeInUkraineFacetKey(version))
-  if (game.priceUah !== null) keys.push(pricedFacetKey(version))
 
   return keys
 }

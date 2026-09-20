@@ -23,7 +23,6 @@ describe('planQuery', () => {
       order: orderKey(1, 'POPULARITY_DESC'),
       facetGroups: [],
       ranges: [],
-      requirePriced: false,
       search: null,
       offset: 0,
       limit: DEFAULT_PAGE_SIZE,
@@ -67,14 +66,14 @@ describe('planQuery', () => {
   it('reads free games from their facet and ignores free: false', () => {
     expect(planQuery(1, { free: true }).facetGroups).toEqual([[freeFacetKey(1)]])
     expect(planQuery(1, { free: false }).facetGroups).toEqual([])
-    expect(planQuery(1, { free: false }).requirePriced).toBe(false)
   })
 
-  it('requires a known price only when a price or discount filter is set', () => {
-    expect(planQuery(1, { priceMaxUah: 300 }).requirePriced).toBe(true)
-    expect(planQuery(1, { onSaleMinPercent: 50 }).requirePriced).toBe(true)
-    // The price orders hold priced games only, so the sorts need no extra intersection.
-    expect(planQuery(1, { sort: 'PRICE_ASC' }).requirePriced).toBe(false)
+  it('asks for no facet of its own when a price or discount filter is set', () => {
+    // The range sets hold exactly the games whose price is known, so a "has a price" facet would
+    // narrow nothing a range has not narrowed already.
+    expect(planQuery(1, { priceMaxUah: 300 }).facetGroups).toEqual([])
+    expect(planQuery(1, { onSaleMinPercent: 50 }).facetGroups).toEqual([])
+    expect(planQuery(1, { sort: 'PRICE_ASC' }).facetGroups).toEqual([])
   })
 
   it('trims the numeric ranges with inclusive bounds', () => {
