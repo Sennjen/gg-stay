@@ -89,6 +89,9 @@ async function fetchClip(
 export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
   withUpstreamErrors(async () => {
     const { today } = context
+    // Started before the lists are fetched, awaited after them: the index enhances this page and
+    // must not be a step in front of it, so its latency overlaps RAWG's instead of adding to it.
+    const pending = indexState(context)
     const [carouselPage, lastYearPage, newReleasesPage] = await Promise.all([
       fetchGamesList(context, { ordering: '-added', page_size: CAROUSEL_SIZE }),
       fetchGamesList(context, {
@@ -126,7 +129,7 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
     // rows render `GameCard` and show a price line, and a game that appears in two of them must
     // not be looked up twice. A stale index withholds the prices and keeps the language lists,
     // exactly as it does in the catalog.
-    const state = await indexState(context)
+    const state = await pending
     const cards = [
       ...(page.featured ? [page.featured.game] : []),
       ...page.carousel,

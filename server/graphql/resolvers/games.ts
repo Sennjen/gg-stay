@@ -62,23 +62,27 @@ export const games: QueryResolvers['games'] = (_parent, args, context) =>
     const pageSize = Math.min(Math.max(args.pageSize ?? 20, 1), MAX_PAGE_SIZE)
     const sort = args.sort ?? 'POPULARITY_DESC'
     const input: PageInput = { filter: args.filter, sort, page, pageSize }
-    const state = await indexState(context)
-    // Even an empty page reports what the index is doing, so a banner does not flicker off when a
-    // visitor pages past the end.
-    const freshness: GamePageIndexState = {
-      indexStale: state.stale,
-      indexUpdatedAt: state.updatedAt,
-    }
-
-    if (page < 1 || page > MAX_PAGE)
-      return mapGamePage({ count: 0, next: null }, [], page, pageSize, freshness)
-
     const priceFilters = priceFiltersUsed(args.filter, sort)
     const facetFilters = indexFacetFiltersUsed(args.filter)
 
-    if (priceFilters.length === 0 && facetFilters.length === 0) {
-      return rawgPage(context, input, freshness, { attach: true, prices: !state.stale })
+    // Started, never awaited yet. On a page RAWG answers, the index enhances the result and must
+    // not be a step in front of the request it enhances: a store that is alive but slow would
+    // otherwise add its whole latency to the page before the RAWG fetch had even begun.
+    const pending = indexState(context)
+
+    // Nothing is fetched for a page past the end — but it still reports what the index is doing,
+    // so a banner does not flicker off when a visitor walks past it.
+    if (page < 1 || page > MAX_PAGE) {
+      return mapGamePage({ count: 0, next: null }, [], page, pageSize, freshnessOf(await pending))
     }
+
+    if (priceFilters.length === 0 && facetFilters.length === 0) {
+      return rawgPage(context, input, pending, { attach: true, prices: 'unless-stale' })
+    }
+
+    // Which path answers depends on how fresh the prices are, so from here the state is needed
+    // before anything else can start.
+    const state = await pending
 
     // Stale prices drop the price filters and the price sort wherever they were set, and are
     // named in `ignoredFilters`; what is left decides which path answers. A sort the index never
@@ -92,9 +96,9 @@ export const games: QueryResolvers['games'] = (_parent, args, context) =>
       return rawgPage(
         context,
         stripped,
-        { ...freshness, ignoredFilters },
+        state,
         // A language list does not go stale with the prices, so the attachment still runs.
-        { attach: true, prices: false },
+        { attach: true, prices: false, ignoredFilters },
       )
     }
 
@@ -107,13 +111,21 @@ export const games: QueryResolvers['games'] = (_parent, args, context) =>
         { ...input, filter: withoutPriceFilters(args.filter), sort: withoutIndexSort(sort) },
         // The freshness the index reported before it failed is still the truth about it; what
         // this answer could not do is listed beside it.
-        { ...freshness, ignoredFilters: [...priceFilters, ...facetFilters] },
+        state,
         // The index just failed; asking it again for the documents of this page would only fail
         // again, one round trip later.
-        { attach: false, prices: false },
+        {
+          attach: false,
+          prices: false,
+          ignoredFilters: [...priceFilters, ...facetFilters],
+        },
       )
     }
   })
+
+function freshnessOf(state: IndexState): GamePageIndexState {
+  return { indexStale: state.stale, indexUpdatedAt: state.updatedAt }
+}
 
 /**
  * The sort a page falls back to when the index cannot order it: the visitor's own, unless the
@@ -157,11 +169,26 @@ async function indexPage(
   }
 }
 
+interface RawgPageOptions {
+  attach: boolean
+  /** `'unless-stale'` asks the state, which this path may not have waited for yet. */
+  prices: boolean | 'unless-stale'
+  ignoredFilters?: string[]
+}
+
+/**
+ * A page RAWG answers, with whatever the index can add to it.
+ *
+ * The RAWG request is sent before anything is awaited, and the index state is awaited beside it,
+ * so the two run at once: the index costs this page the greater of the two, not the sum. The
+ * documents then follow as soon as the ids exist — one `getMany`, after RAWG has said which
+ * games are on the page and the state has said whether their prices may be shown.
+ */
 async function rawgPage(
   context: GraphQLContext,
   input: PageInput,
-  meta: GamePageIndexState,
-  options: { attach: boolean; prices: boolean },
+  pending: IndexState | Promise<IndexState>,
+  options: RawgPageOptions,
 ): Promise<GamePage> {
   const params = filterToParams({
     filter: input.filter,
@@ -170,10 +197,18 @@ async function rawgPage(
     pageSize: input.pageSize,
     today: context.today,
   })
-  const raw = (await context.rawg('games', params)) as RawgList<RawgGameListItem>
+  const fetching = context.rawg('games', params) as Promise<RawgList<RawgGameListItem>>
+  const [raw, state] = await Promise.all([fetching, pending])
+
   const items = postFilter(raw.results ?? [], input.filter).map(mapGameCard)
-  if (options.attach) await attachIndexData(context, items, { prices: options.prices })
-  return mapGamePage(raw, items, input.page, input.pageSize, meta)
+  const prices = options.prices === 'unless-stale' ? !state.stale : options.prices
+  if (options.attach) await attachIndexData(context, items, { prices })
+
+  return mapGamePage(raw, items, input.page, input.pageSize, {
+    indexStale: state.stale,
+    indexUpdatedAt: state.updatedAt,
+    ignoredFilters: options.ignoredFilters ?? [],
+  })
 }
 
 /**

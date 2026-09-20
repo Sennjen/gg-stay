@@ -604,6 +604,76 @@ describe('an index that never answers', () => {
   })
 })
 
+describe('a slow but healthy index', () => {
+  /**
+   * A clock that only moves when something waits on it, and an index and a RAWG double that each
+   * declare how long they take. Nothing here sleeps: `at()` records the moment a call finished,
+   * and the promises resolve in the order the event loop drains them, so the assertions are about
+   * which calls overlapped rather than about real milliseconds.
+   */
+  function stopwatch() {
+    let now = 0
+    const finished: Record<string, number> = {}
+    // A call that "takes" `ms` finishes at the later of (the clock when it started + ms) and the
+    // clock as it stands, and drags the clock with it — the shape of a wall clock under work that
+    // may or may not overlap.
+    const take = async <T>(name: string, ms: number, value: T): Promise<T> => {
+      const startedAt = now
+      await Promise.resolve()
+      const endsAt = startedAt + ms
+      now = Math.max(now, endsAt)
+      finished[name] = endsAt
+      return value
+    }
+    return { take, finished, elapsed: () => now }
+  }
+
+  it('runs the index beside RAWG instead of in front of it', async () => {
+    const clock = stopwatch()
+    const documents = await publishTestIndex(ALL_DOCUMENTS)
+    const slow = overriding(documents, {
+      meta: () => clock.take('meta', 1400, documents.meta()),
+      getMany: (ids) => clock.take('getMany', 1400, documents.getMany(ids)),
+    })
+    const rawg: RawgFetch = (path, params, options) =>
+      clock.take('rawg', 1000, fixtureRawg(path, params, options))
+
+    const { data, errors } = await runQuery({ index: slow, rawg }, GAMES, {})
+    expect(errors).toBeUndefined()
+
+    // `meta()` and the RAWG fetch start together, so the page costs the greater of the two and
+    // then the one document read — not all three in a row.
+    expect(clock.finished.meta).toBe(1400)
+    expect(clock.finished.rawg).toBe(1000)
+    expect(clock.elapsed()).toBe(2800)
+    // Serialised, this page would have been 1400 + 1000 + 1400.
+    expect(clock.elapsed()).toBeLessThan(3800)
+    // And it is still a page with prices on it.
+    const items = data!.games.items as { id: string; price: unknown }[]
+    expect(items.find((item) => item.id === '3328')?.price).toMatchObject({ bestUah: 675 })
+  })
+
+  it('runs the index beside the landing rows too', async () => {
+    const clock = stopwatch()
+    const documents = await publishTestIndex(ALL_DOCUMENTS)
+    const slow = overriding(documents, {
+      meta: () => clock.take('meta', 1400, documents.meta()),
+      getMany: (ids) => clock.take('getMany', 1400, documents.getMany(ids)),
+    })
+    const rawg: RawgFetch = (path, params, options) =>
+      clock.take(
+        path.includes('games/') ? 'detail' : 'rawg',
+        1000,
+        fixtureRawg(path, params, options),
+      )
+
+    const { errors } = await runQuery({ index: slow, rawg }, LANDING)
+    expect(errors).toBeUndefined()
+    expect(clock.finished.meta).toBe(1400)
+    expect(clock.finished.rawg).toBe(1000)
+  })
+})
+
 describe('caching an index-served page', () => {
   it('serves the second identical request from the cache, keyed by the index version', async () => {
     const cache = createTestCache()
