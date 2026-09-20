@@ -183,6 +183,24 @@ describe('ActiveFilterChips: the index filters', () => {
     )
   })
 
+  it('gives every index filter the index reason, whichever one it is', async () => {
+    // The reason is derived from `INDEX_FILTER_FIELDS`, not from a second hard-coded list, so a
+    // localisation filter dropped by a silent index is explained as an index problem too.
+    for (const [filter, field] of [
+      [{ free: true }, 'free'],
+      [{ priceMaxUah: 300 }, 'priceMaxUah'],
+      [{ onSaleMinPercent: 50 }, 'onSaleMinPercent'],
+      [{ ukrainianLocalisation: 'TEXT' }, 'ukrainianLocalisation'],
+    ] as const) {
+      const wrapper = await mountSuspended(ActiveFilterChips, {
+        props: { filter, genres: [], ignored: [field], indexStale: true },
+      })
+      expect(wrapper.get('[data-test="ignored-chip"]').text()).toContain(
+        'не застосовано: ціни тимчасово не оновлюються',
+      )
+    }
+  })
+
   it('explains a RAWG-only filter that lost to the index in its own words', async () => {
     const wrapper = await mountSuspended(ActiveFilterChips, {
       props: {

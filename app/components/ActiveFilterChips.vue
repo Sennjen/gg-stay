@@ -6,7 +6,7 @@ import {
   type AgeRatingValue,
   type GameModeValue,
 } from '#shared/catalog'
-import type { CatalogFilter } from '~/utils/filterUrl'
+import { INDEX_FILTER_FIELDS, type CatalogFilter } from '~/utils/filterUrl'
 
 const props = defineProps<{
   filter: CatalogFilter
@@ -41,16 +41,25 @@ interface Chip {
   remove: () => void
 }
 
-/** Filters only RAWG can apply; when one of these is ignored, the index took the page instead. */
-const RAWG_ONLY_FIELDS: readonly string[] = ['developers', 'publishers', 'tags']
-
 function isIgnored(chip: Chip): boolean {
   return props.ignored?.includes(chip.field) ?? false
 }
 
+/**
+ * Why the answer could not apply this filter, in words a visitor can act on.
+ *
+ * The server does not say why — `ignoredFilters` is a bare list of field names — so the reason is
+ * read off the only two things that produce one. An **index** filter is in the list because the
+ * index could not serve it, and `indexStale` tells a stale price run from a silent store.
+ * Anything else in the list is a filter only RAWG can apply, which lost the page to the index.
+ * Deriving the first case from `INDEX_FILTER_FIELDS` rather than naming the second case's fields
+ * here means a field added to the URL layer cannot quietly fall into the wrong explanation.
+ */
 function reasonFor(chip: Chip): string {
-  if (RAWG_ONLY_FIELDS.includes(chip.field)) return t('chips.ignoredWithPriceFilter')
-  return props.indexStale ? t('chips.ignoredStalePrices') : t('chips.ignoredIndexDown')
+  if ((INDEX_FILTER_FIELDS as readonly string[]).includes(chip.field)) {
+    return props.indexStale ? t('chips.ignoredStalePrices') : t('chips.ignoredIndexDown')
+  }
+  return t('chips.ignoredWithPriceFilter')
 }
 
 function without<T>(values: T[] | undefined, value: T): T[] | undefined {

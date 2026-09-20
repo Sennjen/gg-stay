@@ -42,8 +42,12 @@ export interface CatalogFilter {
 
 /**
  * The filter fields the price index answers, under the names the BFF reports in
- * `GamePage.ignoredFilters` — which is exactly the schema's own field names. Kept here so the
- * chips and the sort note can look a filter up by the name the server sent back.
+ * `GamePage.ignoredFilters` — which is exactly the schema's own field names.
+ *
+ * `ActiveFilterChips` reads it to decide why a filter the answer declined was declined: one of
+ * these means the index could not serve it, anything else means a RAWG-only filter lost the page
+ * to the index. Kept beside `CatalogFilter` so a field added to the URL layer is added here in
+ * the same edit rather than drifting into the wrong explanation.
  */
 export const INDEX_FILTER_FIELDS = [
   'priceMaxUah',
