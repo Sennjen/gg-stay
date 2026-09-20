@@ -15,14 +15,11 @@ import { safeExternalUrl } from '../../shared/url'
  * in the index as on a RAWG-served page. Price and localisation stay empty: later stages fill
  * them, and a game they never reach is simply a game with no price, which the reader allows for.
  *
- * Resuming: the cursor holds the number of the last page written into `collected`, and `collected`
- * is the caller's array, appended to page by page. A run that dies mid-stage therefore keeps both
- * halves of its progress — the games it had mapped and the page it stopped at — and the next
- * attempt starts at the page after the cursor. The cursor is cleared once the stage finishes, so
- * the next full run starts from the top of the list again.
+ * This stage deliberately has no resume point. Seventy-five pages cost about twenty seconds at the
+ * transport's four requests a second and 0.4 % of RAWG's monthly quota, while a persisted page
+ * cursor would let a run that died half way publish an index missing its most popular games — the
+ * cursor would survive the crash and the documents would not. Every run walks from page one.
  */
-
-export const CANDIDATES_STAGE = 'candidates'
 
 /** RAWG's largest page; 75 of them cover the 3 000 games the design indexes. */
 export const CANDIDATE_PAGE_SIZE = 40
@@ -31,16 +28,10 @@ export const DEFAULT_CANDIDATE_PAGES = 75
 export interface CandidatesOptions {
   /** How many RAWG pages to walk at most. */
   pages?: number
-  /**
-   * The accumulator, appended to as pages arrive and returned as `games`. Pass the same array back
-   * after a failure to carry on where the last attempt stopped.
-   */
-  collected?: IndexedGame[]
 }
 
 export interface CandidatesResult {
   games: IndexedGame[]
-  /** Pages fetched by this attempt — a resumed attempt reports only its own. */
   pagesFetched: number
 }
 
@@ -91,15 +82,11 @@ export async function collectCandidates(
   options: CandidatesOptions = {},
 ): Promise<CandidatesResult> {
   const pages = options.pages ?? DEFAULT_CANDIDATE_PAGES
-  const collected = options.collected ?? []
-  const seen = new Set(collected.map((game) => game.id))
-
-  const cursor = await deps.writer.getCursor(CANDIDATES_STAGE)
-  const lastFinishedPage = cursor ? Number(cursor) : 0
-  const firstPage = Number.isFinite(lastFinishedPage) ? lastFinishedPage + 1 : 1
+  const games: IndexedGame[] = []
+  const seen = new Set<number>()
 
   let pagesFetched = 0
-  for (let page = firstPage; page <= pages; page += 1) {
+  for (let page = 1; page <= pages; page += 1) {
     const response = (await deps.rawg('games', {
       ordering: '-added',
       page_size: CANDIDATE_PAGE_SIZE,
@@ -112,14 +99,39 @@ export async function collectCandidates(
       // RAWG pages shift under a run that takes an hour, so the same game can arrive twice.
       if (!game || seen.has(game.id)) continue
       seen.add(game.id)
-      collected.push(game)
+      games.push(game)
     }
 
-    await deps.writer.setCursor(CANDIDATES_STAGE, String(page))
     if (!response.next) break
   }
 
-  deps.log(`candidates: ${collected.length} games from ${pagesFetched} page(s)`)
-  await deps.writer.clearCursor(CANDIDATES_STAGE)
-  return { games: collected, pagesFetched }
+  deps.log(`candidates: ${games.length} games from ${pagesFetched} page(s)`)
+  return { games, pagesFetched }
+}
+
+/**
+ * Copies what the published version already knows onto freshly mapped candidates: the price, the
+ * free flag and the localisation. A full run would otherwise start every game at "no price" and a
+ * single bad Steam answer would publish a catalog with the price silently gone, which the price
+ * stage's keep-what-we-had rule and the publication's priced-count gate both measure against.
+ */
+export async function carryPublishedForward(deps: JobDeps, games: IndexedGame[]): Promise<number> {
+  const published = await deps.writer.getMany(games.map((game) => game.id))
+  if (published.size === 0) return 0
+
+  let carried = 0
+  for (const game of games) {
+    const previous = published.get(game.id)
+    if (!previous) continue
+    game.priceUah = previous.priceUah
+    game.regularPriceUah = previous.regularPriceUah
+    game.discountPercent = previous.discountPercent
+    game.free = previous.free
+    game.priceUpdatedAt = previous.priceUpdatedAt
+    game.localisation = previous.localisation ? { ...previous.localisation } : null
+    carried += 1
+  }
+
+  deps.log(`candidates: carried the published price and languages forward for ${carried} games`)
+  return carried
 }

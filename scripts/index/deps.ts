@@ -38,3 +38,31 @@ export interface JobDeps {
 export function isoNow(clock: JobClock): string {
   return new Date(clock.now()).toISOString()
 }
+
+/**
+ * How much of a stage may fail item by item before the run is not worth publishing. A single
+ * RAWG or Steam blip should not throw away an hour of work — the item is counted, logged and
+ * left for the next run — but a stage that is failing wholesale is an upstream outage, and
+ * publishing what it managed to collect would quietly damage the index.
+ */
+export const MAX_ITEM_FAILURE_RATIO = 0.05
+
+/**
+ * One failure is always tolerated, whatever the ratio says: a stage with twenty items would
+ * otherwise end on a single timeout, which is the outcome this budget exists to avoid.
+ */
+export const MIN_TOLERATED_FAILURES = 1
+
+export function assertWithinFailureBudget(
+  stage: string,
+  failures: number,
+  attempted: number,
+): void {
+  const tolerated = Math.max(MIN_TOLERATED_FAILURES, attempted * MAX_ITEM_FAILURE_RATIO)
+  if (attempted === 0 || failures <= tolerated) return
+  throw new Error(
+    `${stage}: ${failures} of ${attempted} items failed, over the ${Math.round(
+      MAX_ITEM_FAILURE_RATIO * 100,
+    )}% a run tolerates`,
+  )
+}

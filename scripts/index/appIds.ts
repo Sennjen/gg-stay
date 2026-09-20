@@ -1,4 +1,4 @@
-import type { JobDeps } from './deps'
+import { assertWithinFailureBudget, type JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
 import type { RawgList, RawgStoreLink } from '../../server/rawg/types'
 import { steamAppIdFromUrl } from '../../server/steam/steam'
@@ -17,6 +17,11 @@ import { steamAppIdFromUrl } from '../../server/steam/steam'
  * already known, and only the rest is asked for. Writes are batched (a REST round trip per game
  * would cost as much as the RAWG call it saves), which is the one thing a crash can lose — at
  * most `batchSize` resolutions, re-resolved on the next run.
+ *
+ * A first run makes about 2 400 sequential RAWG calls, so one of them timing out past its retry
+ * is likely rather than exceptional. A failed game is counted and left unresolved — never written
+ * as `''`, which would make the failure permanent — and the next run picks it up. Only a stage
+ * failing beyond the run's tolerance ends the run.
  */
 
 export const APP_ID_BATCH_SIZE = 100
@@ -29,6 +34,14 @@ export interface AppIdsOptions {
   batchSize?: number
 }
 
+export interface AppIdsResult {
+  appIds: AppIdMap
+  /** Games asked about in this run. */
+  attempted: number
+  /** Games RAWG would not answer for; they stay unresolved and are retried next run. */
+  failures: number
+}
+
 /** RAWG id to Steam app id, the empty string meaning "this game has no Steam page". */
 export type AppIdMap = Map<number, string>
 
@@ -36,7 +49,7 @@ export async function resolveAppIds(
   deps: JobDeps,
   games: IndexedGame[],
   options: AppIdsOptions = {},
-): Promise<AppIdMap> {
+): Promise<AppIdsResult> {
   const batchSize = options.batchSize ?? APP_ID_BATCH_SIZE
   const candidates = games.filter((game) => game.stores.includes('steam'))
   const known = await deps.writer.getAppIds(candidates.map((game) => game.id))
@@ -50,33 +63,36 @@ export async function resolveAppIds(
     batch = []
   }
 
-  for (const game of pending) {
-    // By slug rather than by id: RAWG accepts either, and the slug is what the recorded
-    // fixtures are named after, so a fixture-mode run resolves app ids like a live one.
-    const response = (await deps.rawg(`games/${game.slug}/stores`)) as RawgList<RawgStoreLink>
-    const appId =
-      (response.results ?? [])
-        .filter((link) => link.store_id === STEAM_STORE_ID)
-        .map((link) => steamAppIdFromUrl(link.url))
-        .find((id): id is string => id !== null) ?? ''
+  let failures = 0
+  try {
+    for (const game of pending) {
+      try {
+        // By slug rather than by id: RAWG accepts either, and the slug is what the recorded
+        // fixtures are named after, so a fixture-mode run resolves app ids like a live one.
+        const response = (await deps.rawg(`games/${game.slug}/stores`)) as RawgList<RawgStoreLink>
+        const appId =
+          (response.results ?? [])
+            .filter((link) => link.store_id === STEAM_STORE_ID)
+            .map((link) => steamAppIdFromUrl(link.url))
+            .find((id): id is string => id !== null) ?? ''
 
-    known.set(game.id, appId)
-    batch.push([game.id, appId])
-    if (batch.length >= batchSize) await flush()
+        known.set(game.id, appId)
+        batch.push([game.id, appId])
+        if (batch.length >= batchSize) await flush()
+      } catch {
+        failures += 1
+        deps.log(`app ids: ${game.slug} could not be resolved, leaving it for the next run`)
+      }
+    }
+  } finally {
+    // Whatever was resolved before the stage gave up is worth keeping: it is quota already spent.
+    await flush()
   }
-  await flush()
+  assertWithinFailureBudget('app ids', failures, pending.length)
 
   const withPage = [...known.values()].filter((appId) => appId !== '').length
   deps.log(
-    `app ids: ${pending.length} resolved this run, ${withPage} of ${candidates.length} Steam candidates have a page`,
+    `app ids: ${pending.length - failures} resolved this run, ${failures} failed, ${withPage} of ${candidates.length} Steam candidates have a page`,
   )
-  return known
-}
-
-/** The Steam app ids worth asking Steam about, in the order the games were indexed. */
-export function steamAppIdsOf(games: IndexedGame[], appIds: AppIdMap): string[] {
-  return games.flatMap((game) => {
-    const appId = appIds.get(game.id)
-    return appId ? [appId] : []
-  })
+  return { appIds: known, attempted: pending.length, failures }
 }

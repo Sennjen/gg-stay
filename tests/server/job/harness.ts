@@ -93,20 +93,32 @@ export interface SteamLanguageCall {
 
 export interface FakeSteam {
   steam: SteamPriceFetch
+  /** The `appdetails` price entries the fake answers from; a test may edit them mid-run. */
+  steamPrices: Record<string, unknown>
+  /** The unfiltered `appdetails` entries, likewise editable. */
+  steamApps: Record<string, unknown>
   priceBatches: string[][]
   languageCalls: SteamLanguageCall[]
   failLanguagesOnce: (appId: string) => void
+  /** Makes every later price chunk containing `appId` reject, as a soft Steam outage does. */
+  failPriceChunkWith: (appId: string) => void
 }
 
 export function createFakeSteam(clock: JobClock): FakeSteam {
   const priceBatches: string[][] = []
   const languageCalls: SteamLanguageCall[] = []
   const failures = new Set<string>()
+  const chunkFailures = new Set<string>()
+  const steamPrices: Record<string, unknown> = { ...JOB_STEAM_PRICES }
+  const steamApps: Record<string, unknown> = { ...JOB_STEAM_APPS }
 
   const steam: SteamPriceFetch = {
     fetchPrices: async (appIds) => {
       priceBatches.push([...appIds])
-      return new Map(appIds.map((id) => [id, parseSteamPrice(JOB_STEAM_PRICES[id])]))
+      if (appIds.some((id) => chunkFailures.has(id))) {
+        throw new Error('STEAM upstream failure (price chunk)')
+      }
+      return new Map(appIds.map((id) => [id, parseSteamPrice(steamPrices[id])]))
     },
     fetchAppLanguages: async (appId): Promise<SteamAppLanguages> => {
       languageCalls.push({ appId, at: clock.now() })
@@ -114,7 +126,7 @@ export function createFakeSteam(clock: JobClock): FakeSteam {
         failures.delete(appId)
         throw new Error(`STEAM upstream failure (${appId})`)
       }
-      const entry = JOB_STEAM_APPS[appId] as
+      const entry = steamApps[appId] as
         { data?: { is_free?: boolean; supported_languages?: string } } | undefined
       const isFree = entry?.data?.is_free === true
       return {
@@ -127,9 +139,12 @@ export function createFakeSteam(clock: JobClock): FakeSteam {
 
   return {
     steam,
+    steamPrices,
+    steamApps,
     priceBatches,
     languageCalls,
     failLanguagesOnce: (appId: string) => void failures.add(appId),
+    failPriceChunkWith: (appId: string) => void chunkFailures.add(appId),
   }
 }
 

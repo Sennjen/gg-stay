@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { resolveAppIds } from '../../../scripts/index/appIds'
 import { collectCandidates } from '../../../scripts/index/candidates'
 import { refreshPrices } from '../../../scripts/index/prices'
-import type { IndexedGame } from '../../../server/index/document'
 import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
 import { createJobHarness, type JobHarness } from './harness'
 
@@ -10,7 +9,7 @@ const RUN_AT = '2026-09-20T03:00:00.000Z'
 
 async function pricedRun(harness: JobHarness) {
   const { games } = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
-  const appIds = await resolveAppIds(harness.deps, games)
+  const { appIds } = await resolveAppIds(harness.deps, games)
   const stats = await refreshPrices(harness.deps, games, appIds)
   const byId = new Map(games.map((game) => [game.id, game]))
   return { games, appIds, stats, byId }
@@ -52,7 +51,7 @@ describe('refreshPrices', () => {
     })
   })
 
-  it('leaves a game Steam will not price in the region without a price', async () => {
+  it('leaves a game that never had a price without one', async () => {
     const harness = createJobHarness({ start: RUN_AT })
 
     const { byId } = await pricedRun(harness)
@@ -74,12 +73,7 @@ describe('refreshPrices', () => {
     const harness = createJobHarness({ start: RUN_AT })
     const { games, appIds } = await pricedRun(harness)
     const quietOrbit = games.find((game) => game.id === 105)!
-    Object.assign(quietOrbit, {
-      free: true,
-      priceUah: 0,
-      regularPriceUah: 0,
-      priceUpdatedAt: '2026-09-13T03:00:00.000Z',
-    } satisfies Partial<IndexedGame>)
+    Object.assign(quietOrbit, { free: true, priceUah: 0, regularPriceUah: 0 })
 
     harness.clock.advance(60_000)
     await refreshPrices(harness.deps, games, appIds)
@@ -92,11 +86,55 @@ describe('refreshPrices', () => {
     })
   })
 
-  it('counts what it priced', async () => {
+  it('keeps the price and the timestamp of a game Steam suddenly will not price', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const { games, appIds, byId } = await pricedRun(harness)
+    // Steam under load answers `success: false`, which is indistinguishable from "not sold here".
+    harness.steamPrices['411000'] = { success: false }
+
+    harness.clock.advance(6 * 60 * 60 * 1000)
+    const stats = await refreshPrices(harness.deps, games, appIds)
+
+    expect(byId.get(101)).toMatchObject({
+      priceUah: 675,
+      regularPriceUah: 1349,
+      discountPercent: 50,
+      priceUpdatedAt: RUN_AT,
+    })
+    expect(stats.kept).toBe(1)
+  })
+
+  it('sends one request per chunk rather than one call for everything', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const { games, appIds } = await pricedRun(harness)
+    harness.priceBatches.length = 0
+
+    await refreshPrices(harness.deps, games, appIds, { chunkSize: 2 })
+
+    expect(harness.priceBatches).toEqual([
+      ['411000', '412000'],
+      ['415000', '416000'],
+      ['417000', '418000'],
+    ])
+  })
+
+  it('ends the stage when a chunk failure costs too many games, touching none of them', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const { games, appIds, byId } = await pricedRun(harness)
+    harness.failPriceChunkWith('411000')
+
+    harness.clock.advance(6 * 60 * 60 * 1000)
+    await expect(refreshPrices(harness.deps, games, appIds)).rejects.toThrow(
+      /prices: 6 of 6 items failed/,
+    )
+    expect(byId.get(101)).toMatchObject({ priceUah: 675, priceUpdatedAt: RUN_AT })
+  })
+
+  it('calls the prices fresh only when nearly every id was answered', async () => {
     const harness = createJobHarness({ start: RUN_AT })
 
     const { stats } = await pricedRun(harness)
 
-    expect(stats).toEqual({ requested: 6, priced: 4 })
+    expect(stats).toMatchObject({ requested: 6, answered: 6, failures: 0, priced: 4, fresh: true })
   })
 })

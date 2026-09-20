@@ -1,32 +1,41 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { JobDeps } from '../../../scripts/index/deps'
+import { LANGUAGE_BUDGET } from '../../../scripts/index/languages'
 import {
   formatSummary,
   parseArgs,
   PROBE_STAGE,
   READ_ONLY_TOKEN_MESSAGE,
+  runCli,
   runJob,
   writeProbe,
   type JobReport,
 } from '../../../scripts/index/run'
 import { createWriterFromEnv, UPSTASH_ADAPTER_MISSING } from '../../../scripts/index/writer'
 import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
-import { createJobHarness } from './harness'
+import { createJobHarness, type RawgCall } from './harness'
 
 const RUN_AT = '2026-09-20T03:00:00.000Z'
+const FULL = { mode: 'full', pages: JOB_PAGE_COUNT, forceUnlock: false } as const
 
 describe('parseArgs', () => {
   it('runs a full refresh over the default page count', () => {
-    expect(parseArgs([])).toEqual({ mode: 'full', pages: 75 })
+    expect(parseArgs([])).toEqual({ mode: 'full', pages: 75, forceUnlock: false })
   })
 
   it('takes the mode and the page count from the command line', () => {
-    expect(parseArgs(['--mode=prices'])).toEqual({ mode: 'prices', pages: 75 })
-    expect(parseArgs(['--mode=full', '--pages=3'])).toEqual({ mode: 'full', pages: 3 })
+    expect(parseArgs(['--mode=prices'])).toMatchObject({ mode: 'prices', pages: 75 })
+    expect(parseArgs(['--mode=full', '--pages=3'])).toMatchObject({ mode: 'full', pages: 3 })
   })
 
-  it('takes a small page count from INDEX_PAGES', () => {
-    expect(parseArgs([], { INDEX_PAGES: '2' })).toEqual({ mode: 'full', pages: 2 })
+  it('takes a small page count from INDEX_PAGES and ignores an empty one', () => {
+    expect(parseArgs([], { INDEX_PAGES: '2' })).toMatchObject({ pages: 2 })
+    expect(parseArgs([], { INDEX_PAGES: '' })).toMatchObject({ pages: 75 })
+  })
+
+  it('takes the forced unlock from either the flag or the workflow input', () => {
+    expect(parseArgs(['--force-unlock']).forceUnlock).toBe(true)
+    expect(parseArgs([], { INDEX_FORCE_UNLOCK: 'true' }).forceUnlock).toBe(true)
+    expect(parseArgs([], { INDEX_FORCE_UNLOCK: 'false' }).forceUnlock).toBe(false)
   })
 
   it('refuses a mode or a page count it cannot run', () => {
@@ -45,14 +54,15 @@ describe('writeProbe', () => {
     expect(await harness.writer.getCursor(PROBE_STAGE)).toBeNull()
   })
 
-  it('says the token is read-only when Redis answers NOPERM', async () => {
-    const harness = createJobHarness({ start: RUN_AT })
-    vi.spyOn(harness.writer, 'setCursor').mockRejectedValue(
-      new Error("NOPERM this user has no permissions to run the 'set' command"),
-    )
+  it.each(['NOPERM this user has no permissions', 'WRONGPASS invalid password', 'HTTP 403'])(
+    'says the token cannot write when Redis answers %s',
+    async (message) => {
+      const harness = createJobHarness({ start: RUN_AT })
+      vi.spyOn(harness.writer, 'setCursor').mockRejectedValue(new Error(message))
 
-    await expect(writeProbe(harness.deps)).rejects.toThrow(READ_ONLY_TOKEN_MESSAGE)
-  })
+      await expect(writeProbe(harness.deps)).rejects.toThrow(READ_ONLY_TOKEN_MESSAGE)
+    },
+  )
 
   it('reports any other write failure as such', async () => {
     const harness = createJobHarness({ start: RUN_AT })
@@ -66,25 +76,29 @@ describe('runJob', () => {
   it('publishes a full run that a reader can query', async () => {
     const harness = createJobHarness({ start: RUN_AT })
 
-    const report = await runJob(harness.deps, { mode: 'full', pages: JOB_PAGE_COUNT })
+    const report = await runJob(harness.deps, FULL)
 
-    expect(report.outcome.published).toBe(true)
-    expect(report.outcome.meta).toMatchObject({ version: 1, gameCount: 9, pricesUpdatedAt: RUN_AT })
+    expect(report.outcome?.published).toBe(true)
+    expect(report.outcome?.meta).toMatchObject({
+      version: 1,
+      gameCount: 9,
+      pricesUpdatedAt: RUN_AT,
+    })
     expect((await harness.writer.search({ free: true })).ids).toEqual([105])
     expect((await harness.writer.search({ ukrainianLocalisation: 'TEXT' })).total).toBe(4)
   })
 
-  it('refreshes prices only, carrying documents and languages forward', async () => {
+  it('refreshes prices only, without asking RAWG anything at all', async () => {
     const harness = createJobHarness({ start: RUN_AT })
-    await runJob(harness.deps, { mode: 'full', pages: JOB_PAGE_COUNT })
+    await runJob(harness.deps, FULL)
 
     const later = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
-    const report = await runJob(later.deps, { mode: 'prices', pages: JOB_PAGE_COUNT })
+    const report = await runJob(later.deps, { mode: 'prices', pages: 1, forceUnlock: false })
 
     expect(later.calls).toHaveLength(0)
     expect(later.languageCalls).toHaveLength(0)
     expect(later.priceBatches).toHaveLength(1)
-    expect(report.outcome.meta).toMatchObject({
+    expect(report.outcome?.meta).toMatchObject({
       version: 2,
       gameCount: 9,
       pricesUpdatedAt: '2026-09-20T09:00:00.000Z',
@@ -96,28 +110,91 @@ describe('runJob', () => {
     })
   })
 
+  it('leaves the price stamp where it was when too few prices came back', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+
+    const later = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    // Half the ids answer with nothing at all, which is what a soft Steam failure looks like.
+    for (const appId of ['411000', '412000', '416000']) {
+      later.steamPrices[appId] = { success: false }
+    }
+    const report = await runJob(later.deps, { mode: 'prices', pages: 1, forceUnlock: false })
+
+    expect(report.outcome?.meta.pricesUpdatedAt).toBe(RUN_AT)
+    expect(await later.writer.getOne(101)).toMatchObject({ priceUah: 675, priceUpdatedAt: RUN_AT })
+  })
+
   it('refreshes languages only, keeping the published price timestamp', async () => {
     const harness = createJobHarness({ start: RUN_AT })
-    await runJob(harness.deps, { mode: 'full', pages: JOB_PAGE_COUNT })
+    await runJob(harness.deps, FULL)
 
     const weekLater = createJobHarness({
       writer: harness.writer,
       start: '2026-09-28T03:00:00.000Z',
     })
-    const report = await runJob(weekLater.deps, { mode: 'languages', pages: JOB_PAGE_COUNT })
+    const report = await runJob(weekLater.deps, {
+      mode: 'languages',
+      pages: 1,
+      forceUnlock: false,
+    })
 
     expect(weekLater.priceBatches).toHaveLength(0)
     expect(weekLater.languageCalls).toHaveLength(6)
-    expect(report.outcome.meta.pricesUpdatedAt).toBe(RUN_AT)
+    expect(report.outcome?.meta.pricesUpdatedAt).toBe(RUN_AT)
     expect((await weekLater.writer.getOne(101))?.priceUah).toBe(675)
+  })
+
+  it('budgets the nightly language work and leaves the sweep to the weekly run', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const refresh = vi.spyOn(await import('../../../scripts/index/languages'), 'refreshLanguages')
+
+    await runJob(harness.deps, FULL)
+    await runJob(harness.deps, { mode: 'languages', pages: 1, forceUnlock: false })
+
+    expect(refresh.mock.calls[0]![3]).toEqual({ budget: LANGUAGE_BUDGET })
+    expect(refresh.mock.calls[1]![3]).toEqual({ budget: undefined })
+    refresh.mockRestore()
   })
 
   it('will not refresh a version that was never published', async () => {
     const harness = createJobHarness({ start: RUN_AT })
 
-    await expect(runJob(harness.deps, { mode: 'prices', pages: 1 })).rejects.toThrow(
-      /run --mode=full first/,
-    )
+    await expect(
+      runJob(harness.deps, { mode: 'prices', pages: 1, forceUnlock: false }),
+    ).rejects.toThrow(/run --mode=full first/)
+  })
+
+  it('asks for a forced unlock only when it was told to', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const beginVersion = vi.spyOn(harness.writer, 'beginVersion')
+
+    await runJob(harness.deps, FULL)
+    await runJob(harness.deps, { ...FULL, forceUnlock: true })
+
+    expect(beginVersion.mock.calls[0]![0]).toBeUndefined()
+    expect(beginVersion.mock.calls[1]![0]).toEqual({ force: true })
+  })
+
+  it.each([
+    ['the candidate walk', (call: RawgCall) => call.path === 'games'],
+    ['the app id lookups', (call: RawgCall) => call.path.endsWith('/stores')],
+  ])('gives the draft back when %s brings the run down', async (_name, match) => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const discardVersion = vi.spyOn(harness.writer, 'discardVersion')
+    for (let i = 0; i < 10; i += 1) harness.failNext(match)
+
+    await expect(runJob(harness.deps, FULL)).rejects.toThrow()
+
+    expect(discardVersion).toHaveBeenCalledWith(1)
+    expect(await harness.writer.currentVersion()).toBeNull()
+  })
+
+  it('names the stage a failure came out of', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    for (const appId of ['411000', '412000', '415000']) harness.failLanguagesOnce(appId)
+
+    await expect(runJob(harness.deps, FULL)).rejects.toMatchObject({ stage: 'languages' })
   })
 })
 
@@ -129,6 +206,7 @@ describe('formatSummary', () => {
     languagesFetched: 6,
     failures: 1,
     durationMs: 125_000,
+    writes: { commands: 412, bytes: 1_048_576 },
     outcome: {
       published: true,
       reason: null,
@@ -150,23 +228,35 @@ describe('formatSummary', () => {
     expect(summary).toContain('| Games | 2980 |')
     expect(summary).toContain('| Priced | 2711 |')
     expect(summary).toContain('| Ukrainian audio | 96 |')
-    expect(summary).toContain('| Failures | 1 |')
+    expect(summary).toContain('| Item failures | 1 |')
+    expect(summary).toContain('| Index writes | 412 commands, 1048576 bytes |')
     expect(summary).toContain('| Duration | 2m 5s |')
   })
 
   it('reports a refusal with its reason', () => {
     const summary = formatSummary({
       ...report,
-      outcome: { ...report.outcome, published: false, reason: 'the run priced no games' },
+      outcome: { ...report.outcome!, published: false, reason: 'the run priced no games' },
     })
 
     expect(summary).toContain('| Result | refused — the run priced no games |')
   })
 
+  it('reports a failure with the stage, the error and the way out of a held lock', () => {
+    const summary = formatSummary({
+      ...report,
+      outcome: null,
+      failedStage: 'prices',
+      error: 'STEAM upstream failure',
+    })
+
+    expect(summary).toContain('| Result | failed in prices |')
+    expect(summary).toContain('| Error | STEAM upstream failure |')
+    expect(summary).toContain('force_unlock')
+  })
+
   it('says so when nothing was published for real', () => {
-    expect(formatSummary({ ...report, dryRun: true })).toContain(
-      '| Mode | full (dry run, nothing published) |',
-    )
+    expect(formatSummary({ ...report, dryRun: true })).toContain('| Mode | full (dry run) |')
   })
 })
 
@@ -189,11 +279,41 @@ describe('createWriterFromEnv', () => {
   })
 })
 
-describe('job deps', () => {
-  it('hands every stage the same five dependencies', () => {
-    const harness = createJobHarness()
-    const deps: JobDeps = harness.deps
+describe('runCli', () => {
+  const quiet = () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  }
 
-    expect(Object.keys(deps).sort()).toEqual(['clock', 'log', 'rawg', 'steam', 'writer'])
+  it('exits zero after publishing a version', async () => {
+    quiet()
+
+    const code = await runCli(['--mode=full', '--pages=1'], {
+      INDEX_DRY_RUN: '1',
+      RAWG_FIXTURES: '1',
+    })
+
+    expect(code).toBe(0)
+    vi.restoreAllMocks()
+  })
+
+  it('exits non-zero, and says why, when it cannot even start', async () => {
+    quiet()
+
+    const code = await runCli(['--mode=everything'], { INDEX_DRY_RUN: '1', RAWG_FIXTURES: '1' })
+
+    expect(code).toBe(1)
+    expect(vi.mocked(console.error).mock.calls[0]?.[0]).toMatch(/Unknown --mode/)
+    expect(vi.mocked(console.log).mock.calls.at(-1)?.[0]).toContain(
+      '| Result | failed in start-up |',
+    )
+    vi.restoreAllMocks()
+  })
+
+  it('exits non-zero when the index has no credentials and no dry run', async () => {
+    quiet()
+
+    expect(await runCli([], { RAWG_FIXTURES: '1' })).toBe(1)
+    vi.restoreAllMocks()
   })
 })

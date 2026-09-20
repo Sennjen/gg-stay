@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { resolveAppIds } from '../../../scripts/index/appIds'
 import { collectCandidates } from '../../../scripts/index/candidates'
 import type { JobDeps } from '../../../scripts/index/deps'
@@ -13,7 +13,7 @@ const RUN_AT = '2026-09-20T03:00:00.000Z'
 
 async function indexedGames(harness: JobHarness): Promise<IndexedGame[]> {
   const { games } = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
-  const appIds = await resolveAppIds(harness.deps, games)
+  const { appIds } = await resolveAppIds(harness.deps, games)
   await refreshPrices(harness.deps, games, appIds)
   await refreshLanguages(harness.deps, games, appIds)
   return games
@@ -92,10 +92,52 @@ describe('publishVersion', () => {
     const games = await indexedGames(harness)
     await publish(harness.deps, games)
 
-    const outcome = await publish(harness.deps, games.slice(0, 5))
+    // Exactly half the games, and all five priced ones, so only the game-count gate is in play.
+    const half = games.filter((game) => [101, 102, 105, 106, 108].includes(game.id))
+    const outcome = await publish(harness.deps, half)
 
+    expect(half).toHaveLength(5)
     expect(outcome.published).toBe(true)
     expect(await harness.writer.currentVersion()).toBe(2)
+  })
+
+  it('refuses a run that priced far fewer games than the published version', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const games = await indexedGames(harness)
+    await publish(harness.deps, games)
+    // Five priced before; a partial Steam outage leaves three, which is under three quarters.
+    const halfPriced = games.map((game) =>
+      [101, 102].includes(game.id) ? { ...game, priceUah: null, free: false } : game,
+    )
+
+    const outcome = await publish(harness.deps, halfPriced)
+
+    expect(outcome.published).toBe(false)
+    expect(outcome.reason).toMatch(/priced 3 games, against 5/)
+    expect(await harness.writer.currentVersion()).toBe(1)
+  })
+
+  it('accepts the ordinary churn of a game or two losing its price', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const games = await indexedGames(harness)
+    await publish(harness.deps, games)
+    const oneFewer = games.map((game) =>
+      game.id === 101 ? { ...game, priceUah: null, free: false } : game,
+    )
+
+    expect((await publish(harness.deps, oneFewer)).published).toBe(true)
+  })
+
+  it('gives the draft back when the write itself fails', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const games = await indexedGames(harness)
+    const discardVersion = vi.spyOn(harness.writer, 'discardVersion')
+    vi.spyOn(harness.writer, 'writeVersion').mockRejectedValueOnce(new Error('request too large'))
+
+    await expect(publish(harness.deps, games)).rejects.toThrow(/request too large/)
+
+    expect(discardVersion).toHaveBeenCalledWith(1)
+    expect(await harness.writer.currentVersion()).toBeNull()
   })
 
   it('refuses a run with no prices when the published version has some', async () => {

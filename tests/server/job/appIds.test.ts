@@ -33,7 +33,7 @@ describe('resolveAppIds', () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)
 
-    const appIds = await resolveAppIds(harness.deps, games)
+    const { appIds } = await resolveAppIds(harness.deps, games)
 
     expect(appIds.get(101)).toBe('411000')
     expect(appIds.get(104)).toBe('')
@@ -52,7 +52,7 @@ describe('resolveAppIds', () => {
     await resolveAppIds(harness.deps, games)
 
     const second = createJobHarness({ writer: harness.writer })
-    const appIds = await resolveAppIds(second.deps, games)
+    const { appIds } = await resolveAppIds(second.deps, games)
 
     expect(second.storeCalls()).toHaveLength(0)
     expect(appIds.get(101)).toBe('411000')
@@ -72,14 +72,17 @@ describe('resolveAppIds', () => {
   it('keeps the ids a crashed attempt had already written and resolves only the rest', async () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)
-    harness.failNext((call) => call.path === 'games/amber-trail/stores')
+    // Enough failures to blow the 5 % budget, which is what ends a stage.
+    for (const slug of ['amber-trail', 'deep-signal', 'silent-meridian']) {
+      harness.failNext((call) => call.path === `games/${slug}/stores`)
+    }
 
     await expect(resolveAppIds(harness.deps, games, { batchSize: 2 })).rejects.toThrow(
-      /RAWG upstream failure/,
+      /over the 5% a run tolerates/,
     )
 
     const resumed = createJobHarness({ writer: harness.writer })
-    const appIds = await resolveAppIds(resumed.deps, games, { batchSize: 2 })
+    const { appIds } = await resolveAppIds(resumed.deps, games, { batchSize: 2 })
 
     expect(resumed.storeCalls().map((call) => call.path)).toEqual([
       'games/amber-trail/stores',
@@ -102,8 +105,37 @@ describe('resolveAppIds', () => {
     const games = await candidatesOf(harness)
     const unknown = { ...games[0]!, id: 999, slug: 'no-such-game', stores: ['steam'] }
 
-    const appIds = await resolveAppIds(deps, [unknown])
+    const { appIds } = await resolveAppIds(deps, [unknown])
 
     expect(appIds.get(999)).toBe('')
+  })
+})
+
+describe('resolveAppIds when RAWG misbehaves', () => {
+  it('counts one failed game, leaves it unresolved and carries on', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    harness.failNext((call) => call.path === 'games/amber-trail/stores')
+
+    const result = await resolveAppIds(harness.deps, games)
+
+    expect(result.failures).toBe(1)
+    expect(result.attempted).toBe(7)
+    expect(result.appIds.has(106)).toBe(false)
+    expect(result.appIds.get(107)).toBe('417000')
+    // Not written as "has no Steam page": that would make one timeout permanent.
+    expect(await harness.writer.getAppIds([106])).toEqual(new Map())
+  })
+
+  it('ends the stage when more than a twentieth of the games fail', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    for (const slug of ['amber-trail', 'deep-signal']) {
+      harness.failNext((call) => call.path === `games/${slug}/stores`)
+    }
+
+    await expect(resolveAppIds(harness.deps, games)).rejects.toThrow(/app ids: 2 of 7 items failed/)
+    // Whatever it did resolve before giving up is still saved: that quota is spent either way.
+    expect(await harness.writer.getAppIds([101])).toEqual(new Map([[101, '411000']]))
   })
 })

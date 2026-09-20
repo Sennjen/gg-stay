@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CANDIDATES_STAGE,
   CANDIDATE_PAGE_SIZE,
+  carryPublishedForward,
   collectCandidates,
 } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
@@ -78,29 +78,17 @@ describe('collectCandidates', () => {
     })
   })
 
-  it('records the last finished page and clears the cursor when it completes', async () => {
-    const harness = createJobHarness()
-
-    await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
-
-    expect(await harness.writer.getCursor(CANDIDATES_STAGE)).toBeNull()
-  })
-
-  it('resumes after the cursor, repeating no page and losing no game', async () => {
+  it('always walks from the first page, so a crashed run cannot skip the top of the list', async () => {
     const crashed = createJobHarness()
     crashed.failNext((call) => call.path === 'games' && call.params.page === '2')
-    const collected: IndexedGame[] = []
+    await expect(collectCandidates(crashed.deps, { pages: JOB_PAGE_COUNT })).rejects.toThrow(
+      /RAWG upstream failure/,
+    )
 
-    await expect(
-      collectCandidates(crashed.deps, { pages: JOB_PAGE_COUNT, collected }),
-    ).rejects.toThrow(/RAWG upstream failure/)
-    expect(collected.map((game) => game.id)).toEqual([101, 102, 103])
-    expect(await crashed.writer.getCursor(CANDIDATES_STAGE)).toBe('1')
+    const next = createJobHarness({ writer: crashed.writer })
+    const result = await collectCandidates(next.deps, { pages: JOB_PAGE_COUNT })
 
-    const resumed = createJobHarness({ writer: crashed.writer })
-    const result = await collectCandidates(resumed.deps, { pages: JOB_PAGE_COUNT, collected })
-
-    expect(resumed.pageCalls().map((call) => call.params.page)).toEqual(['2', '3'])
+    expect(next.pageCalls().map((call) => call.params.page)).toEqual(['1', '2', '3'])
     expect(result.games.map((game) => game.id)).toEqual(JOB_GAMES.map((game) => game.id))
   })
 
@@ -111,5 +99,69 @@ describe('collectCandidates', () => {
 
     expect(harness.pageCalls()).toHaveLength(JOB_PAGE_COUNT)
     expect(result.games).toHaveLength(JOB_GAMES.length)
+  })
+})
+
+describe('carryPublishedForward', () => {
+  const published: IndexedGame = {
+    id: 101,
+    slug: 'hollow-cradle',
+    name: 'Hollow Cradle',
+    cover: null,
+    released: '2021-03-11',
+    popularity: 21000,
+    platforms: [4],
+    genres: ['action'],
+    stores: ['steam'],
+    gameModes: ['SINGLE'],
+    ageRating: 'PEGI18',
+    rating: 4.6,
+    ratingsCount: 10,
+    metacritic: 92,
+    playtime: 43,
+    priceUah: 675,
+    regularPriceUah: 1349,
+    discountPercent: 50,
+    free: false,
+    localisation: {
+      text: true,
+      audio: true,
+      source: 'steam',
+      updatedAt: '2026-09-13T00:00:00.000Z',
+    },
+    madeInUkraine: false,
+    priceUpdatedAt: '2026-09-19T21:00:00.000Z',
+  }
+
+  it('copies the published price and languages onto a freshly mapped candidate', async () => {
+    const harness = createJobHarness()
+    const version = await harness.writer.beginVersion()
+    await harness.writer.writeVersion(version, [published])
+    await harness.writer.publish(version, {
+      version,
+      updatedAt: '2026-09-19T21:00:00.000Z',
+      pricesUpdatedAt: '2026-09-19T21:00:00.000Z',
+      gameCount: 1,
+    })
+    const { games } = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
+
+    const carried = await carryPublishedForward(harness.deps, games)
+
+    expect(carried).toBe(1)
+    expect(games.find((game) => game.id === 101)).toMatchObject({
+      priceUah: 675,
+      discountPercent: 50,
+      priceUpdatedAt: '2026-09-19T21:00:00.000Z',
+      localisation: { text: true, audio: true },
+    })
+    // A game the published version never had keeps its empty price.
+    expect(games.find((game) => game.id === 102)).toMatchObject({ priceUah: null })
+  })
+
+  it('does nothing on a first run', async () => {
+    const harness = createJobHarness()
+    const { games } = await collectCandidates(harness.deps, { pages: 1 })
+
+    expect(await carryPublishedForward(harness.deps, games)).toBe(0)
   })
 })

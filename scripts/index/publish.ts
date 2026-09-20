@@ -11,14 +11,26 @@ import type { IndexMeta, IndexedGame } from '../../server/index/document'
  * - a run that ends with fewer than half the games the published version has is a truncated run,
  *   not a shrinking catalog;
  * - a run with no priced games at all, where the published version had some, means Steam was
- *   unreachable — and a catalog with prices silently gone is worse than yesterday's catalog.
+ *   unreachable — and a catalog with prices silently gone is worse than yesterday's catalog;
+ * - a run that priced less than three quarters of what the published version prices, which is the
+ *   shape a partial Steam outage actually takes. Real price churn between two runs six hours
+ *   apart is a handful of games, so anything below that is upstream trouble, and the cost of a
+ *   false alarm is one red run served entirely from the previous version.
  *
  * Either way the draft is discarded and the caller exits non-zero, which is what makes GitHub
- * notify the owner. Nothing is written into the published version in the meantime.
+ * notify the owner. Nothing is written into the published version in the meantime, and a write
+ * that throws half way discards the draft too, so no version is ever left orphaned holding the
+ * writer's lock.
+ *
+ * `previousMeta()` is deliberately not read here: every check compares against the version that
+ * is live right now (`meta()`), not against the one it replaced.
  */
 
 /** A run must keep at least this share of the published version's games. */
 export const MIN_GAME_RATIO = 0.5
+
+/** And at least this share of its priced games. */
+export const MIN_PRICED_RATIO = 0.75
 
 export interface PublishInput {
   version: number
@@ -78,6 +90,12 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
     reason = `the run indexed ${counts.gameCount} games, fewer than half of the published ${previous.gameCount}`
   } else if (previous && previouslyPriced > 0 && counts.pricedCount === 0) {
     reason = `the run priced no games while the published version prices ${previouslyPriced}`
+  } else if (
+    previous &&
+    previouslyPriced > 0 &&
+    counts.pricedCount < previouslyPriced * MIN_PRICED_RATIO
+  ) {
+    reason = `the run priced ${counts.pricedCount} games, against ${previouslyPriced} in the published version`
   }
 
   if (reason) {
@@ -86,8 +104,15 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
     return { published: false, meta, reason, previous }
   }
 
-  await deps.writer.writeVersion(input.version, input.games)
-  await deps.writer.publish(input.version, meta)
+  try {
+    await deps.writer.writeVersion(input.version, input.games)
+    await deps.writer.publish(input.version, meta)
+  } catch (error) {
+    // The largest write the job makes. If it breaks half way, the draft's keys and the writer's
+    // lock must not outlive the run.
+    await deps.writer.discardVersion(input.version).catch(() => {})
+    throw error
+  }
   deps.log(
     `publish: version ${input.version} with ${counts.gameCount} games, ${counts.pricedCount} priced`,
   )
