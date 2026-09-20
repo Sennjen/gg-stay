@@ -3,7 +3,7 @@
 // localisation-filter claims (see DESIGN.md "Copy" section).
 const { t } = useI18n()
 
-const CARDS = ['interface', 'filters', 'data'] as const
+const CARDS = ['language', 'filters', 'stores'] as const
 
 const headingId = useId()
 </script>
@@ -28,9 +28,9 @@ const headingId = useId()
             stroke-linejoin="round"
             class="text-fg-2"
           >
-            <template v-if="card === 'interface'">
-              <path d="M4 5.5h16M4 12h16M4 18.5h9" />
-              <path d="M9 5.5 6.5 18.5" />
+            <template v-if="card === 'language'">
+              <path d="M4 5h16v11H11l-4.5 4v-4H4z" />
+              <path d="M8 9h8M8 12.5h5" />
             </template>
             <template v-else-if="card === 'filters'">
               <path d="M4 6h16M4 12h16M4 18h16" />
@@ -39,9 +39,8 @@ const headingId = useId()
               <circle cx="10" cy="18" r="2" fill="currentColor" stroke="none" />
             </template>
             <template v-else>
-              <ellipse cx="12" cy="6" rx="8" ry="3" />
-              <path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6" />
-              <path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+              <path d="M5 8h14l-1 12H6z" />
+              <path d="M9 8V6.5a3 3 0 0 1 6 0V8" />
             </template>
           </svg>
           <h3 class="mt-4 font-semibold text-fg">{{ t(`why.cards.${card}.title`) }}</h3>
