@@ -196,6 +196,12 @@ function pickRawgShelf(shelf: ShelfDefinition, items: RawgGameListItem[]): RawgG
 /**
  * The index shelves that may be shown, read concurrently — one round of searches. A shelf whose
  * search fails is simply absent; the first failure is logged once for the whole request.
+ *
+ * Because the three searches run at once, a store that answers each of them slowly hands the
+ * circuit (`withCircuit`, `server/index/index.ts`) three slow answers in a row from this one
+ * render, and it opens for the whole process. That is the intended outcome — the store is slow for
+ * every visitor, not only this one — but it comes after one landing render rather than after three
+ * separate requests, as the circuit's "three in a row" wording might suggest.
  */
 async function readIndexShelves(
   context: GraphQLContext,

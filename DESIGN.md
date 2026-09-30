@@ -249,7 +249,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `GameScoreboard`                | Done — PR 8 — released / Metacritic / player rating / platforms as a `<dl>`; week 2B added the "Походження: Зроблено в Україні" item                                                                          |
 | `filters/CheckboxList`          | Done — PR 4                                                                                                                                                                                                   |
 | `filters/DeveloperAutocomplete` | Done — PR 4 — debounced client-only lookup against the BFF                                                                                                                                                    |
-| `pages/index.vue`               | Full landing page — PR 6/7                                                                                                                                                                                    |
+| `pages/index.vue`               | Full landing page — PR 6/7; five shelves replace the two rows in week 2B                                                                                                                                      |
 | `FilterPanel`                   | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4; "Ціна", "Знижка" and "Українська локалізація" sections added in PR 7; "Походження" section added in week 2B                                  |
 | `filters/PriceFilter`           | Done — PR 7 — free/300/600/1 000 chips plus a labelled, debounced own-amount field                                                                                                                            |
 | `filters/DiscountFilter`        | Done — PR 7 — 25/50/75 %, single choice, pressed again to clear                                                                                                                                               |
@@ -268,7 +268,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `LocaleSwitcher`                | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
 | `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
-| `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8                                                                                                                                                                |
+| `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8; "Схожі ігри" row below the store links in week 2B                                                                                                             |
 
 ### Footer (PR 9)
 
