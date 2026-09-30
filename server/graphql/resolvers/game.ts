@@ -7,7 +7,7 @@ import type { SteamPrice } from '../../steam/price'
 import { steamAppIdFromUrl } from '../../steam/steam'
 import type { GraphQLContext } from '../context'
 import { withUpstreamErrors } from '../errors'
-import { indexFailed, warnIndexOnce } from '../indexPath'
+import { indexEntry, warnIndexOnce } from '../indexPath'
 import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolvers-types'
 
 /**
@@ -70,7 +70,7 @@ async function attachIndexEntry(
   links: RawgStoreLink[],
 ): Promise<Game> {
   const id = Number(mapped.id)
-  const entry = Number.isFinite(id) ? await readEntry(context, id) : null
+  const entry = Number.isFinite(id) ? await indexEntry(context, id) : null
   const appId = links.map((link) => steamAppIdFromUrl(link.url)).find((found) => found !== null)
 
   const priced = appId ? await refreshedPrice(context, appId, entry) : entry
@@ -81,16 +81,6 @@ async function attachIndexEntry(
     madeInUkraine:
       isMadeInUkraine(mapped.developers.map((developer) => developer.slug)) ||
       (entry?.madeInUkraine ?? false),
-  }
-}
-
-async function readEntry(context: GraphQLContext, id: number): Promise<IndexedGame | null> {
-  if (indexFailed(context)) return null
-  try {
-    return await context.index.getOne(id)
-  } catch (error) {
-    warnIndexOnce(context, 'the game page could not read its index entry', error)
-    return null
   }
 }
 
