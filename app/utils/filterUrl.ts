@@ -38,6 +38,8 @@ export interface CatalogFilter {
   onSaleMinPercent?: number
   /** Which level of Ukrainian localisation a game must have. Index-backed. */
   ukrainianLocalisation?: LocalisationValue
+  /** Games from studios founded and based in Ukraine only. Index-backed. */
+  madeInUkraine?: boolean
 }
 
 /**
@@ -54,6 +56,7 @@ export const INDEX_FILTER_FIELDS = [
   'free',
   'onSaleMinPercent',
   'ukrainianLocalisation',
+  'madeInUkraine',
 ] as const
 
 export interface CatalogState {
@@ -123,6 +126,7 @@ export function parseFilterQuery(query: Record<string, unknown>): CatalogState {
     // `onSaleMinPercent=33` is a legitimate filter, and the index answers it.
     onSaleMinPercent: int(query.onSaleMinPercent, 1, 99),
     ukrainianLocalisation: oneOf(first(query.ukrainianLocalisation), LOCALISATIONS),
+    madeInUkraine: first(query.madeInUkraine) === '1' ? true : undefined,
   }
   // Each bound is range-checked on its own above, but the pair is not: a hand-edited
   // `?yearFrom=2020&yearTo=1990` would reach `filterToParams` as `dates=2020-01-01,1990-12-31`,
@@ -176,6 +180,7 @@ export function serializeFilterState({ filter, sort, page }: CatalogState): Reco
     ['priceMaxUah', filter.priceMaxUah?.toString()],
     ['onSaleMinPercent', filter.onSaleMinPercent?.toString()],
     ['ukrainianLocalisation', filter.ukrainianLocalisation],
+    ['madeInUkraine', filter.madeInUkraine ? '1' : undefined],
     ['sort', sort === DEFAULT_SORT ? undefined : sort],
     ['page', page > 1 ? String(page) : undefined],
   ]

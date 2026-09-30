@@ -139,6 +139,16 @@ useSeoMeta({
           </div>
         </dl>
       </div>
+
+      <!-- Below the gallery and the store links, full width: the page's own content comes first.
+           `GameRow` renders nothing for an empty list, which is how the answer says "hidden" —
+           fewer than four similar games, or an index that could not be asked. -->
+      <GameRow
+        data-test="similar-games"
+        class="mt-12"
+        :title="t('game.similar')"
+        :games="game.similar"
+      />
     </article>
   </div>
 </template>

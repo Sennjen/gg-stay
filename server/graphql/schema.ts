@@ -37,7 +37,7 @@ export const typeDefs = /* GraphQL */ `
     onSaleMinPercent: Int
     "Index-backed field: accepted and ignored until the nightly index exists."
     ukrainianLocalisation: Localisation
-    "Index-backed field: accepted and ignored until the nightly index exists."
+    "Index-backed field: games from studios founded and based in Ukraine."
     madeInUkraine: Boolean
   }
 
@@ -147,7 +147,9 @@ export const typeDefs = /* GraphQL */ `
     localisation: LocalisationInfo
     madeInUkraine: Boolean!
     """
-    Index-backed field: always empty until the week 2 nightly index computes similarity.
+    Up to eight games from the index that share a genre with this one, most popular first,
+    preferring games on a platform family this one is on. Empty when fewer than four qualify, or
+    when the index is unavailable; while its prices are stale the cards carry no price.
     """
     similar: [GameCard!]!
     platformFamilies: [PlatformFamily!]!
@@ -172,12 +174,29 @@ export const typeDefs = /* GraphQL */ `
     clipUrl: String
     clipSource: ClipSource
   }
+  "The landing's shelves, in display order. The catalog URL each one links to is shared/shelves.ts."
+  enum ShelfId {
+    MADE_IN_UKRAINE
+    UKRAINIAN
+    ON_SALE
+    BEST_THIS_YEAR
+    UPCOMING
+  }
+  type Shelf {
+    id: ShelfId!
+    games: [GameCard!]!
+  }
   type Landing {
     featured: FeaturedGame
     carousel: [GameCard!]!
-    newReleases: [GameCard!]!
-    topRated: [GameCard!]!
+    """
+    The shelves that have at least four games, in display order. The three index shelves are left
+    out while the index is unavailable, and the sale shelf while its prices are stale.
+    """
+    shelves: [Shelf!]!
     totalGames: Int!
+    "The calendar year the shelves were built for, so a shelf's catalog link never reads a clock."
+    year: Int!
   }
 
   type PriceSummary {

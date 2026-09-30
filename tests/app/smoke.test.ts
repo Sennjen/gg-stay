@@ -30,9 +30,12 @@ const landingWithFeatured = {
       },
     },
     carousel: [rowGame],
-    newReleases: [rowGame],
-    topRated: [rowGame],
+    shelves: [
+      { id: 'BEST_THIS_YEAR', games: [rowGame] },
+      { id: 'UPCOMING', games: [rowGame] },
+    ],
     totalGames: 900_934,
+    year: 2026,
   },
 }
 
@@ -71,9 +74,9 @@ describe('home page', () => {
     expect(wrapper.text()).toContain('900')
     expect(wrapper.text()).toContain('000+')
     expect(wrapper.text()).toContain('Чому GG Stay')
-    expect(wrapper.text()).toContain('Нові релізи')
-    expect(wrapper.text()).toContain('Найкращі за оцінкою гравців')
-    // The two rows both show the same fixture game (reused for brevity above).
+    expect(wrapper.text()).toContain('Найкращі цього року')
+    expect(wrapper.text()).toContain('Очікувані')
+    // The two shelves both show the same fixture game (reused for brevity above).
     expect(wrapper.text().match(/Stardew Valley/g)?.length).toBe(2)
     expect(wrapper.text()).toContain('Готові знайти свою наступну гру?')
     // The closing call to action reuses the hero's own button label.
@@ -99,7 +102,7 @@ describe('home page', () => {
     // ("Нові релізи" still appears once, from the hero's own inline link — just not as a
     // GameRow section title with cards under it.)
     expect(wrapper.text()).not.toContain('ігор у каталозі')
-    expect(wrapper.text()).not.toContain('Найкращі за оцінкою гравців')
+    expect(wrapper.text()).not.toContain('Найкращі цього року')
     expect(wrapper.text()).not.toContain('Stardew Valley')
     // WhyCards and the closing call to action have no data dependency and still render.
     expect(wrapper.text()).toContain('Чому GG Stay')

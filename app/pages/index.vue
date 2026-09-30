@@ -2,6 +2,7 @@
 import { LandingDocument } from '~/graphql/__generated__/operations'
 import { RING_HEIGHT_CLASS } from '~/components/CoverRing.vue'
 import { roundGameCount } from '~/utils/roundGameCount'
+import { shelfCatalogQuery, shelfDefinition } from '#shared/shelves'
 
 const { t } = useI18n()
 const { formatNumber } = useFormatters()
@@ -16,8 +17,7 @@ const featured = computed(() => data.value?.landing?.featured ?? null)
 
 // The stats + ring section needs real landing data (the count and the carousel); when the query
 // failed, `landing` is null and this whole section is simply absent — no placeholder, no error
-// box. `GameRow` below already renders nothing for an empty list, so the two rows need no
-// matching guard: they fall back to `[]` and disappear on their own.
+// box. The shelves fall back to none the same way.
 const landing = computed(() => data.value?.landing ?? null)
 // `null` when the total is too small to round to a friendly figure; the headline is hidden then.
 const roundedCount = computed(() =>
@@ -26,8 +26,30 @@ const roundedCount = computed(() =>
 const formattedCount = computed(() =>
   roundedCount.value === null ? '' : formatNumber(roundedCount.value),
 )
-const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DESC' } }
-const topRatedTo = { path: localePath('/games'), query: { sort: 'RATING_DESC' } }
+
+// Every shelf the answer kept, in its order: the answer already left out the ones with too few
+// games, and the ones the index could not serve. The title, the catalog URL behind the link and,
+// where "Усі ігри" would promise more than the link gives, the link's own label all come from
+// `shared/shelves.ts` — the same definition the resolver filled the shelf from. The year in a link
+// is the one the answer says the shelves were built for, so this page reads no clock at all. A
+// shelf this build has no definition for (a newer API during a deploy) is skipped, not fatal.
+const shelves = computed(() => {
+  const answer = landing.value
+  if (!answer) return []
+  return answer.shelves.flatMap((shelf) => {
+    const definition = shelfDefinition(shelf.id)
+    if (!definition) return []
+    return [
+      {
+        id: shelf.id,
+        title: t(definition.titleKey),
+        games: shelf.games,
+        moreTo: { path: localePath('/games'), query: shelfCatalogQuery(shelf.id, answer.year) },
+        moreLabel: definition.moreLabelKey ? t(definition.moreLabelKey) : undefined,
+      },
+    ]
+  })
+})
 
 useSeoMeta({
   title: () => t('home.title'),
@@ -89,14 +111,13 @@ useSeoMeta({
       <WhyCards />
 
       <GameRow
-        :title="t('home.rows.newReleases')"
-        :games="landing?.newReleases ?? []"
-        :more-to="newReleasesTo"
-      />
-      <GameRow
-        :title="t('home.rows.topRated')"
-        :games="landing?.topRated ?? []"
-        :more-to="topRatedTo"
+        v-for="shelf in shelves"
+        :key="shelf.id"
+        :data-test="`shelf-${shelf.id}`"
+        :title="shelf.title"
+        :games="shelf.games"
+        :more-to="shelf.moreTo"
+        :more-label="shelf.moreLabel"
       />
 
       <section class="rounded-card border border-line bg-surface-1 px-6 py-12 text-center sm:py-16">

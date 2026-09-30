@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateRange, pickFeatured, pickTopRated } from '../../server/rawg/landing'
+import { dateRange, pickBestRated, pickFeatured } from '../../server/rawg/landing'
 import type { RawgGameListItem } from '../../server/rawg/types'
 
 function item(overrides: Partial<RawgGameListItem>): RawgGameListItem {
@@ -57,23 +57,24 @@ describe('pickFeatured', () => {
   })
 })
 
-describe('pickTopRated', () => {
-  it('filters by the votes threshold, sorts by rating descending, and caps to the limit', () => {
+describe('pickBestRated', () => {
+  it('ranks by rating among the items with enough votes, ties to the more voted', () => {
     const items = [
-      item({ id: 1, rating: 4.2, ratings_count: 6800 }),
-      item({ id: 2, rating: 4.8, ratings_count: 500 }),
-      item({ id: 3, rating: 4.9, ratings_count: 50 }), // below threshold
-      item({ id: 4, rating: 4.6, ratings_count: 200 }),
+      item({ id: 1, rating: 5, ratings_count: 3 }),
+      item({ id: 2, rating: 3.9, ratings_count: 400 }),
+      item({ id: 3, rating: 4.4, ratings_count: 20 }),
+      item({ id: 4, rating: 4.4, ratings_count: 90 }),
+      item({ id: 5, rating: 4.9, ratings_count: 19 }),
     ]
-    expect(pickTopRated(items, 2).map((entry) => entry.id)).toEqual([2, 4])
+    expect(pickBestRated(items, { minRatings: 20, limit: 12 }).map((entry) => entry.id)).toEqual([
+      4, 3, 2,
+    ])
   })
 
-  it('returns fewer than the limit when fewer items qualify', () => {
-    const items = [item({ id: 1, rating: 4.2, ratings_count: 150 })]
-    expect(pickTopRated(items, 8).map((entry) => entry.id)).toEqual([1])
-  })
-
-  it('returns an empty list when nothing qualifies', () => {
-    expect(pickTopRated([item({ id: 1, ratings_count: 5 })], 8)).toEqual([])
+  it('caps the result to the limit', () => {
+    const items = [1, 2, 3].map((id) => item({ id, rating: id, ratings_count: 50 }))
+    expect(pickBestRated(items, { minRatings: 20, limit: 2 }).map((entry) => entry.id)).toEqual([
+      3, 2,
+    ])
   })
 })

@@ -1,0 +1,223 @@
+{
+  "count": 6,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 999101,
+      "slug": "calendar-year-sample-1",
+      "name": "Calendar Year Sample 1",
+      "released": "2026-02-12",
+      "tba": false,
+      "background_image": null,
+      "rating": 5.0,
+      "ratings_count": 3,
+      "metacritic": null,
+      "playtime": 0,
+      "added": 4200,
+      "platforms": [
+        {
+          "platform": {
+            "id": 4,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "parent_platforms": [
+        {
+          "platform": {
+            "id": 1,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "short_screenshots": null,
+      "genres": [],
+      "tags": null,
+      "stores": null,
+      "esrb_rating": null
+    },
+    {
+      "id": 999102,
+      "slug": "calendar-year-sample-2",
+      "name": "Calendar Year Sample 2",
+      "released": "2026-03-05",
+      "tba": false,
+      "background_image": null,
+      "rating": 4.1,
+      "ratings_count": 640,
+      "metacritic": null,
+      "playtime": 0,
+      "added": 3900,
+      "platforms": [
+        {
+          "platform": {
+            "id": 4,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "parent_platforms": [
+        {
+          "platform": {
+            "id": 1,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "short_screenshots": null,
+      "genres": [],
+      "tags": null,
+      "stores": null,
+      "esrb_rating": null
+    },
+    {
+      "id": 999103,
+      "slug": "calendar-year-sample-3",
+      "name": "Calendar Year Sample 3",
+      "released": "2026-01-22",
+      "tba": false,
+      "background_image": null,
+      "rating": 4.6,
+      "ratings_count": 210,
+      "metacritic": null,
+      "playtime": 0,
+      "added": 3100,
+      "platforms": [
+        {
+          "platform": {
+            "id": 4,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "parent_platforms": [
+        {
+          "platform": {
+            "id": 1,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "short_screenshots": null,
+      "genres": [],
+      "tags": null,
+      "stores": null,
+      "esrb_rating": null
+    },
+    {
+      "id": 999104,
+      "slug": "calendar-year-sample-4",
+      "name": "Calendar Year Sample 4",
+      "released": "2026-04-30",
+      "tba": false,
+      "background_image": null,
+      "rating": 4.8,
+      "ratings_count": 19,
+      "metacritic": null,
+      "playtime": 0,
+      "added": 2600,
+      "platforms": [
+        {
+          "platform": {
+            "id": 4,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "parent_platforms": [
+        {
+          "platform": {
+            "id": 1,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "short_screenshots": null,
+      "genres": [],
+      "tags": null,
+      "stores": null,
+      "esrb_rating": null
+    },
+    {
+      "id": 999105,
+      "slug": "calendar-year-sample-5",
+      "name": "Calendar Year Sample 5",
+      "released": "2026-06-18",
+      "tba": false,
+      "background_image": null,
+      "rating": 3.7,
+      "ratings_count": 88,
+      "metacritic": null,
+      "playtime": 0,
+      "added": 2200,
+      "platforms": [
+        {
+          "platform": {
+            "id": 4,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "parent_platforms": [
+        {
+          "platform": {
+            "id": 1,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "short_screenshots": null,
+      "genres": [],
+      "tags": null,
+      "stores": null,
+      "esrb_rating": null
+    },
+    {
+      "id": 999106,
+      "slug": "calendar-year-sample-6",
+      "name": "Calendar Year Sample 6",
+      "released": "2026-05-07",
+      "tba": false,
+      "background_image": null,
+      "rating": 4.3,
+      "ratings_count": 20,
+      "metacritic": null,
+      "playtime": 0,
+      "added": 1800,
+      "platforms": [
+        {
+          "platform": {
+            "id": 4,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "parent_platforms": [
+        {
+          "platform": {
+            "id": 1,
+            "slug": "pc",
+            "name": "PC"
+          }
+        }
+      ],
+      "short_screenshots": null,
+      "genres": [],
+      "tags": null,
+      "stores": null,
+      "esrb_rating": null
+    }
+  ]
+}

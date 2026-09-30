@@ -99,24 +99,32 @@ const GAME = /* GraphQL */ `
 const LANDING = /* GraphQL */ `
   query Landing {
     landing {
-      newReleases {
-        slug
-        price {
-          bestUah
-        }
-        localisation {
-          text
-        }
-      }
-      topRated {
-        slug
-        price {
-          bestUah
+      shelves {
+        id
+        games {
+          slug
+          price {
+            bestUah
+          }
+          localisation {
+            text
+          }
         }
       }
     }
   }
 `
+
+type LandingShelf = {
+  id: string
+  games: { slug: string; price: { bestUah: number } | null }[]
+}
+
+/** The cards of one landing shelf, or an empty list when the shelf was left out. */
+function shelfGames(data: Record<string, unknown> | undefined, id: string) {
+  const shelves = (data as { landing: { shelves: LandingShelf[] } }).landing.shelves
+  return shelves.find((shelf) => shelf.id === id)?.games ?? []
+}
 
 function countingRawg(inner: RawgFetch = fixtureRawg): RawgFetch & { paths: string[] } {
   const paths: string[] = []
@@ -552,9 +560,11 @@ describe('an index that never answers', () => {
     const hung = hungIndex()
     const { data, errors } = await runQuery({ index: hung }, LANDING)
     expect(errors).toBeUndefined()
-    const rows = data!.landing.newReleases as { price: unknown }[]
+    const rows = shelfGames(data, 'UPCOMING')
+    expect(rows).toHaveLength(4)
     expect(rows.every((row) => row.price === null)).toBe(true)
     expect(hung.calls.getMany).toEqual([])
+    expect(hung.calls.search).toEqual([])
   })
 
   it('stops asking after the first failure, whatever the operation asks for next', async () => {
@@ -598,7 +608,8 @@ describe('an index that never answers', () => {
     })
     const { data, errors } = await runQuery({ index: throwing }, LANDING)
     expect(errors).toBeUndefined()
-    const rows = data!.landing.newReleases as { price: unknown }[]
+    const rows = shelfGames(data, 'UPCOMING')
+    expect(rows).toHaveLength(4)
     expect(rows.every((row) => row.price === null)).toBe(true)
     expect(warn).toHaveBeenCalledTimes(1)
   })
@@ -933,16 +944,15 @@ describe('the live price is honest about its age', () => {
 })
 
 describe('the landing rows', () => {
-  it('attach prices to every row with a single index read', async () => {
+  it('attach prices to the RAWG shelves with a single index read', async () => {
     const { data, errors } = await runQuery({ index }, LANDING)
     expect(errors).toBeUndefined()
     expect(index.calls.getMany).toHaveLength(1)
-    const rows = data!.landing.newReleases as { slug: string; price: { bestUah: number } | null }[]
+    const rows = shelfGames(data, 'UPCOMING')
     expect(rows.find((row) => row.slug === 'the-witcher-3-wild-hunt')?.price).toEqual({
       bestUah: 675,
     })
     expect(rows.find((row) => row.slug === 'unreleased-sample')?.price).toBeNull()
-    const top = data!.landing.topRated as { slug: string; price: { bestUah: number } | null }[]
-    expect(top.find((row) => row.slug === 'portal-2')?.price).toEqual({ bestUah: 225 })
+    expect(rows.find((row) => row.slug === 'portal-2')?.price).toEqual({ bestUah: 225 })
   })
 })

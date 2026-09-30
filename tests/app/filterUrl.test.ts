@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { countActiveFilters, parseFilterQuery, serializeFilterState } from '~/utils/filterUrl'
+import {
+  countActiveFilters,
+  INDEX_FILTER_FIELDS,
+  parseFilterQuery,
+  serializeFilterState,
+} from '~/utils/filterUrl'
 import { MAX_PRICE_UAH } from '#shared/catalog'
+import { SHELF_IDS, shelfCatalogQuery, shelfQuery } from '#shared/shelves'
 
 describe('parseFilterQuery', () => {
   it('returns defaults for an empty query', () => {
@@ -291,5 +297,56 @@ describe('countActiveFilters', () => {
     // `sort` is in `ignoredFilters` too, and it is not a filter; a name for a field the URL does
     // not carry must not push the count below what is actually there.
     expect(countActiveFilters({ free: true }, ['sort', 'onSaleMinPercent', 'publishers'])).toBe(1)
+  })
+})
+
+describe('the made-in-Ukraine filter', () => {
+  it('is read from madeInUkraine=1 and nothing else', () => {
+    expect(parseFilterQuery({ madeInUkraine: '1' }).filter).toEqual({ madeInUkraine: true })
+    expect(parseFilterQuery({ madeInUkraine: '0' }).filter).toEqual({})
+    expect(parseFilterQuery({ madeInUkraine: 'true' }).filter).toEqual({})
+    expect(parseFilterQuery({ madeInUkraine: ['1', '0'] }).filter).toEqual({ madeInUkraine: true })
+  })
+
+  it('is written as madeInUkraine=1, after the localisation level, and left out when off', () => {
+    const query = serializeFilterState({
+      filter: { madeInUkraine: true, ukrainianLocalisation: 'ANY', genres: ['action'] },
+      sort: 'POPULARITY_DESC',
+      page: 1,
+    })
+    expect(Object.keys(query)).toEqual(['genres', 'ukrainianLocalisation', 'madeInUkraine'])
+    expect(query.madeInUkraine).toBe('1')
+    expect(
+      serializeFilterState({ filter: { madeInUkraine: false }, sort: 'POPULARITY_DESC', page: 1 }),
+    ).toEqual({})
+  })
+
+  it('round-trips through the URL', () => {
+    const state = parseFilterQuery({ madeInUkraine: '1', platforms: '4', sort: 'RATING_DESC' })
+    expect(parseFilterQuery(serializeFilterState(state))).toEqual(state)
+  })
+
+  it('counts as one filter in the badge, and none once the answer declined it', () => {
+    expect(countActiveFilters({ madeInUkraine: true })).toBe(1)
+    expect(countActiveFilters({ madeInUkraine: true }, ['madeInUkraine'])).toBe(0)
+  })
+
+  it('is one of the filters the index answers', () => {
+    expect(INDEX_FILTER_FIELDS).toContain('madeInUkraine')
+  })
+})
+
+describe('the landing shelf links', () => {
+  // Each shelf's "Усі ігри" link opens the catalog on exactly the query the resolver fetched the
+  // shelf with: its first games ARE the shelf, except for "Найкращі цього року", whose link opens
+  // the pool the shelf is ranked from (and is labelled "Усі ігри цього року" to say so).
+  it.each(SHELF_IDS)('%s opens the catalog on the query its shelf was built from', (id) => {
+    const { filter, sort } = shelfQuery(id, 2026)
+    expect(parseFilterQuery(shelfCatalogQuery(id, 2026))).toEqual({ filter, sort, page: 1 })
+  })
+
+  it.each(SHELF_IDS)('%s writes the same URL the catalog itself would write', (id) => {
+    const { filter, sort } = shelfQuery(id, 2026)
+    expect(serializeFilterState({ filter, sort, page: 1 })).toEqual(shelfCatalogQuery(id, 2026))
   })
 })

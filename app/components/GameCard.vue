@@ -68,7 +68,7 @@ function revealPreview(event: PointerEvent) {
 </script>
 
 <template>
-  <article data-test="game-card" class="h-full overflow-hidden rounded-card">
+  <article data-test="game-card" class="relative h-full overflow-hidden rounded-card">
     <NuxtLink
       :to="localePath(`/games/${game.slug}`)"
       :class="linkClass"
@@ -103,6 +103,17 @@ function revealPreview(event: PointerEvent) {
           :class="previewLoaded ? 'group-hover:opacity-100 group-focus-visible:opacity-100' : ''"
           @load="previewLoaded = true"
         />
+        <!-- Over the cover rather than in the text column, so a card that has it is exactly as tall
+             as one that does not. Plain visible words — no flag glyph whose meaning would have to
+             be guessed — on an ink backdrop that keeps them readable over any cover art, above
+             the hover preview. -->
+        <span
+          v-if="game.madeInUkraine"
+          data-test="made-in-ukraine"
+          class="absolute left-2 top-2 z-10 rounded-chip border border-line bg-ink/85 px-2 py-0.5 text-xs font-medium text-fg"
+        >
+          {{ t('card.madeInUkraine') }}
+        </span>
       </div>
       <div class="flex flex-1 flex-col p-3">
         <component

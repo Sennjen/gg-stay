@@ -241,6 +241,15 @@ const chips = computed<Chip[]>(() => {
     })
   }
 
+  if (filter.madeInUkraine) {
+    list.push({
+      key: 'madeInUkraine',
+      field: 'madeInUkraine',
+      label: t('filters.madeInUkraine'),
+      remove: () => emit('change', { madeInUkraine: undefined }),
+    })
+  }
+
   return list
 })
 </script>

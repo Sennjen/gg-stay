@@ -15,9 +15,13 @@
     "stats": {
       "title": "{count}+ games in the catalog"
     },
-    "rows": {
-      "newReleases": "New releases",
-      "topRated": "Top rated by players"
+    "shelves": {
+      "madeInUkraine": "Made in Ukraine",
+      "ukrainian": "In Ukrainian",
+      "onSale": "On sale",
+      "bestThisYear": "Best of this year",
+      "upcoming": "Most anticipated",
+      "bestThisYearAll": "All of this year's games"
     },
     "cta": {
       "title": "Ready to find your next game?"
@@ -79,7 +83,7 @@
     "view": "Catalog layout",
     "viewGrid": "Grid",
     "viewList": "List",
-    "indexedOnlyNote": "Searching the {count} most popular games — they are the only ones we know prices and languages for.",
+    "indexedOnlyNote": "Searching the {count} most popular games and every game from a Ukrainian studio — they are the only ones we know prices and languages for.",
     "pricesUpdated": "Prices updated {count} hour ago | Prices updated {count} hours ago",
     "pricesUpdatedRecently": "Prices updated just now",
     "staleTitle": "Prices are not being refreshed right now",
@@ -113,7 +117,10 @@
     "localisationAny": "Any",
     "localisationText": "Text",
     "localisationAudio": "Voice acting",
-    "localisationNotImportant": "Does not matter"
+    "localisationNotImportant": "Does not matter",
+    "origin": "Origin",
+    "madeInUkraine": "Made in Ukraine",
+    "madeInUkraineHint": "Games from studios founded in Ukraine whose main team works (or worked) there."
   },
   "sorts": {
     "POPULARITY_DESC": "Popularity",
@@ -164,7 +171,8 @@
       "XBOX": "Xbox",
       "NINTENDO": "Nintendo",
       "MOBILE": "Mobile"
-    }
+    },
+    "madeInUkraine": "Made in Ukraine"
   },
   "drawer": {
     "title": "Filters",
@@ -212,7 +220,10 @@
     "localisationLabel": "Ukrainian",
     "localisationText": "Text",
     "localisationAudio": "Text and voice acting",
-    "localisationNone": "None"
+    "localisationNone": "None",
+    "origin": "Origin",
+    "madeInUkraine": "Made in Ukraine",
+    "similar": "Similar games"
   },
   "gallery": {
     "heading": "Screenshots",

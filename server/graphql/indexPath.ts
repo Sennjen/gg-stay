@@ -1,7 +1,7 @@
 import { MAX_SEARCH_LENGTH } from '../../shared/catalog'
 import type { IndexMeta } from '../index/document'
 import type { IndexQuery } from '../index/GameIndex'
-import { toLocalisationInfo, toPriceSummary } from '../index/toGraphql'
+import { toGameCard, toLocalisationInfo, toPriceSummary } from '../index/toGraphql'
 import type { GraphQLContext } from './context'
 import type { GameCard, GameFilter, GameSort } from './__generated__/resolvers-types'
 
@@ -249,6 +249,27 @@ export function pageCacheKey(query: IndexQuery, version: number | null): string 
 export interface CachedIndexPage {
   items: GameCard[]
   total: number
+}
+
+/**
+ * One page of the index as cards, through the resolver cache: the catalog, the landing shelves and
+ * the similar games all read their index pages this way, so a page asked for twice within
+ * `PAGE_CACHE_TTL_SECONDS` costs the store nothing the second time. The cached page is the
+ * canonical one, prices included; a caller serving a stale index strips them on the way out.
+ * Errors are the caller's to catch — every caller falls back.
+ */
+export async function cachedIndexPage(
+  context: GraphQLContext,
+  query: IndexQuery,
+  version: number | null,
+): Promise<CachedIndexPage> {
+  const key = pageCacheKey(query, version)
+  const cached = await context.cache.get<CachedIndexPage>(key)
+  if (cached) return cached
+  const result = await context.index.search(query)
+  const page: CachedIndexPage = { items: result.games.map(toGameCard), total: result.total }
+  await context.cache.set(key, page, PAGE_CACHE_TTL_SECONDS)
+  return page
 }
 
 /**

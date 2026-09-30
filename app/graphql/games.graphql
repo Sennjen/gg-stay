@@ -42,6 +42,7 @@ query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
         audio
         source
       }
+      madeInUkraine
     }
   }
 }

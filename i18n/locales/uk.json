@@ -15,9 +15,13 @@
     "stats": {
       "title": "{count}+ ігор у каталозі"
     },
-    "rows": {
-      "newReleases": "Нові релізи",
-      "topRated": "Найкращі за оцінкою гравців"
+    "shelves": {
+      "madeInUkraine": "Зроблено в Україні",
+      "ukrainian": "Українською",
+      "onSale": "Зі знижкою",
+      "bestThisYear": "Найкращі цього року",
+      "upcoming": "Очікувані",
+      "bestThisYearAll": "Усі ігри цього року"
     },
     "cta": {
       "title": "Готові знайти свою наступну гру?"
@@ -79,7 +83,7 @@
     "view": "Вигляд каталогу",
     "viewGrid": "Сітка",
     "viewList": "Список",
-    "indexedOnlyNote": "Пошук серед {count} найпопулярніших ігор — ціни й мови ми знаємо лише для них.",
+    "indexedOnlyNote": "Пошук серед {count} найпопулярніших ігор і всіх ігор українських студій — ціни й мови ми знаємо лише для них.",
     "pricesUpdated": "Ціни оновлено {count} годину тому | Ціни оновлено {count} години тому | Ціни оновлено {count} годин тому",
     "pricesUpdatedRecently": "Ціни оновлено щойно",
     "staleTitle": "Ціни тимчасово не оновлюються",
@@ -113,7 +117,10 @@
     "localisationAny": "Будь-яка",
     "localisationText": "Текст",
     "localisationAudio": "Озвучка",
-    "localisationNotImportant": "Не важливо"
+    "localisationNotImportant": "Не важливо",
+    "origin": "Походження",
+    "madeInUkraine": "Зроблено в Україні",
+    "madeInUkraineHint": "Ігри студій, заснованих в Україні, де працює (або працювала) їхня основна команда."
   },
   "sorts": {
     "POPULARITY_DESC": "За популярністю",
@@ -164,7 +171,8 @@
       "XBOX": "Xbox",
       "NINTENDO": "Nintendo",
       "MOBILE": "Мобільні"
-    }
+    },
+    "madeInUkraine": "Зроблено в Україні"
   },
   "drawer": {
     "title": "Фільтри",
@@ -212,7 +220,10 @@
     "localisationLabel": "Українська",
     "localisationText": "Текст",
     "localisationAudio": "Текст і озвучка",
-    "localisationNone": "Немає"
+    "localisationNone": "Немає",
+    "origin": "Походження",
+    "madeInUkraine": "Зроблено в Україні",
+    "similar": "Схожі ігри"
   },
   "gallery": {
     "heading": "Скріншоти",
