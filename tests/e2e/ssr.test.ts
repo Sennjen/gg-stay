@@ -154,7 +154,8 @@ describe('server-side rendering', async () => {
    *
    * The seed holds the three games the RAWG fixtures show — Portal 2 at 225 ₴ with −75 % on PC,
    * The Witcher 3 at 675 ₴ with −50 %, Stardew Valley free — and a fourth RAWG game the index
-   * never saw. Portal 2 is deliberately both cheap and heavily discounted so the literal URL from
+   * never saw, plus index-only games made in Ukraine priced above 700 ₴ and discounted under
+   * 50 %. Portal 2 is deliberately both cheap and heavily discounted so the literal URL from
    * the design has something to match and the resolver's AND between the price ceiling and the
    * discount floor is really exercised; `tests/server/index/publishedFixture.test.ts` pins that
    * property of the seed, so this suite cannot go quietly vacuous again.
@@ -224,8 +225,15 @@ describe('server-side rendering', async () => {
 
     it('takes the index path on a price sort alone, with no filter at all', async () => {
       const html = await $fetch<string>('/games?sort=DISCOUNT_DESC')
-      // Every game the index knows, biggest discount first; the free one has none and comes last.
-      expect(slugsOf(html)).toEqual(['portal-2', 'the-witcher-3-wild-hunt', 'stardew-valley'])
+      // Every priced game the index knows, biggest discount first, then the undiscounted ones —
+      // the free one among them — by popularity.
+      expect(slugsOf(html)).toEqual([
+        'portal-2',
+        'the-witcher-3-wild-hunt',
+        'metro-exodus',
+        'stardew-valley',
+        'sherlock-holmes-chapter-one',
+      ])
       expect(html).toContain('data-test="index-note"')
       // The catalog is the index's now, so the RAWG-only game is not on it.
       expect(html).not.toContain('Unreleased Sample')

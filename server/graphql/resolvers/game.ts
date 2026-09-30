@@ -1,3 +1,4 @@
+import { isMadeInUkraine } from '../../../shared/ukrainianStudios'
 import type { IndexedGame } from '../../index/document'
 import { toLocalisationInfo, toSteamOffer } from '../../index/toGraphql'
 import { mapGame } from '../../rawg/mappers'
@@ -12,6 +13,11 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
 /**
  * The game page reads its own index entry: the Steam offer carries the price, and the page gets
  * the language list and the made-in-Ukraine flag.
+ *
+ * The flag has a second source that needs no index at all: the game's own RAWG developers, checked
+ * against the studio list (`shared/ukrainianStudios.ts`). That keeps it right for a game outside
+ * the index and while the index is down; the index flag, set by the refresh job from the same
+ * list, still counts when RAWG credits a studio under a slug the list does not carry.
  *
  * Prices are refreshed every six hours by the nightly job, so an entry that old — and a game with
  * a Steam store page that the index has never seen at all — is refreshed live from Steam for this
@@ -72,7 +78,9 @@ async function attachIndexEntry(
     ...mapped,
     stores: withSteamPrice(mapped.stores, priced),
     localisation: entry ? toLocalisationInfo(entry) : null,
-    madeInUkraine: entry?.madeInUkraine ?? false,
+    madeInUkraine:
+      isMadeInUkraine(mapped.developers.map((developer) => developer.slug)) ||
+      (entry?.madeInUkraine ?? false),
   }
 }
 

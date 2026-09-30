@@ -19,11 +19,12 @@ async function indexedGames(harness: JobHarness): Promise<IndexedGame[]> {
   return games
 }
 
-async function publish(deps: JobDeps, games: IndexedGame[]) {
+async function publish(deps: JobDeps, games: IndexedGame[], candidateCount?: number) {
   const version = await deps.writer.beginVersion()
   return publishVersion(deps, {
     version,
     games,
+    candidateCount,
     pricesUpdatedAt: RUN_AT,
     pricesFetched: 6,
     languagesFetched: 6,
@@ -54,6 +55,7 @@ describe('publishVersion', () => {
         pricedCount: 5,
         textCount: 4,
         audioCount: 2,
+        madeInUkraineCount: 0,
       },
     })
   })
@@ -178,5 +180,62 @@ describe('publishVersion', () => {
       /was never begun/,
     )
     expect(await harness.writer.currentVersion()).toBe(1)
+  })
+
+  describe('with studio games added to the candidates', () => {
+    const flagged = (games: IndexedGame[]) =>
+      games.map((game) => ({ ...game, madeInUkraine: true }))
+
+    it('measures the game-count gate on the candidates, not on the studio games', async () => {
+      const harness = createJobHarness({ start: RUN_AT })
+      const games = await indexedGames(harness)
+      await publish(harness.deps, games, games.length)
+
+      // The popularity walk collapsed to three games; two studio games bring the total to five,
+      // which is half of the published nine and would pass a gate counted on the total.
+      const collapsed = [...games.slice(0, 3), ...flagged(games.slice(5, 7))]
+      const outcome = await publish(harness.deps, collapsed, 3)
+
+      expect(collapsed.length).toBeGreaterThanOrEqual(games.length / 2)
+      expect(outcome.published).toBe(false)
+      expect(outcome.reason).toMatch(/3 candidates, fewer than half of the published 9/)
+      expect(await harness.writer.currentVersion()).toBe(1)
+    })
+
+    it("compares with the published version's candidates, not its total", async () => {
+      const harness = createJobHarness({ start: RUN_AT })
+      const games = await indexedGames(harness)
+      // Eight candidates and one studio game published.
+      await publish(harness.deps, [...games.slice(0, 8), ...flagged(games.slice(8))], 8)
+
+      // Four candidates keep exactly half of eight, though not half of the nine published games.
+      const half = games.filter((game) => [101, 102, 105, 106].includes(game.id))
+      const outcome = await publish(harness.deps, half, 4)
+
+      expect(outcome.published).toBe(true)
+    })
+
+    it('records the candidates and the games made in Ukraine in the run stats', async () => {
+      const harness = createJobHarness({ start: RUN_AT })
+      const games = await indexedGames(harness)
+
+      await publish(harness.deps, [...games.slice(0, 7), ...flagged(games.slice(7))], 7)
+
+      expect((await harness.writer.meta())?.stats).toMatchObject({
+        gamesIndexed: 9,
+        candidateCount: 7,
+        madeInUkraineCount: 2,
+      })
+    })
+
+    it('keeps the published candidate count through a run that walks no candidates', async () => {
+      const harness = createJobHarness({ start: RUN_AT })
+      const games = await indexedGames(harness)
+      await publish(harness.deps, games, 7)
+
+      await publish(harness.deps, games)
+
+      expect((await harness.writer.meta())?.stats?.candidateCount).toBe(7)
+    })
   })
 })

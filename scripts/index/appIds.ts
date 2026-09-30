@@ -38,6 +38,8 @@ export interface AppIdsResult {
   appIds: AppIdMap
   /** Games asked about in this run. */
   attempted: number
+  /** Their RAWG ids, so a run can say which of its games the lookups were spent on. */
+  asked: number[]
   /** Games RAWG would not answer for; they stay unresolved and are retried next run. */
   failures: number
 }
@@ -96,5 +98,10 @@ export async function resolveAppIds(
   deps.log(
     `app ids: ${pending.length - failures} resolved this run, ${failures} failed, ${withPage} of ${candidates.length} Steam candidates have a page`,
   )
-  return { appIds: known, attempted: pending.length, failures }
+  return {
+    appIds: known,
+    attempted: pending.length,
+    asked: pending.map((game) => game.id),
+    failures,
+  }
 }

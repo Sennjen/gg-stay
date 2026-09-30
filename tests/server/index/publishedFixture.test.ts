@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
-import { DEV_FIXTURE_GAMES } from '../../fixtures/index/devGames'
+import { DEV_FIXTURE_GAMES, DEV_FIXTURE_UKRAINIAN_GAMES } from '../../fixtures/index/devGames'
 import published from '../../fixtures/index/published.json' with { type: 'json' }
 
 /**
@@ -18,8 +18,19 @@ const fixture = published as unknown as { meta: IndexMeta; games: IndexedGame[] 
 
 describe('the published index fixture', () => {
   it('holds exactly the development games', () => {
-    expect(fixture.games).toEqual(DEV_FIXTURE_GAMES)
-    expect(fixture.meta.gameCount).toBe(DEV_FIXTURE_GAMES.length)
+    expect(fixture.games).toEqual([...DEV_FIXTURE_GAMES, ...DEV_FIXTURE_UKRAINIAN_GAMES])
+    expect(fixture.meta.gameCount).toBe(fixture.games.length)
+  })
+
+  it('holds at least five games made in Ukraine, so the shelf and the filter have something', async () => {
+    const index = createMemoryGameIndex()
+    const version = await index.beginVersion()
+    await index.writeVersion(version, fixture.games)
+    await index.publish(version, { ...fixture.meta, version })
+
+    const madeInUkraine = await index.search({ madeInUkraine: true })
+    expect(madeInUkraine.total).toBeGreaterThanOrEqual(5)
+    expect(madeInUkraine.ids).toEqual(DEV_FIXTURE_UKRAINIAN_GAMES.map((game) => game.id))
   })
 
   it('dates every price it knows, so a price is never served without its timestamp', () => {
@@ -35,8 +46,11 @@ describe('the published index fixture', () => {
     await index.publish(version, { ...fixture.meta, version })
     expect((await index.search({ ukrainianLocalisation: 'AUDIO' })).ids).toEqual([3328])
     expect((await index.search({ free: true })).ids).toEqual([654])
-    expect((await index.search({ sort: 'PRICE_ASC' })).ids).toEqual([654, 4200, 3328])
-    expect((await index.meta())?.gameCount).toBe(DEV_FIXTURE_GAMES.length)
+    // Cheapest first; the two priced games made in Ukraine (749 ₴, 899 ₴) come after the rest.
+    expect((await index.search({ sort: 'PRICE_ASC' })).ids).toEqual([
+      654, 4200, 3328, 28201, 447825,
+    ])
+    expect((await index.meta())?.gameCount).toBe(fixture.games.length)
   })
 
   /**
@@ -67,9 +81,11 @@ describe('the published index fixture', () => {
     const version = await index.beginVersion()
     await index.writeVersion(version, fixture.games)
     await index.publish(version, { ...fixture.meta, version })
-    // Portal 2 at −75 % ahead of The Witcher 3 at −50 %, then the free game, which is priced
-    // (at nothing) and so is in the discount order too, at zero.
-    expect((await index.search({ sort: 'DISCOUNT_DESC' })).ids).toEqual([4200, 3328, 654])
+    // Portal 2 at −75 % ahead of The Witcher 3 at −50 % and Metro Exodus at −40 %, then the
+    // undiscounted priced games at zero — the free one among them — by popularity.
+    expect((await index.search({ sort: 'DISCOUNT_DESC' })).ids).toEqual([
+      4200, 3328, 28201, 654, 447825,
+    ])
     expect((await index.search({ priceMaxUah: 300, onSaleMinPercent: 50 })).ids).toEqual([4200])
   })
 

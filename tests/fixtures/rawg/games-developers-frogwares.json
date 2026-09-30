@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 999001,
+      "slug": "unreleased-sample",
+      "name": "Unreleased Sample",
+      "released": null,
+      "tba": true,
+      "background_image": null,
+      "rating": 0,
+      "ratings_count": 0,
+      "metacritic": null,
+      "playtime": 0,
+      "added": 10,
+      "platforms": null,
+      "parent_platforms": null,
+      "short_screenshots": null,
+      "genres": [],
+      "tags": null,
+      "stores": null,
+      "esrb_rating": null
+    }
+  ]
+}

@@ -56,6 +56,17 @@ export interface IndexedGame {
   free: boolean
   localisation: IndexedLocalisation | null
   madeInUkraine: boolean
+  /**
+   * The RAWG developer slugs of the studio list the refresh job found this game under, when it is
+   * flagged. It lets a run that cannot read a studio tonight keep that studio's games as they were
+   * published. Optional: documents published before it existed, and unflagged games, have none.
+   */
+  studioSlugs?: string[]
+  /**
+   * When the refresh job last found this game under one of `studioSlugs` (ISO timestamp). A game
+   * kept only because its slug answered nothing is dropped a week after this.
+   */
+  studioSeenAt?: string
   /** ISO timestamp of the last successful price read. */
   priceUpdatedAt: string | null
 }
@@ -87,6 +98,14 @@ export interface IndexRunStats {
   /** Games published with Ukrainian text, and with Ukrainian audio. */
   textCount: number
   audioCount: number
+  /** Games published with the made-in-Ukraine flag. */
+  madeInUkraineCount: number
+  /**
+   * Games that came from RAWG's popularity list, as opposed to the studio games a full run adds to
+   * it. The blue/green game-count check is measured on this, so studio games cannot hide a
+   * collapsed candidate list.
+   */
+  candidateCount: number
 }
 
 export interface IndexMeta {

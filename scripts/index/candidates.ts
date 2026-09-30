@@ -2,6 +2,7 @@ import type { JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
 import { esrbToAgeRating, gameModesFromTags, storeSlugFromId } from '../../server/rawg/lookups'
 import { positive } from '../../server/rawg/mappers'
+import type { RawgParams } from '../../server/rawg/rawgFetch'
 import type { RawgGameListItem, RawgList, RawgShortScreenshot } from '../../server/rawg/types'
 import { safeExternalUrl } from '../../shared/url'
 
@@ -25,7 +26,7 @@ import { safeExternalUrl } from '../../shared/url'
 export const CANDIDATE_PAGE_SIZE = 40
 export const DEFAULT_CANDIDATE_PAGES = 75
 /** Pages between two renewals of the write lock; see `INDEX_LOCK_TTL_SECONDS`. */
-const PAGES_PER_LOCK_RENEWAL = 20
+export const PAGES_PER_LOCK_RENEWAL = 20
 
 export interface CandidatesOptions {
   /** How many RAWG pages to walk at most. */
@@ -98,26 +99,33 @@ export function toIndexedGame(raw: RawgGameListItem): IndexedGame | null {
   }
 }
 
+export type RawgGamesPage = RawgList<RawgGameListItem> & { results: RawgGameListItem[] }
+
 /**
- * One page of the popularity list. RAWG has been seen answering a page with an empty body (`null`)
+ * One page of a RAWG `games` list. RAWG has been seen answering a page with an empty body (`null`)
  * under a 200; the transport has nothing to retry there, so the page is asked for once more, and a
- * second bad answer fails the stage by name rather than with a TypeError from deep inside the loop.
+ * second bad answer fails by name — `what` says which page of which list — rather than with a
+ * TypeError from deep inside the caller's loop. The popularity walk and the studio lists both read
+ * their pages through here.
  */
-async function fetchCandidatePage(
+export async function fetchGamesPage(
   deps: JobDeps,
-  page: number,
-): Promise<RawgList<RawgGameListItem> & { results: RawgGameListItem[] }> {
+  params: RawgParams,
+  what: string,
+): Promise<RawgGamesPage> {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const response = (await deps.rawg('games', {
-      ordering: '-added',
-      page_size: CANDIDATE_PAGE_SIZE,
-      page,
-    })) as RawgList<RawgGameListItem> | null
-    if (response && Array.isArray(response.results)) {
-      return response as RawgList<RawgGameListItem> & { results: RawgGameListItem[] }
-    }
+    const response = (await deps.rawg('games', params)) as RawgList<RawgGameListItem> | null
+    if (response && Array.isArray(response.results)) return response as RawgGamesPage
   }
-  throw new Error(`RAWG answered page ${page} of the popularity list without a result list twice`)
+  throw new Error(`RAWG answered ${what} without a result list twice`)
+}
+
+function fetchCandidatePage(deps: JobDeps, page: number): Promise<RawgGamesPage> {
+  return fetchGamesPage(
+    deps,
+    { ordering: '-added', page_size: CANDIDATE_PAGE_SIZE, page },
+    `page ${page} of the popularity list`,
+  )
 }
 
 export async function collectCandidates(
@@ -154,8 +162,16 @@ export async function collectCandidates(
  * free flag and the localisation. A full run would otherwise start every game at "no price" and a
  * single bad Steam answer would publish a catalog with the price silently gone, which the price
  * stage's keep-what-we-had rule and the publication's priced-count gate both measure against.
+ *
+ * Never the made-in-Ukraine flag: the studios stage owns it, and keeps a published flag only for a
+ * studio it could not read tonight, so a studio taken off the list takes its flags with it.
  */
-export async function carryPublishedForward(deps: JobDeps, games: IndexedGame[]): Promise<number> {
+export async function carryPublishedForward(
+  deps: JobDeps,
+  games: IndexedGame[],
+  stage = 'candidates',
+): Promise<number> {
+  if (games.length === 0) return 0
   const published = await deps.writer.getMany(games.map((game) => game.id))
   if (published.size === 0) return 0
 
@@ -172,6 +188,6 @@ export async function carryPublishedForward(deps: JobDeps, games: IndexedGame[])
     carried += 1
   }
 
-  deps.log(`candidates: carried the published price and languages forward for ${carried} games`)
+  deps.log(`${stage}: carried the published price and languages forward for ${carried} games`)
   return carried
 }

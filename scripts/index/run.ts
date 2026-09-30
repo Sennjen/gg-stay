@@ -6,6 +6,8 @@ import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
+import { collectStudioGames } from './studios'
+import { UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainianStudios'
 import { createJobRawg, createJobSteam, systemClock } from './upstreams'
 import { createWriterFromEnv } from './writer'
 import type { IndexedGame } from '../../server/index/document'
@@ -17,7 +19,8 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  *
  * Three cadences, as the design sets them out: `--mode=prices` every six hours (cheap: one
  * batched Steam call over the documents the published version already holds), `--mode=full`
- * nightly (the candidate list, new app ids, prices, and a budgeted slice of the language work),
+ * nightly (the candidate list, the Ukrainian studios' games, new app ids, prices, and a budgeted
+ * slice of the language work),
  * and `--mode=languages` weekly (the rest of the language sweep, at forty requests a minute).
  *
  * Everything that touches the outside world is built here and handed to the stages, so the stages
@@ -68,10 +71,40 @@ export interface JobOptions {
   forceUnlock: boolean
 }
 
+/**
+ * What the studios stage found and what it cost RAWG, for the job summary. A full run only: the
+ * other modes republish the flags the last full run set.
+ */
+export interface StudioReport {
+  /** Games of this run made in Ukraine, and of the version published before it (`null`: none). */
+  madeInUkraine: number
+  previousMadeInUkraine: number | null
+  /** Games added beyond the popularity list, and those the bound left out. */
+  appended: number
+  dropped: number
+  /** Published games kept flagged because tonight could not confirm them. */
+  kept: number
+  /** Published games of a 404 or empty slug dropped after a week unconfirmed. */
+  expired: number
+  /** Under half the published count was found, so every published flag was kept. */
+  degraded: boolean
+  /** Studio slugs that failed and were skipped. */
+  failures: number
+  /** Slugs RAWG does not know (404), slugs that listed no games, and studios with no game at all. */
+  unknownSlugs: string[]
+  emptySlugs: string[]
+  studiosWithoutGames: string[]
+  /** RAWG requests for the studios' game lists, retries included. */
+  listRequests: number
+  /** RAWG app-id lookups spent on appended games — on their first run only, the mapping is kept. */
+  appIdLookups: number
+}
+
 export interface JobReport {
   mode: JobMode
   dryRun: boolean
   outcome: PublishOutcome | null
+  studios: StudioReport | null
   pricesFetched: number
   languagesFetched: number
   failures: number
@@ -165,6 +198,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     mode: options.mode,
     dryRun: false,
     outcome: null,
+    studios: null,
     pricesFetched: 0,
     languagesFetched: 0,
     failures: 0,
@@ -182,6 +216,8 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
   let pricesFetched = 0
   let languagesFetched = 0
   let failures = 0
+  let studios: StudioReport | null = null
+  let candidateCount: number | undefined
 
   try {
     version = await stage('starting the version', () =>
@@ -198,9 +234,43 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
         await carryPublishedForward(deps, collected)
         return collected
       })
+      candidateCount = games.length
+      // After the candidates' carry-forward, so nothing it copies can overwrite a flag set here;
+      // the games it appends get their own carry-forward, as a candidate would have.
+      const found = await stage('studios', async () => {
+        // A manual run with a few candidate pages is a smoke test, but the studios are read in
+        // full all the same: said here, because the RAWG requests it costs are not small.
+        if (options.pages < DEFAULT_CANDIDATE_PAGES) {
+          deps.log(
+            `studios: reading all ${UKRAINIAN_STUDIO_SLUGS.length} studio slugs although --pages=${options.pages} limits the candidates`,
+          )
+        }
+        const result = await collectStudioGames(deps, games)
+        await carryPublishedForward(deps, result.appended, 'studios')
+        return result
+      })
+      failures += found.failures
+      studios = {
+        madeInUkraine: found.madeInUkraine,
+        previousMadeInUkraine: found.previousMadeInUkraine,
+        appended: found.appended.length,
+        dropped: found.dropped,
+        kept: found.kept,
+        expired: found.expired,
+        degraded: found.degraded,
+        failures: found.failures,
+        unknownSlugs: found.unknown,
+        emptySlugs: found.empty,
+        studiosWithoutGames: found.studiosWithoutGames,
+        listRequests: found.requests,
+        appIdLookups: 0,
+      }
+
       const resolved = await stage('app ids', () => resolveAppIds(deps, games))
       appIds = resolved.appIds
       failures += resolved.failures
+      const appended = new Set(found.appended.map((game) => game.id))
+      studios.appIdLookups = resolved.asked.filter((id) => appended.has(id)).length
     } else {
       games = await stage('published documents', async () => {
         const documents = await deps.writer.allGames()
@@ -262,6 +332,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       publishVersion(deps, {
         version: version!,
         games,
+        candidateCount,
         pricesUpdatedAt,
         pricesFetched,
         languagesFetched,
@@ -270,7 +341,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       }),
     )
 
-    return report({ outcome, pricesFetched, languagesFetched, failures })
+    return report({ outcome, studios, pricesFetched, languagesFetched, failures })
   } catch (error) {
     // Give the draft and the lock back before the failure leaves this function — but only a
     // version that was actually begun: nothing is discarded that does not exist. `discardVersion`
@@ -279,7 +350,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // What the run had already done goes out with the failure. The summary of a failed run is the
     // whole of the alert, and one full of zeroes says less than the run knew.
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
-      report: report({ pricesFetched, languagesFetched, failures }),
+      report: report({ studios, pricesFetched, languagesFetched, failures }),
     })
   }
 }
@@ -287,6 +358,57 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
 function duration(ms: number): string {
   const seconds = Math.round(ms / 1000)
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+function listOrNone(items: readonly string[]): string {
+  return items.length > 0 ? items.join(', ') : 'none'
+}
+
+/** The studio rows: what a full run found, kept and paid for, or what the others republished. */
+function studioRows(report: JobReport): [string, string][] {
+  const studios = report.studios
+  if (!studios) {
+    const published = report.outcome?.meta.stats?.madeInUkraineCount
+    return published === undefined
+      ? []
+      : [['Studio games', `${published} made in Ukraine (not re-read in this mode)`]]
+  }
+  const rows: [string, string][] = [
+    [
+      'Studio games',
+      `${studios.madeInUkraine} made in Ukraine (published version: ${
+        studios.previousMadeInUkraine ?? 'none'
+      }), ` +
+        `${studios.appended} added beyond the popularity list, ` +
+        `${studios.dropped} dropped by the bound, ` +
+        `${studios.kept} kept from the published version, ` +
+        `${plural(studios.failures, 'studio', 'studios')} failed; ` +
+        `RAWG: ${plural(studios.listRequests, 'list request', 'list requests')}, ` +
+        plural(studios.appIdLookups, 'app id lookup', 'app id lookups'),
+    ],
+  ]
+  if (studios.expired > 0) {
+    rows.push([
+      'Studio games expired',
+      `${studios.expired} games of unknown or empty studio slugs, not found for a week, were dropped`,
+    ])
+  }
+  if (studios.degraded) {
+    rows.push([
+      'Studios stage',
+      'degraded — under half the published games made in Ukraine were found, so every published flag was kept',
+    ])
+  }
+  rows.push(
+    ['Studios with no games', listOrNone(studios.studiosWithoutGames)],
+    ['Studio slugs unknown to RAWG', listOrNone(studios.unknownSlugs)],
+    ['Studio slugs with no games', listOrNone(studios.emptySlugs)],
+  )
+  return rows
 }
 
 /** The Markdown GitHub shows on the run's summary page, for a run that reached a verdict. */
@@ -321,6 +443,8 @@ export function formatSummary(report: JobReport): string {
       ['Item failures', String(report.failures)],
     )
   }
+
+  rows.push(...studioRows(report))
 
   rows.push([
     'Index traffic',
@@ -401,6 +525,7 @@ export async function runCli(
       mode: reached?.mode ?? mode,
       dryRun,
       outcome: null,
+      studios: reached?.studios ?? null,
       pricesFetched: reached?.pricesFetched ?? 0,
       languagesFetched: reached?.languagesFetched ?? 0,
       failures: reached?.failures ?? 0,

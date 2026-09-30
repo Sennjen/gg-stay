@@ -3,12 +3,15 @@ import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import { parseSteamPrice } from '../../../server/steam/price'
 import { parseUkrainianSupport } from '../../../server/steam/languages'
 import type { SteamAppLanguages, SteamPriceFetch } from '../../../server/steam/steamPriceFetch'
+import { createRawgFetch, type CacheEntry, type RawgFetch } from '../../../server/rawg/rawgFetch'
+import type { RawgGameListItem } from '../../../server/rawg/types'
 import {
   JOB_GAMES,
   JOB_STEAM_APPS,
   JOB_STEAM_PRICES,
   JOB_STORE_LINKS,
   jobGamesPage,
+  jobStudioPage,
 } from '../../fixtures/index/jobCatalog'
 
 /**
@@ -46,16 +49,27 @@ export interface FakeRawg {
   calls: RawgCall[]
   /** The paths of `games/{id}/stores` calls, which the app-id rules are counted in. */
   storeCalls: () => RawgCall[]
+  /** The popularity walk's `games` calls. */
   pageCalls: () => RawgCall[]
-  /** Makes the first later call matching `match` reject, the way a dropped run would see it. */
-  failNext: (match: (call: RawgCall) => boolean) => void
+  /** The studios stage's `games?developers=<slug>` calls. */
+  studioCalls: () => RawgCall[]
+  /**
+   * Makes the first later call matching `match` reject, the way a dropped run would see it — with
+   * `error` when given, e.g. the transport's `NOT_FOUND` for a slug RAWG does not know.
+   */
+  failNext: (match: (call: RawgCall) => boolean, error?: Error) => void
   /** Makes the first later call matching `match` resolve with `body` instead of the real page. */
   answerNextWith: (match: (call: RawgCall) => boolean, body: unknown) => void
 }
 
-export function createFakeRawg(): FakeRawg {
+/**
+ * `studios` is what `games?developers=<slug>` lists per slug (`JOB_STUDIO_GAMES` in the studio
+ * tests); a slug it does not name has no games, so a test that is not about the studios stage
+ * sees the stage find nothing.
+ */
+export function createFakeRawg(studios: Record<string, RawgGameListItem[]> = {}): FakeRawg {
   const calls: RawgCall[] = []
-  const failures: ((call: RawgCall) => boolean)[] = []
+  const failures: { match: (call: RawgCall) => boolean; error?: Error }[] = []
   const answers: { match: (call: RawgCall) => boolean; body: unknown }[] = []
 
   const rawg: JobDeps['rawg'] = async (path, params) => {
@@ -66,17 +80,22 @@ export function createFakeRawg(): FakeRawg {
     )
     const call = { path, params: flat }
     calls.push(call)
-    const failureIndex = failures.findIndex((match) => match(call))
+    const failureIndex = failures.findIndex((failure) => failure.match(call))
     if (failureIndex !== -1) {
-      failures.splice(failureIndex, 1)
-      throw new Error(`RAWG upstream failure (${path})`)
+      const [failure] = failures.splice(failureIndex, 1)
+      throw failure!.error ?? new Error(`RAWG upstream failure (${path})`)
     }
     const answerIndex = answers.findIndex((answer) => answer.match(call))
     if (answerIndex !== -1) return answers.splice(answerIndex, 1)[0]!.body
+    if (path === 'games' && flat.developers) {
+      return jobStudioPage(studios, flat.developers, Number(flat.page ?? '1'))
+    }
     if (path === 'games') return jobGamesPage(Number(flat.page ?? '1'))
     const storeMatch = /^games\/([a-z0-9-]+)\/stores$/.exec(path)
     if (storeMatch) {
-      const game = JOB_GAMES.find((entry) => entry.slug === storeMatch[1])
+      const game = [...JOB_GAMES, ...Object.values(studios).flat()].find(
+        (entry) => entry.slug === storeMatch[1],
+      )
       return (game?.id && JOB_STORE_LINKS[game.id]) ?? { count: 0, next: null, results: [] }
     }
     throw new Error(`Unexpected RAWG path ${path}`)
@@ -86,10 +105,39 @@ export function createFakeRawg(): FakeRawg {
     rawg,
     calls,
     storeCalls: () => calls.filter((call) => call.path.endsWith('/stores')),
-    pageCalls: () => calls.filter((call) => call.path === 'games'),
-    failNext: (match) => void failures.push(match),
+    pageCalls: () => calls.filter((call) => call.path === 'games' && !call.params.developers),
+    studioCalls: () => calls.filter((call) => call.path === 'games' && !!call.params.developers),
+    failNext: (match, error) => void failures.push({ match, error }),
     answerNextWith: (match, body) => void answers.push({ match, body }),
   }
+}
+
+/**
+ * The real RAWG transport (`createRawgFetch`, with the job's kind of in-memory cache) in front of a
+ * scripted network: each request takes the next body from `bodies`, all under a 200. The fake RAWG
+ * above answers the stages directly and so cannot show what the transport's cache does to a
+ * stage's retry; this can.
+ */
+export function createTransportRawg(bodies: unknown[]): { rawg: RawgFetch; urls: string[] } {
+  const urls: string[] = []
+  const cache = new Map<string, CacheEntry>()
+  let now = Date.parse('2026-09-20T03:00:00.000Z')
+  const rawg = createRawgFetch({
+    apiKey: 'test-key',
+    fixtures: false,
+    fetchJson: async (url) => {
+      urls.push(url)
+      return { status: 200, body: bodies.shift() ?? null }
+    },
+    readFixture: async () => null,
+    cache: {
+      get: async (key) => cache.get(key) ?? null,
+      set: async (key, entry) => void cache.set(key, entry),
+    },
+    now: () => now,
+    sleep: async (ms) => void (now += ms),
+  })
+  return { rawg, urls }
 }
 
 export interface SteamLanguageCall {
@@ -161,9 +209,15 @@ export interface JobHarness extends FakeRawg, FakeSteam {
   logs: string[]
 }
 
-export function createJobHarness(options: { start?: string; writer?: JobIndex } = {}): JobHarness {
+export function createJobHarness(
+  options: {
+    start?: string
+    writer?: JobIndex
+    studios?: Record<string, RawgGameListItem[]>
+  } = {},
+): JobHarness {
   const clock = createFakeClock(options.start)
-  const fakeRawg = createFakeRawg()
+  const fakeRawg = createFakeRawg(options.studios)
   const fakeSteam = createFakeSteam(clock)
   const writer = options.writer ?? createMemoryGameIndex()
   const logs: string[] = []

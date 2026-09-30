@@ -1,0 +1,63 @@
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 999002,
+      "slug": "studio-sample",
+      "name": "Studio Sample",
+      "released": "2025-11-20",
+      "tba": false,
+      "background_image": null,
+      "rating": 4.1,
+      "ratings_count": 12,
+      "metacritic": null,
+      "playtime": 8,
+      "added": 5,
+      "platforms": [
+        {
+          "platform": {
+            "id": 4,
+            "name": "PC",
+            "slug": "pc"
+          }
+        }
+      ],
+      "parent_platforms": [
+        {
+          "platform": {
+            "id": 1,
+            "name": "PC",
+            "slug": "pc"
+          }
+        }
+      ],
+      "short_screenshots": null,
+      "genres": [
+        {
+          "id": 3,
+          "name": "Adventure",
+          "slug": "adventure"
+        }
+      ],
+      "tags": [
+        {
+          "id": 31,
+          "name": "Singleplayer",
+          "slug": "singleplayer"
+        }
+      ],
+      "stores": [
+        {
+          "store": {
+            "id": 5,
+            "name": "GOG",
+            "slug": "gog"
+          }
+        }
+      ],
+      "esrb_rating": null
+    }
+  ]
+}

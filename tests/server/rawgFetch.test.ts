@@ -209,4 +209,38 @@ describe('createRawgFetch', () => {
     // falling back to the stale cache entry.
     expect(fetchJson).toHaveBeenCalledTimes(3)
   })
+
+  describe('a body that is not a JSON object', () => {
+    it.each([
+      ['null', null],
+      ['an array', []],
+      ['a string', 'Service Unavailable'],
+    ])(
+      'hands %s back once and never caches it, so the next call asks RAWG again',
+      async (_name, body) => {
+        const fetchJson = vi
+          .fn()
+          .mockResolvedValueOnce({ status: 200, body })
+          .mockResolvedValueOnce({ status: 200, body: { results: [{ id: 1 }] } })
+        const { deps, store } = makeDeps({ fetchJson })
+        const rawg = createRawgFetch(deps)
+
+        expect(await rawg('games', { page: 2 })).toEqual(body)
+        expect(store.size).toBe(0)
+        expect(await rawg('games', { page: 2 })).toEqual({ results: [{ id: 1 }] })
+        expect(fetchJson).toHaveBeenCalledTimes(2)
+      },
+    )
+
+    it('never serves one from the cache or as a stale fallback', async () => {
+      const fetchJson = vi.fn().mockResolvedValue({ status: 500, body: null })
+      const { deps, store } = makeDeps({ fetchJson })
+      // Written by a build that still cached empty bodies.
+      store.set('games?page=2', { value: null, expiresAt: Number.MAX_SAFE_INTEGER })
+      const rawg = createRawgFetch(deps)
+
+      await expect(rawg('games', { page: 2 })).rejects.toMatchObject({ kind: 'ERROR' })
+      expect(fetchJson).toHaveBeenCalled()
+    })
+  })
 })

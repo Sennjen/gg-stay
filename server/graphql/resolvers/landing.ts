@@ -1,6 +1,7 @@
 import { safeExternalUrl } from '../../../shared/url'
 import { mapGameCard } from '../../rawg/mappers'
 import { dateRange, pickFeatured, pickTopRated } from '../../rawg/landing'
+import { rawgListOrThrow } from '../../rawg/rawgFetch'
 import type { RawgGameListItem, RawgList, RawgMovie, RawgStoreLink } from '../../rawg/types'
 import { pickTrailer, steamAppIdFromUrl } from '../../steam/steam'
 import type { SteamAppDetailsResponse } from '../../steam/types'
@@ -23,7 +24,7 @@ async function fetchGamesList(
   context: GraphQLContext,
   params: Record<string, string | number | undefined>,
 ): Promise<RawgList<RawgGameListItem>> {
-  return context.rawg('games', params, { ttl: LANDING_TTL }) as Promise<RawgList<RawgGameListItem>>
+  return rawgListOrThrow(await context.rawg('games', params, { ttl: LANDING_TTL }))
 }
 
 async function fetchRawgClipUrl(

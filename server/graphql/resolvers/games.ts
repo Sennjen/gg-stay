@@ -4,7 +4,8 @@ import { toGameCard } from '../../index/toGraphql'
 import { filterToParams } from '../../rawg/filterToParams'
 import { mapGameCard, mapGamePage, type GamePageIndexState } from '../../rawg/mappers'
 import { postFilter } from '../../rawg/postFilter'
-import type { RawgGameListItem, RawgList } from '../../rawg/types'
+import { rawgListOrThrow } from '../../rawg/rawgFetch'
+import type { RawgGameListItem } from '../../rawg/types'
 import type { GraphQLContext } from '../context'
 import { withUpstreamErrors } from '../errors'
 import {
@@ -197,7 +198,9 @@ async function rawgPage(
     pageSize: input.pageSize,
     today: context.today,
   })
-  const fetching = context.rawg('games', params) as Promise<RawgList<RawgGameListItem>>
+  const fetching = context
+    .rawg('games', params)
+    .then((body) => rawgListOrThrow<RawgGameListItem>(body))
   const [raw, state] = await Promise.all([fetching, pending])
 
   const items = postFilter(raw.results ?? [], input.filter).map(mapGameCard)
