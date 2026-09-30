@@ -7,7 +7,9 @@ import type { IndexedGame } from '../../server/index/document'
  * Each game is a set of features — its tags, its genres (`genre:<slug>`) and its game modes
  * (`mode:<mode>`) — and each feature weighs its inverse document frequency over the index,
  * `log(N / df)`: a feature every game has weighs nothing, "singleplayer" or "action" next to
- * nothing, and "post-apocalyptic" a lot. Two games score the cosine of their weighted vectors.
+ * nothing, and "post-apocalyptic" a lot. A feature only one game has is left out: it matches
+ * nothing and would only weigh down that game's norm. Two games score the cosine of their weighted
+ * vectors.
  *
  * A candidate must share a genre with the game, or be close enough on the tags alone
  * (`CROSS_GENRE_MIN_SCORE`): a detective adventure may list a detective RPG, while an action game
@@ -32,6 +34,9 @@ export const CROSS_GENRE_MIN_SCORE = 0.25
  * game in the index gains this much, an unknown one nothing, on a log scale between them.
  */
 export const POPULARITY_PRIOR = 0.02
+
+/** A feature fewer games than this carry is left out of every vector: it cannot match anything. */
+export const MIN_FEATURE_GAMES = 2
 
 export interface SimilarOptions {
   /** Games per list; `SIMILAR_LIST_SIZE` unless a test wants the whole ranking. */
@@ -99,17 +104,26 @@ export function computeSimilar(
   const docs = [...byId.values()].sort((left, right) => left.id - right.id)
   const count = docs.length
 
+  // A feature only one game has can match nothing, yet it would weigh the most of all in that
+  // game's norm and push it down every other game's list — the fate of a well-tagged game whose
+  // long-tail tags nobody else in the index carries. Such features are left out of the vectors.
+  const named = docs.map((game) => similarityFeatures(game))
+  const shared = new Map<string, number>()
+  for (const features of named) {
+    for (const feature of features) shared.set(feature, (shared.get(feature) ?? 0) + 1)
+  }
   const featureIds = new Map<string, number>()
   const genreFeature: boolean[] = []
-  const gameFeatures = docs.map((game) =>
-    similarityFeatures(game).map((feature) => {
+  const gameFeatures = named.map((features) =>
+    features.flatMap((feature) => {
+      if (shared.get(feature)! < MIN_FEATURE_GAMES) return []
       let id = featureIds.get(feature)
       if (id === undefined) {
         id = featureIds.size
         featureIds.set(feature, id)
         genreFeature.push(feature.startsWith('genre:'))
       }
-      return id
+      return [id]
     }),
   )
 

@@ -80,6 +80,24 @@ describe('computeSimilar on real-looking games', () => {
     for (const hit of [GTA_V, PORTAL_2, WITCHER_3, CS_GO]) expect(stored).not.toContain(hit)
   })
 
+  it('keeps well-tagged related games whose other tags no game shares', () => {
+    // RAWG gives a big game dozens of tags; some of them no other indexed game carries. They can
+    // match nothing, and must not push the game out of every list by inflating its norm.
+    const related = [METRO_2033, METRO_LAST_LIGHT, STALKER_SOC, STALKER_COP]
+    const games = SIMILAR_CORPUS.map((entry) =>
+      related.includes(entry.id)
+        ? {
+            ...entry,
+            tags: [
+              ...entry.tags!.slice(0, 6),
+              ...Array.from({ length: 6 }, (_, n) => `only-${entry.id}-${n}`),
+            ],
+          }
+        : entry,
+    )
+    expect(computeSimilar(games).get(METRO_EXODUS)).toEqual(expect.arrayContaining(related))
+  })
+
   it('ranks the other detective games first for a Sherlock Holmes game', () => {
     const stored = computeSimilar(SIMILAR_CORPUS).get(SHERLOCK_CRIMES)!
     const detectives = [
@@ -145,9 +163,14 @@ describe('computeSimilar rules', () => {
   it('lists a game of another genre only when the tags make it close', () => {
     const target = game({ id: 1, genres: ['action'], tags: ['detective', 'noir', 'crime'] })
     const close = game({ id: 2, genres: ['adventure'], tags: ['detective', 'noir', 'crime'] })
-    const far = game({ id: 3, genres: ['puzzle'], tags: ['crime', 'x', 'y', 'z', 'w'] })
+    // Shares "crime" only; its other tags are the crowd's, so they count against it.
+    const far = game({
+      id: 3,
+      genres: ['puzzle'],
+      tags: ['crime', ...Array.from({ length: 8 }, (_, n) => `crowd-${n}`)],
+    })
     const crowd = Array.from({ length: 20 }, (_, n) =>
-      game({ id: 100 + n, genres: ['strategy'], tags: [`crowd-${n}`] }),
+      game({ id: 100 + n, genres: ['strategy'], tags: [`crowd-${n % 10}`] }),
     )
 
     const ranking = rankingOf([target, close, far, ...crowd], 1)
