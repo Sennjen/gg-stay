@@ -9,7 +9,9 @@ import type { IndexMeta, IndexedGame } from '../../server/index/document'
  * from the design:
  *
  * - a run that ends with fewer than half the games the published version has is a truncated run,
- *   not a shrinking catalog;
+ *   not a shrinking catalog. A full run is measured on its candidates — the popularity list — and
+ *   against the published version's candidates, because the studio games it appends (up to 400)
+ *   would otherwise let a candidate walk that collapsed pass on the total;
  * - a run with no priced games at all, where the published version had some, means Steam was
  *   unreachable — and a catalog with prices silently gone is worse than yesterday's catalog;
  * - a run that priced less than three quarters of what the published version prices, which is the
@@ -35,6 +37,11 @@ export const MIN_PRICED_RATIO = 0.75
 export interface PublishInput {
   version: number
   games: IndexedGame[]
+  /**
+   * How many of `games` came from the popularity list; set by a full run only. A run that walks
+   * no candidates republishes the published documents and is measured on their total.
+   */
+  candidateCount?: number
   /** When the prices in `games` were read; `null` when this run refreshed none. */
   pricesUpdatedAt: string | null
   pricesFetched: number
@@ -58,12 +65,37 @@ export function countIndexed(games: IndexedGame[]) {
     pricedCount: games.filter((game) => game.priceUah !== null).length,
     textCount: games.filter((game) => game.localisation?.text).length,
     audioCount: games.filter((game) => game.localisation?.audio).length,
+    madeInUkraineCount: games.filter((game) => game.madeInUkraine).length,
   }
+}
+
+/**
+ * The game-count check. A full run is measured on its candidates against the published version's
+ * candidates — a version published before candidates were counted held nothing but candidates, so
+ * its total stands in. Any other run republishes the published documents and is measured on them.
+ */
+function truncatedRunReason(
+  input: PublishInput,
+  gameCount: number,
+  previous: IndexMeta,
+): string | null {
+  if (input.candidateCount !== undefined) {
+    const published = previous.stats?.candidateCount ?? previous.gameCount
+    return input.candidateCount < published * MIN_GAME_RATIO
+      ? `the run collected ${input.candidateCount} candidates, fewer than half of the published ${published}`
+      : null
+  }
+  return gameCount < previous.gameCount * MIN_GAME_RATIO
+    ? `the run indexed ${gameCount} games, fewer than half of the published ${previous.gameCount}`
+    : null
 }
 
 export async function publishVersion(deps: JobDeps, input: PublishInput): Promise<PublishOutcome> {
   const counts = countIndexed(input.games)
   const previous = await deps.writer.meta()
+  // A run that walked no candidates keeps the published count, so the next full run still has
+  // candidates to be measured against.
+  const candidateCount = input.candidateCount ?? previous?.stats?.candidateCount
 
   const meta: IndexMeta = {
     version: input.version,
@@ -79,23 +111,20 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
       pricedCount: counts.pricedCount,
       textCount: counts.textCount,
       audioCount: counts.audioCount,
+      madeInUkraineCount: counts.madeInUkraineCount,
+      ...(candidateCount === undefined ? {} : { candidateCount }),
     },
   }
 
-  const floor = previous ? previous.gameCount * MIN_GAME_RATIO : 0
   const previouslyPriced = previous?.stats?.pricedCount ?? 0
 
-  let reason: string | null = null
-  if (previous && counts.gameCount < floor) {
-    reason = `the run indexed ${counts.gameCount} games, fewer than half of the published ${previous.gameCount}`
-  } else if (previous && previouslyPriced > 0 && counts.pricedCount === 0) {
-    reason = `the run priced no games while the published version prices ${previouslyPriced}`
-  } else if (
-    previous &&
-    previouslyPriced > 0 &&
-    counts.pricedCount < previouslyPriced * MIN_PRICED_RATIO
-  ) {
-    reason = `the run priced ${counts.pricedCount} games, against ${previouslyPriced} in the published version`
+  let reason = previous ? truncatedRunReason(input, counts.gameCount, previous) : null
+  if (!reason && previouslyPriced > 0) {
+    if (counts.pricedCount === 0) {
+      reason = `the run priced no games while the published version prices ${previouslyPriced}`
+    } else if (counts.pricedCount < previouslyPriced * MIN_PRICED_RATIO) {
+      reason = `the run priced ${counts.pricedCount} games, against ${previouslyPriced} in the published version`
+    }
   }
 
   if (reason) {
