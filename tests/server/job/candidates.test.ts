@@ -3,7 +3,11 @@ import {
   CANDIDATE_PAGE_SIZE,
   carryPublishedForward,
   collectCandidates,
+  indexTags,
+  isStoreTag,
+  MAX_INDEXED_TAGS,
   previewOf,
+  toIndexedGame,
 } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
 import { JOB_GAMES, JOB_PAGE_COUNT, jobGamesPage } from '../../fixtures/index/jobCatalog'
@@ -49,6 +53,8 @@ describe('collectCandidates', () => {
       popularity: 21000,
       platforms: [4, 187],
       genres: ['action'],
+      // `singleplayer` is already the game mode and `steam-achievements` describes the store.
+      tags: ['story-rich'],
       stores: ['steam', 'gog'],
       gameModes: ['SINGLE'],
       ageRating: 'PEGI18',
@@ -253,5 +259,91 @@ describe('previewOf', () => {
 
   it('drops a screenshot whose URL would not be safe to render', () => {
     expect(previewOf([{ id: 2, image: 'javascript:alert(1)' }], cover)).toBeNull()
+  })
+})
+
+describe('indexTags', () => {
+  const eng = (slug: string, gamesCount?: number) => ({
+    id: slug.length,
+    slug,
+    name: slug,
+    language: 'eng',
+    ...(gamesCount === undefined ? {} : { games_count: gamesCount }),
+  })
+
+  it('keeps the English tags only', () => {
+    expect(
+      indexTags([
+        eng('post-apocalyptic'),
+        { id: 1, slug: 'postapokalipsis', name: 'Постапокалипсис', language: 'rus' },
+        { id: 2, slug: 'no-language', name: 'No language' },
+        eng('survival-horror'),
+      ]),
+    ).toEqual(['post-apocalyptic', 'survival-horror'])
+  })
+
+  it('drops the tags that describe the store rather than the game', () => {
+    const store = [
+      'steam-achievements',
+      'full-controller-support',
+      'steam-cloud',
+      'steam-trading-cards',
+      'partial-controller-support',
+      'steam-leaderboards',
+      'controller-support',
+      'in-app-purchases',
+      'steam-workshop',
+      'includes-level-editor',
+      'remote-play-together',
+      'remote-play-on-tv',
+      'family-sharing',
+      'cloud-saves',
+      'valve-anti-cheat-enabled',
+      'steam-turn-notifications',
+      'steamvr-collectibles',
+      'tracked-controller-support',
+      'captions-available',
+      'commentary-available',
+      'stats',
+      'early-access',
+    ]
+    for (const slug of store) expect(isStoreTag(slug), slug).toBe(true)
+    expect(indexTags([...store.map((slug) => eng(slug)), eng('steampunk')])).toEqual(['steampunk'])
+  })
+
+  it('leaves the game modes to the game-mode field', () => {
+    expect(
+      indexTags(
+        ['singleplayer', 'multiplayer', 'online-co-op', 'local-co-op', 'co-op'].map((slug) =>
+          eng(slug),
+        ),
+      ),
+    ).toEqual(['co-op'])
+  })
+
+  it(`keeps at most ${MAX_INDEXED_TAGS}, the most specific first chosen, in RAWG's order`, () => {
+    // RAWG lists the most common tags first; the rare ones at the end are what tells games apart.
+    const tags = Array.from({ length: 20 }, (_, n) => eng(`tag-${n}`, 100_000 - n * 1_000))
+    const kept = indexTags(tags)
+    expect(kept).toHaveLength(MAX_INDEXED_TAGS)
+    expect(kept).toEqual(tags.slice(20 - MAX_INDEXED_TAGS).map((tag) => tag.slug))
+  })
+
+  it("keeps RAWG's order when it gave no counts, and survives no tags at all", () => {
+    const tags = Array.from({ length: 20 }, (_, n) => eng(`tag-${n}`))
+    expect(indexTags(tags)).toEqual(tags.slice(0, MAX_INDEXED_TAGS).map((tag) => tag.slug))
+    expect(indexTags(null)).toEqual([])
+    expect(indexTags(undefined)).toEqual([])
+    expect(indexTags([eng(''), eng('fps'), eng('fps')])).toEqual(['fps'])
+  })
+
+  it('reaches the index document through the one mapper', () => {
+    expect(
+      toIndexedGame({
+        id: 1,
+        slug: 'a',
+        tags: [eng('singleplayer'), eng('steam-cloud'), eng('post-apocalyptic')],
+      }),
+    ).toMatchObject({ tags: ['post-apocalyptic'], gameModes: ['SINGLE'] })
   })
 })

@@ -1,9 +1,19 @@
 import type { JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
-import { esrbToAgeRating, gameModesFromTags, storeSlugFromId } from '../../server/rawg/lookups'
+import {
+  esrbToAgeRating,
+  gameModesFromTags,
+  storeSlugFromId,
+  tagsForGameModes,
+} from '../../server/rawg/lookups'
 import { positive } from '../../server/rawg/mappers'
 import type { RawgParams } from '../../server/rawg/rawgFetch'
-import type { RawgGameListItem, RawgList, RawgShortScreenshot } from '../../server/rawg/types'
+import type {
+  RawgGameListItem,
+  RawgList,
+  RawgShortScreenshot,
+  RawgTag,
+} from '../../server/rawg/types'
 import { safeExternalUrl } from '../../shared/url'
 
 /**
@@ -55,6 +65,73 @@ export function previewOf(
   return null
 }
 
+/** The most tags one document keeps; see `indexTags`. */
+export const MAX_INDEXED_TAGS = 15
+
+/**
+ * Tags that say what the store or the build offers — achievements, trading cards, controller
+ * support, cloud saves, remote play — rather than what the game is. Every other English RAWG tag
+ * describes the game, even the very common ones: the similarity ranking weighs a tag by how rare it
+ * is in the index, so "atmospheric" barely counts without being listed here.
+ */
+const STORE_TAGS = new Set([
+  'in-app-purchases',
+  'includes-level-editor',
+  'includes-source-sdk',
+  'family-sharing',
+  'cloud-saves',
+  'valve-anti-cheat-enabled',
+  'captions-available',
+  'commentary-available',
+  'stats',
+  'hdr-available',
+  'early-access',
+  'cross-platform-multiplayer',
+  'steamvr-collectibles',
+  'additional-high-quality-audio',
+])
+/** `steam-achievements`, `steam-cloud`, `steam-workshop`… — never `steampunk`. */
+const STORE_TAG_PREFIXES = ['steam-', 'remote-play-']
+/** `full-controller-support`, `partial-controller-support`, `tracked-controller-support`… */
+const STORE_TAG_WORD = 'controller'
+
+export function isStoreTag(slug: string): boolean {
+  return (
+    STORE_TAGS.has(slug) ||
+    STORE_TAG_PREFIXES.some((prefix) => slug.startsWith(prefix)) ||
+    slug.split('-').includes(STORE_TAG_WORD)
+  )
+}
+
+/** The mode tags `gameModes` already carries; kept twice, they would count twice. */
+const MODE_TAGS = new Set(tagsForGameModes(['SINGLE', 'LOCAL_COOP', 'ONLINE_COOP', 'MULTIPLAYER']))
+
+/**
+ * The tags an index document keeps: English ones only (RAWG tags every game in Russian as well),
+ * without store features and game modes, and at most `MAX_INDEXED_TAGS`. RAWG lists a game's tags
+ * most common first, so a plain cut would keep "atmospheric" and "great soundtrack" and drop
+ * "post-apocalyptic" — the cut therefore keeps the tags fewest games carry (`games_count`), and
+ * falls back to RAWG's order when a response carries no counts. The kept tags stay in RAWG's
+ * order.
+ */
+export function indexTags(tags: readonly RawgTag[] | null | undefined): string[] {
+  const seen = new Set<string>()
+  const eligible: { slug: string; count: number; position: number }[] = []
+  for (const tag of tags ?? []) {
+    const slug = tag.slug
+    if (tag.language !== 'eng' || !slug || seen.has(slug)) continue
+    if (isStoreTag(slug) || MODE_TAGS.has(slug)) continue
+    seen.add(slug)
+    eligible.push({ slug, count: tag.games_count ?? Infinity, position: eligible.length })
+  }
+  if (eligible.length <= MAX_INDEXED_TAGS) return eligible.map((tag) => tag.slug)
+  return [...eligible]
+    .sort((left, right) => left.count - right.count || left.position - right.position)
+    .slice(0, MAX_INDEXED_TAGS)
+    .sort((left, right) => left.position - right.position)
+    .map((tag) => tag.slug)
+}
+
 function taxonomySlugs(list: { slug?: string }[] | null | undefined): string[] {
   return (list ?? []).flatMap((item) => (item.slug ? [item.slug] : []))
 }
@@ -79,6 +156,7 @@ export function toIndexedGame(raw: RawgGameListItem): IndexedGame | null {
       typeof entry.platform?.id === 'number' ? [entry.platform.id] : [],
     ),
     genres: taxonomySlugs(raw.genres),
+    tags: indexTags(raw.tags),
     stores: (raw.stores ?? []).flatMap((entry) => {
       const slug = storeSlugFromId(entry.store?.id)
       return slug ? [slug] : []

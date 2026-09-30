@@ -41,6 +41,13 @@ export interface IndexedGame {
   popularity: number
   platforms: number[]
   genres: string[]
+  /**
+   * RAWG's English tags for the game, without the ones that describe the store (achievements,
+   * controller support, cloud saves) or repeat `gameModes`, at most fifteen. The refresh job ranks
+   * similar games on them; no query filters on them. Optional: documents published before the
+   * job mapped tags have none.
+   */
+  tags?: string[]
   stores: string[]
   gameModes: GameModeValue[]
   ageRating: AgeRatingValue | null

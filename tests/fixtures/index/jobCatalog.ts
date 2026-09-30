@@ -28,9 +28,16 @@ const GOG = { store: { id: 5, slug: 'gog', name: 'GOG' } }
 const EPIC = { store: { id: 11, slug: 'epic-games', name: 'Epic Games' } }
 const NINTENDO = { store: { id: 6, slug: 'nintendo', name: 'Nintendo eShop' } }
 
-const SINGLEPLAYER = { id: 31, slug: 'singleplayer', name: 'Singleplayer' }
-const MULTIPLAYER = { id: 7, slug: 'multiplayer', name: 'Multiplayer' }
-const ONLINE_COOP = { id: 9, slug: 'online-co-op', name: 'Online Co-Op' }
+const SINGLEPLAYER = { id: 31, slug: 'singleplayer', name: 'Singleplayer', language: 'eng' }
+const MULTIPLAYER = { id: 7, slug: 'multiplayer', name: 'Multiplayer', language: 'eng' }
+const ONLINE_COOP = { id: 9, slug: 'online-co-op', name: 'Online Co-Op', language: 'eng' }
+const STEAM_ACHIEVEMENTS = {
+  id: 40847,
+  slug: 'steam-achievements',
+  name: 'Steam Achievements',
+  language: 'eng',
+}
+const STORY_RICH = { id: 118, slug: 'story-rich', name: 'Story Rich', language: 'eng' }
 
 const ACTION = { id: 4, slug: 'action', name: 'Action' }
 const INDIE = { id: 51, slug: 'indie', name: 'Indie' }
@@ -56,7 +63,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 21000,
     platforms: [PC, PS5],
     genres: [ACTION],
-    tags: [SINGLEPLAYER],
+    tags: [SINGLEPLAYER, STEAM_ACHIEVEMENTS, STORY_RICH],
     stores: [STEAM, GOG],
     esrb_rating: { id: 4, slug: 'mature', name: 'Mature' },
   },
