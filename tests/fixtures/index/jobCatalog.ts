@@ -211,6 +211,50 @@ export function jobGamesPage(page: number): RawgList<RawgGameListItem> {
 
 export const JOB_PAGE_COUNT = Math.ceil(JOB_GAMES.length / JOB_PAGE_SIZE)
 
+/**
+ * The studios stage's side of the catalog: two studio slugs from `data/ukrainian-studios.json`
+ * and what RAWG lists under `games?developers=<slug>&ordering=-added`. A test hands these to the
+ * harness when it wants the studios stage to find something; every other slug has no games.
+ *
+ * | slug           | game | what it proves                                                     |
+ * | -------------- | ---- | ------------------------------------------------------------------ |
+ * | frogwares      | 106  | a game already on the popularity list: only the flag changes        |
+ * | gsc-game-world | 110  | a game outside it: appended, then given an app id, a price and      |
+ * |                |      | languages exactly like a candidate                                  |
+ */
+export const JOB_STUDIO_GAME: RawgGameListItem = {
+  id: 110,
+  slug: 'kharkiv-lights',
+  name: 'Kharkiv Lights',
+  released: '2024-10-03',
+  background_image: 'https://media.rawg.io/media/games/110.jpg',
+  short_screenshots: [{ id: 1101, image: 'https://media.rawg.io/media/screenshots/110-a.jpg' }],
+  rating: 4.2,
+  ratings_count: 90,
+  metacritic: 79,
+  playtime: 14,
+  added: 1200,
+  platforms: [PC],
+  genres: [STRATEGY],
+  tags: [SINGLEPLAYER],
+  stores: [STEAM],
+}
+
+export const JOB_STUDIO_GAMES: Record<string, RawgGameListItem[]> = {
+  frogwares: [JOB_GAMES[5]!],
+  'gsc-game-world': [JOB_STUDIO_GAME],
+}
+
+/** `games?developers=<slug>` for the studios in `studios`, one page each; nothing for the rest. */
+export function jobStudioPage(
+  studios: Record<string, RawgGameListItem[]>,
+  slug: string,
+  page: number,
+): RawgList<RawgGameListItem> {
+  const results = page === 1 ? (studios[slug] ?? []) : []
+  return { count: results.length, next: null, results }
+}
+
 /** `games/{id}/stores` per game, for every game that has store links at all. */
 export const JOB_STORE_LINKS: Record<number, RawgList<RawgStoreLink>> = {
   101: {
@@ -252,6 +296,10 @@ export const JOB_STORE_LINKS: Record<number, RawgList<RawgStoreLink>> = {
     count: 1,
     results: [{ id: 10, store_id: 6, url: 'https://www.nintendo.com/store/products/lost-canton/' }],
   },
+  110: {
+    count: 1,
+    results: [{ id: 11, store_id: 1, url: 'https://store.steampowered.com/app/420000/' }],
+  },
 }
 
 /** RAWG game id to the Steam app id the store links resolve to (`''` = the game has none). */
@@ -263,6 +311,7 @@ export const JOB_APP_IDS: Record<number, string> = {
   106: '416000',
   107: '417000',
   108: '418000',
+  110: '420000',
 }
 
 /** `appdetails?filters=price_overview` entries, keyed by app id, exactly as Steam returns them. */
@@ -322,6 +371,19 @@ export const JOB_STEAM_PRICES: Record<string, unknown> = {
       },
     },
   },
+  '420000': {
+    success: true,
+    data: {
+      price_overview: {
+        currency: 'UAH',
+        initial: 39900,
+        final: 23940,
+        discount_percent: 40,
+        initial_formatted: '399 ₴',
+        final_formatted: '239 ₴',
+      },
+    },
+  },
 }
 
 /** The unfiltered per-app `appdetails` payload the language stage reads, keyed by app id. */
@@ -357,5 +419,13 @@ export const JOB_STEAM_APPS: Record<string, unknown> = {
   '418000': {
     success: true,
     data: { is_free: false, supported_languages: 'English, Japanese' },
+  },
+  '420000': {
+    success: true,
+    data: {
+      is_free: false,
+      supported_languages:
+        'Українська<strong>*</strong>, English<strong>*</strong><br><strong>*</strong>мови з повною аудіопідтримкою',
+    },
   },
 }
