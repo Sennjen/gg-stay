@@ -87,44 +87,35 @@ describe('server-side rendering', async () => {
     // Same as above: the fixture total is too small for a rounded headline, so it is absent.
     expect(html).not.toContain('games in the catalog')
     expect(html).toContain('Why GG Stay')
-    expect(shelfTitles(html)).toEqual([
-      'Made in Ukraine',
-      'In Ukrainian',
-      'Best of this year',
-      'Most anticipated',
-    ])
+    expect(shelfTitles(html)).toEqual(['Made in Ukraine', 'Best of this year', 'Most anticipated'])
     expect(html).toContain('Ready to find your next game?')
   })
 
   /**
-   * The shelves, from the fixture-mode seed: six made-in-Ukraine games and four with Ukrainian
-   * text for the two index shelves, and the RAWG fixture's four games for each RAWG shelf. The
-   * sale shelf is not there — the seed has two discounted games, and a shelf needs four.
+   * The shelves, from the fixture-mode seed: its five made-in-Ukraine games for the first shelf,
+   * and the RAWG fixture's four games for each RAWG shelf. Two shelves are left out because a
+   * shelf needs four games: "Українською" (the seed has two games with Ukrainian text or audio)
+   * and "Зі знижкою" (three games at −30 % or more: Portal 2, The Witcher 3, Metro Exodus).
    */
   it('renders the landing shelves in order, each linked to its catalog page', async () => {
     const html = await $fetch<string>('/')
-    expect(shelfTitles(html)).toEqual([
-      'Зроблено в Україні',
-      'Українською',
-      'Найкращі цього року',
-      'Очікувані',
-    ])
+    expect(shelfTitles(html)).toEqual(['Зроблено в Україні', 'Найкращі цього року', 'Очікувані'])
     expect(html).not.toContain('Зі знижкою')
+    expect(html).not.toContain('data-test="shelf-UKRAINIAN"')
     const madeInUkraine = shelfHtml(html, 'MADE_IN_UKRAINE')
     expect(madeInUkraine).toContain('href="/games?madeInUkraine=1"')
-    expect(madeInUkraine).toContain('S.T.A.L.K.E.R. 2: Heart of Chornobyl')
-    expect(madeInUkraine.match(/data-test="game-card"/g)).toHaveLength(6)
+    expect(madeInUkraine).toContain('S.T.A.L.K.E.R.: Shadow of Chernobyl')
+    expect(madeInUkraine.match(/data-test="game-card"/g)).toHaveLength(5)
     // Every card on that shelf spells the label out; no card on a RAWG shelf does.
     expect(
       madeInUkraine.match(/data-test="made-in-ukraine"[^>]*>\s*Зроблено в Україні\s*</g),
-    ).toHaveLength(6)
+    ).toHaveLength(5)
     expect(shelfHtml(html, 'UPCOMING')).not.toContain('data-test="made-in-ukraine"')
-    expect(shelfHtml(html, 'UKRAINIAN')).toContain('href="/games?ukrainianLocalisation=ANY"')
     expect(shelfHtml(html, 'UPCOMING')).toContain('href="/games?upcoming=1"')
     expect(shelfHtml(html, 'BEST_THIS_YEAR')).toMatch(
       /href="\/games\?yearFrom=(\d{4})&amp;yearTo=\1&amp;sort=RATING_DESC"/,
     )
-    expect(html.match(/>\s*Усі ігри\s*</g)).toHaveLength(4)
+    expect(html.match(/>\s*Усі ігри\s*</g)).toHaveLength(3)
   })
 
   it('renders the English landing headline under /en', async () => {
@@ -324,12 +315,11 @@ describe('server-side rendering', async () => {
     it('answers ?madeInUkraine=1 from the index, with the label on every card', async () => {
       const html = await $fetch<string>('/games?madeInUkraine=1')
       const slugs = slugsOf(html)
-      // The seed's six made-in-Ukraine games, most popular first, and nothing else.
+      // The seed's five made-in-Ukraine games, most popular first, and nothing else.
       expect(slugs).toEqual([
-        's-t-a-l-k-e-r-2-heart-of-chornobyl',
         'metro-exodus',
-        's-t-a-l-k-e-r-shadow-of-chernobyl',
-        'the-sinking-city',
+        'stalker-shadow-of-chernobyl',
+        'metro-2033',
         'sherlock-holmes-chapter-one',
         'cossacks-3',
       ])
@@ -379,18 +369,16 @@ describe('server-side rendering', async () => {
     expect(html).toContain('2015')
   })
 
-  it('renders the similar games from the index below the store links', async () => {
-    // The Witcher 3 is an action RPG; the seed's five made-in-Ukraine action games share a genre
-    // with it. Stardew Valley (indie, simulation) shares a genre with nothing, so it has no row.
-    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
-    const start = html.indexOf('data-test="similar-games"')
-    expect(start).toBeGreaterThan(html.indexOf('https://store.steampowered.com/app/292030/'))
-    const row = html.slice(start, html.indexOf('</section>', start))
-    expect(row).toMatch(/<h2[^>]*>\s*Схожі ігри\s*<\/h2>/)
-    expect(row.match(/data-test="game-card"/g)).toHaveLength(5)
-    expect(row).toContain('Metro Exodus')
-    expect(row).not.toContain('href="/games/the-witcher-3-wild-hunt"')
-    expect(await $fetch<string>('/games/stardew-valley')).not.toContain('Схожі ігри')
+  it('leaves the similar games out when fewer than four share a genre', async () => {
+    // The Witcher 3 (action, RPG) shares a genre with three seed games — Metro Exodus,
+    // S.T.A.L.K.E.R.: Shadow of Chernobyl and Metro 2033 — one short of the four a row needs.
+    // Stardew Valley (indie, simulation) shares a genre with nothing. The row itself, with games
+    // in it, is covered by tests/app/gamePageSimilar.test.ts and tests/server/similarGames.test.ts.
+    for (const slug of ['the-witcher-3-wild-hunt', 'stardew-valley']) {
+      const html = await $fetch<string>(`/games/${slug}`)
+      expect(html).not.toContain('data-test="similar-games"')
+      expect(html).not.toContain('Схожі ігри')
+    }
   })
 
   it('renders the detail page with a localised date and store links', async () => {
