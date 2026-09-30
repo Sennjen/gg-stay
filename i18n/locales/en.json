@@ -82,7 +82,7 @@
     "view": "Catalog layout",
     "viewGrid": "Grid",
     "viewList": "List",
-    "indexedOnlyNote": "Searching the {count} most popular games — they are the only ones we know prices and languages for.",
+    "indexedOnlyNote": "Searching the {count} most popular games and every Ukrainian one — they are the only ones we know prices and languages for.",
     "pricesUpdated": "Prices updated {count} hour ago | Prices updated {count} hours ago",
     "pricesUpdatedRecently": "Prices updated just now",
     "staleTitle": "Prices are not being refreshed right now",
@@ -116,7 +116,10 @@
     "localisationAny": "Any",
     "localisationText": "Text",
     "localisationAudio": "Voice acting",
-    "localisationNotImportant": "Does not matter"
+    "localisationNotImportant": "Does not matter",
+    "origin": "Origin",
+    "madeInUkraine": "Made in Ukraine",
+    "madeInUkraineHint": "Games from studios founded in Ukraine whose main team works here."
   },
   "sorts": {
     "POPULARITY_DESC": "Popularity",

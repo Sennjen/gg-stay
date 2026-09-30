@@ -87,3 +87,48 @@ describe('FilterPanel: the index sections', () => {
     expect(titles).toContain('Українська локалізація')
   })
 })
+
+describe('FilterPanel: made in Ukraine', () => {
+  function toggleOf(wrapper: Awaited<ReturnType<typeof mount>>) {
+    return wrapper.get('[data-test="made-in-ukraine-toggle"]')
+  }
+
+  it('sits in its own "Походження" section, right after the localisation one', async () => {
+    const titles = sectionTitles(await mount())
+    expect(titles.indexOf('Походження')).toBe(titles.indexOf('Українська локалізація') + 1)
+  })
+
+  it('stays collapsed until it is on, like every other section', async () => {
+    const heading = (wrapper: Awaited<ReturnType<typeof mount>>) =>
+      wrapper.findAll('button[aria-expanded]').find((button) => button.text() === 'Походження')!
+    expect(heading(await mount()).attributes('aria-expanded')).toBe('false')
+    expect(heading(await mount({ madeInUkraine: true })).attributes('aria-expanded')).toBe('true')
+  })
+
+  it('is a pressed-or-not toggle that says what it does in words', async () => {
+    const off = await mount()
+    expect(toggleOf(off).text()).toBe('Зроблено в Україні')
+    expect(toggleOf(off).attributes('aria-pressed')).toBe('false')
+    expect(off.text()).toContain(
+      'Ігри студій, заснованих в Україні, чия основна команда працює тут.',
+    )
+
+    const on = await mount({ madeInUkraine: true })
+    expect(toggleOf(on).attributes('aria-pressed')).toBe('true')
+    expect(toggleOf(on).classes()).toContain('bg-accent')
+  })
+
+  it('turns the filter on, and off again', async () => {
+    const off = await mount()
+    await toggleOf(off).trigger('click')
+    expect(off.emitted('change')![0]).toEqual([{ madeInUkraine: true }])
+
+    const on = await mount({ madeInUkraine: true })
+    await toggleOf(on).trigger('click')
+    expect(on.emitted('change')![0]).toEqual([{ madeInUkraine: undefined }])
+  })
+
+  it('stays while the prices are stale, because it does not depend on them', async () => {
+    expect(sectionTitles(await mount({}, true))).toContain('Походження')
+  })
+})

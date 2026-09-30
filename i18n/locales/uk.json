@@ -82,7 +82,7 @@
     "view": "Вигляд каталогу",
     "viewGrid": "Сітка",
     "viewList": "Список",
-    "indexedOnlyNote": "Пошук серед {count} найпопулярніших ігор — ціни й мови ми знаємо лише для них.",
+    "indexedOnlyNote": "Пошук серед {count} найпопулярніших ігор і всіх українських — ціни й мови ми знаємо лише для них.",
     "pricesUpdated": "Ціни оновлено {count} годину тому | Ціни оновлено {count} години тому | Ціни оновлено {count} годин тому",
     "pricesUpdatedRecently": "Ціни оновлено щойно",
     "staleTitle": "Ціни тимчасово не оновлюються",
@@ -116,7 +116,10 @@
     "localisationAny": "Будь-яка",
     "localisationText": "Текст",
     "localisationAudio": "Озвучка",
-    "localisationNotImportant": "Не важливо"
+    "localisationNotImportant": "Не важливо",
+    "origin": "Походження",
+    "madeInUkraine": "Зроблено в Україні",
+    "madeInUkraineHint": "Ігри студій, заснованих в Україні, чия основна команда працює тут."
   },
   "sorts": {
     "POPULARITY_DESC": "За популярністю",

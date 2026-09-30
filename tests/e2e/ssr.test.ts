@@ -237,7 +237,9 @@ describe('server-side rendering', async () => {
       expect(html).toContain('data-test="index-note"')
       expect(html).toContain('Пошук серед ')
       expect(html).toContain('3 000')
-      expect(html).toContain('найпопулярніших ігор — ціни й мови ми знаємо лише для них.')
+      expect(html).toContain(
+        'найпопулярніших ігор і всіх українських — ціни й мови ми знаємо лише для них.',
+      )
 
       // Cards are present, and every one satisfies BOTH constraints.
       const slugs = slugsOf(html)
@@ -317,6 +319,24 @@ describe('server-side rendering', async () => {
       expect(html.match(/data-test="price"/g)?.length).toBe(3)
       // The default catalog is RAWG's, so it carries no "top 3 000" note.
       expect(html).not.toContain('data-test="index-note"')
+    })
+
+    it('answers ?madeInUkraine=1 from the index, with the label on every card', async () => {
+      const html = await $fetch<string>('/games?madeInUkraine=1')
+      const slugs = slugsOf(html)
+      // The seed's six made-in-Ukraine games, most popular first, and nothing else.
+      expect(slugs).toEqual([
+        's-t-a-l-k-e-r-2-heart-of-chornobyl',
+        'metro-exodus',
+        's-t-a-l-k-e-r-shadow-of-chernobyl',
+        'the-sinking-city',
+        'sherlock-holmes-chapter-one',
+        'cossacks-3',
+      ])
+      expect(html.match(/data-test="made-in-ukraine"/g)).toHaveLength(slugs.length)
+      expect(html).toContain('data-test="index-note"')
+      expect(html).toContain('aria-label="Прибрати Зроблено в Україні"')
+      expect(html).toMatch(/Фільтри \(<span[^>]*>1<\/span>\)/)
     })
 
     it('reaches the free games through the URL alone', async () => {

@@ -88,6 +88,9 @@ function onMetacriticChange(value: number | undefined) {
 function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
   emit('change', { playtime: value })
 }
+function toggleMadeInUkraine() {
+  emit('change', { madeInUkraine: props.filter.madeInUkraine ? undefined : true })
+}
 function toggleRating() {
   emit('change', {
     ratingMin: props.filter.ratingMin === USER_RATING_MIN ? undefined : USER_RATING_MIN,
@@ -112,6 +115,7 @@ const sectionActive = computed(() => ({
   price: props.filter.priceMaxUah !== undefined || props.filter.free === true,
   discount: props.filter.onSaleMinPercent !== undefined,
   localisation: props.filter.ukrainianLocalisation !== undefined,
+  origin: props.filter.madeInUkraine === true,
 }))
 </script>
 
@@ -173,6 +177,28 @@ const sectionActive = computed(() => ({
         :model-value="filter.ukrainianLocalisation"
         @update:model-value="emit('change', { ukrainianLocalisation: $event })"
       />
+    </FilterSection>
+
+    <!-- Index-backed like the sections above, but it reads no price, so a stale index keeps it. -->
+    <FilterSection section-id="origin" :title="t('filters.origin')" :active="sectionActive.origin">
+      <button
+        type="button"
+        data-test="made-in-ukraine-toggle"
+        :aria-pressed="filter.madeInUkraine === true"
+        aria-describedby="made-in-ukraine-hint"
+        class="rounded-chip border px-3 py-1.5 text-sm focus-visible:outline-2"
+        :class="
+          filter.madeInUkraine
+            ? 'border-accent bg-accent text-on-accent'
+            : 'border-line bg-surface-1 text-fg-2 hover:text-fg'
+        "
+        @click="toggleMadeInUkraine"
+      >
+        {{ t('filters.madeInUkraine') }}
+      </button>
+      <p id="made-in-ukraine-hint" class="text-xs text-fg-2">
+        {{ t('filters.madeInUkraineHint') }}
+      </p>
     </FilterSection>
 
     <FilterSection

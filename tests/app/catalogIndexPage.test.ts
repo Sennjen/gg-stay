@@ -89,6 +89,20 @@ describe('the catalog on the index path', () => {
     ])
   })
 
+  it('counts the made-in-Ukraine filter in the badge, gives it a chip and the index note', async () => {
+    const wrapper = await renderCatalog('/games?madeInUkraine=1&platforms=4', {
+      total: 6,
+      indexedOnly: true,
+    })
+    expect(wrapper.text()).toContain('Фільтри (2)')
+    const chips = wrapper.findAll('button[aria-label^="Прибрати"]')
+    expect(chips.map((chip) => chip.attributes('aria-label'))).toEqual([
+      'Прибрати PC',
+      'Прибрати Зроблено в Україні',
+    ])
+    expect(wrapper.get('[data-test="index-note"]').text()).toContain('і всіх українських')
+  })
+
   it('keeps the chip row when every filter on the page was declined, with no badge', async () => {
     const wrapper = await renderCatalog('/games?priceMaxUah=300', {
       total: 9,

@@ -222,3 +222,32 @@ describe('ActiveFilterChips: the index filters', () => {
     expect(wrapper.find('s').exists()).toBe(false)
   })
 })
+
+describe('ActiveFilterChips: made in Ukraine', () => {
+  it('names the filter in words and removes it', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: { filter: { madeInUkraine: true }, genres: [] },
+    })
+    expect(wrapper.text()).toContain('Зроблено в Україні')
+    const remove = wrapper.get('button[aria-label="Прибрати Зроблено в Україні"]')
+    await remove.trigger('click')
+    expect(wrapper.emitted('change')![0]).toEqual([{ madeInUkraine: undefined }])
+  })
+
+  it('strikes it through with the index reason when the answer could not apply it', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: { filter: { madeInUkraine: true }, genres: [], ignored: ['madeInUkraine'] },
+    })
+    expect(wrapper.get('[data-test="ignored-chip"]').text()).toContain(
+      'не застосовано: дані про ціни зараз недоступні',
+    )
+  })
+
+  it('reads "Made in Ukraine" in English', async () => {
+    const wrapper = await mountSuspended(ActiveFilterChips, {
+      props: { filter: { madeInUkraine: true }, genres: [] },
+      route: '/en/games',
+    })
+    expect(wrapper.text()).toContain('Made in Ukraine')
+  })
+})
