@@ -14,6 +14,27 @@ import {
 import { createJobHarness, createTransportRawg, type RawgCall } from './harness'
 
 const TWO_STUDIOS = ['frogwares', 'gsc-game-world']
+/** The harness clock's default start: the night the first version is built. */
+const FIRST_NIGHT = '2026-09-20T03:00:00.000Z'
+const DAY_MS = 86_400_000
+
+function nightsLater(nights: number): string {
+  return new Date(Date.parse(FIRST_NIGHT) + nights * DAY_MS).toISOString()
+}
+
+async function publishAll(
+  writer: ReturnType<typeof createJobHarness>['writer'],
+  games: IndexedGame[],
+) {
+  const version = await writer.beginVersion()
+  await writer.writeVersion(version, games)
+  await writer.publish(version, {
+    version,
+    updatedAt: FIRST_NIGHT,
+    pricesUpdatedAt: FIRST_NIGHT,
+    gameCount: games.length,
+  })
+}
 
 async function candidatesOf(harness: ReturnType<typeof createJobHarness>) {
   return (await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })).games
@@ -59,6 +80,7 @@ describe('collectStudioGames', () => {
       ...toIndexedGame(JOB_STUDIO_GAME)!,
       madeInUkraine: true,
       studioSlugs: ['gsc-game-world'],
+      studioSeenAt: FIRST_NIGHT,
     })
     expect(games.find((game) => game.id === 106)?.studioSlugs).toEqual(['frogwares'])
     expect(result).toMatchObject({ flagged: 1, dropped: 0, failures: 0, attempted: 2 })
@@ -269,15 +291,14 @@ describe('collectStudioGames keeping what the published version had', () => {
     const harness = createJobHarness({ studios: JOB_STUDIO_GAMES })
     const games = await candidatesOf(harness)
     await collectStudioGames(harness.deps, games, { slugs: TWO_STUDIOS })
-    games.find((game) => game.id === 110)!.priceUah = 239
-    const version = await harness.writer.beginVersion()
-    await harness.writer.writeVersion(version, games)
-    await harness.writer.publish(version, {
-      version,
-      updatedAt: '2026-09-20T03:00:00.000Z',
-      pricesUpdatedAt: '2026-09-20T03:00:00.000Z',
-      gameCount: games.length,
-    })
+    Object.assign(
+      games.find((game) => game.id === 110)!,
+      {
+        priceUah: 239,
+        localisation: { text: true, audio: true, source: 'steam', updatedAt: FIRST_NIGHT },
+      },
+    )
+    await publishAll(harness.writer, games)
     return harness.writer
   }
 
@@ -306,7 +327,7 @@ describe('collectStudioGames keeping what the published version had', () => {
     ],
   ])('keeps the published games of a slug that %s tonight', async (_name, breakIt) => {
     const writer = await publishFirstNight()
-    const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES })
+    const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES, start: nightsLater(1) })
     breakIt(tonight)
     const games = await candidatesOf(tonight)
 
@@ -314,14 +335,118 @@ describe('collectStudioGames keeping what the published version had', () => {
       slugs: TWO_STUDIOS,
     })
 
-    // 110 is back as it was published, price and all, still noted under its studio.
+    // 110 is back as it was published, price and languages and all, still noted under its
+    // studio, and still dated by the night it was last found.
     expect(games.find((game) => game.id === 110)).toMatchObject({
       madeInUkraine: true,
       priceUah: 239,
+      localisation: { text: true, audio: true, source: 'steam', updatedAt: FIRST_NIGHT },
       studioSlugs: ['gsc-game-world'],
+      studioSeenAt: FIRST_NIGHT,
     })
     expect(result).toMatchObject({ kept: 1, madeInUkraine: 2, previousMadeInUkraine: 2 })
     expect(result.degraded).toBe(false)
+  })
+
+  it.each([
+    ['listed no games', 'empty'],
+    ['is unknown to RAWG', 'unknown'],
+  ])(
+    'drops the games of a slug that %s once they have not been found for a week',
+    async (_name, kind) => {
+      const writer = await publishFirstNight()
+      const breakIt = (harness: ReturnType<typeof createJobHarness>) =>
+        kind === 'empty'
+          ? harness.answerNextWith(studioPage('gsc-game-world', 1), {
+              count: 0,
+              next: null,
+              results: [],
+            })
+          : harness.failNext(
+              (call) => call.params.developers === 'gsc-game-world',
+              new UpstreamError('RAWG', 'NOT_FOUND', 404),
+            )
+
+      const sixNights = createJobHarness({
+        writer,
+        studios: JOB_STUDIO_GAMES,
+        start: nightsLater(7),
+      })
+      breakIt(sixNights)
+      const stillKept = await candidatesOf(sixNights)
+      await collectStudioGames(sixNights.deps, stillKept, { slugs: TWO_STUDIOS })
+      expect(stillKept.map((game) => game.id)).toContain(110)
+
+      const eightNights = createJobHarness({
+        writer,
+        studios: JOB_STUDIO_GAMES,
+        start: nightsLater(8),
+      })
+      breakIt(eightNights)
+      const games = await candidatesOf(eightNights)
+      const result = await collectStudioGames(eightNights.deps, games, { slugs: TWO_STUDIOS })
+
+      expect(games.map((game) => game.id)).not.toContain(110)
+      expect(result).toMatchObject({ expired: 1, kept: 0, degraded: false })
+      expect(eightNights.logs).toContain(
+        'studios: dropped 1 published games of unknown or empty slugs not found for 7 days',
+      )
+    },
+  )
+
+  it('keeps the games of a failing slug however long ago they were found', async () => {
+    const writer = await publishFirstNight()
+    const monthLater = createJobHarness({
+      writer,
+      studios: JOB_STUDIO_GAMES,
+      start: nightsLater(30),
+    })
+    monthLater.failNext((call) => call.params.developers === 'gsc-game-world')
+    const games = await candidatesOf(monthLater)
+
+    const result = await collectStudioGames(monthLater.deps, games, { slugs: TWO_STUDIOS })
+
+    expect(games.map((game) => game.id)).toContain(110)
+    expect(result).toMatchObject({ kept: 1, expired: 0 })
+  })
+
+  it('leaves the degraded state the night after a studio holding most flags leaves the list', async () => {
+    const REMOVED = [301, 302, 303].map((id) => studioGame(id, 100 + id))
+    const studios = { ...JOB_STUDIO_GAMES, 'removed-studio': REMOVED }
+
+    // Night 1: the studio is still on the list and holds three of the four flags.
+    const first = createJobHarness({ studios })
+    const firstGames = await candidatesOf(first)
+    await collectStudioGames(first.deps, firstGames, {
+      slugs: ['gsc-game-world', 'removed-studio'],
+    })
+    await publishAll(first.writer, firstGames)
+
+    // Nights 2 and 3: it has been taken off the data file.
+    for (const night of [1, 2]) {
+      const harness = createJobHarness({ writer: first.writer, studios, start: nightsLater(night) })
+      const games = await candidatesOf(harness)
+
+      const result = await collectStudioGames(harness.deps, games, { slugs: ['gsc-game-world'] })
+
+      expect(result).toMatchObject({ degraded: false, previousMadeInUkraine: 1, madeInUkraine: 1 })
+      expect(games.filter((game) => game.madeInUkraine).map((game) => game.id)).toEqual([110])
+      await publishAll(harness.writer, games)
+    }
+  })
+
+  it('fails a studio whose answer has no count but a list longer than one studio could have', async () => {
+    const harness = createJobHarness()
+    harness.answerNextWith(studioPage('frogwares', 1), {
+      next: null,
+      results: Array.from({ length: 2_001 }, (_, index) => studioGame(10_000 + index, 1)),
+    })
+    const games: IndexedGame[] = []
+
+    const result = await collectStudioGames(harness.deps, games, { slugs: TWO_STUDIOS })
+
+    expect(result.failed).toEqual(['frogwares'])
+    expect(games).toEqual([])
   })
 
   it('keeps the flag of a published candidate whose studio could not be read', async () => {

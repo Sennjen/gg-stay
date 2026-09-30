@@ -1,5 +1,5 @@
 import { fetchGamesPage, PAGES_PER_LOCK_RENEWAL, toIndexedGame } from './candidates'
-import { assertWithinFailureBudget, type JobDeps } from './deps'
+import { assertWithinFailureBudget, isoNow, type JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
 import type { RawgGameListItem } from '../../server/rawg/types'
 import { UpstreamError } from '../../server/upstream/errors'
@@ -20,11 +20,18 @@ import { UKRAINIAN_STUDIOS, UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainia
  * What the stage cannot read tonight it keeps as published, like every other stage of the job:
  *
  * - a slug that failed, that RAWG does not know (404) or that listed no games keeps the published
- *   games noted under it — flagged in place when they are candidates, re-appended otherwise;
+ *   games noted under it — flagged in place when they are candidates, re-appended otherwise. For
+ *   a 404 or an empty list that lasts at most `KEEP_UNCONFIRMED_DAYS` after the game was last
+ *   found (`studioSeenAt`): a slug RAWG renamed must not freeze its games in the index for good;
  * - a run that still ends with fewer than half the published version's games made in Ukraine —
  *   RAWG answering every studio with nothing, or a version published before games carried their
  *   slugs — keeps every published flag and appended game, and says it is degraded. It does not
  *   fail: the rest of the run is worth publishing, and the shelf keeps what it had.
+ *
+ * Both only ever keep a game that is still attributable to the list: one noted under a slug the
+ * list still carries, or a legacy one noted under none. A studio taken off the data file is gone
+ * the next night, and does not count towards the published figure a degraded night is measured
+ * against, so removing it cannot hold the stage in the degraded state.
  *
  * Cost: one RAWG request per slug, two for a studio with more than forty games — 33 to 66 a night
  * today, plus one app-id lookup per appended game the first time it is seen (the mapping is
@@ -47,6 +54,9 @@ export const MAX_STUDIO_GAMES_APPENDED = 400
 export const MAX_PLAUSIBLE_STUDIO_GAMES = 2_000
 /** Below this share of the published count of games made in Ukraine, the stage is degraded. */
 export const MIN_MADE_IN_UKRAINE_RATIO = 0.5
+/** How long a game of a slug that answers 404 or nothing is kept after it was last found. */
+export const KEEP_UNCONFIRMED_DAYS = 7
+const DAY_MS = 86_400_000
 
 /** What one slug gave tonight: games, an error, a 404, or an empty list. */
 export type SlugOutcome = 'read' | 'failed' | 'unknown' | 'empty'
@@ -66,6 +76,8 @@ export interface StudiosResult {
   dropped: number
   /** Games flagged only because the published version had them and tonight could not say. */
   kept: number
+  /** Published games of a 404 or empty slug not found for `KEEP_UNCONFIRMED_DAYS`, dropped. */
+  expired: number
   /** Games of the list made in Ukraine once the stage is done, and in the published version. */
   madeInUkraine: number
   previousMadeInUkraine: number | null
@@ -116,8 +128,12 @@ export async function collectStudioGames(
   const listed = new Map(games.map((game) => [game.id, game]))
   const outside = new Map<number, IndexedGame>()
   const slugsOf = new Map<number, Set<string>>()
+  /** When each flagged game was last found under a studio: tonight, or as published. */
+  const seenAt = new Map<number, string>()
+  const tonight = isoNow(deps.clock)
   let flagged = 0
   let kept = 0
+  let expired = 0
 
   function attribute(id: number, found: readonly string[]): void {
     const known = slugsOf.get(id) ?? new Set<string>()
@@ -136,6 +152,7 @@ export async function collectStudioGames(
       outside.set(game.id, { ...game, madeInUkraine: true })
     }
     attribute(game.id, [slug])
+    seenAt.set(game.id, tonight)
   }
 
   /** Keeps a published flagged game that tonight's answers did not flag. */
@@ -149,6 +166,15 @@ export async function collectStudioGames(
       kept += 1
     }
     attribute(published.id, found)
+    if (!seenAt.has(published.id) && published.studioSeenAt) {
+      seenAt.set(published.id, published.studioSeenAt)
+    }
+  }
+
+  /** Found within `KEEP_UNCONFIRMED_DAYS` of tonight, going by the published `studioSeenAt`. */
+  function recentlySeen(published: IndexedGame): boolean {
+    const seen = published.studioSeenAt ? Date.parse(published.studioSeenAt) : Number.NaN
+    return deps.clock.now() - seen <= KEEP_UNCONFIRMED_DAYS * DAY_MS
   }
 
   // --- Tonight's answers, slug by slug.
@@ -173,9 +199,10 @@ export async function collectStudioGames(
         }
         pagesFetched += 1
 
-        if (page === 1 && (response.count ?? 0) > MAX_PLAUSIBLE_STUDIO_GAMES) {
+        const listedCount = response.count ?? response.results.length
+        if (page === 1 && listedCount > MAX_PLAUSIBLE_STUDIO_GAMES) {
           throw new Error(
-            `RAWG listed ${response.count} games for developer ${slug}, which is not one studio's list`,
+            `RAWG listed ${listedCount} games for developer ${slug}, which is not one studio's list`,
           )
         }
         if (page === 1 && response.results.length === 0) outcome = 'empty'
@@ -208,12 +235,28 @@ export async function collectStudioGames(
   if (empty.length > 0) deps.log(`studios: no games tonight for ${empty.join(', ')}`)
 
   // --- What tonight could not say, kept as published.
+  const onList = new Set(slugs)
+  const attributable = (game: IndexedGame) =>
+    !game.studioSlugs?.length || game.studioSlugs.some((slug) => onList.has(slug))
   const meta = await deps.writer.meta()
-  const published = meta ? (await deps.writer.allGames()).filter((game) => game.madeInUkraine) : []
-  const unread = new Set(slugs.filter((slug) => outcomes.get(slug) !== 'read'))
+  const published = meta
+    ? (await deps.writer.allGames()).filter((game) => game.madeInUkraine && attributable(game))
+    : []
   for (const game of published) {
-    const lost = (game.studioSlugs ?? []).filter((slug) => unread.has(slug))
-    if (lost.length > 0) keepPublished(game, lost)
+    const lost = (game.studioSlugs ?? []).filter((slug) => {
+      const outcome = outcomes.get(slug)
+      return outcome !== undefined && outcome !== 'read'
+    })
+    if (lost.length === 0) continue
+    // A failed slug is an outage and keeps its games; a 404 or an empty list keeps them a week.
+    const failing = lost.some((slug) => outcomes.get(slug) === 'failed')
+    if (failing || recentlySeen(game) || seenAt.has(game.id)) keepPublished(game, lost)
+    else expired += 1
+  }
+  if (expired > 0) {
+    deps.log(
+      `studios: dropped ${expired} published games of unknown or empty slugs not found for ${KEEP_UNCONFIRMED_DAYS} days`,
+    )
   }
 
   const flaggedCount = () =>
@@ -235,7 +278,11 @@ export async function collectStudioGames(
   // --- The list itself: slugs noted, the appended games bounded, most popular first.
   for (const [id, found] of slugsOf) {
     const game = listed.get(id) ?? outside.get(id)
-    if (game) game.studioSlugs = [...found]
+    if (!game) continue
+    game.studioSlugs = [...found]
+    const seen = seenAt.get(id)
+    if (seen) game.studioSeenAt = seen
+    else delete game.studioSeenAt
   }
   const ranked = [...outside.values()].sort((a, b) => b.popularity - a.popularity || a.id - b.id)
   const appended = ranked.slice(0, maxAppended)
@@ -263,6 +310,7 @@ export async function collectStudioGames(
     flagged,
     dropped,
     kept,
+    expired,
     madeInUkraine,
     previousMadeInUkraine,
     degraded,

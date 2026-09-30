@@ -84,6 +84,8 @@ export interface StudioReport {
   dropped: number
   /** Published games kept flagged because tonight could not confirm them. */
   kept: number
+  /** Published games of a 404 or empty slug dropped after a week unconfirmed. */
+  expired: number
   /** Under half the published count was found, so every published flag was kept. */
   degraded: boolean
   /** Studio slugs that failed and were skipped. */
@@ -254,6 +256,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
         appended: found.appended.length,
         dropped: found.dropped,
         kept: found.kept,
+        expired: found.expired,
         degraded: found.degraded,
         failures: found.failures,
         unknownSlugs: found.unknown,
@@ -388,6 +391,12 @@ function studioRows(report: JobReport): [string, string][] {
         plural(studios.appIdLookups, 'app id lookup', 'app id lookups'),
     ],
   ]
+  if (studios.expired > 0) {
+    rows.push([
+      'Studio games expired',
+      `${studios.expired} games of unknown or empty studio slugs, not found for a week, were dropped`,
+    ])
+  }
   if (studios.degraded) {
     rows.push([
       'Studios stage',

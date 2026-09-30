@@ -62,6 +62,11 @@ export interface IndexedGame {
    * published. Optional: documents published before it existed, and unflagged games, have none.
    */
   studioSlugs?: string[]
+  /**
+   * When the refresh job last found this game under one of `studioSlugs` (ISO timestamp). A game
+   * kept only because its slug answered nothing is dropped a week after this.
+   */
+  studioSeenAt?: string
   /** ISO timestamp of the last successful price read. */
   priceUpdatedAt: string | null
 }

@@ -518,6 +518,7 @@ describe('formatSummary', () => {
         appended: 41,
         dropped: 0,
         kept: 3,
+        expired: 2,
         degraded: false,
         failures: 1,
         unknownSlugs: ['brenntkopf', 'mokus-games'],
@@ -530,6 +531,9 @@ describe('formatSummary', () => {
 
     expect(summary).toContain(
       '| Studio games | 57 made in Ukraine (published version: 60), 41 added beyond the popularity list, 0 dropped by the bound, 3 kept from the published version, 1 studio failed; RAWG: 35 list requests, 41 app id lookups |',
+    )
+    expect(summary).toContain(
+      '| Studio games expired | 2 games of unknown or empty studio slugs, not found for a week, were dropped |',
     )
     expect(summary).toContain('| Studios with no games | Cyberlight Game Studio |')
     expect(summary).toContain('| Studio slugs unknown to RAWG | brenntkopf, mokus-games |')
