@@ -7,6 +7,7 @@ import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
 import { collectStudioGames } from './studios'
+import { UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainianStudios'
 import { createJobRawg, createJobSteam, systemClock } from './upstreams'
 import { createWriterFromEnv } from './writer'
 import type { IndexedGame } from '../../server/index/document'
@@ -235,6 +236,13 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       // After the candidates' carry-forward, so nothing it copies can overwrite a flag set here;
       // the games it appends get their own carry-forward, as a candidate would have.
       const found = await stage('studios', async () => {
+        // A manual run with a few candidate pages is a smoke test, but the studios are read in
+        // full all the same: said here, because the RAWG requests it costs are not small.
+        if (options.pages < DEFAULT_CANDIDATE_PAGES) {
+          deps.log(
+            `studios: reading all ${UKRAINIAN_STUDIO_SLUGS.length} studio slugs although --pages=${options.pages} limits the candidates`,
+          )
+        }
         const result = await collectStudioGames(deps, games)
         await carryPublishedForward(deps, result.appended, 'studios')
         return result

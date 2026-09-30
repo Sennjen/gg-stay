@@ -438,6 +438,16 @@ describe('runJob with the studios stage', () => {
     expect(await collapsed.writer.currentVersion()).toBe(1)
   })
 
+  it('says so when it reads every studio for a candidate walk cut short by --pages', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+
+    await runJob(harness.deps, FULL)
+
+    expect(harness.logs).toContain(
+      `studios: reading all ${STUDIO_SLUGS} studio slugs although --pages=${JOB_PAGE_COUNT} limits the candidates`,
+    )
+  })
+
   it('names the studios stage when it fails the run', async () => {
     const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
     for (const slug of ['4a-games', 'best-way']) {
