@@ -49,11 +49,14 @@ export interface FakeRawg {
   pageCalls: () => RawgCall[]
   /** Makes the first later call matching `match` reject, the way a dropped run would see it. */
   failNext: (match: (call: RawgCall) => boolean) => void
+  /** Makes the first later call matching `match` resolve with `body` instead of the real page. */
+  answerNextWith: (match: (call: RawgCall) => boolean, body: unknown) => void
 }
 
 export function createFakeRawg(): FakeRawg {
   const calls: RawgCall[] = []
   const failures: ((call: RawgCall) => boolean)[] = []
+  const answers: { match: (call: RawgCall) => boolean; body: unknown }[] = []
 
   const rawg: JobDeps['rawg'] = async (path, params) => {
     const flat = Object.fromEntries(
@@ -68,6 +71,8 @@ export function createFakeRawg(): FakeRawg {
       failures.splice(failureIndex, 1)
       throw new Error(`RAWG upstream failure (${path})`)
     }
+    const answerIndex = answers.findIndex((answer) => answer.match(call))
+    if (answerIndex !== -1) return answers.splice(answerIndex, 1)[0]!.body
     if (path === 'games') return jobGamesPage(Number(flat.page ?? '1'))
     const storeMatch = /^games\/([a-z0-9-]+)\/stores$/.exec(path)
     if (storeMatch) {
@@ -83,6 +88,7 @@ export function createFakeRawg(): FakeRawg {
     storeCalls: () => calls.filter((call) => call.path.endsWith('/stores')),
     pageCalls: () => calls.filter((call) => call.path === 'games'),
     failNext: (match) => void failures.push(match),
+    answerNextWith: (match, body) => void answers.push({ match, body }),
   }
 }
 
