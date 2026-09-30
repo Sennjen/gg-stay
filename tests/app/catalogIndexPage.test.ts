@@ -100,7 +100,9 @@ describe('the catalog on the index path', () => {
       'Прибрати PC',
       'Прибрати Зроблено в Україні',
     ])
-    expect(wrapper.get('[data-test="index-note"]').text()).toContain('і всіх українських')
+    expect(wrapper.get('[data-test="index-note"]').text()).toContain(
+      'і всіх ігор українських студій',
+    )
   })
 
   it('keeps the chip row when every filter on the page was declined, with no badge', async () => {

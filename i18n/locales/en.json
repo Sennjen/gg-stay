@@ -83,7 +83,7 @@
     "view": "Catalog layout",
     "viewGrid": "Grid",
     "viewList": "List",
-    "indexedOnlyNote": "Searching the {count} most popular games and every Ukrainian one — they are the only ones we know prices and languages for.",
+    "indexedOnlyNote": "Searching the {count} most popular games and every game from a Ukrainian studio — they are the only ones we know prices and languages for.",
     "pricesUpdated": "Prices updated {count} hour ago | Prices updated {count} hours ago",
     "pricesUpdatedRecently": "Prices updated just now",
     "staleTitle": "Prices are not being refreshed right now",

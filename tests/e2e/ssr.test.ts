@@ -288,7 +288,7 @@ describe('server-side rendering', async () => {
       expect(html).toContain('Пошук серед ')
       expect(html).toContain('3 000')
       expect(html).toContain(
-        'найпопулярніших ігор і всіх українських — ціни й мови ми знаємо лише для них.',
+        'найпопулярніших ігор і всіх ігор українських студій — ціни й мови ми знаємо лише для них.',
       )
 
       // Cards are present, and every one satisfies BOTH constraints.

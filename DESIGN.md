@@ -384,4 +384,4 @@ off.
   it holds a value) holds one `aria-pressed` toggle, "Зроблено в Україні", with a one-line
   explanation under it in `fg-2`. It writes `madeInUkraine=1`, has its own chip, counts in the
   badge, and stays while the prices are stale, because it reads no price. The index note now reads
-  "3 000 найпопулярніших ігор і всіх українських".
+  "3 000 найпопулярніших ігор і всіх ігор українських студій".

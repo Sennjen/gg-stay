@@ -10,7 +10,7 @@ describe('CatalogIndexNote', () => {
     const wrapper = await mountSuspended(CatalogIndexNote, { props: { now: NOW } })
     // The index holds the most popular games and, on top of them, every made-in-Ukraine game.
     expect(wrapper.text()).toContain(
-      'Пошук серед 3 000 найпопулярніших ігор і всіх українських — ціни й мови ми знаємо лише для них.',
+      'Пошук серед 3 000 найпопулярніших ігор і всіх ігор українських студій — ціни й мови ми знаємо лише для них.',
     )
     expect(wrapper.get('.font-numeric').text()).toBe('3 000')
   })
@@ -47,7 +47,7 @@ describe('CatalogIndexNote', () => {
       route: '/en/games',
     })
     expect(wrapper.text()).toContain(
-      'Searching the 3,000 most popular games and every Ukrainian one — they are the only ones we know prices and languages for.',
+      'Searching the 3,000 most popular games and every game from a Ukrainian studio — they are the only ones we know prices and languages for.',
     )
     expect(wrapper.get('[data-test="prices-updated"]').text()).toBe('Prices updated 5 hours ago')
   })
