@@ -68,7 +68,7 @@ function revealPreview(event: PointerEvent) {
 </script>
 
 <template>
-  <article data-test="game-card" class="h-full overflow-hidden rounded-card">
+  <article data-test="game-card" class="relative h-full overflow-hidden rounded-card">
     <NuxtLink
       :to="localePath(`/games/${game.slug}`)"
       :class="linkClass"

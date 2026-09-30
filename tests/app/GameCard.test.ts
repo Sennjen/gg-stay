@@ -412,3 +412,12 @@ describe('GameCard: made in Ukraine', () => {
     expect(wrapper.get('[data-test="made-in-ukraine"]').text()).toBe('Made in Ukraine')
   })
 })
+
+describe('GameCard: containment', () => {
+  it('is the containing block of its own positioned content, wherever it is placed', async () => {
+    // The screen-reader-only platform list is `position: absolute`; with the card positioned it
+    // stays inside the card instead of escaping whatever scroller or grid the card sits in.
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    expect(wrapper.get('article').classes()).toContain('relative')
+  })
+})
