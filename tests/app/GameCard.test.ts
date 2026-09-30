@@ -361,3 +361,54 @@ describe('GameCard', () => {
     })
   })
 })
+
+describe('GameCard: made in Ukraine', () => {
+  it('spells "Зроблено в Україні" out as visible text on the cover', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: { game: { ...game, madeInUkraine: true } },
+    })
+    const label = wrapper.get('[data-test="made-in-ukraine"]')
+    expect(label.text()).toBe('Зроблено в Україні')
+    // Real text, not an icon with a hidden name or a hover tooltip.
+    expect(label.attributes('aria-hidden')).toBeUndefined()
+    expect(label.attributes('title')).toBeUndefined()
+    expect(label.find('svg').exists()).toBe(false)
+  })
+
+  it('sits over the cover, so a card with the label is exactly as tall as one without', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: { game: { ...game, madeInUkraine: true } },
+    })
+    const label = wrapper.get('[data-test="made-in-ukraine"]')
+    expect(label.classes()).toContain('absolute')
+    // Inside the fixed-ratio cover box, above the hover preview image.
+    expect(label.element.parentElement!.classList.contains('aspect-video')).toBe(true)
+    expect(label.classes()).toContain('z-10')
+  })
+
+  it('uses tokens only: neutral text on an ink backdrop, never accent, signal or sale', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: { game: { ...game, madeInUkraine: true } },
+    })
+    const classes = wrapper.get('[data-test="made-in-ukraine"]').classes().join(' ')
+    expect(classes).toContain('text-fg')
+    expect(classes).not.toMatch(/accent|signal|sale|#/)
+  })
+
+  it('renders no label for any other game', async () => {
+    for (const madeInUkraine of [false, undefined]) {
+      const wrapper = await mountSuspended(GameCard, {
+        props: { game: { ...game, madeInUkraine } },
+      })
+      expect(wrapper.find('[data-test="made-in-ukraine"]').exists()).toBe(false)
+    }
+  })
+
+  it('says "Made in Ukraine" in English', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: { game: { ...game, madeInUkraine: true } },
+      route: '/en/games',
+    })
+    expect(wrapper.get('[data-test="made-in-ukraine"]').text()).toBe('Made in Ukraine')
+  })
+})

@@ -167,7 +167,8 @@
       "XBOX": "Xbox",
       "NINTENDO": "Nintendo",
       "MOBILE": "Mobile"
-    }
+    },
+    "madeInUkraine": "Made in Ukraine"
   },
   "drawer": {
     "title": "Filters",
@@ -215,7 +216,9 @@
     "localisationLabel": "Ukrainian",
     "localisationText": "Text",
     "localisationAudio": "Text and voice acting",
-    "localisationNone": "None"
+    "localisationNone": "None",
+    "origin": "Origin",
+    "madeInUkraine": "Made in Ukraine"
   },
   "gallery": {
     "heading": "Screenshots",

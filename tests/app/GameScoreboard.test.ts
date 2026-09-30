@@ -278,3 +278,23 @@ describe('GameScoreboard', () => {
     })
   })
 })
+
+describe('GameScoreboard: made in Ukraine', () => {
+  it('names the origin as a visible caption and value', async () => {
+    const wrapper = await mountSuspended(GameScoreboard, {
+      props: { game: { ...game, madeInUkraine: true } },
+    })
+    const item = wrapper.get('[data-test="made-in-ukraine"]')
+    expect(item.get('dt').text()).toBe('Походження')
+    expect(item.get('dt').classes()).not.toContain('sr-only')
+    expect(item.get('dd').text()).toBe('Зроблено в Україні')
+  })
+
+  it('says nothing about the origin of any other game', async () => {
+    const wrapper = await mountSuspended(GameScoreboard, {
+      props: { game: { ...game, madeInUkraine: false } },
+    })
+    expect(wrapper.find('[data-test="made-in-ukraine"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Походження')
+  })
+})

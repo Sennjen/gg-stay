@@ -167,7 +167,8 @@
       "XBOX": "Xbox",
       "NINTENDO": "Nintendo",
       "MOBILE": "Мобільні"
-    }
+    },
+    "madeInUkraine": "Зроблено в Україні"
   },
   "drawer": {
     "title": "Фільтри",
@@ -215,7 +216,9 @@
     "localisationLabel": "Українська",
     "localisationText": "Текст",
     "localisationAudio": "Текст і озвучка",
-    "localisationNone": "Немає"
+    "localisationNone": "Немає",
+    "origin": "Походження",
+    "madeInUkraine": "Зроблено в Україні"
   },
   "gallery": {
     "heading": "Скріншоти",

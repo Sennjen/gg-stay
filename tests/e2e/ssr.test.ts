@@ -114,6 +114,11 @@ describe('server-side rendering', async () => {
     expect(madeInUkraine).toContain('href="/games?madeInUkraine=1"')
     expect(madeInUkraine).toContain('S.T.A.L.K.E.R. 2: Heart of Chornobyl')
     expect(madeInUkraine.match(/data-test="game-card"/g)).toHaveLength(6)
+    // Every card on that shelf spells the label out; no card on a RAWG shelf does.
+    expect(
+      madeInUkraine.match(/data-test="made-in-ukraine"[^>]*>\s*Зроблено в Україні\s*</g),
+    ).toHaveLength(6)
+    expect(shelfHtml(html, 'UPCOMING')).not.toContain('data-test="made-in-ukraine"')
     expect(shelfHtml(html, 'UKRAINIAN')).toContain('href="/games?ukrainianLocalisation=ANY"')
     expect(shelfHtml(html, 'UPCOMING')).toContain('href="/games?upcoming=1"')
     expect(shelfHtml(html, 'BEST_THIS_YEAR')).toMatch(

@@ -133,5 +133,9 @@ const ratingAriaLabel = computed(() => {
       <dt class="text-xs text-fg-2">{{ t('game.localisationLabel') }}</dt>
       <dd class="text-fg">{{ localisationLabel }}</dd>
     </div>
+    <div v-if="game.madeInUkraine" data-test="made-in-ukraine" class="flex flex-col gap-0.5">
+      <dt class="text-xs text-fg-2">{{ t('game.origin') }}</dt>
+      <dd class="text-fg">{{ t('game.madeInUkraine') }}</dd>
+    </div>
   </dl>
 </template>
