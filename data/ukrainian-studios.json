@@ -1,0 +1,362 @@
+[
+  {
+    "name": "4A Games",
+    "rawgSlugs": ["4a-games"],
+    "city": "Kyiv",
+    "founded": 2006,
+    "status": "active",
+    "notableGames": ["Metro 2033", "Metro: Last Light", "Metro Exodus", "Arktika.1"],
+    "sources": [
+      "https://en.wikipedia.org/wiki/4A_Games",
+      "https://itc.ua/en/news/even-from-the-front-line-in-ukraine-4a-games-confirms-new-metro-and-explains-the-situation-in-the-studio/",
+      "https://mezha.ua/en/articles/studiji-ta-kompaniji-stvoreni-vihidcyami-z-gsc-game-world-313085/"
+    ]
+  },
+  {
+    "name": "Action Forms",
+    "rawgSlugs": ["action-forms"],
+    "city": "Kyiv",
+    "founded": 1995,
+    "status": "defunct",
+    "notableGames": [
+      "Chasm: The Rift",
+      "Carnivores",
+      "Vivisector: Beast Within",
+      "Cryostasis: Sleep of Reason"
+    ],
+    "sources": [
+      "https://en.wikipedia.org/wiki/Action_Forms",
+      "https://carnivores.fandom.com/wiki/Action_Forms"
+    ]
+  },
+  {
+    "name": "Beatshapers",
+    "rawgSlugs": ["beatshapers"],
+    "city": "Kyiv",
+    "founded": 2006,
+    "status": "defunct",
+    "notableGames": ["StarDrone", "BreakQuest", "#KILLALLZOMBIES"],
+    "sources": [
+      "https://en.wikipedia.org/wiki/Beatshapers",
+      "https://blocksworld.fandom.com/wiki/Fortell_Games"
+    ]
+  },
+  {
+    "name": "Best Way",
+    "rawgSlugs": ["best-way"],
+    "city": "Sievierodonetsk",
+    "founded": 1999,
+    "status": "active",
+    "notableGames": [
+      "Soldiers: Heroes of World War II",
+      "Men of War",
+      "Faces of War",
+      "Men of War II"
+    ],
+    "sources": [
+      "https://uk.wikipedia.org/wiki/Best_Way",
+      "https://ain.ua/2013/01/31/10-populyarnyh-igor-stvorenyh-ukrayinskymy-rozrobnykamy/",
+      "https://mezha.ua/en/articles/made-in-ukraine-ukrainian-games-2024-part-i-52-games-that-have-already-been-released/"
+    ]
+  },
+  {
+    "name": "Boolat Games",
+    "rawgSlugs": ["boolat-games", "boolat", "boolat-game-development-company"],
+    "city": "Kyiv",
+    "founded": 2001,
+    "status": "active",
+    "notableGames": ["Lagsters", "Lethal Dreams", "Topatoi", "Amelie's Cafe"],
+    "sources": [
+      "https://en.ain.ua/2021/03/22/playrix-acquires-boolat-games/",
+      "https://gameworldobserver.com/2021/03/22/playrix-acquires-ukrainian-studio-boolat-games-for-undisclosed-sum"
+    ]
+  },
+  {
+    "name": "Brenntkopf Studio Kharkiv",
+    "rawgSlugs": ["brenntkopf-studio-kharkiv", "brenntkopf", "brenntkopf-development"],
+    "city": "Kharkiv",
+    "founded": null,
+    "status": "active",
+    "notableGames": [
+      "The Molfar: Call of Heart",
+      "Twenty-second: Stories of Underground Kharkiv",
+      "CosmoOdyssey: Trip to Mars"
+    ],
+    "sources": [
+      "https://www.mobygames.com/company/50986/brenntkopf-studio-kharkiv/",
+      "https://www.kyivpost.com/post/31303",
+      "https://mezha.ua/en/articles/made-in-ukraine-ukrainian-games-2024-part-i-52-games-that-have-already-been-released/"
+    ]
+  },
+  {
+    "name": "Creoteam",
+    "rawgSlugs": ["creoteam"],
+    "city": "Kyiv",
+    "founded": 2005,
+    "status": "active",
+    "notableGames": ["Collapse", "Football, Tactics & Glory"],
+    "sources": [
+      "https://creoteam.com/creoteam-press-kit/",
+      "https://mezha.media/en/2023/06/30/football-tactics-glory-world-a-new-game-from-the-ukrainian-studio-creoteam/",
+      "https://giantbomb.com/wiki/Companies/Creoteam"
+    ]
+  },
+  {
+    "name": "CyberLight Game Studio",
+    "rawgSlugs": ["cyberlight"],
+    "city": "Kyiv",
+    "founded": 2017,
+    "status": "active",
+    "notableGames": ["Bigfoot (Finding Bigfoot)"],
+    "sources": [
+      "https://uk.wikipedia.org/wiki/Cyber_Light_Game_Studio",
+      "https://bigfoot.wiki.gg/wiki/CyberLight_Game_Studio"
+    ]
+  },
+  {
+    "name": "Deep Shadows",
+    "rawgSlugs": ["deep-shadows", "deep-shadows-games"],
+    "city": "Kyiv",
+    "founded": 2001,
+    "status": "active",
+    "notableGames": [
+      "Boiling Point: Road to Hell",
+      "Xenus II: White Gold",
+      "The Precursors",
+      "Tales of Terror series"
+    ],
+    "sources": [
+      "https://uk.wikipedia.org/wiki/Deep_Shadows",
+      "https://mezha.ua/en/articles/studiji-ta-kompaniji-stvoreni-vihidcyami-z-gsc-game-world-313085/"
+    ]
+  },
+  {
+    "name": "Digital Spray Studios",
+    "rawgSlugs": ["digital-spray-studios"],
+    "city": "Kyiv",
+    "founded": 2001,
+    "status": "defunct",
+    "notableGames": ["You Are Empty", "Instinct"],
+    "sources": [
+      "https://en.wikipedia.org/wiki/You_Are_Empty",
+      "https://www.mobygames.com/company/9828/digital-spray-studios/",
+      "https://mezha.ua/articles/35-games-ua-314459/"
+    ]
+  },
+  {
+    "name": "Flying Cafe for Semianimals",
+    "rawgSlugs": ["flying-cafe-for-semianimals"],
+    "city": "Kyiv",
+    "founded": 2011,
+    "status": "defunct",
+    "notableGames": ["Cradle"],
+    "sources": [
+      "https://www.pcgamesn.com/cradle/flying-cafe-for-semianimals-finally-has-a-release-date-for-cradle-launches-july-24th",
+      "https://mezha.ua/en/articles/studiji-ta-kompaniji-stvoreni-vihidcyami-z-gsc-game-world-313085/",
+      "https://en.wikipedia.org/wiki/Cradle_(video_game)"
+    ]
+  },
+  {
+    "name": "Frag Lab",
+    "rawgSlugs": ["frag-lab-llc"],
+    "city": "Kyiv",
+    "founded": 2017,
+    "status": "active",
+    "notableGames": ["Shatterline", "Forest Escape: Last Train"],
+    "sources": [
+      "https://www.pcgamesn.com/shatterline/fps-early-access",
+      "https://inventure.com.ua/en/news/ukraine/wargaming-sold-kyiv-based-studio-frag-lab",
+      "https://store.steampowered.com/developer/fraglab/about/"
+    ]
+  },
+  {
+    "name": "Frogwares",
+    "rawgSlugs": ["frogwares"],
+    "city": "Kyiv",
+    "founded": 2000,
+    "status": "active",
+    "notableGames": [
+      "Sherlock Holmes: Crimes & Punishments",
+      "The Sinking City",
+      "Sherlock Holmes Chapter One",
+      "Sherlock Holmes: The Awakened"
+    ],
+    "sources": [
+      "https://en.wikipedia.org/wiki/Frogwares",
+      "https://www.pcgamer.com/epic-pays-for-sherlock-holmes-studio-to-relocate-employees-out-of-kyiv/",
+      "https://www.mobygames.com/company/3317/frogwares-game-development-studio/"
+    ]
+  },
+  {
+    "name": "GrandMA Studios",
+    "rawgSlugs": ["grandma-studios"],
+    "city": "Kyiv",
+    "founded": 2011,
+    "status": "defunct",
+    "notableGames": [
+      "Mystery Case Files: The Harbinger",
+      "Whispered Secrets series",
+      "Reflections of Life series"
+    ],
+    "sources": [
+      "https://hogs.fandom.com/wiki/GrandMA_Studios",
+      "https://dev.ua/en/news/big-fish-games-1765444676",
+      "https://www.wikidata.org/wiki/Q109589494"
+    ]
+  },
+  {
+    "name": "Graviteam",
+    "rawgSlugs": ["graviteam"],
+    "city": "Kharkiv",
+    "founded": 2004,
+    "status": "active",
+    "notableGames": [
+      "Achtung Panzer: Kharkov 1943",
+      "Steel Fury: Kharkov 1942",
+      "Graviteam Tactics: Mius-Front",
+      "Tank Warfare: Tunisia 1943"
+    ],
+    "sources": [
+      "https://graviteam.com/about-company.html",
+      "https://steamcommunity.com/app/312980/discussions/0/3191370046642713974/",
+      "https://en.wikipedia.org/wiki/Achtung_Panzer:_Kharkov_1943"
+    ]
+  },
+  {
+    "name": "GSC Game World",
+    "rawgSlugs": ["gsc-game-world"],
+    "city": "Kyiv",
+    "founded": 1995,
+    "status": "active",
+    "notableGames": [
+      "Cossacks: European Wars",
+      "S.T.A.L.K.E.R.: Shadow of Chernobyl",
+      "Cossacks 3",
+      "S.T.A.L.K.E.R. 2: Heart of Chornobyl"
+    ],
+    "sources": [
+      "https://en.wikipedia.org/wiki/GSC_Game_World",
+      "https://uk.wikipedia.org/wiki/Відеоігри_в_Україні"
+    ]
+  },
+  {
+    "name": "Hologryph",
+    "rawgSlugs": ["hologryph"],
+    "city": "Lviv",
+    "founded": 2016,
+    "status": "active",
+    "notableGames": ["Secret Neighbor", "SAND: Raiders of Sophie", "Party Hard 2"],
+    "sources": [
+      "https://en.ain.ua/2020/11/27/tinybuild-invests-3m-in-hologryph/",
+      "https://helloneighbor.wiki.gg/wiki/Hologryph"
+    ]
+  },
+  {
+    "name": "Mokus",
+    "rawgSlugs": ["mokus", "mokus-games"],
+    "city": "Lviv",
+    "founded": null,
+    "status": "active",
+    "notableGames": ["Contre Jour", "Boid"],
+    "sources": [
+      "https://en.wikipedia.org/wiki/Contre_Jour",
+      "https://www.mobygames.com/company/19595/mokus/",
+      "https://ain.ua/2013/01/31/10-populyarnyh-igor-stvorenyh-ukrayinskymy-rozrobnykamy/"
+    ]
+  },
+  {
+    "name": "Pinokl Games",
+    "rawgSlugs": ["pinokl-games"],
+    "city": "Rivne",
+    "founded": 2011,
+    "status": "active",
+    "notableGames": ["Party Hard", "Party Hard 2", "Party Hard Tycoon"],
+    "sources": [
+      "https://gameworldobserver.com/2016/09/19/party-hard",
+      "https://store.steampowered.com/developer/Pinokl/",
+      "https://en.wikipedia.org/wiki/Party_Hard_(video_game)"
+    ]
+  },
+  {
+    "name": "Sengi Games",
+    "rawgSlugs": ["sengi-games"],
+    "city": "Rivne",
+    "founded": 2018,
+    "status": "active",
+    "notableGames": ["The Serpent Rogue", "Bosorka"],
+    "sources": [
+      "https://www.nintendolife.com/news/2022/03/ukrainian-developer-determined-to-launch-the-serpent-rogue-on-time",
+      "https://mezha.media/en/2022/04/27/the-serpent-rogue-a-ukrainian-game-that-came-out-despite-the-war/",
+      "https://www.gematsu.com/companies/sengi-games"
+    ]
+  },
+  {
+    "name": "Specialbit Studio",
+    "rawgSlugs": ["specialbit", "specialbit-studio"],
+    "city": "Lviv",
+    "founded": 2006,
+    "status": "active",
+    "notableGames": ["Angelo and Deemon: One Hell of a Quest", "The Wild Case", "The Last Dream"],
+    "sources": [
+      "https://adventuregamehotspot.com/company/692/specialbit-studio",
+      "https://store.steampowered.com/developer/specialbit/",
+      "https://giantbomb.com/wiki/Companies/Specialbit_Studio"
+    ]
+  },
+  {
+    "name": "Starni Games",
+    "rawgSlugs": ["starni-games"],
+    "city": "Kyiv",
+    "founded": null,
+    "status": "active",
+    "notableGames": [
+      "Strategic Mind: Blitzkrieg",
+      "Strategic Mind: The Pacific",
+      "Ukraine War Stories",
+      "Headquarters: World War II"
+    ],
+    "sources": [
+      "https://techraptor.net/gaming/news/ukrainian-dev-starni-games-announces-ukraine-war-stories",
+      "https://mezha.media/en/2022/10/19/ukraine-war-stories-a-collection-of-visual-novels-about-the-war-was-released-on-steam/",
+      "https://store.steampowered.com/developer/StarniGames/"
+    ]
+  },
+  {
+    "name": "Tatem Games",
+    "rawgSlugs": ["tatem-games"],
+    "city": "Kyiv",
+    "founded": 2009,
+    "status": "active",
+    "notableGames": ["Carnivores: Dinosaur Hunter", "Carnivores: Ice Age", "Racer"],
+    "sources": [
+      "https://carnivores.fandom.com/wiki/Tatem_Games",
+      "https://en.wikipedia.org/wiki/Action_Forms",
+      "https://www.n-ix.com/14-top-ukrainian-game-developers-in-2019/"
+    ]
+  },
+  {
+    "name": "Vostok Games",
+    "rawgSlugs": ["vostok-games"],
+    "city": "Kyiv",
+    "founded": 2012,
+    "status": "active",
+    "notableGames": ["Survarium", "Fear the Wolves"],
+    "sources": [
+      "https://en.wikipedia.org/wiki/VG_Entertainment",
+      "https://mezha.ua/en/articles/studiji-ta-kompaniji-stvoreni-vihidcyami-z-gsc-game-world-313085/"
+    ]
+  },
+  {
+    "name": "Whale Rock Games",
+    "rawgSlugs": ["whale-rock-games", "whale-rock-games-2"],
+    "city": "Kyiv",
+    "founded": null,
+    "status": "active",
+    "notableGames": ["We Are The Dwarves", "Deployment", "Hell Division"],
+    "sources": [
+      "https://uk.wikipedia.org/wiki/Whale_Rock_Games",
+      "https://en.wikipedia.org/wiki/We_Are_the_Dwarves",
+      "https://www.wikidata.org/wiki/Q25436730"
+    ]
+  }
+]
