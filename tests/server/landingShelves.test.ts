@@ -378,15 +378,39 @@ describe('an index that cannot answer', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('renders the landing instead of hanging when the store stops answering', async () => {
+  it('renders the landing after one deadline, not three, when the searches hang', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const never = () => new Promise<never>(() => {})
     const store = await publishTestIndex(RICH)
+    // Timers the test fires by hand: a deadline passes only when the test says so.
+    const timers: { handler: () => void; done: boolean }[] = []
+    const setTimer = {
+      setTimeout: (handler: () => void) => {
+        const timer = { handler, done: false }
+        timers.push(timer)
+        return timer
+      },
+      clearTimeout: (timer: unknown) => {
+        ;(timer as { done: boolean }).done = true
+      },
+    }
+    const pending = () => timers.filter((timer) => !timer.done)
     // The metadata answers, then every search hangs: the deadline turns each into a failure.
     const hanging: GameIndex = withDeadline(overriding(store, { search: never }), {
-      timeoutMs: 20,
+      timeoutMs: 1_500,
+      setTimer,
     })
-    const shelves = await shelvesOf({ index: degradeOnFailure(hanging) })
+    const answer = shelvesOf({ index: degradeOnFailure(hanging) })
+
+    // All three searches are waiting on their deadlines at the same moment — had they run one
+    // after another, only one would ever be pending — so one deadline's worth of waiting ends
+    // all three.
+    await vi.waitFor(() => expect(pending()).toHaveLength(3))
+    for (const timer of pending()) {
+      timer.done = true
+      timer.handler()
+    }
+    const shelves = await answer
     expect(shelves.map((entry) => entry.id)).toEqual(['BEST_THIS_YEAR', 'UPCOMING'])
   })
 })
