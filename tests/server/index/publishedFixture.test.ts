@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
-import { DEV_FIXTURE_GAMES } from '../../fixtures/index/devGames'
+import { DEV_FIXTURE_GAMES, DEV_FIXTURE_UKRAINIAN_GAMES } from '../../fixtures/index/devGames'
 import published from '../../fixtures/index/published.json' with { type: 'json' }
 
 /**
@@ -18,8 +18,19 @@ const fixture = published as unknown as { meta: IndexMeta; games: IndexedGame[] 
 
 describe('the published index fixture', () => {
   it('holds exactly the development games', () => {
-    expect(fixture.games).toEqual(DEV_FIXTURE_GAMES)
-    expect(fixture.meta.gameCount).toBe(DEV_FIXTURE_GAMES.length)
+    expect(fixture.games).toEqual([...DEV_FIXTURE_GAMES, ...DEV_FIXTURE_UKRAINIAN_GAMES])
+    expect(fixture.meta.gameCount).toBe(fixture.games.length)
+  })
+
+  it('holds at least five games made in Ukraine, so the shelf and the filter have something', async () => {
+    const index = createMemoryGameIndex()
+    const version = await index.beginVersion()
+    await index.writeVersion(version, fixture.games)
+    await index.publish(version, { ...fixture.meta, version })
+
+    const madeInUkraine = await index.search({ madeInUkraine: true })
+    expect(madeInUkraine.total).toBeGreaterThanOrEqual(5)
+    expect(madeInUkraine.ids).toEqual(DEV_FIXTURE_UKRAINIAN_GAMES.map((game) => game.id))
   })
 
   it('dates every price it knows, so a price is never served without its timestamp', () => {
@@ -36,7 +47,7 @@ describe('the published index fixture', () => {
     expect((await index.search({ ukrainianLocalisation: 'AUDIO' })).ids).toEqual([3328])
     expect((await index.search({ free: true })).ids).toEqual([654])
     expect((await index.search({ sort: 'PRICE_ASC' })).ids).toEqual([654, 4200, 3328])
-    expect((await index.meta())?.gameCount).toBe(DEV_FIXTURE_GAMES.length)
+    expect((await index.meta())?.gameCount).toBe(fixture.games.length)
   })
 
   /**

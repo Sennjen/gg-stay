@@ -106,3 +106,152 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     priceUpdatedAt: DEV_FIXTURE_PRICES_UPDATED_AT,
   },
 ]
+
+/**
+ * Games made in Ukraine, so fixture mode has something for the "Зроблено в Україні" shelf and the
+ * `madeInUkraine` filter. They are index-only: the RAWG fixtures do not show them, which is the
+ * shape the refresh job's studios stage produces for a studio game outside the popularity list.
+ *
+ * The titles, studios and release dates are real; the ids are local to this seed, and the
+ * popularity and rating figures are rounded stand-ins. Price and languages are deliberately
+ * unknown (`null`), as they are for a game the job has appended but not yet priced: that keeps
+ * every price, discount and localisation query of the seed — and the acceptance URLs pinned on it
+ * — answering exactly the three games above. Listed most popular first, the index's own order.
+ */
+function madeInUkraine(
+  game: Pick<
+    IndexedGame,
+    | 'id'
+    | 'slug'
+    | 'name'
+    | 'released'
+    | 'popularity'
+    | 'platforms'
+    | 'genres'
+    | 'ageRating'
+    | 'rating'
+    | 'ratingsCount'
+    | 'metacritic'
+    | 'playtime'
+  >,
+): IndexedGame {
+  // Spelled out in the document's own field order, so `published.json` reads like its neighbours.
+  return {
+    id: game.id,
+    slug: game.slug,
+    name: game.name,
+    cover: null,
+    preview: null,
+    released: game.released,
+    popularity: game.popularity,
+    platforms: game.platforms,
+    genres: game.genres,
+    stores: ['steam', 'gog'],
+    gameModes: ['SINGLE'],
+    ageRating: game.ageRating,
+    rating: game.rating,
+    ratingsCount: game.ratingsCount,
+    metacritic: game.metacritic,
+    playtime: game.playtime,
+    priceUah: null,
+    regularPriceUah: null,
+    discountPercent: 0,
+    free: false,
+    localisation: null,
+    madeInUkraine: true,
+    priceUpdatedAt: null,
+  }
+}
+
+export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
+  // 4A Games, Kyiv.
+  madeInUkraine({
+    id: 900101,
+    slug: 'metro-exodus',
+    name: 'Metro Exodus',
+    released: '2019-02-15',
+    popularity: 9500,
+    platforms: [4, 18, 1],
+    genres: ['action', 'shooter'],
+    ageRating: 'PEGI18',
+    rating: 4.2,
+    ratingsCount: 2900,
+    metacritic: 82,
+    playtime: 18,
+  }),
+  // GSC Game World, Kyiv.
+  madeInUkraine({
+    id: 900102,
+    slug: 'stalker-shadow-of-chernobyl',
+    name: 'S.T.A.L.K.E.R.: Shadow of Chernobyl',
+    released: '2007-03-20',
+    popularity: 9000,
+    platforms: [4],
+    genres: ['action', 'shooter', 'role-playing-games-rpg'],
+    ageRating: 'PEGI18',
+    rating: 4.3,
+    ratingsCount: 2100,
+    metacritic: 82,
+    playtime: 14,
+  }),
+  // 4A Games, Kyiv.
+  madeInUkraine({
+    id: 900103,
+    slug: 'metro-2033',
+    name: 'Metro 2033',
+    released: '2010-03-16',
+    popularity: 8500,
+    platforms: [4, 14],
+    genres: ['action', 'shooter'],
+    ageRating: 'PEGI18',
+    rating: 4.0,
+    ratingsCount: 1800,
+    metacritic: 81,
+    playtime: 9,
+  }),
+  // GSC Game World, Kyiv.
+  madeInUkraine({
+    id: 900104,
+    slug: 'stalker-2-heart-of-chornobyl',
+    name: 'S.T.A.L.K.E.R. 2: Heart of Chornobyl',
+    released: '2024-11-20',
+    popularity: 6000,
+    platforms: [4, 186],
+    genres: ['action', 'shooter'],
+    ageRating: 'PEGI18',
+    rating: 3.9,
+    ratingsCount: 700,
+    metacritic: null,
+    playtime: 30,
+  }),
+  // Frogwares, Kyiv.
+  madeInUkraine({
+    id: 900105,
+    slug: 'sherlock-holmes-chapter-one',
+    name: 'Sherlock Holmes Chapter One',
+    released: '2021-11-16',
+    popularity: 2500,
+    platforms: [4, 187, 186],
+    genres: ['adventure'],
+    ageRating: null,
+    rating: 3.8,
+    ratingsCount: 240,
+    metacritic: null,
+    playtime: 12,
+  }),
+  // GSC Game World, Kyiv.
+  madeInUkraine({
+    id: 900106,
+    slug: 'cossacks-3',
+    name: 'Cossacks 3',
+    released: '2016-09-20',
+    popularity: 1500,
+    platforms: [4],
+    genres: ['strategy'],
+    ageRating: null,
+    rating: 3.4,
+    ratingsCount: 150,
+    metacritic: null,
+    playtime: 6,
+  }),
+]
