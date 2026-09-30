@@ -117,6 +117,21 @@ The request priority is fixed and the unthrottled paint came earlier in two runs
 
 The change stays: a Low-priority LCP image is wrong regardless of what the model says, and it is one attribute. The landing page's remaining cost is first render, not the image; that is where the next step would go (the 9 KB blocking stylesheet and the amount of JavaScript evaluated before first paint).
 
+## Step 5 — after the price index went live
+
+Measured 2026-09-30 on commit `4d6289d`, ten days after hryvnia prices, discount chips and localisation badges reached the cards and the game page (a Redis index of 3 000 games, read with a 1.5 s deadline, beside the RAWG request). Same method, plus one new page: a catalog query answered entirely from the index.
+
+| Page                                    | Performance | LCP   | CLS   | TBT   | Page weight | Accessibility | Best practices | SEO |
+| --------------------------------------- | ----------- | ----- | ----- | ----- | ----------- | ------------- | -------------- | --- |
+| `/` (landing)                           | 80          | 5.2 s | 0     | 80 ms | 0.8 MB      | 100           | 100            | 100 |
+| `/games`                                | 97          | 2.4 s | 0     | 20 ms | 0.76 MB     | 100           | 100            | 100 |
+| `/games/[slug]`                         | 92          | 2.9 s | 0.001 | 20 ms | 0.5 MB      | 100           | 100            | 100 |
+| `/games?priceMaxUah=600&sort=PRICE_ASC` | 91          | 3.0 s | 0     | 0 ms  | 0.78 MB     | 100           | 100            | 100 |
+
+Individual runs — landing: 68 / 81 / 80; catalog: 84 / 97 / 97; game page: 92 / 85 / 92; indexed catalog: 95 / 90 / 91. Reports: [landing](step5-price-index/home.report.html), [catalog](step5-price-index/catalog.report.html), [game page](step5-price-index/detail.report.html), [indexed catalog](step5-price-index/catalog-indexed.report.html).
+
+The price layer cost nothing measurable: every page is within run-to-run noise of step 4, and page weight did not move (the price line is a few hundred bytes of HTML per card; no new JavaScript on the default catalog). Server response time stayed at 30–40 ms on cached pages; one cold game page answered in 274 ms, which includes the live Steam price refresh. The page served entirely from the index scores 91 — slightly below the RAWG-served catalog because its first cover comes from a different, uncached set of images.
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
