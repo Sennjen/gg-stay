@@ -69,6 +69,13 @@ export function previewOf(
 export const MAX_INDEXED_TAGS = 12
 
 /**
+ * Tags RAWG has on fewer games than this, over its whole catalog, are the long tail: too rare to
+ * recur among the few thousand indexed games, so they could match nothing. Applied only when the
+ * response carries `games_count`.
+ */
+export const MIN_TAG_GAMES_COUNT = 300
+
+/**
  * Tags that say what the store or the build offers — achievements, trading cards, controller
  * support, cloud saves, remote play — rather than what the game is. Every other English RAWG tag
  * describes the game, even the very common ones: the similarity ranking weighs a tag by how rare it
@@ -89,6 +96,9 @@ const STORE_TAGS = new Set([
   'cross-platform-multiplayer',
   'steamvr-collectibles',
   'additional-high-quality-audio',
+  // Platform exclusivity, which RAWG tags console exclusives with.
+  'exclusive',
+  'true-exclusive',
 ])
 /** `steam-achievements`, `steam-cloud`, `steam-workshop`… — never `steampunk`. */
 const STORE_TAG_PREFIXES = ['steam-', 'remote-play-']
@@ -107,17 +117,21 @@ export function isStoreTag(slug: string): boolean {
 const MODE_TAGS = new Set(tagsForGameModes(['SINGLE', 'LOCAL_COOP', 'ONLINE_COOP', 'MULTIPLAYER']))
 
 /**
- * The tags an index document keeps: not those in another language (RAWG tags every game in Russian
- * as well; a tag that names no language is kept),
- * without store features and game modes, and at most `MAX_INDEXED_TAGS`. RAWG lists a game's tags
- * most common first, so a plain cut would keep "atmospheric" and "great soundtrack" and drop
- * "post-apocalyptic" — the cut therefore keeps the tags fewest games carry (`games_count`), and
- * falls back to RAWG's order when a response carries no counts. The kept tags stay in RAWG's
- * order.
+ * The tags an index document keeps, in RAWG's order:
+ *
+ * - not those in another language (RAWG tags every game in Russian as well; a tag that names no
+ *   language is kept), store features or game modes;
+ * - not the long tail — fewer than `MIN_TAG_GAMES_COUNT` games in RAWG's catalog;
+ * - of the rest, the `MAX_INDEXED_TAGS` RAWG has seen on the most games (`games_count`), or the
+ *   first ones in RAWG's order when the response carries no counts.
+ *
+ * The cut prefers established tags on purpose. Which of them is generic in the index — "atmospheric"
+ * on half of it — is for the similarity ranking to weigh by its own document frequency; what the cut
+ * must avoid is spending the slots on tags no other indexed game carries.
  */
 export function indexTags(tags: readonly RawgTag[] | null | undefined): string[] {
   const seen = new Set<string>()
-  const eligible: { slug: string; count: number; position: number }[] = []
+  const eligible: { slug: string; count: number | undefined; position: number }[] = []
   for (const tag of tags ?? []) {
     const slug = tag.slug
     // Only an explicit other language drops a tag. A tag without `language` is taken as English:
@@ -126,11 +140,16 @@ export function indexTags(tags: readonly RawgTag[] | null | undefined): string[]
     if ((tag.language !== undefined && tag.language !== 'eng') || !slug || seen.has(slug)) continue
     if (isStoreTag(slug) || MODE_TAGS.has(slug)) continue
     seen.add(slug)
-    eligible.push({ slug, count: tag.games_count ?? Infinity, position: eligible.length })
+    const count = tag.games_count
+    if (count !== undefined && count < MIN_TAG_GAMES_COUNT) continue
+    eligible.push({ slug, count, position: eligible.length })
   }
   if (eligible.length <= MAX_INDEXED_TAGS) return eligible.map((tag) => tag.slug)
+  if (eligible.some((tag) => tag.count === undefined)) {
+    return eligible.slice(0, MAX_INDEXED_TAGS).map((tag) => tag.slug)
+  }
   return [...eligible]
-    .sort((left, right) => left.count - right.count || left.position - right.position)
+    .sort((left, right) => right.count! - left.count! || left.position - right.position)
     .slice(0, MAX_INDEXED_TAGS)
     .sort((left, right) => left.position - right.position)
     .map((tag) => tag.slug)

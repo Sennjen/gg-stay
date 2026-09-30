@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   computeSimilar,
   editionKey,
+  POPULARITY_PRIOR,
   similarHealthWarning,
   SIMILAR_LIST_SIZE,
   similarityFeatures,
+  tagReport,
 } from '../../../scripts/index/similarity'
 import type { IndexedGame } from '../../../server/index/document'
 import {
@@ -82,14 +84,17 @@ describe('computeSimilar on real-looking games', () => {
 
   it('keeps well-tagged related games whose other tags no game shares', () => {
     // RAWG gives a big game dozens of tags; some of them no other indexed game carries. They can
-    // match nothing, and must not push the game out of every list by inflating its norm.
+    // match nothing, and must not push the game out of every list by inflating its norm. Here the
+    // four related games keep what they share with Metro Exodus, up to six tags, and fill their
+    // other slots with tags of their own.
     const related = [METRO_2033, METRO_LAST_LIGHT, STALKER_SOC, STALKER_COP]
+    const exodus = SIMILAR_CORPUS.find((entry) => entry.id === METRO_EXODUS)!.tags!
     const games = SIMILAR_CORPUS.map((entry) =>
       related.includes(entry.id)
         ? {
             ...entry,
             tags: [
-              ...entry.tags!.slice(0, 6),
+              ...entry.tags!.filter((tag) => exodus.includes(tag)).slice(0, 6),
               ...Array.from({ length: 6 }, (_, n) => `only-${entry.id}-${n}`),
             ],
           }
@@ -205,16 +210,35 @@ describe('computeSimilar rules', () => {
     expect(rankingOf(games, 1)).toEqual([3, 5, 7])
   })
 
-  it('lets popularity break near-ties only, never lift an unrelated hit over a related game', () => {
+  it('lets popularity break near-ties only, never lift a hit over a closer game', () => {
+    // The hit carries one tag more than the target, which five crowd games share too: its cosine
+    // ends up about 0.06 below the related game's. The largest prior the ranking can give (the
+    // most popular game gains POPULARITY_PRIOR, an unknown one nearly nothing) must not close a
+    // gap that size: a prior of 0.3 would, and the constant is pinned where it cannot.
+    expect(POPULARITY_PRIOR).toBeLessThanOrEqual(0.02)
     const crowd = Array.from({ length: 30 }, (_, n) =>
-      game({ id: 100 + n, genres: ['action'], tags: [`crowd-${n}`, 'common'] }),
+      game({
+        id: 100 + n,
+        genres: ['strategy'],
+        tags: [`crowd-${n % 10}`, ...(n < 5 ? ['z'] : [])],
+      }),
     )
-    const target = game({ id: 1, tags: ['zombies', 'parkour', 'common'] })
-    const related = game({ id: 2, popularity: 1, tags: ['zombies', 'common'] })
-    const hit = game({ id: 3, popularity: 10_000_000, tags: ['common'] })
+    const target = game({ id: 1, tags: ['a', 'b', 'crowd-0', 'crowd-1'] })
+    const related = game({ id: 2, popularity: 1, tags: ['a', 'b', 'crowd-0', 'crowd-1'] })
+    const hit = game({ id: 3, popularity: 10_000_000, tags: ['a', 'b', 'crowd-0', 'crowd-1', 'z'] })
 
-    const ranking = rankingOf([target, related, hit, ...crowd], 1)
-    expect(ranking[0]).toBe(2)
+    expect(rankingOf([target, related, hit, ...crowd], 1).slice(0, 2)).toEqual([2, 3])
+  })
+
+  it('lets popularity decide between games equally close', () => {
+    const crowd = Array.from({ length: 30 }, (_, n) =>
+      game({ id: 100 + n, genres: ['strategy'], tags: [`crowd-${n % 10}`] }),
+    )
+    const target = game({ id: 1, tags: ['a', 'b', 'crowd-0'] })
+    const quiet = game({ id: 2, popularity: 1, tags: ['a', 'b', 'crowd-0'] })
+    const hit = game({ id: 3, popularity: 10_000_000, tags: ['a', 'b', 'crowd-0'] })
+
+    expect(rankingOf([target, quiet, hit, ...crowd], 1).slice(0, 2)).toEqual([3, 2])
   })
 
   it('lists one edition of another game, not two', () => {
@@ -338,5 +362,31 @@ describe('similarHealthWarning', () => {
   it('counts a document without the fields as empty', () => {
     const { tags: _tags, ...old } = game()
     expect(similarHealthWarning([old, old])).toMatch(/median 0 tags per game, 0 of 2 games/)
+  })
+})
+
+describe('tagReport', () => {
+  it('names the median tag count and the most frequent and rarest stored tags with their df', () => {
+    const games = [
+      game({ tags: ['a', 'b', 'c'] }),
+      game({ tags: ['a', 'b'] }),
+      game({ tags: ['a', 'd'] }),
+      game({ tags: [] }),
+    ]
+    expect(tagReport(games, 2)).toEqual({
+      medianTags: 2,
+      mostFrequent: [
+        ['a', 3],
+        ['b', 2],
+      ],
+      rarest: [
+        ['c', 1],
+        ['d', 1],
+      ],
+    })
+  })
+
+  it('reports nothing for games without tags', () => {
+    expect(tagReport([game({ tags: [] })])).toEqual({ medianTags: 0, mostFrequent: [], rarest: [] })
   })
 })

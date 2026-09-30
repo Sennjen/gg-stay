@@ -245,14 +245,15 @@ export function attachSimilar(games: IndexedGame[]): { lists: number; median: nu
   const lengths = games.map((game) => game.similar!.length)
   return {
     lists: lengths.filter((length) => length > 0).length,
-    median: medianOf(lengths),
+    median: median(lengths),
   }
 }
 
 /** Below this share of games with a list, a full run's lists are reported as looking empty. */
 export const MIN_SHARE_WITH_LIST = 0.5
 
-function medianOf(values: number[]): number {
+/** The middle value (the lower of the two middles), or 0 for none. */
+export function median(values: readonly number[]): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((left, right) => left - right)
   return sorted[(sorted.length - 1) >> 1]!
@@ -269,11 +270,42 @@ export function similarHealthWarning(
   games: readonly Pick<IndexedGame, 'tags' | 'similar'>[],
 ): string | null {
   if (games.length === 0) return null
-  const tags = medianOf(games.map((game) => game.tags?.length ?? 0))
+  const tags = median(games.map((game) => game.tags?.length ?? 0))
   const lists = games.filter((game) => (game.similar?.length ?? 0) > 0).length
   if (tags > 0 && lists >= games.length * MIN_SHARE_WITH_LIST) return null
   return (
     `Similar lists look empty — check RAWG tags: median ${tags} tags per game, ` +
     `${lists} of ${games.length} games have a list`
   )
+}
+
+/** How many tags are listed at each end of `tagReport`. */
+export const TAG_REPORT_SIZE = 15
+
+export interface TagReport {
+  medianTags: number
+  /** `[tag, df]` — the tags most documents carry, most first, then by name. */
+  mostFrequent: [tag: string, df: number][]
+  /** `[tag, df]` — the tags fewest documents carry, fewest first, then by name. */
+  rarest: [tag: string, df: number][]
+}
+
+/**
+ * What a full run stored as tags: the median count per game, and the tags at both ends of the
+ * index's document frequency. The tag cut (`indexTags`) was chosen without live data, and this is
+ * what shows, on the first live run, whether it kept tags that tell games apart.
+ */
+export function tagReport(
+  games: readonly Pick<IndexedGame, 'tags'>[],
+  size = TAG_REPORT_SIZE,
+): TagReport {
+  const df = new Map<string, number>()
+  for (const game of games)
+    for (const tag of new Set(game.tags ?? [])) df.set(tag, (df.get(tag) ?? 0) + 1)
+  const byName = [...df].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+  return {
+    medianTags: median(games.map((game) => game.tags?.length ?? 0)),
+    mostFrequent: [...byName].sort((left, right) => right[1] - left[1]).slice(0, size),
+    rarest: [...byName].sort((left, right) => left[1] - right[1]).slice(0, size),
+  }
 }

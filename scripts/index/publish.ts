@@ -1,5 +1,6 @@
 import { isoNow, type JobDeps } from './deps'
 import type { IndexMeta, IndexedGame } from '../../server/index/document'
+import { median } from './similarity'
 
 /**
  * Stage 5: validation, then the blue/green swap.
@@ -57,13 +58,6 @@ export interface PublishOutcome {
   /** Why the run was refused, in English, for the log and the job summary. */
   reason: string | null
   previous: IndexMeta | null
-}
-
-/** The middle value of `values` (the lower one of the two middles), or 0 for none. */
-function median(values: number[]): number {
-  if (values.length === 0) return 0
-  const sorted = [...values].sort((left, right) => left - right)
-  return sorted[(sorted.length - 1) >> 1]!
 }
 
 export function countIndexed(games: IndexedGame[]) {

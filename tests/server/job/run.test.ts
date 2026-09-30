@@ -301,6 +301,25 @@ describe('runJob and the similar games', () => {
         /^similar games: 10 of 10 games have a list, median length 3, in \d+ ms$/,
       ),
     )
+    // What the first live run needs to judge the tag choice: how many, and which, with their df.
+    expect(report.tags).toEqual({
+      medianTags: 1,
+      mostFrequent: [
+        ['atmospheric', 10],
+        ['story-rich', 1],
+      ],
+      rarest: [
+        ['story-rich', 1],
+        ['atmospheric', 10],
+      ],
+    })
+    expect(harness.logs).toContain('tags: median 1 per game')
+    expect(harness.logs).toContain('tags, most frequent: atmospheric (10), story-rich (1)')
+    expect(harness.logs).toContain('tags, rarest: story-rich (1), atmospheric (10)')
+    const summary = formatSummary(report)
+    expect(summary).toContain('| Tags per game | median 1 |')
+    expect(summary).toContain('| Most frequent tags | atmospheric (10), story-rich (1) |')
+    expect(summary).toContain('| Rarest tags | story-rich (1), atmospheric (10) |')
   })
 
   it('says loudly, without failing, when the lists look empty because the tags went missing', async () => {
@@ -349,6 +368,7 @@ describe('runJob and the similar games', () => {
       similar: published!.similar,
     })
     expect(prices.logs.some((line) => line.startsWith('similar games:'))).toBe(false)
+    expect(formatSummary(priced)).not.toContain('| Tags per game |')
     expect(priced.outcome?.meta.stats).toMatchObject({ similarCount: 9 })
 
     const weekLater = createJobHarness({

@@ -6,7 +6,7 @@ import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
-import { attachSimilar, similarHealthWarning } from './similarity'
+import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
 import { collectStudioGames } from './studios'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainianStudios'
 import { createJobRawg, createJobSteam, systemClock } from './upstreams'
@@ -117,6 +117,8 @@ export interface JobReport {
    * a GitHub `::warning::` and the summary as a row. The run still publishes.
    */
   similarWarning?: string | null
+  /** A full run's stored tags, for judging the tag cut on live data (`tagReport`). */
+  tags?: TagReport | null
   /** The stage that was running when the run failed, and why. */
   failedStage?: string
   error?: string
@@ -225,6 +227,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
   let studios: StudioReport | null = null
   let candidateCount: number | undefined
   let similarWarning: string | null = null
+  let tags: TagReport | null = null
 
   try {
     version = await stage('starting the version', () =>
@@ -346,6 +349,10 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
           `similar games: ${lists} of ${games.length} games have a list, median length ${median}, ` +
             `in ${Math.round(performance.now() - started)} ms`,
         )
+        tags = tagReport(games)
+        deps.log(`tags: median ${tags.medianTags} per game`)
+        deps.log(`tags, most frequent: ${tagList(tags.mostFrequent)}`)
+        deps.log(`tags, rarest: ${tagList(tags.rarest)}`)
         similarWarning = similarHealthWarning(games)
         if (similarWarning) deps.log(`::warning::${similarWarning}`)
       })
@@ -364,7 +371,15 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       }),
     )
 
-    return report({ outcome, studios, pricesFetched, languagesFetched, failures, similarWarning })
+    return report({
+      outcome,
+      studios,
+      pricesFetched,
+      languagesFetched,
+      failures,
+      similarWarning,
+      tags,
+    })
   } catch (error) {
     // Give the draft and the lock back before the failure leaves this function — but only a
     // version that was actually begun: nothing is discarded that does not exist. `discardVersion`
@@ -373,9 +388,13 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // What the run had already done goes out with the failure. The summary of a failed run is the
     // whole of the alert, and one full of zeroes says less than the run knew.
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
-      report: report({ studios, pricesFetched, languagesFetched, failures, similarWarning }),
+      report: report({ studios, pricesFetched, languagesFetched, failures, similarWarning, tags }),
     })
   }
+}
+
+function tagList(tags: readonly [string, number][]): string {
+  return tags.length > 0 ? tags.map(([tag, df]) => `${tag} (${df})`).join(', ') : 'none'
 }
 
 function duration(ms: number): string {
@@ -477,6 +496,13 @@ export function formatSummary(report: JobReport): string {
         (report.mode === 'full' ? '' : ' (carried forward, not recomputed in this mode)'),
     ])
   }
+  if (report.tags) {
+    rows.push(
+      ['Tags per game', `median ${report.tags.medianTags}`],
+      ['Most frequent tags', tagList(report.tags.mostFrequent)],
+      ['Rarest tags', tagList(report.tags.rarest)],
+    )
+  }
   if (report.similarWarning) {
     const [title, detail] = report.similarWarning.split(': ', 2)
     rows.push([title!, detail ?? ''])
@@ -568,6 +594,7 @@ export async function runCli(
       durationMs: reached?.durationMs ?? 0,
       writes: reached?.writes ?? writerStats?.() ?? null,
       similarWarning: reached?.similarWarning ?? null,
+      tags: reached?.tags ?? null,
       failedStage: typeof named.stage === 'string' ? named.stage : 'start-up',
       error: message,
     }

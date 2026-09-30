@@ -1,13 +1,20 @@
-import { MAX_INDEXED_TAGS } from '../../../scripts/index/candidates'
+import { indexTags } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
+import type { RawgTag } from '../../../server/rawg/types'
 import type { GameModeValue } from '../../../shared/catalog'
 
 /**
- * A small index for the similar-games ranking: well-known games with the English tags RAWG gives
- * them (after the refresh job's mapping — no store features, no game modes), their RAWG genres and
- * roughly their RAWG popularity, in a crowd of generic games that makes the common tags as common
- * as they are in the real index. The popular all-rounders (GTA V, The Witcher 3, Portal 2, CS:GO)
- * are what a "same genre, most popular first" rule used to put under every action game.
+ * A small index for the similar-games ranking: well-known games with the tags RAWG gives them,
+ * their RAWG genres and roughly their RAWG popularity, in a crowd of generic games that makes the
+ * common tags as common as they are in the real index. The popular all-rounders (GTA V, The Witcher
+ * 3, Portal 2, CS:GO) are what a "same genre, most popular first" rule used to put under every
+ * action game.
+ *
+ * The named games and the crowd reach the corpus through the job's own mapper (`indexTags`), from
+ * RAWG-shaped tag lists: English tags with RAWG's catalog `games_count`, the store features and the
+ * game modes RAWG adds to nearly every game, a mid-frequency tag that defines a series
+ * ("chernobyl", "sherlock-holmes"), and the long tail — a tag of the game's own that no other game
+ * in the corpus carries, and one below the mapper's catalog floor.
  */
 
 interface Named {
@@ -19,19 +26,126 @@ interface Named {
   gameModes?: GameModeValue[]
 }
 
+/** Roughly RAWG's catalog `games_count` for the tags the corpus uses. */
+const CATALOG_COUNTS: Record<string, number> = {
+  singleplayer: 220_000,
+  'steam-achievements': 40_000,
+  'full-controller-support': 18_000,
+  casual: 60_000,
+  horror: 45_000,
+  '2d': 45_000,
+  atmospheric: 34_000,
+  puzzle: 30_000,
+  fantasy: 30_000,
+  'first-person': 30_000,
+  cute: 25_000,
+  difficult: 25_000,
+  rpg: 20_000,
+  'story-rich': 20_000,
+  exploration: 20_000,
+  funny: 20_000,
+  'sci-fi': 18_000,
+  'pixel-graphics': 15_000,
+  dark: 15_000,
+  fps: 13_000,
+  realistic: 12_000,
+  retro: 12_000,
+  relaxing: 12_000,
+  'third-person': 11_000,
+  'female-protagonist': 11_000,
+  comedy: 10_000,
+  'co-op': 10_000,
+  violent: 9_000,
+  pvp: 9_000,
+  mystery: 9_000,
+  'multiple-endings': 9_000,
+  'survival-horror': 8_500,
+  survival: 8_000,
+  physics: 8_000,
+  logic: 8_000,
+  racing: 8_000,
+  'open-world': 7_500,
+  shooter: 7_000,
+  sandbox: 7_000,
+  gore: 7_000,
+  magic: 7_000,
+  mature: 6_000,
+  zombies: 6_000,
+  classic: 6_000,
+  emotional: 6_000,
+  platformer: 6_000,
+  stealth: 5_000,
+  medieval: 5_000,
+  'psychological-horror': 5_000,
+  'great-soundtrack': 4_600,
+  'post-apocalyptic': 4_200,
+  crafting: 4_000,
+  'choices-matter': 4_000,
+  war: 4_000,
+  tactical: 3_500,
+  nudity: 3_500,
+  aliens: 3_500,
+  historical: 3_500,
+  isometric: 3_500,
+  drama: 3_500,
+  'interactive-fiction': 3_500,
+  linear: 3_000,
+  robots: 3_000,
+  military: 3_000,
+  'character-customization': 3_000,
+  'dark-fantasy': 3_000,
+  cinematic: 3_000,
+  'life-sim': 3_000,
+  detective: 2_600,
+  competitive: 2_500,
+  'fast-paced': 2_500,
+  dystopian: 2_000,
+  crime: 2_000,
+  investigation: 1_500,
+  'team-based': 1_500,
+  'online-pvp': 1_500,
+  farming: 1_500,
+  lovecraftian: 1_300,
+  demons: 1_200,
+  dragons: 1_200,
+  episodic: 1_000,
+  police: 900,
+  parkour: 800,
+  'comic-book': 800,
+  noir: 700,
+  chernobyl: 700,
+  'e-sports': 600,
+  'time-manipulation': 400,
+  'ray-tracing': 350,
+  'sherlock-holmes': 350,
+  fmv: 300,
+  heist: 300,
+  victorian: 250,
+  reboot: 150,
+}
+
+/** What RAWG adds to nearly every game, and the mapper drops: game modes and store features. */
+const RAWG_NOISE = ['singleplayer', 'steam-achievements', 'full-controller-support']
+
 /**
- * The tags as the job's mapper would keep them: at most `MAX_INDEXED_TAGS`, the common ones dropped
- * first (RAWG's `games_count`, here the crowd's share), in the listed order.
+ * The tags the job would store for a game RAWG lists with `tags`, plus a long-tail tag of its own
+ * that no other game carries (`<key>-lore`, above the catalog floor) and one below the floor
+ * (`<key>-trivia`). RAWG lists tags most common first.
  */
-function keptTags(tags: string[]): string[] {
-  if (tags.length <= MAX_INDEXED_TAGS) return tags
-  const share = new Map(CROWD_TAGS)
-  const kept = new Set(
-    [...tags]
-      .sort((left, right) => (share.get(left) ?? 0) - (share.get(right) ?? 0))
-      .slice(0, MAX_INDEXED_TAGS),
+function mappedTags(tags: readonly string[], key: string): string[] {
+  const counts: Record<string, number> = {
+    ...CATALOG_COUNTS,
+    [`${key}-lore`]: 450,
+    [`${key}-trivia`]: 25,
+  }
+  const raw: RawgTag[] = [...RAWG_NOISE, ...tags, `${key}-lore`, `${key}-trivia`].map(
+    (slug, id) => {
+      const gamesCount = counts[slug]
+      if (gamesCount === undefined) throw new Error(`no catalog count for the tag ${slug}`)
+      return { id, slug, name: slug, language: 'eng', games_count: gamesCount }
+    },
   )
-  return tags.filter((tag) => kept.has(tag))
+  return indexTags(raw.sort((left, right) => right.games_count! - left.games_count!))
 }
 
 export function corpusGame(entry: Named): IndexedGame {
@@ -48,7 +162,7 @@ export function corpusGame(entry: Named): IndexedGame {
     popularity: entry.popularity,
     platforms: [4],
     genres: entry.genres,
-    tags: keptTags(entry.tags),
+    tags: entry.tags,
     stores: ['steam'],
     gameModes: entry.gameModes ?? ['SINGLE'],
     ageRating: null,
@@ -176,6 +290,7 @@ const NAMED: Named[] = [
     popularity: 5_200,
     genres: ['action', 'shooter', 'role-playing-games-rpg'],
     tags: [
+      'chernobyl',
       'atmospheric',
       'first-person',
       'fps',
@@ -199,6 +314,7 @@ const NAMED: Named[] = [
     popularity: 4_300,
     genres: ['action', 'shooter', 'role-playing-games-rpg'],
     tags: [
+      'chernobyl',
       'atmospheric',
       'first-person',
       'fps',
@@ -493,6 +609,7 @@ const NAMED: Named[] = [
     popularity: 2_600,
     genres: ['adventure', 'puzzle'],
     tags: [
+      'sherlock-holmes',
       'detective',
       'investigation',
       'mystery',
@@ -513,6 +630,7 @@ const NAMED: Named[] = [
     popularity: 2_100,
     genres: ['adventure', 'puzzle'],
     tags: [
+      'sherlock-holmes',
       'detective',
       'investigation',
       'mystery',
@@ -532,6 +650,7 @@ const NAMED: Named[] = [
     popularity: 1_500,
     genres: ['adventure', 'action'],
     tags: [
+      'sherlock-holmes',
       'detective',
       'investigation',
       'mystery',
@@ -726,10 +845,13 @@ function crowd(count: number): IndexedGame[] {
       // Below every named game but a few, so the crowd never wins on popularity alone.
       popularity: 500 + Math.floor(next() * 3_000),
       genres: genres.length > 0 ? genres : ['action'],
-      tags,
+      tags: mappedTags(tags, `crowd-${n}`),
       gameModes: next() < 0.2 ? ['SINGLE', 'MULTIPLAYER'] : ['SINGLE'],
     })
   })
 }
 
-export const SIMILAR_CORPUS: IndexedGame[] = [...NAMED.map(corpusGame), ...crowd(300)]
+export const SIMILAR_CORPUS: IndexedGame[] = [
+  ...NAMED.map((entry) => corpusGame({ ...entry, tags: mappedTags(entry.tags, `game-${entry.id}`) })),
+  ...crowd(300),
+]

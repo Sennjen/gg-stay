@@ -6,6 +6,7 @@ import {
   indexTags,
   isStoreTag,
   MAX_INDEXED_TAGS,
+  MIN_TAG_GAMES_COUNT,
   previewOf,
   toIndexedGame,
 } from '../../../scripts/index/candidates'
@@ -319,6 +320,8 @@ describe('indexTags', () => {
       'captions-available',
       'commentary-available',
       'stats',
+      'exclusive',
+      'true-exclusive',
       'early-access',
     ]
     for (const slug of store) expect(isStoreTag(slug), slug).toBe(true)
@@ -335,12 +338,32 @@ describe('indexTags', () => {
     ).toEqual(['co-op'])
   })
 
-  it(`keeps at most ${MAX_INDEXED_TAGS}, the most specific first chosen, in RAWG's order`, () => {
-    // RAWG lists the most common tags first; the rare ones at the end are what tells games apart.
-    const tags = Array.from({ length: 20 }, (_, n) => eng(`tag-${n}`, 100_000 - n * 1_000))
+  it(`drops the long tail, then keeps the ${MAX_INDEXED_TAGS} most established, in RAWG's order`, () => {
+    // RAWG's `games_count` is over its whole catalog. Below the floor a tag is too rare to recur
+    // among the indexed games; above it, how generic a tag is in the index is weighed by the
+    // similarity ranking itself, so the cut keeps the tags RAWG has seen on the most games.
+    const tags = [
+      eng('long-tail-a', MIN_TAG_GAMES_COUNT - 1),
+      ...Array.from({ length: 16 }, (_, n) => eng(`tag-${n}`, 1_000 + ((n * 7) % 16) * 1_000)),
+      eng('long-tail-b', 5),
+      eng('just-above-the-floor', MIN_TAG_GAMES_COUNT),
+    ]
     const kept = indexTags(tags)
+    const established = tags
+      .filter((tag) => tag.games_count! >= MIN_TAG_GAMES_COUNT)
+      .sort((left, right) => right.games_count! - left.games_count!)
+      .slice(0, MAX_INDEXED_TAGS)
+      .map((tag) => tag.slug)
     expect(kept).toHaveLength(MAX_INDEXED_TAGS)
-    expect(kept).toEqual(tags.slice(20 - MAX_INDEXED_TAGS).map((tag) => tag.slug))
+    expect(kept).toEqual(tags.map((tag) => tag.slug).filter((slug) => established.includes(slug)))
+    expect(kept).not.toContain('long-tail-a')
+    expect(kept).not.toContain('long-tail-b')
+  })
+
+  it('drops the long tail even when the game has few tags', () => {
+    expect(
+      indexTags([eng('fps', 13_000), eng('volga-river', 12), eng('ray-tracing', 350)]),
+    ).toEqual(['fps', 'ray-tracing'])
   })
 
   it("keeps RAWG's order when it gave no counts, and survives no tags at all", () => {
