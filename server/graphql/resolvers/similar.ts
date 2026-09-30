@@ -1,5 +1,12 @@
 import type { GraphQLContext } from '../context'
-import { cachedIndexPage, indexFailed, indexState, toIndexQuery, warnIndexOnce } from '../indexPath'
+import {
+  cachedIndexPage,
+  indexFailed,
+  indexState,
+  toIndexQuery,
+  warnIndexOnce,
+  withoutPrices,
+} from '../indexPath'
 import type { GameCard, GameResolvers, PlatformFamily } from '../__generated__/resolvers-types'
 
 /**
@@ -13,9 +20,10 @@ import type { GameCard, GameResolvers, PlatformFamily } from '../__generated__/r
  * for a preference that only reorders a list this short.
  *
  * Hidden — an empty list — when fewer than `SIMILAR_MIN_GAMES` qualify, when the game has no
- * genre, when the index is unpublished, unavailable or failed earlier in the request, and when its
- * prices are stale (the design hides the row then). Being a field resolver, it costs nothing when
- * a query does not select it, and it can never fail the game page.
+ * genre, or when the index is unpublished, unavailable or failed earlier in the request. Stale
+ * prices do not hide the row: it reads no price, so the cards are served without theirs, like the
+ * made-in-Ukraine and Ukrainian shelves. Being a field resolver, it costs nothing when a query
+ * does not select it, and it can never fail the game page.
  */
 
 export const SIMILAR_SIZE = 8
@@ -28,7 +36,7 @@ export const similar: GameResolvers<GraphQLContext>['similar'] = async (parent, 
   if (genres.length === 0) return []
 
   const state = await indexState(context)
-  if (state.meta === null || state.stale || indexFailed(context)) return []
+  if (state.meta === null || indexFailed(context)) return []
 
   const query = toIndexQuery({
     filter: { genres },
@@ -46,7 +54,8 @@ export const similar: GameResolvers<GraphQLContext>['similar'] = async (parent, 
   }
 
   const ranked = rankSimilar(parent.id, parent.platformFamilies, candidates)
-  return ranked.length < SIMILAR_MIN_GAMES ? [] : ranked
+  if (ranked.length < SIMILAR_MIN_GAMES) return []
+  return state.stale ? withoutPrices(ranked) : ranked
 }
 
 /** The candidates without the game itself, platform-sharing ones first, cut to `SIMILAR_SIZE`. */

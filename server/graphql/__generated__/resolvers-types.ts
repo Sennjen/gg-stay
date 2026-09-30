@@ -57,7 +57,7 @@ export type Game = {
   /**
    * Up to eight games from the index that share a genre with this one, most popular first,
    * preferring games on a platform family this one is on. Empty when fewer than four qualify, or
-   * when the index is unavailable or its prices are stale.
+   * when the index is unavailable; while its prices are stale the cards carry no price.
    */
   similar: Array<GameCard>;
   slug: Scalars['String']['output'];

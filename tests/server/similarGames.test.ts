@@ -14,7 +14,7 @@ import {
  * `Game.similar`: games from the index that share at least one genre with the page's game, most
  * popular first, the game itself left out, games that share a platform family with it ahead of
  * those that do not, eight at most — and nothing at all when fewer than four qualify or when the
- * index cannot be trusted to answer.
+ * index cannot answer. Stale prices only take the prices off the cards.
  *
  * The page's game is the RAWG fixture's The Witcher 3 (id 3328): genres `action` and
  * `role-playing-games-rpg`, on PC, PlayStation 5 and Nintendo Switch.
@@ -171,10 +171,14 @@ describe('similar games', () => {
     expect(index.calls.search).toEqual([])
   })
 
-  it('are hidden when the index prices are stale', async () => {
+  it('are still shown when the index prices are stale, only without their prices', async () => {
+    // They read no price — genres and popularity only — so stale prices are withheld from the
+    // cards, as everywhere else, and the row stays.
     const stale = { ...TEST_INDEX_META, pricesUpdatedAt: '2026-09-01T06:00:00.000Z' }
     const index = await publishTestIndex([THE_GAME, ...TEN_ACTION], stale)
-    expect(await similarOf({ index })).toEqual([])
+    const similar = await similarOf({ index })
+    expect(similar.map((game) => Number(game.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(similar.every((game) => game.price === null)).toBe(true)
   })
 
   it('are hidden, and the page still renders, when the search fails', async () => {
