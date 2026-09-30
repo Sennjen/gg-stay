@@ -98,6 +98,28 @@ export function toIndexedGame(raw: RawgGameListItem): IndexedGame | null {
   }
 }
 
+/**
+ * One page of the popularity list. RAWG has been seen answering a page with an empty body (`null`)
+ * under a 200; the transport has nothing to retry there, so the page is asked for once more, and a
+ * second bad answer fails the stage by name rather than with a TypeError from deep inside the loop.
+ */
+async function fetchCandidatePage(
+  deps: JobDeps,
+  page: number,
+): Promise<RawgList<RawgGameListItem> & { results: RawgGameListItem[] }> {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const response = (await deps.rawg('games', {
+      ordering: '-added',
+      page_size: CANDIDATE_PAGE_SIZE,
+      page,
+    })) as RawgList<RawgGameListItem> | null
+    if (response && Array.isArray(response.results)) {
+      return response as RawgList<RawgGameListItem> & { results: RawgGameListItem[] }
+    }
+  }
+  throw new Error(`RAWG answered page ${page} of the popularity list without a result list twice`)
+}
+
 export async function collectCandidates(
   deps: JobDeps,
   options: CandidatesOptions = {},
@@ -108,14 +130,10 @@ export async function collectCandidates(
 
   let pagesFetched = 0
   for (let page = 1; page <= pages; page += 1) {
-    const response = (await deps.rawg('games', {
-      ordering: '-added',
-      page_size: CANDIDATE_PAGE_SIZE,
-      page,
-    })) as RawgList<RawgGameListItem>
+    const response = await fetchCandidatePage(deps, page)
     pagesFetched += 1
 
-    for (const raw of response.results ?? []) {
+    for (const raw of response.results) {
       const game = toIndexedGame(raw)
       // RAWG pages shift under a run that takes an hour, so the same game can arrive twice.
       if (!game || seen.has(game.id)) continue

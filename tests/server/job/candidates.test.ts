@@ -96,6 +96,30 @@ describe('collectCandidates', () => {
     expect(result.games.map((game) => game.id)).toEqual(JOB_GAMES.map((game) => game.id))
   })
 
+  it('asks again for a page RAWG answered without a result list, and carries on', async () => {
+    const harness = createJobHarness()
+    const secondPage = (call: { path: string; params: Record<string, string> }) =>
+      call.path === 'games' && call.params.page === '2'
+    harness.answerNextWith(secondPage, null)
+
+    const result = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
+
+    expect(harness.pageCalls().filter(secondPage)).toHaveLength(2)
+    expect(result.games.map((game) => game.id)).toEqual(JOB_GAMES.map((game) => game.id))
+  })
+
+  it('fails the stage, naming the page, when RAWG answers it without a result list twice', async () => {
+    const harness = createJobHarness()
+    const secondPage = (call: { path: string; params: Record<string, string> }) =>
+      call.path === 'games' && call.params.page === '2'
+    harness.answerNextWith(secondPage, null)
+    harness.answerNextWith(secondPage, { count: 0, next: null })
+
+    await expect(collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })).rejects.toThrow(
+      /page 2/,
+    )
+  })
+
   it('stops early when RAWG runs out of pages', async () => {
     const harness = createJobHarness()
 
