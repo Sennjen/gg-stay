@@ -23,7 +23,10 @@ import type {
  * The ranked list lives on the game's own index document (`similar`, computed over the whole index
  * by `scripts/index/similarity.ts`), and the game page has already read that document, so the row
  * costs one `getMany` for the listed ids. The list's order is kept; an id the version no longer
- * holds — a read that straddled a publication — is skipped.
+ * holds — a read that straddled a publication — is skipped. An empty stored list is an answer
+ * too: the job found no game sharing a genre or close enough on the tags, which the genre query
+ * could not better, so the row is hidden without asking it. Only a document with no list at all
+ * falls back.
  *
  * Without a list — a document published before the job computed them, or a game outside the
  * index — one index query takes the game's genres as an OR-ed facet, most popular first, and asks
