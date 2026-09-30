@@ -1,4 +1,6 @@
 import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
+import { UpstreamError } from '../upstream/errors'
+import type { RawgList } from './types'
 
 const BASE_URL = 'https://api.rawg.io/api'
 const TIMEOUT_MS = 5_000
@@ -61,6 +63,21 @@ export function ttlFor(path: string): number {
   if (path === 'games') return 600
   if (path.startsWith('games/')) return 86_400
   return 604_800
+}
+
+/**
+ * A RAWG list answer, as the site's catalog and landing read one. RAWG has been seen answering with
+ * an empty body under a 200, which the transport hands back once without caching it; here that
+ * body — or any answer that is not a list — becomes the upstream error it stands for, so the page
+ * fails through the resolvers' error mapping and never on a property read.
+ */
+export function rawgListOrThrow<T>(body: unknown): RawgList<T> {
+  const isObject = typeof body === 'object' && body !== null && !Array.isArray(body)
+  const results = isObject ? (body as RawgList<T>).results : undefined
+  if (!isObject || (results !== undefined && results !== null && !Array.isArray(results))) {
+    throw new UpstreamError('RAWG', 'ERROR')
+  }
+  return body as RawgList<T>
 }
 
 export function fixtureName(path: string): string {
