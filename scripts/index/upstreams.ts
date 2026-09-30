@@ -49,16 +49,32 @@ export interface UpstreamOptions {
   clock: JobClock
 }
 
+/** A studio with no recorded list, in fixture mode: RAWG's answer for a developer with no games. */
+const NO_STUDIO_GAMES = { count: 0, next: null, results: [] }
+
 export function createJobRawg(options: UpstreamOptions): RawgFetch {
-  return createRawgFetch({
+  const readFixture = createFixtureReader(FIXTURE_DIRS.RAWG)
+  const rawg = createRawgFetch({
     apiKey: options.apiKey,
     fixtures: options.fixtures,
     fetchJson,
-    readFixture: createFixtureReader(FIXTURE_DIRS.RAWG),
+    readFixture,
     cache: createMemoryCache(),
     now: options.clock.now,
     sleep: options.clock.sleep,
   })
+  if (!options.fixtures) return rawg
+
+  // The app's fixture set names a list after its path alone, so every `games` request would be
+  // answered with the popularity list — and every game on it would be "made in Ukraine". The
+  // studios stage's requests are answered from a list recorded per developer slug instead
+  // (`tests/fixtures/rawg/games-developers-<slug>.json`), and a studio without one has no games.
+  return async (path, params, fetchOptions) => {
+    const developers = path === 'games' ? params?.developers : undefined
+    if (developers === undefined) return rawg(path, params, fetchOptions)
+    if (Number(params?.page ?? 1) > 1) return NO_STUDIO_GAMES
+    return (await readFixture(`games-developers-${developers}`)) ?? NO_STUDIO_GAMES
+  }
 }
 
 export function createJobSteam(options: UpstreamOptions): SteamPriceFetch {
