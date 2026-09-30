@@ -233,7 +233,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `CoverRing`                     | Done — PR 7; `onFocusOut` hardened against a null `relatedTarget` in PR 9                                                                                                                                     |
 | `CoverMarquee`                  | Done — PR 7                                                                                                                                                                                                   |
 | `WhyCards`                      | Done — PR 7                                                                                                                                                                                                   |
-| `GameRow`                       | Done — PR 7                                                                                                                                                                                                   |
+| `GameRow`                       | Done — PR 7; renders the five landing shelves and the game page's "Схожі ігри" row since week 2B                                                                                                              |
 | `MetacriticBadge`               | Done — PR 3                                                                                                                                                                                                   |
 | `PlatformIcons`                 | Done — PR 3                                                                                                                                                                                                   |
 | `ActiveFilterChips`             | Done — PR 4; PR 7 added the price/discount/localisation chips and the struck-through "not applied" state                                                                                                      |
@@ -246,18 +246,18 @@ Status values: **exists** (unchanged since before the redesign),
 | `ScreenshotGallery`             | Done — PR 8                                                                                                                                                                                                   |
 | `ScreenshotGalleryLightbox`     | Done — PR 8; loaded as its own chunk when a thumbnail is opened                                                                                                                                               |
 | `GameHero`                      | Done — PR 8 — full-bleed cover with the scoreboard slotted over it                                                                                                                                            |
-| `GameScoreboard`                | Done — PR 8 — released / Metacritic / player rating / platforms as a `<dl>`                                                                                                                                   |
+| `GameScoreboard`                | Done — PR 8 — released / Metacritic / player rating / platforms as a `<dl>`; week 2B added the "Походження: Зроблено в Україні" item                                                                          |
 | `filters/CheckboxList`          | Done — PR 4                                                                                                                                                                                                   |
 | `filters/DeveloperAutocomplete` | Done — PR 4 — debounced client-only lookup against the BFF                                                                                                                                                    |
 | `pages/index.vue`               | Full landing page — PR 6/7                                                                                                                                                                                    |
-| `FilterPanel`                   | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4; "Ціна", "Знижка" and "Українська локалізація" sections added in PR 7                                                                         |
+| `FilterPanel`                   | Done — `SegmentedControl`/`YearRangeSlider` swap landed in PR 4; "Ціна", "Знижка" and "Українська локалізація" sections added in PR 7; "Походження" section added in week 2B                                  |
 | `filters/PriceFilter`           | Done — PR 7 — free/300/600/1 000 chips plus a labelled, debounced own-amount field                                                                                                                            |
 | `filters/DiscountFilter`        | Done — PR 7 — 25/50/75 %, single choice, pressed again to clear                                                                                                                                               |
 | `CatalogIndexNote`              | Done — PR 7 — the "top 3 000" note and the price age, both under the result count                                                                                                                             |
 | `CatalogStaleBanner`            | Done — PR 7 — above the grid when the index's prices are too old to show                                                                                                                                      |
 | `filters/RadioList`             | Replaced by `SegmentedControl` in PR 4                                                                                                                                                                        |
 | `filters/YearRange`             | Replaced by `YearRangeSlider` in PR 4                                                                                                                                                                         |
-| `GameCard`                      | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9                                           |
+| `GameCard`                      | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9; "Зроблено в Україні" label in week 2B    |
 | `GameGrid`                      | Restyled in PR 1; passes `heading-level="2"` to `GameCard` since PR 9                                                                                                                                         |
 | `SortSelect`                    | Restyled in PR 1 (dark pass); PR 7 added the three price sorts, hid them while the index is stale and named a sort the answer dropped                                                                         |
 | `Pagination`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
@@ -356,3 +356,26 @@ disagree with the results two lines below it. The chip row itself is shown
 whenever the URL carries any filter at all, applied or not, so a page whose only
 filter was declined still shows that filter and still lets a visitor take it
 off.
+
+### Shelves, made in Ukraine and similar games (week 2B)
+
+- **Landing shelves.** Five `GameRow`s replace "Нові релізи" and "Найкращі за оцінкою гравців":
+  "Зроблено в Україні", "Українською", "Зі знижкою", "Найкращі цього року", "Очікувані", in that
+  order. Each has its visible title and an "Усі ігри" link; the title key and the catalog URL
+  behind the link come from `shared/shelves.ts`, the same definition the resolver fills the shelf
+  from, so a shelf is always the first games of the page it links to. A shelf the answer left out
+  (fewer than four games, or an index that could not serve it) is simply not rendered.
+- **"Зроблено в Україні" on a card** is a compact text label over the top-left corner of the
+  cover: 12px `fg` on `ink` at 85 % with a `line` border, `rounded-chip`. It sits over the cover
+  rather than in the text column so a card with it is exactly as tall as one without, and above
+  the hover preview. It is plain words, never a flag or an icon, and uses no accent, signal or
+  sale colour — it is a fact about the studio, not a call to action, a live state or a price.
+- **On the game page** the scoreboard gains a "Походження" item whose value is "Зроблено в
+  Україні", shown only for such games, with the same visible `dt` caption every item has.
+- **"Схожі ігри"** is a `GameRow` without an "Усі ігри" link, full width below the gallery, the
+  store links and the facts panel. It is absent when the answer has none.
+- **Filter.** The drawer's "Походження" section (after "Українська локалізація", collapsed until
+  it holds a value) holds one `aria-pressed` toggle, "Зроблено в Україні", with a one-line
+  explanation under it in `fg-2`. It writes `madeInUkraine=1`, has its own chip, counts in the
+  badge, and stays while the prices are stale, because it reads no price. The index note now reads
+  "3 000 найпопулярніших ігор і всіх українських".
