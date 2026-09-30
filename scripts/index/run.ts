@@ -113,8 +113,9 @@ export interface JobReport {
   /** What the store charged this run, when the adapter counts it. */
   writes: IndexWriteStats | null
   /**
-   * Set when a full run's similar lists look empty (`similarHealthWarning`): the log carries it as
-   * a GitHub `::warning::` and the summary as a row. The run still publishes.
+   * Set when a full run's similar lists look empty (`similarHealthWarning`) or could not be
+   * computed at all: the log carries it as a GitHub `::warning::` and the summary as a row. The
+   * run still publishes.
    */
   similarWarning?: string | null
   /** A full run's stored tags, for judging the tag cut on live data (`tagReport`). */
@@ -341,19 +342,30 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // Last, over the final set of games — studio games included — so every id a list names is a
     // document of this version. The other modes carry the published lists forward with the
     // documents: their game set is the published one, so the lists still hold.
+    //
+    // An enrichment, so it cannot cost the run: a ranking that throws leaves every document
+    // without a list — the page then asks the index by genre, and no list carried over from the
+    // published version can name a game this one no longer holds — and says so, and the run
+    // publishes what it collected.
     if (options.mode === 'full') {
       await stage('similar games', async () => {
-        const started = performance.now()
-        const { lists, median } = attachSimilar(games)
-        deps.log(
-          `similar games: ${lists} of ${games.length} games have a list, median length ${median}, ` +
-            `in ${Math.round(performance.now() - started)} ms`,
-        )
-        tags = tagReport(games)
-        deps.log(`tags: median ${tags.medianTags} per game`)
-        deps.log(`tags, most frequent: ${tagList(tags.mostFrequent)}`)
-        deps.log(`tags, rarest: ${tagList(tags.rarest)}`)
-        similarWarning = similarHealthWarning(games)
+        try {
+          const started = performance.now()
+          const { lists, median } = attachSimilar(games)
+          deps.log(
+            `similar games: ${lists} of ${games.length} games have a list, median length ${median}, ` +
+              `in ${Math.round(performance.now() - started)} ms`,
+          )
+          tags = tagReport(games)
+          deps.log(`tags: median ${tags.medianTags} per game`)
+          deps.log(`tags, most frequent: ${tagList(tags.mostFrequent)}`)
+          deps.log(`tags, rarest: ${tagList(tags.rarest)}`)
+          similarWarning = similarHealthWarning(games)
+        } catch (error) {
+          for (const game of games) delete game.similar
+          const reason = error instanceof Error ? error.message : String(error)
+          similarWarning = `Similar lists not computed: ${reason}`
+        }
         if (similarWarning) deps.log(`::warning::${similarWarning}`)
       })
     }
