@@ -15,7 +15,8 @@ import {
   INDEX_FORCE_AFTER_MS,
   INDEX_LOCK_TTL_SECONDS,
 } from '../../../scripts/index/writer'
-import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
+import { JOB_PAGE_COUNT, JOB_STUDIO_GAMES } from '../../fixtures/index/jobCatalog'
+import { UKRAINIAN_STUDIO_SLUGS } from '../../../shared/ukrainianStudios'
 import { RedisBatchError } from '../../../server/index/upstashIndex'
 import { createJobHarness, type RawgCall } from './harness'
 
@@ -275,10 +276,166 @@ describe('runJob', () => {
   })
 })
 
+describe('runJob with the studios stage', () => {
+  const STUDIO_SLUGS = UKRAINIAN_STUDIO_SLUGS.length
+
+  it('flags the studio games and prices and localises the appended one like a candidate', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+
+    const report = await runJob(harness.deps, FULL)
+
+    expect(report.outcome?.meta).toMatchObject({ gameCount: 10 })
+    expect(report.outcome?.meta.stats).toMatchObject({ candidateCount: 9, madeInUkraineCount: 2 })
+    expect((await harness.writer.search({ madeInUkraine: true })).ids).toEqual([106, 110])
+    expect(await harness.writer.getAppIds([110])).toEqual(new Map([[110, '420000']]))
+    expect(await harness.writer.getOne(110)).toMatchObject({
+      madeInUkraine: true,
+      priceUah: 239,
+      discountPercent: 40,
+      localisation: { text: true, audio: true, source: 'steam' },
+    })
+  })
+
+  it('reports what the stage cost RAWG on a first run and on a steady one', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    const first = await runJob(harness.deps, FULL)
+
+    const nextNight = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-21T03:00:00.000Z',
+      studios: JOB_STUDIO_GAMES,
+    })
+    const steady = await runJob(nextNight.deps, FULL)
+
+    // One list page per studio slug every night; the appended game's app id is looked up once.
+    expect(first.studios).toEqual({
+      madeInUkraine: 2,
+      appended: 1,
+      dropped: 0,
+      failures: 0,
+      listRequests: STUDIO_SLUGS,
+      appIdLookups: 1,
+    })
+    expect(steady.studios).toMatchObject({ listRequests: STUDIO_SLUGS, appIdLookups: 0 })
+    expect(nextNight.studioCalls()).toHaveLength(STUDIO_SLUGS)
+    expect(nextNight.storeCalls()).toHaveLength(0)
+  })
+
+  it('keeps the flag and the appended games through a price run and a language run', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    await runJob(harness.deps, FULL)
+
+    const prices = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    prices.steamPrices['420000'] = {
+      success: true,
+      data: {
+        price_overview: { currency: 'UAH', initial: 39900, final: 39900, discount_percent: 0 },
+      },
+    }
+    await runJob(prices.deps, { mode: 'prices', pages: 1, forceUnlock: false })
+
+    expect(prices.calls).toHaveLength(0)
+    expect(await prices.writer.getOne(110)).toMatchObject({ madeInUkraine: true, priceUah: 399 })
+    expect((await prices.writer.search({ madeInUkraine: true })).ids).toEqual([106, 110])
+
+    const weekLater = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-28T03:00:00.000Z',
+    })
+    const languages = await runJob(weekLater.deps, {
+      mode: 'languages',
+      pages: 1,
+      forceUnlock: false,
+    })
+
+    expect(weekLater.languageCalls.map((call) => call.appId)).toContain('420000')
+    expect(languages.outcome?.meta.stats).toMatchObject({ madeInUkraineCount: 2 })
+    expect((await weekLater.writer.search({ madeInUkraine: true })).ids).toEqual([106, 110])
+  })
+
+  it('keeps the flags on the next full run and carries the appended game price forward', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    await runJob(harness.deps, FULL)
+
+    const nextNight = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-21T03:00:00.000Z',
+      studios: JOB_STUDIO_GAMES,
+    })
+    // Steam says nothing about the appended game tonight; yesterday's price must survive that.
+    nextNight.steamPrices['420000'] = { success: false }
+    await runJob(nextNight.deps, FULL)
+
+    expect((await nextNight.writer.search({ madeInUkraine: true })).ids).toEqual([106, 110])
+    expect(await nextNight.writer.getOne(110)).toMatchObject({
+      priceUah: 239,
+      priceUpdatedAt: RUN_AT,
+    })
+  })
+
+  it('drops a flag whose studio is no longer listed', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    await runJob(harness.deps, FULL)
+
+    const nextNight = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-21T03:00:00.000Z',
+      studios: { 'gsc-game-world': JOB_STUDIO_GAMES['gsc-game-world']! },
+    })
+    await runJob(nextNight.deps, FULL)
+
+    expect((await nextNight.writer.search({ madeInUkraine: true })).ids).toEqual([110])
+  })
+
+  it('refuses a run whose candidate walk collapsed, however many studio games it added', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    await runJob(harness.deps, FULL)
+
+    // One page of three candidates, plus the two studio games: five games against the ten
+    // published, which a gate counted on the total would let through.
+    const collapsed = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-21T03:00:00.000Z',
+      studios: JOB_STUDIO_GAMES,
+    })
+    const report = await runJob(collapsed.deps, { ...FULL, pages: 1 })
+
+    expect(report.outcome?.meta.gameCount).toBe(5)
+    expect(report.outcome?.published).toBe(false)
+    expect(report.outcome?.reason).toMatch(/3 candidates, fewer than half of the published 9/)
+    expect(await collapsed.writer.currentVersion()).toBe(1)
+  })
+
+  it('names the studios stage when it fails the run', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    for (const slug of ['4a-games', 'best-way']) {
+      harness.failNext((call) => call.params.developers === slug)
+    }
+
+    const failure = await runJob(harness.deps, FULL).catch(
+      (error: Error & { stage?: string }) => error,
+    )
+
+    expect(failure).toMatchObject({ stage: 'studios' })
+    expect(await harness.writer.currentVersion()).toBeNull()
+  })
+
+  it('adds the failures of a studio it skipped to the item failures', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    harness.failNext((call) => call.params.developers === '4a-games')
+
+    const report = await runJob(harness.deps, FULL)
+
+    expect(report.failures).toBe(1)
+    expect(report.studios?.failures).toBe(1)
+  })
+})
+
 describe('formatSummary', () => {
   const report: JobReport = {
     mode: 'full',
     dryRun: false,
+    studios: null,
     pricesFetched: 6,
     languagesFetched: 6,
     failures: 1,
@@ -308,6 +465,40 @@ describe('formatSummary', () => {
     expect(summary).toContain('| Item failures | 1 |')
     expect(summary).toContain('| Index traffic | 31 requests, 412 commands, 1024 KiB |')
     expect(summary).toContain('| Duration | 2m 5s |')
+  })
+
+  it('reports the studio games a full run found and what they cost RAWG', () => {
+    const summary = formatSummary({
+      ...report,
+      studios: {
+        madeInUkraine: 57,
+        appended: 41,
+        dropped: 0,
+        failures: 1,
+        listRequests: 35,
+        appIdLookups: 41,
+      },
+    })
+
+    expect(summary).toContain(
+      '| Studio games | 57 made in Ukraine, 41 added beyond the popularity list, 0 dropped by the bound, 1 studio failed; RAWG: 35 list requests, 41 app id lookups |',
+    )
+  })
+
+  it('reports the published count of studio games for a run that does not read the studios', () => {
+    const summary = formatSummary({
+      ...report,
+      mode: 'prices',
+      outcome: {
+        ...report.outcome!,
+        meta: {
+          ...report.outcome!.meta,
+          stats: { ...report.outcome!.meta.stats, madeInUkraineCount: 57 },
+        },
+      },
+    })
+
+    expect(summary).toContain('| Studio games | 57 made in Ukraine (not re-read in this mode) |')
   })
 
   it('reports a refusal with its reason', () => {
@@ -412,6 +603,11 @@ describe('runCli', () => {
     })
 
     expect(code).toBe(0)
+    // The recorded studio lists (`tests/fixtures/rawg/games-developers-*.json`) flag one game of
+    // the popularity fixture and add one more; every other studio has no fixture and no games.
+    expect(vi.mocked(console.log).mock.calls.at(-1)?.[0]).toContain(
+      `| Studio games | 2 made in Ukraine, 1 added beyond the popularity list, 0 dropped by the bound, 0 studios failed; RAWG: ${UKRAINIAN_STUDIO_SLUGS.length} list requests, 0 app id lookups |`,
+    )
     vi.restoreAllMocks()
   })
 

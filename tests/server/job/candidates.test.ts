@@ -187,6 +187,30 @@ describe('carryPublishedForward', () => {
     expect(games.find((game) => game.id === 102)).toMatchObject({ priceUah: null })
   })
 
+  it('leaves the made-in-Ukraine flag to the studios stage, whatever was published', async () => {
+    const harness = createJobHarness()
+    const version = await harness.writer.beginVersion()
+    await harness.writer.writeVersion(version, [
+      { ...published, madeInUkraine: true },
+      { ...published, id: 102, slug: 'neon-district', madeInUkraine: false },
+    ])
+    await harness.writer.publish(version, {
+      version,
+      updatedAt: '2026-09-19T21:00:00.000Z',
+      pricesUpdatedAt: '2026-09-19T21:00:00.000Z',
+      gameCount: 2,
+    })
+    const { games } = await collectCandidates(harness.deps, { pages: 1 })
+    // The studios stage has already marked 102 in this run (an appended game is carried forward
+    // after it is flagged); 101's studio is no longer on the list.
+    games.find((game) => game.id === 102)!.madeInUkraine = true
+
+    await carryPublishedForward(harness.deps, games)
+
+    expect(games.find((game) => game.id === 101)?.madeInUkraine).toBe(false)
+    expect(games.find((game) => game.id === 102)?.madeInUkraine).toBe(true)
+  })
+
   it('does nothing on a first run', async () => {
     const harness = createJobHarness()
     const { games } = await collectCandidates(harness.deps, { pages: 1 })

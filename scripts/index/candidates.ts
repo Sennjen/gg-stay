@@ -159,11 +159,17 @@ export async function collectCandidates(
 
 /**
  * Copies what the published version already knows onto freshly mapped candidates: the price, the
- * free flag and the localisation. A full run would otherwise start every game at "no price" and a
+ * free flag and the localisation. Never the made-in-Ukraine flag: the studios stage sets that from
+ * the studio list on every full run, so a studio taken off the list takes its flags with it. A full run would otherwise start every game at "no price" and a
  * single bad Steam answer would publish a catalog with the price silently gone, which the price
  * stage's keep-what-we-had rule and the publication's priced-count gate both measure against.
  */
-export async function carryPublishedForward(deps: JobDeps, games: IndexedGame[]): Promise<number> {
+export async function carryPublishedForward(
+  deps: JobDeps,
+  games: IndexedGame[],
+  stage = 'candidates',
+): Promise<number> {
+  if (games.length === 0) return 0
   const published = await deps.writer.getMany(games.map((game) => game.id))
   if (published.size === 0) return 0
 
@@ -180,6 +186,6 @@ export async function carryPublishedForward(deps: JobDeps, games: IndexedGame[])
     carried += 1
   }
 
-  deps.log(`candidates: carried the published price and languages forward for ${carried} games`)
+  deps.log(`${stage}: carried the published price and languages forward for ${carried} games`)
   return carried
 }
