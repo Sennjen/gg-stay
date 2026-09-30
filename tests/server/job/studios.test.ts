@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { collectCandidates, toIndexedGame } from '../../../scripts/index/candidates'
-import {
-  collectStudioGames,
-  MAX_STUDIO_GAMES_APPENDED,
-  STUDIO_MAX_PAGES,
-  STUDIO_PAGE_SIZE,
-} from '../../../scripts/index/studios'
+import { collectStudioGames, STUDIO_PAGE_SIZE } from '../../../scripts/index/studios'
 import type { IndexedGame } from '../../../server/index/document'
 import type { RawgGameListItem } from '../../../server/rawg/types'
 import { UpstreamError } from '../../../server/upstream/errors'
@@ -48,7 +43,6 @@ describe('collectStudioGames', () => {
       page_size: String(STUDIO_PAGE_SIZE),
       page: '1',
     })
-    expect(STUDIO_PAGE_SIZE).toBe(40)
   })
 
   it('flags a candidate already in the list and appends a studio game that is not', async () => {
@@ -61,7 +55,12 @@ describe('collectStudioGames', () => {
     expect(games).toHaveLength(10)
     // The same mapper as the candidates, so an appended card is the card the popularity walk
     // would have made of it — only flagged.
-    expect(games.at(-1)).toEqual({ ...toIndexedGame(JOB_STUDIO_GAME)!, madeInUkraine: true })
+    expect(games.at(-1)).toEqual({
+      ...toIndexedGame(JOB_STUDIO_GAME)!,
+      madeInUkraine: true,
+      studioSlugs: ['gsc-game-world'],
+    })
+    expect(games.find((game) => game.id === 106)?.studioSlugs).toEqual(['frogwares'])
     expect(result).toMatchObject({ flagged: 1, dropped: 0, failures: 0, attempted: 2 })
     expect(result.appended.map((game) => game.id)).toEqual([110])
   })
@@ -94,7 +93,6 @@ describe('collectStudioGames', () => {
     expect(games.map((game) => game.id)).toEqual([202, 203])
     expect(result.dropped).toBe(1)
     expect(harness.logs.some((line) => /dropped 1 studio game/.test(line))).toBe(true)
-    expect(MAX_STUDIO_GAMES_APPENDED).toBe(400)
   })
 
   it('follows `next` for at most two pages per studio', async () => {
@@ -111,7 +109,6 @@ describe('collectStudioGames', () => {
     await collectStudioGames(harness.deps, games, { slugs: ['frogwares'] })
 
     expect(harness.studioCalls().map((call) => call.params.page)).toEqual(['1', '2'])
-    expect(STUDIO_MAX_PAGES).toBe(2)
     expect(games.map((game) => game.id)).toEqual([1, 2])
   })
 
@@ -196,7 +193,55 @@ describe('collectStudioGames', () => {
 
     expect(result.failures).toBe(0)
     expect(result.unknown).toEqual(['4a-games', 'best-way'])
-    expect(harness.logs.some((line) => line.includes('4a-games, best-way'))).toBe(true)
+    // A GitHub Actions annotation each, so the slug shows on the run page and not only in the log.
+    expect(harness.logs.filter((line) => line.startsWith('::warning '))).toEqual([
+      expect.stringContaining('"4a-games"'),
+      expect.stringContaining('"best-way"'),
+    ])
+  })
+
+  it('keeps the first page of a studio whose second page RAWG no longer has', async () => {
+    const harness = createJobHarness()
+    harness.answerNextWith(studioPage('frogwares', 1), {
+      count: 41,
+      next: 'https://api.rawg.io/api/games?developers=frogwares&page=2',
+      results: [studioGame(1, 50)],
+    })
+    harness.failNext(studioPage('frogwares', 2), new UpstreamError('RAWG', 'NOT_FOUND', 404))
+    const games: IndexedGame[] = []
+
+    const result = await collectStudioGames(harness.deps, games, { slugs: ['frogwares'] })
+
+    expect(games.map((game) => game.id)).toEqual([1])
+    expect(result).toMatchObject({ failures: 0, unknown: [], empty: [] })
+  })
+
+  it('fails a studio whose list is the whole catalog, as when RAWG ignores the filter', async () => {
+    const harness = createJobHarness()
+    harness.answerNextWith(studioPage('frogwares', 1), {
+      count: 900_000,
+      next: null,
+      results: [studioGame(1, 50)],
+    })
+    const games: IndexedGame[] = []
+
+    const result = await collectStudioGames(harness.deps, games, {
+      slugs: TWO_STUDIOS,
+    })
+
+    expect(result.failed).toEqual(['frogwares'])
+    expect(games).toEqual([])
+  })
+
+  it('lists the slugs that gave no games, and the studios none of whose slugs did', async () => {
+    const harness = createJobHarness({ studios: JOB_STUDIO_GAMES })
+
+    const result = await collectStudioGames(harness.deps, [], {
+      slugs: ['frogwares', 'boolat-games', 'boolat', 'boolat-game-development-company'],
+    })
+
+    expect(result.empty).toEqual(['boolat-games', 'boolat', 'boolat-game-development-company'])
+    expect(result.studiosWithoutGames).toEqual(['Boolat Games'])
   })
 
   it('counts every RAWG request it makes, retries included', async () => {
@@ -216,5 +261,130 @@ describe('collectStudioGames', () => {
 
     // Thirty-three one-page studios.
     expect(renewLock).toHaveBeenCalledTimes(Math.floor(UKRAINIAN_STUDIO_SLUGS.length / 20))
+  })
+})
+
+describe('collectStudioGames keeping what the published version had', () => {
+  async function publishFirstNight() {
+    const harness = createJobHarness({ studios: JOB_STUDIO_GAMES })
+    const games = await candidatesOf(harness)
+    await collectStudioGames(harness.deps, games, { slugs: TWO_STUDIOS })
+    games.find((game) => game.id === 110)!.priceUah = 239
+    const version = await harness.writer.beginVersion()
+    await harness.writer.writeVersion(version, games)
+    await harness.writer.publish(version, {
+      version,
+      updatedAt: '2026-09-20T03:00:00.000Z',
+      pricesUpdatedAt: '2026-09-20T03:00:00.000Z',
+      gameCount: games.length,
+    })
+    return harness.writer
+  }
+
+  it.each([
+    [
+      'failed',
+      (harness: ReturnType<typeof createJobHarness>) =>
+        harness.failNext((call) => call.params.developers === 'gsc-game-world'),
+    ],
+    [
+      'is unknown to RAWG',
+      (harness: ReturnType<typeof createJobHarness>) =>
+        harness.failNext(
+          (call) => call.params.developers === 'gsc-game-world',
+          new UpstreamError('RAWG', 'NOT_FOUND', 404),
+        ),
+    ],
+    [
+      'listed no games',
+      (harness: ReturnType<typeof createJobHarness>) =>
+        harness.answerNextWith(studioPage('gsc-game-world', 1), {
+          count: 0,
+          next: null,
+          results: [],
+        }),
+    ],
+  ])('keeps the published games of a slug that %s tonight', async (_name, breakIt) => {
+    const writer = await publishFirstNight()
+    const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES })
+    breakIt(tonight)
+    const games = await candidatesOf(tonight)
+
+    const result = await collectStudioGames(tonight.deps, games, {
+      slugs: TWO_STUDIOS,
+    })
+
+    // 110 is back as it was published, price and all, still noted under its studio.
+    expect(games.find((game) => game.id === 110)).toMatchObject({
+      madeInUkraine: true,
+      priceUah: 239,
+      studioSlugs: ['gsc-game-world'],
+    })
+    expect(result).toMatchObject({ kept: 1, madeInUkraine: 2, previousMadeInUkraine: 2 })
+    expect(result.degraded).toBe(false)
+  })
+
+  it('keeps the flag of a published candidate whose studio could not be read', async () => {
+    const writer = await publishFirstNight()
+    const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES })
+    tonight.failNext((call) => call.params.developers === 'frogwares')
+    const games = await candidatesOf(tonight)
+
+    await collectStudioGames(tonight.deps, games, {
+      slugs: TWO_STUDIOS,
+    })
+
+    expect(games.find((game) => game.id === 106)?.madeInUkraine).toBe(true)
+  })
+
+  it('lets a studio taken off the list take its flags with it', async () => {
+    const writer = await publishFirstNight()
+    const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES })
+    const games = await candidatesOf(tonight)
+
+    const result = await collectStudioGames(tonight.deps, games, { slugs: ['gsc-game-world'] })
+
+    expect(games.filter((game) => game.madeInUkraine).map((game) => game.id)).toEqual([110])
+    expect(result).toMatchObject({ kept: 0, degraded: false })
+  })
+
+  it('keeps every published flag, and says so, when under half of them were found', async () => {
+    const harness = createJobHarness()
+    // A version published before games carried their studio slugs: nothing can be attributed.
+    const version = await harness.writer.beginVersion()
+    const published = (await candidatesOf(harness)).map((game) =>
+      [101, 102, 103].includes(game.id) ? { ...game, madeInUkraine: true } : game,
+    )
+    await harness.writer.writeVersion(version, [
+      ...published,
+      { ...toIndexedGame(JOB_STUDIO_GAME)!, madeInUkraine: true },
+    ])
+    await harness.writer.publish(version, {
+      version,
+      updatedAt: '2026-09-20T03:00:00.000Z',
+      pricesUpdatedAt: null,
+      gameCount: 10,
+    })
+    const tonight = createJobHarness({ writer: harness.writer })
+    const games = await candidatesOf(tonight)
+
+    // RAWG answers every studio with an empty list.
+    const result = await collectStudioGames(tonight.deps, games)
+
+    expect(result).toMatchObject({ degraded: true, madeInUkraine: 4, previousMadeInUkraine: 4 })
+    expect(games.filter((game) => game.madeInUkraine).map((game) => game.id)).toEqual([
+      101, 102, 103, 110,
+    ])
+    expect(
+      tonight.logs.some((line) => line.startsWith('::warning title=Studios stage degraded')),
+    ).toBe(true)
+  })
+
+  it('is not degraded on a first run, with nothing published to fall back on', async () => {
+    const harness = createJobHarness()
+
+    const result = await collectStudioGames(harness.deps, await candidatesOf(harness))
+
+    expect(result).toMatchObject({ degraded: false, madeInUkraine: 0, previousMadeInUkraine: null })
   })
 })

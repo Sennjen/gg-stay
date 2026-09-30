@@ -308,15 +308,24 @@ describe('runJob with the studios stage', () => {
     const steady = await runJob(nextNight.deps, FULL)
 
     // One list page per studio slug every night; the appended game's app id is looked up once.
-    expect(first.studios).toEqual({
+    expect(first.studios).toMatchObject({
       madeInUkraine: 2,
+      previousMadeInUkraine: null,
       appended: 1,
       dropped: 0,
+      kept: 0,
+      degraded: false,
       failures: 0,
+      unknownSlugs: [],
       listRequests: STUDIO_SLUGS,
       appIdLookups: 1,
     })
-    expect(steady.studios).toMatchObject({ listRequests: STUDIO_SLUGS, appIdLookups: 0 })
+    expect(steady.studios).toMatchObject({
+      madeInUkraine: 2,
+      previousMadeInUkraine: 2,
+      listRequests: STUDIO_SLUGS,
+      appIdLookups: 0,
+    })
     expect(nextNight.studioCalls()).toHaveLength(STUDIO_SLUGS)
     expect(nextNight.storeCalls()).toHaveLength(0)
   })
@@ -373,7 +382,7 @@ describe('runJob with the studios stage', () => {
     })
   })
 
-  it('drops a flag whose studio is no longer listed', async () => {
+  it('keeps the published games of a studio that listed nothing tonight', async () => {
     const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
     await runJob(harness.deps, FULL)
 
@@ -382,9 +391,32 @@ describe('runJob with the studios stage', () => {
       start: '2026-09-21T03:00:00.000Z',
       studios: { 'gsc-game-world': JOB_STUDIO_GAMES['gsc-game-world']! },
     })
-    await runJob(nextNight.deps, FULL)
+    const report = await runJob(nextNight.deps, FULL)
 
-    expect((await nextNight.writer.search({ madeInUkraine: true })).ids).toEqual([110])
+    expect((await nextNight.writer.search({ madeInUkraine: true })).ids).toEqual([106, 110])
+    expect(report.studios).toMatchObject({ kept: 1, degraded: false })
+  })
+
+  it('publishes a degraded studios stage rather than failing, keeping every published flag', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    await runJob(harness.deps, FULL)
+    // Published by a build that did not note studio slugs, so nothing can be kept per slug.
+    const legacy = (await harness.writer.allGames()).map(({ studioSlugs: _slugs, ...game }) => game)
+    const version = await harness.writer.beginVersion()
+    await harness.writer.writeVersion(version, legacy)
+    await harness.writer.publish(version, { ...(await harness.writer.meta())!, version })
+
+    // Tonight RAWG lists nothing for any studio.
+    const nextNight = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-21T03:00:00.000Z',
+    })
+    const report = await runJob(nextNight.deps, FULL)
+
+    expect(report.outcome?.published).toBe(true)
+    expect(report.studios).toMatchObject({ degraded: true, madeInUkraine: 2 })
+    expect((await nextNight.writer.search({ madeInUkraine: true })).ids).toEqual([106, 110])
+    expect(formatSummary(report)).toContain('| Studios stage | degraded')
   })
 
   it('refuses a run whose candidate walk collapsed, however many studio games it added', async () => {
@@ -467,22 +499,32 @@ describe('formatSummary', () => {
     expect(summary).toContain('| Duration | 2m 5s |')
   })
 
-  it('reports the studio games a full run found and what they cost RAWG', () => {
+  it('reports the studio games a full run found, kept and paid for, and what went missing', () => {
     const summary = formatSummary({
       ...report,
       studios: {
         madeInUkraine: 57,
+        previousMadeInUkraine: 60,
         appended: 41,
         dropped: 0,
+        kept: 3,
+        degraded: false,
         failures: 1,
+        unknownSlugs: ['brenntkopf', 'mokus-games'],
+        emptySlugs: ['cyberlight'],
+        studiosWithoutGames: ['Cyberlight Game Studio'],
         listRequests: 35,
         appIdLookups: 41,
       },
     })
 
     expect(summary).toContain(
-      '| Studio games | 57 made in Ukraine, 41 added beyond the popularity list, 0 dropped by the bound, 1 studio failed; RAWG: 35 list requests, 41 app id lookups |',
+      '| Studio games | 57 made in Ukraine (published version: 60), 41 added beyond the popularity list, 0 dropped by the bound, 3 kept from the published version, 1 studio failed; RAWG: 35 list requests, 41 app id lookups |',
     )
+    expect(summary).toContain('| Studios with no games | Cyberlight Game Studio |')
+    expect(summary).toContain('| Studio slugs unknown to RAWG | brenntkopf, mokus-games |')
+    expect(summary).toContain('| Studio slugs with no games | cyberlight |')
+    expect(summary).not.toContain('| Studios stage |')
   })
 
   it('reports the published count of studio games for a run that does not read the studios', () => {
@@ -605,9 +647,14 @@ describe('runCli', () => {
     expect(code).toBe(0)
     // The recorded studio lists (`tests/fixtures/rawg/games-developers-*.json`) flag one game of
     // the popularity fixture and add one more; every other studio has no fixture and no games.
-    expect(vi.mocked(console.log).mock.calls.at(-1)?.[0]).toContain(
-      `| Studio games | 2 made in Ukraine, 1 added beyond the popularity list, 0 dropped by the bound, 0 studios failed; RAWG: ${UKRAINIAN_STUDIO_SLUGS.length} list requests, 0 app id lookups |`,
+    const summary = vi.mocked(console.log).mock.calls.at(-1)?.[0] as string
+    expect(summary).toContain(
+      `| Studio games | 2 made in Ukraine (published version: none), 1 added beyond the popularity list, 0 dropped by the bound, 0 kept from the published version, 0 studios failed; RAWG: ${UKRAINIAN_STUDIO_SLUGS.length} list requests, 0 app id lookups |`,
     )
+    expect(summary).toMatch(
+      /\| Studio slugs with no games \| 4a-games, action-forms, .*whale-rock-games-2 \|/,
+    )
+    expect(summary).toContain('| Studio slugs unknown to RAWG | none |')
     vi.restoreAllMocks()
   })
 

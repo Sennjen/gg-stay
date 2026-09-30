@@ -75,13 +75,22 @@ export interface JobOptions {
  * other modes republish the flags the last full run set.
  */
 export interface StudioReport {
-  /** Games of this run made in Ukraine, flagged candidates and appended games together. */
+  /** Games of this run made in Ukraine, and of the version published before it (`null`: none). */
   madeInUkraine: number
+  previousMadeInUkraine: number | null
   /** Games added beyond the popularity list, and those the bound left out. */
   appended: number
   dropped: number
+  /** Published games kept flagged because tonight could not confirm them. */
+  kept: number
+  /** Under half the published count was found, so every published flag was kept. */
+  degraded: boolean
   /** Studio slugs that failed and were skipped. */
   failures: number
+  /** Slugs RAWG does not know (404), slugs that listed no games, and studios with no game at all. */
+  unknownSlugs: string[]
+  emptySlugs: string[]
+  studiosWithoutGames: string[]
   /** RAWG requests for the studios' game lists, retries included. */
   listRequests: number
   /** RAWG app-id lookups spent on appended games — on their first run only, the mapping is kept. */
@@ -232,10 +241,16 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       })
       failures += found.failures
       studios = {
-        madeInUkraine: games.filter((game) => game.madeInUkraine).length,
+        madeInUkraine: found.madeInUkraine,
+        previousMadeInUkraine: found.previousMadeInUkraine,
         appended: found.appended.length,
         dropped: found.dropped,
+        kept: found.kept,
+        degraded: found.degraded,
         failures: found.failures,
+        unknownSlugs: found.unknown,
+        emptySlugs: found.empty,
+        studiosWithoutGames: found.studiosWithoutGames,
         listRequests: found.requests,
         appIdLookups: 0,
       }
@@ -338,21 +353,45 @@ function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`
 }
 
-/** The "Studio games" row: what a full run found and paid for, or what the others republished. */
-function studioGamesRow(report: JobReport): string | null {
+function listOrNone(items: readonly string[]): string {
+  return items.length > 0 ? items.join(', ') : 'none'
+}
+
+/** The studio rows: what a full run found, kept and paid for, or what the others republished. */
+function studioRows(report: JobReport): [string, string][] {
   const studios = report.studios
-  if (studios) {
-    return (
-      `${studios.madeInUkraine} made in Ukraine, ` +
-      `${studios.appended} added beyond the popularity list, ` +
-      `${studios.dropped} dropped by the bound, ` +
-      `${plural(studios.failures, 'studio', 'studios')} failed; ` +
-      `RAWG: ${plural(studios.listRequests, 'list request', 'list requests')}, ` +
-      plural(studios.appIdLookups, 'app id lookup', 'app id lookups')
-    )
+  if (!studios) {
+    const published = report.outcome?.meta.stats?.madeInUkraineCount
+    return published === undefined
+      ? []
+      : [['Studio games', `${published} made in Ukraine (not re-read in this mode)`]]
   }
-  const published = report.outcome?.meta.stats?.madeInUkraineCount
-  return published === undefined ? null : `${published} made in Ukraine (not re-read in this mode)`
+  const rows: [string, string][] = [
+    [
+      'Studio games',
+      `${studios.madeInUkraine} made in Ukraine (published version: ${
+        studios.previousMadeInUkraine ?? 'none'
+      }), ` +
+        `${studios.appended} added beyond the popularity list, ` +
+        `${studios.dropped} dropped by the bound, ` +
+        `${studios.kept} kept from the published version, ` +
+        `${plural(studios.failures, 'studio', 'studios')} failed; ` +
+        `RAWG: ${plural(studios.listRequests, 'list request', 'list requests')}, ` +
+        plural(studios.appIdLookups, 'app id lookup', 'app id lookups'),
+    ],
+  ]
+  if (studios.degraded) {
+    rows.push([
+      'Studios stage',
+      'degraded — under half the published games made in Ukraine were found, so every published flag was kept',
+    ])
+  }
+  rows.push(
+    ['Studios with no games', listOrNone(studios.studiosWithoutGames)],
+    ['Studio slugs unknown to RAWG', listOrNone(studios.unknownSlugs)],
+    ['Studio slugs with no games', listOrNone(studios.emptySlugs)],
+  )
+  return rows
 }
 
 /** The Markdown GitHub shows on the run's summary page, for a run that reached a verdict. */
@@ -388,8 +427,7 @@ export function formatSummary(report: JobReport): string {
     )
   }
 
-  const studioGames = studioGamesRow(report)
-  if (studioGames) rows.push(['Studio games', studioGames])
+  rows.push(...studioRows(report))
 
   rows.push([
     'Index traffic',

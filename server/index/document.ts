@@ -56,6 +56,12 @@ export interface IndexedGame {
   free: boolean
   localisation: IndexedLocalisation | null
   madeInUkraine: boolean
+  /**
+   * The RAWG developer slugs of the studio list the refresh job found this game under, when it is
+   * flagged. It lets a run that cannot read a studio tonight keep that studio's games as they were
+   * published. Optional: documents published before it existed, and unflagged games, have none.
+   */
+  studioSlugs?: string[]
   /** ISO timestamp of the last successful price read. */
   priceUpdatedAt: string | null
 }
