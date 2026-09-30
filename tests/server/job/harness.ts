@@ -3,6 +3,7 @@ import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import { parseSteamPrice } from '../../../server/steam/price'
 import { parseUkrainianSupport } from '../../../server/steam/languages'
 import type { SteamAppLanguages, SteamPriceFetch } from '../../../server/steam/steamPriceFetch'
+import { createRawgFetch, type CacheEntry, type RawgFetch } from '../../../server/rawg/rawgFetch'
 import type { RawgGameListItem } from '../../../server/rawg/types'
 import {
   JOB_GAMES,
@@ -109,6 +110,34 @@ export function createFakeRawg(studios: Record<string, RawgGameListItem[]> = {})
     failNext: (match, error) => void failures.push({ match, error }),
     answerNextWith: (match, body) => void answers.push({ match, body }),
   }
+}
+
+/**
+ * The real RAWG transport (`createRawgFetch`, with the job's kind of in-memory cache) in front of a
+ * scripted network: each request takes the next body from `bodies`, all under a 200. The fake RAWG
+ * above answers the stages directly and so cannot show what the transport's cache does to a
+ * stage's retry; this can.
+ */
+export function createTransportRawg(bodies: unknown[]): { rawg: RawgFetch; urls: string[] } {
+  const urls: string[] = []
+  const cache = new Map<string, CacheEntry>()
+  let now = Date.parse('2026-09-20T03:00:00.000Z')
+  const rawg = createRawgFetch({
+    apiKey: 'test-key',
+    fixtures: false,
+    fetchJson: async (url) => {
+      urls.push(url)
+      return { status: 200, body: bodies.shift() ?? null }
+    },
+    readFixture: async () => null,
+    cache: {
+      get: async (key) => cache.get(key) ?? null,
+      set: async (key, entry) => void cache.set(key, entry),
+    },
+    now: () => now,
+    sleep: async (ms) => void (now += ms),
+  })
+  return { rawg, urls }
 }
 
 export interface SteamLanguageCall {

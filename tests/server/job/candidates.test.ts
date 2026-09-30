@@ -6,8 +6,8 @@ import {
   previewOf,
 } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
-import { JOB_GAMES, JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
-import { createJobHarness } from './harness'
+import { JOB_GAMES, JOB_PAGE_COUNT, jobGamesPage } from '../../fixtures/index/jobCatalog'
+import { createJobHarness, createTransportRawg } from './harness'
 
 describe('collectCandidates', () => {
   it('asks RAWG for the most added games, one page at a time', async () => {
@@ -106,6 +106,16 @@ describe('collectCandidates', () => {
 
     expect(harness.pageCalls().filter(secondPage)).toHaveLength(2)
     expect(result.games.map((game) => game.id)).toEqual(JOB_GAMES.map((game) => game.id))
+  })
+
+  it('reaches RAWG again through the real transport when a page came back empty', async () => {
+    const harness = createJobHarness()
+    const transport = createTransportRawg([null, jobGamesPage(1)])
+
+    const result = await collectCandidates({ ...harness.deps, rawg: transport.rawg }, { pages: 1 })
+
+    expect(transport.urls).toHaveLength(2)
+    expect(result.games.map((game) => game.id)).toEqual([101, 102, 103])
   })
 
   it('fails the stage, naming the page, when RAWG answers it without a result list twice', async () => {

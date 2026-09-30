@@ -10,8 +10,13 @@ import type { IndexedGame } from '../../../server/index/document'
 import type { RawgGameListItem } from '../../../server/rawg/types'
 import { UpstreamError } from '../../../server/upstream/errors'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../../shared/ukrainianStudios'
-import { JOB_PAGE_COUNT, JOB_STUDIO_GAME, JOB_STUDIO_GAMES } from '../../fixtures/index/jobCatalog'
-import { createJobHarness, type RawgCall } from './harness'
+import {
+  JOB_PAGE_COUNT,
+  JOB_STUDIO_GAME,
+  JOB_STUDIO_GAMES,
+  jobStudioPage,
+} from '../../fixtures/index/jobCatalog'
+import { createJobHarness, createTransportRawg, type RawgCall } from './harness'
 
 const TWO_STUDIOS = ['frogwares', 'gsc-game-world']
 
@@ -129,6 +134,23 @@ describe('collectStudioGames', () => {
     expect(result.failures).toBe(0)
     expect(result.requests).toBe(3)
     expect(games.map((game) => game.id)).toContain(110)
+  })
+
+  it('reaches RAWG again through the real transport when a studio page came back empty', async () => {
+    const harness = createJobHarness()
+    const transport = createTransportRawg([
+      null,
+      jobStudioPage(JOB_STUDIO_GAMES, 'gsc-game-world', 1),
+    ])
+    const games: IndexedGame[] = []
+
+    const result = await collectStudioGames({ ...harness.deps, rawg: transport.rawg }, games, {
+      slugs: ['gsc-game-world'],
+    })
+
+    expect(transport.urls).toHaveLength(2)
+    expect(result.failures).toBe(0)
+    expect(games.map((game) => game.id)).toEqual([110])
   })
 
   it('counts a studio RAWG answers without a result list twice as a failed studio', async () => {

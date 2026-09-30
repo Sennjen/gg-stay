@@ -48,6 +48,16 @@ export interface UpstreamConfig<TRequest> {
   project?: (value: unknown) => unknown
 }
 
+/**
+ * Whether a body may be kept. Every API behind this transport answers with a JSON object, so
+ * anything else under a 200 — RAWG has been seen sending an empty body, which parses to `null` — is
+ * a bad answer, not a result: it is handed to the caller once and forgotten. Cached, it would be
+ * served back to the caller's own retry for the whole ttl, and later as a stale-if-error fallback.
+ */
+function isJsonObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function isTimeout(error: unknown): boolean {
   const name = (error as { name?: string } | null)?.name
   return name === 'TimeoutError' || name === 'AbortError'
@@ -123,12 +133,17 @@ export function createUpstreamFetch<TRequest>(
     }
 
     const key = config.cacheKey(request)
-    const cached = await runtime.cache.get(key)
+    const entry = await runtime.cache.get(key)
+    // An entry an older build cached from a bad body is no entry at all.
+    const cached = entry && isJsonObject(entry.value) ? entry : null
     if (cached && cached.expiresAt > now) return cached.value
 
     try {
-      const value = project(await fetchWithRetry(config.buildUrl(request), now))
-      await runtime.cache.set(key, { value, expiresAt: now + config.ttlFor(request) * 1000 })
+      const body = await fetchWithRetry(config.buildUrl(request), now)
+      const value = project(body)
+      if (isJsonObject(body)) {
+        await runtime.cache.set(key, { value, expiresAt: now + config.ttlFor(request) * 1000 })
+      }
       return value
     } catch (error) {
       // A 404 is an answer, not a failure: serving a stale body for a game that no longer exists
