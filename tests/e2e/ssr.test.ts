@@ -336,7 +336,8 @@ describe('server-side rendering', async () => {
       expect(html.match(/data-test="made-in-ukraine"/g)).toHaveLength(slugs.length)
       expect(html).toContain('data-test="index-note"')
       expect(html).toContain('aria-label="Прибрати Зроблено в Україні"')
-      expect(html).toMatch(/Фільтри \(<span[^>]*>1<\/span>\)/)
+      // One filter in the badge; the count sits in its own mono span inside a slot fragment.
+      expect(html).toMatch(/Фільтри \((?:<!--\[-->)?<span class="font-numeric">1<\/span>/)
     })
 
     it('reaches the free games through the URL alone', async () => {
