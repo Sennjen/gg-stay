@@ -358,6 +358,20 @@ describe('server-side rendering', async () => {
     expect(html).toContain('2015')
   })
 
+  it('renders the similar games from the index below the store links', async () => {
+    // The Witcher 3 is an action RPG; the seed's five made-in-Ukraine action games share a genre
+    // with it. Stardew Valley (indie, simulation) shares a genre with nothing, so it has no row.
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    const start = html.indexOf('data-test="similar-games"')
+    expect(start).toBeGreaterThan(html.indexOf('https://store.steampowered.com/app/292030/'))
+    const row = html.slice(start)
+    expect(row).toMatch(/<h2[^>]*>\s*Схожі ігри\s*<\/h2>/)
+    expect(row.match(/data-test="game-card"/g)).toHaveLength(5)
+    expect(row).toContain('Metro Exodus')
+    expect(row).not.toContain('href="/games/the-witcher-3-wild-hunt"')
+    expect(await $fetch<string>('/games/stardew-valley')).not.toContain('Схожі ігри')
+  })
+
   it('renders the detail page with a localised date and store links', async () => {
     const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
     expect(html).toContain('<h1')
