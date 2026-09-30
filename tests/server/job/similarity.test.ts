@@ -319,6 +319,10 @@ describe('editionKey', () => {
     ['The Elder Scrolls V: Skyrim', 'The Elder Scrolls V: Skyrim Special Edition'],
     ['Mass Effect', 'Mass Effect Legendary Edition'],
     ['Divinity: Original Sin 2', 'Divinity: Original Sin 2 - Definitive Edition'],
+    ['Disco Elysium', 'Disco Elysium - The Final Cut'],
+    ['Disco Elysium', 'Disco Elysium: Final Cut, The'],
+    ['Grand Theft Auto: San Andreas', 'Grand Theft Auto: San Andreas – The Definitive Edition'],
+    ['Grand Theft Auto: San Andreas', 'Grand Theft Auto: San Andreas — The Definitive Edition'],
   ])('reads %s and %s as one game', (left, right) => {
     expect(editionKey(left)).toBe(editionKey(right))
   })
@@ -326,10 +330,20 @@ describe('editionKey', () => {
   it.each([
     ['Metro 2033', 'Metro Exodus'],
     ['Portal', 'Portal 2'],
+    ['Metro: Last Light', 'Metro Exodus'],
+    ['S.T.A.L.K.E.R. 2: Heart of Chornobyl', 'S.T.A.L.K.E.R.: Shadow of Chernobyl'],
+    ['The Witcher 3: Wild Hunt', 'Witcher 3: Wild Hunt'],
     ['S.T.A.L.K.E.R.: Shadow of Chernobyl', 'S.T.A.L.K.E.R.: Call of Pripyat'],
     ['Sherlock Holmes: Crimes and Punishments', "Sherlock Holmes: The Devil's Daughter"],
   ])('tells %s from %s', (left, right) => {
     expect(editionKey(left)).not.toBe(editionKey(right))
+  })
+
+  it('keeps a "the" that is part of the name', () => {
+    expect(editionKey('The Witcher 3: Wild Hunt – The Complete Edition')).toBe(
+      'the witcher 3 wild hunt',
+    )
+    expect(editionKey('Theme Hospital Remastered')).toBe('theme hospital')
   })
 
   it('keeps a name that is nothing but an edition word', () => {

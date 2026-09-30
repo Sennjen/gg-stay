@@ -52,7 +52,7 @@ export function similarityFeatures(game: Pick<IndexedGame, 'genres' | 'gameModes
   return [...features].sort()
 }
 
-/** Words that name a release of a game rather than the game: removed in this order. */
+/** Words that name a release of a game rather than the game, most specific first. */
 const EDITION_PHRASES = [
   'game of the year edition',
   'game of the year',
@@ -64,15 +64,28 @@ const EDITION_PHRASES = [
   'remastered',
   'remaster',
   'redux',
+  // "Enhanced Edition", "Special Edition", "Definitive Edition"… — one word before "edition".
+  '\\p{L}+ edition',
 ]
-/** "Enhanced Edition", "Special Edition", "Legendary Edition"… — one word before "edition". */
-const ANY_EDITION = /\s\p{L}+\sedition(?=\s|$)/gu
+/**
+ * One of the phrases, with the "the" a release name often carries around it: "– The Final Cut",
+ * "- The Definitive Edition", "Final Cut, The" (the comma is a space by then).
+ */
+const EDITION = new RegExp(
+  `(?:^|\\s)(?:the\\s)?(?:${EDITION_PHRASES.join('|')})(?:\\sthe$)?(?=\\s|$)`,
+  'gu',
+)
 
 /**
  * The name a game's editions and ports share: lower case, apostrophes dropped ("Director's",
- * "Director’s"), punctuation to spaces, and the edition words above taken out. "Metro 2033 Redux"
- * and "Metro 2033" share one; "Metro 2033" and "Metro Exodus" do not. A name that is nothing but
- * an edition word keeps itself.
+ * "Director’s"), every other run of punctuation — colons, dashes of any length, commas — to one
+ * space, and the edition words above taken out with a "the" that comes with them. "Metro 2033
+ * Redux" and "Metro 2033" share one; "Metro 2033" and "Metro Exodus" do not, nor does a numbered
+ * sequel share one with its original. A name that is nothing but an edition word keeps itself.
+ *
+ * Deliberately simple: a longer edition name ("Prepare to Die Edition") is not recognised, and two
+ * different games RAWG lists under the same name (two "Prey"s, a reboot without a year) share a
+ * key, so neither is listed as similar to the other.
  */
 export function editionKey(name: string): string {
   const plain = name
@@ -80,9 +93,7 @@ export function editionKey(name: string): string {
     .replace(/['’]/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
-  let key = ` ${plain} `
-  for (const phrase of EDITION_PHRASES) key = key.split(` ${phrase} `).join(' ')
-  key = key.replace(ANY_EDITION, '').replace(/\s+/g, ' ').trim()
+  const key = plain.replace(EDITION, ' ').replace(/\s+/g, ' ').trim()
   return key || plain
 }
 
