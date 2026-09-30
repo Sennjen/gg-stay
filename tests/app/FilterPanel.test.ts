@@ -115,7 +115,8 @@ describe('FilterPanel: made in Ukraine', () => {
     expect(toggleOf(off).text()).toBe('Зроблено в Україні')
     expect(toggleOf(off).attributes('aria-pressed')).toBe('false')
     expect(off.text()).toContain(
-      'Ігри студій, заснованих в Україні, чия основна команда працює тут.',
+      // "(або працювала)": the list includes studios that have since closed.
+      'Ігри студій, заснованих в Україні, де працює (або працювала) їхня основна команда.',
     )
 
     const on = await mount({ madeInUkraine: true })
