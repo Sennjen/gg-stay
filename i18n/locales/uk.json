@@ -15,9 +15,12 @@
     "stats": {
       "title": "{count}+ ігор у каталозі"
     },
-    "rows": {
-      "newReleases": "Нові релізи",
-      "topRated": "Найкращі за оцінкою гравців"
+    "shelves": {
+      "madeInUkraine": "Зроблено в Україні",
+      "ukrainian": "Українською",
+      "onSale": "Зі знижкою",
+      "bestThisYear": "Найкращі цього року",
+      "upcoming": "Очікувані"
     },
     "cta": {
       "title": "Готові знайти свою наступну гру?"

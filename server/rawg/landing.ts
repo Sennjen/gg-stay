@@ -32,15 +32,3 @@ export function pickFeatured(items: readonly RawgGameListItem[]): RawgGameListIt
     return best
   }, null)
 }
-
-/** Items with at least 100 ratings, sorted by rating descending, capped to `limit`. */
-export function pickTopRated(
-  items: readonly RawgGameListItem[],
-  limit: number,
-): RawgGameListItem[] {
-  return items
-    .filter(qualifies)
-    .slice()
-    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-    .slice(0, limit)
-}

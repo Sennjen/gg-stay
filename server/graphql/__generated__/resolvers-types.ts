@@ -54,7 +54,11 @@ export type Game = {
   ratingsCount?: Maybe<Scalars['Int']['output']>;
   released?: Maybe<Scalars['String']['output']>;
   screenshots: Array<Image>;
-  /** Index-backed field: always empty until the week 2 nightly index computes similarity. */
+  /**
+   * Up to eight games from the index that share a genre with this one, most popular first,
+   * preferring games on a platform family this one is on. Empty when fewer than four qualify, or
+   * when the index is unavailable or its prices are stale.
+   */
   similar: Array<GameCard>;
   slug: Scalars['String']['output'];
   stores: Array<StoreOffer>;
@@ -92,7 +96,7 @@ export type GameFilter = {
   free?: InputMaybe<Scalars['Boolean']['input']>;
   gameModes?: InputMaybe<Array<GameMode>>;
   genres?: InputMaybe<Array<Scalars['String']['input']>>;
-  /** Index-backed field: accepted and ignored until the nightly index exists. */
+  /** Index-backed field: games from studios founded and based in Ukraine. */
   madeInUkraine?: InputMaybe<Scalars['Boolean']['input']>;
   metacriticMin?: InputMaybe<Scalars['Int']['input']>;
   /** Index-backed field: accepted and ignored until the nightly index exists. */
@@ -158,8 +162,11 @@ export type Image = {
 export type Landing = {
   carousel: Array<GameCard>;
   featured?: Maybe<FeaturedGame>;
-  newReleases: Array<GameCard>;
-  topRated: Array<GameCard>;
+  /**
+   * The shelves that have at least four games, in display order. The three index shelves are left
+   * out while the index is unavailable, and the sale shelf while its prices are stale.
+   */
+  shelves: Array<Shelf>;
   totalGames: Scalars['Int']['output'];
 };
 
@@ -232,6 +239,19 @@ export type QueryGamesArgs = {
   pageSize?: InputMaybe<Scalars['Int']['input']>;
   sort?: InputMaybe<GameSort>;
 };
+
+export type Shelf = {
+  games: Array<GameCard>;
+  id: ShelfId;
+};
+
+/** The landing's shelves, in display order. The catalog URL each one links to is shared/shelves.ts. */
+export type ShelfId =
+  | 'BEST_THIS_YEAR'
+  | 'MADE_IN_UKRAINE'
+  | 'ON_SALE'
+  | 'UKRAINIAN'
+  | 'UPCOMING';
 
 export type StoreOffer = {
   discountPercent?: Maybe<Scalars['Int']['output']>;
@@ -345,6 +365,8 @@ export type ResolversTypes = {
   Playtime: Playtime;
   PriceSummary: ResolverTypeWrapper<PriceSummary>;
   Query: ResolverTypeWrapper<Record<PropertyKey, never>>;
+  Shelf: ResolverTypeWrapper<Shelf>;
+  ShelfId: ShelfId;
   StoreOffer: ResolverTypeWrapper<StoreOffer>;
   String: ResolverTypeWrapper<Scalars['String']['output']>;
   Taxonomy: ResolverTypeWrapper<Taxonomy>;
@@ -367,6 +389,7 @@ export type ResolversParentTypes = {
   LocalizedText: LocalizedText;
   PriceSummary: PriceSummary;
   Query: Record<PropertyKey, never>;
+  Shelf: Shelf;
   StoreOffer: StoreOffer;
   String: Scalars['String']['output'];
   Taxonomy: Taxonomy;
@@ -445,8 +468,7 @@ export type ImageResolvers<ContextType = GraphQLContext, ParentType extends Reso
 export type LandingResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Landing'] = ResolversParentTypes['Landing']> = {
   carousel?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
   featured?: Resolver<Maybe<ResolversTypes['FeaturedGame']>, ParentType, ContextType>;
-  newReleases?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
-  topRated?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
+  shelves?: Resolver<Array<ResolversTypes['Shelf']>, ParentType, ContextType>;
   totalGames?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
 };
 
@@ -480,6 +502,11 @@ export type QueryResolvers<ContextType = GraphQLContext, ParentType extends Reso
   platforms?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
 };
 
+export type ShelfResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Shelf'] = ResolversParentTypes['Shelf']> = {
+  games?: Resolver<Array<ResolversTypes['GameCard']>, ParentType, ContextType>;
+  id?: Resolver<ResolversTypes['ShelfId'], ParentType, ContextType>;
+};
+
 export type StoreOfferResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['StoreOffer'] = ResolversParentTypes['StoreOffer']> = {
   discountPercent?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   isFree?: Resolver<Maybe<ResolversTypes['Boolean']>, ParentType, ContextType>;
@@ -507,6 +534,7 @@ export type Resolvers<ContextType = GraphQLContext> = {
   LocalizedText?: LocalizedTextResolvers<ContextType>;
   PriceSummary?: PriceSummaryResolvers<ContextType>;
   Query?: QueryResolvers<ContextType>;
+  Shelf?: ShelfResolvers<ContextType>;
   StoreOffer?: StoreOfferResolvers<ContextType>;
   Taxonomy?: TaxonomyResolvers<ContextType>;
 };

@@ -402,11 +402,11 @@ describe('Query.landing', () => {
         carousel {
           slug
         }
-        newReleases {
-          slug
-        }
-        topRated {
-          slug
+        shelves {
+          id
+          games {
+            slug
+          }
         }
       }
     }
@@ -416,7 +416,7 @@ describe('Query.landing', () => {
   // purpose, so the fixture-mode e2e app exercises the Steam fallback path end to end — see the
   // comment above `fixtureSteam`). Its Steam store link (in
   // game-the-witcher-3-wild-hunt-stores.json) resolves to app id 292030.
-  it('falls back to the Steam clip when RAWG has none, a cover-only carousel and capped lists', async () => {
+  it('falls back to the Steam clip when RAWG has none, a cover-only carousel and the RAWG shelves', async () => {
     const { data, errors } = await run(fixtureRawg, LANDING)
     expect(errors).toBeUndefined()
     expect(data!.landing.totalGames).toBe(4)
@@ -427,12 +427,11 @@ describe('Query.landing', () => {
       clipSource: 'STEAM',
     })
     expect(data!.landing.carousel).toEqual([{ slug: 'the-witcher-3-wild-hunt' }])
-    expect(data!.landing.topRated.map((item: { slug: string }) => item.slug)).toEqual([
-      'the-witcher-3-wild-hunt',
-      'portal-2',
-      'stardew-valley',
-    ])
-    expect(data!.landing.newReleases).toHaveLength(4)
+    // No index is published in this suite, so only the two RAWG shelves are there, each with the
+    // fixture's four games — exactly the minimum a shelf needs to be shown.
+    const shelves = data!.landing.shelves as { id: string; games: { slug: string }[] }[]
+    expect(shelves.map((shelf) => shelf.id)).toEqual(['BEST_THIS_YEAR', 'UPCOMING'])
+    for (const shelf of shelves) expect(shelf.games).toHaveLength(4)
   })
 
   it('prefers the RAWG clip when present, without calling Steam', async () => {

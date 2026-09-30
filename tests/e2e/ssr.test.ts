@@ -5,6 +5,21 @@ import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
 // Build-time default and runtime override, so the server under test never calls RAWG.
 process.env.RAWG_FIXTURES = '1'
 
+/** The visible titles of the landing shelves, in page order. */
+function shelfTitles(html: string): string[] {
+  return [...html.matchAll(/data-test="shelf-[A-Z_]+"[\s\S]*?<h2[^>]*>\s*([^<]*?)\s*<\/h2>/g)].map(
+    (match) => match[1]!,
+  )
+}
+
+/** The server HTML of one landing shelf, from its section to the next one. */
+function shelfHtml(html: string, id: string): string {
+  const start = html.indexOf(`data-test="shelf-${id}"`)
+  if (start === -1) return ''
+  const next = html.indexOf('data-test="shelf-', start + 1)
+  return html.slice(start, next === -1 ? undefined : next)
+}
+
 describe('server-side rendering', async () => {
   await setup({
     server: true,
@@ -52,8 +67,6 @@ describe('server-side rendering', async () => {
     // (Against production, where the total is ~900 000, this is the "900 000+" headline.)
     expect(html).not.toContain('ігор у каталозі')
     expect(html).toContain('Чому GG Stay')
-    expect(html).toContain('Нові релізи')
-    expect(html).toContain('Найкращі за оцінкою гравців')
     // Row cards reuse GameCard and are present in the server HTML (unlike the ring).
     expect(html).toContain('Portal 2')
     expect(html).toContain('Stardew Valley')
@@ -74,9 +87,39 @@ describe('server-side rendering', async () => {
     // Same as above: the fixture total is too small for a rounded headline, so it is absent.
     expect(html).not.toContain('games in the catalog')
     expect(html).toContain('Why GG Stay')
-    expect(html).toContain('New releases')
-    expect(html).toContain('Top rated by players')
+    expect(shelfTitles(html)).toEqual([
+      'Made in Ukraine',
+      'In Ukrainian',
+      'Best of this year',
+      'Most anticipated',
+    ])
     expect(html).toContain('Ready to find your next game?')
+  })
+
+  /**
+   * The shelves, from the fixture-mode seed: six made-in-Ukraine games and four with Ukrainian
+   * text for the two index shelves, and the RAWG fixture's four games for each RAWG shelf. The
+   * sale shelf is not there — the seed has two discounted games, and a shelf needs four.
+   */
+  it('renders the landing shelves in order, each linked to its catalog page', async () => {
+    const html = await $fetch<string>('/')
+    expect(shelfTitles(html)).toEqual([
+      'Зроблено в Україні',
+      'Українською',
+      'Найкращі цього року',
+      'Очікувані',
+    ])
+    expect(html).not.toContain('Зі знижкою')
+    const madeInUkraine = shelfHtml(html, 'MADE_IN_UKRAINE')
+    expect(madeInUkraine).toContain('href="/games?madeInUkraine=1"')
+    expect(madeInUkraine).toContain('S.T.A.L.K.E.R. 2: Heart of Chornobyl')
+    expect(madeInUkraine.match(/data-test="game-card"/g)).toHaveLength(6)
+    expect(shelfHtml(html, 'UKRAINIAN')).toContain('href="/games?ukrainianLocalisation=ANY"')
+    expect(shelfHtml(html, 'UPCOMING')).toContain('href="/games?upcoming=1"')
+    expect(shelfHtml(html, 'BEST_THIS_YEAR')).toMatch(
+      /href="\/games\?yearFrom=(\d{4})&amp;yearTo=\1&amp;sort=RATING_DESC"/,
+    )
+    expect(html.match(/>\s*Усі ігри\s*</g)).toHaveLength(4)
   })
 
   it('renders the English landing headline under /en', async () => {

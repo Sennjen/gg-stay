@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateRange, pickFeatured, pickTopRated } from '../../server/rawg/landing'
+import { dateRange, pickFeatured } from '../../server/rawg/landing'
 import type { RawgGameListItem } from '../../server/rawg/types'
 
 function item(overrides: Partial<RawgGameListItem>): RawgGameListItem {
@@ -54,26 +54,5 @@ describe('pickFeatured', () => {
 
   it('returns null for an empty list', () => {
     expect(pickFeatured([])).toBeNull()
-  })
-})
-
-describe('pickTopRated', () => {
-  it('filters by the votes threshold, sorts by rating descending, and caps to the limit', () => {
-    const items = [
-      item({ id: 1, rating: 4.2, ratings_count: 6800 }),
-      item({ id: 2, rating: 4.8, ratings_count: 500 }),
-      item({ id: 3, rating: 4.9, ratings_count: 50 }), // below threshold
-      item({ id: 4, rating: 4.6, ratings_count: 200 }),
-    ]
-    expect(pickTopRated(items, 2).map((entry) => entry.id)).toEqual([2, 4])
-  })
-
-  it('returns fewer than the limit when fewer items qualify', () => {
-    const items = [item({ id: 1, rating: 4.2, ratings_count: 150 })]
-    expect(pickTopRated(items, 8).map((entry) => entry.id)).toEqual([1])
-  })
-
-  it('returns an empty list when nothing qualifies', () => {
-    expect(pickTopRated([item({ id: 1, ratings_count: 5 })], 8)).toEqual([])
   })
 })

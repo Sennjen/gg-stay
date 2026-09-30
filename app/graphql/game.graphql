@@ -59,5 +59,9 @@ query Game($slug: String!, $locale: String!) {
       audio
       source
     }
+    madeInUkraine
+    similar {
+      ...RowGameCard
+    }
   }
 }

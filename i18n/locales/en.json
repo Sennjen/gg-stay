@@ -15,9 +15,12 @@
     "stats": {
       "title": "{count}+ games in the catalog"
     },
-    "rows": {
-      "newReleases": "New releases",
-      "topRated": "Top rated by players"
+    "shelves": {
+      "madeInUkraine": "Made in Ukraine",
+      "ukrainian": "In Ukrainian",
+      "onSale": "On sale",
+      "bestThisYear": "Best of this year",
+      "upcoming": "Most anticipated"
     },
     "cta": {
       "title": "Ready to find your next game?"

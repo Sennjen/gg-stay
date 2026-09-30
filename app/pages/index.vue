@@ -2,6 +2,7 @@
 import { LandingDocument } from '~/graphql/__generated__/operations'
 import { RING_HEIGHT_CLASS } from '~/components/CoverRing.vue'
 import { roundGameCount } from '~/utils/roundGameCount'
+import { shelfCatalogQuery, shelfDefinition } from '#shared/shelves'
 
 const { t } = useI18n()
 const { formatNumber } = useFormatters()
@@ -16,8 +17,7 @@ const featured = computed(() => data.value?.landing?.featured ?? null)
 
 // The stats + ring section needs real landing data (the count and the carousel); when the query
 // failed, `landing` is null and this whole section is simply absent — no placeholder, no error
-// box. `GameRow` below already renders nothing for an empty list, so the two rows need no
-// matching guard: they fall back to `[]` and disappear on their own.
+// box. The shelves fall back to none the same way.
 const landing = computed(() => data.value?.landing ?? null)
 // `null` when the total is too small to round to a friendly figure; the headline is hidden then.
 const roundedCount = computed(() =>
@@ -26,8 +26,23 @@ const roundedCount = computed(() =>
 const formattedCount = computed(() =>
   roundedCount.value === null ? '' : formatNumber(roundedCount.value),
 )
-const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DESC' } }
-const topRatedTo = { path: localePath('/games'), query: { sort: 'RATING_DESC' } }
+
+// The "Найкращі цього року" link needs the calendar year. Read once — on the server, carried to
+// the client in the payload — so the link in the server HTML and the hydrated one never differ,
+// and nothing in the render path reads a clock. UTC, like the resolver's own `today`.
+const year = useState('landing-year', () => new Date().getUTCFullYear())
+
+// Every shelf the answer kept, in its order: the answer already left out the ones with too few
+// games, and the ones the index could not serve. The title and the catalog URL behind "Усі ігри"
+// both come from `shared/shelves.ts`, the same definition the resolver filled the shelf from.
+const shelves = computed(() =>
+  (landing.value?.shelves ?? []).map((shelf) => ({
+    id: shelf.id,
+    title: t(shelfDefinition(shelf.id).titleKey),
+    games: shelf.games,
+    moreTo: { path: localePath('/games'), query: shelfCatalogQuery(shelf.id, year.value) },
+  })),
+)
 
 useSeoMeta({
   title: () => t('home.title'),
@@ -89,14 +104,12 @@ useSeoMeta({
       <WhyCards />
 
       <GameRow
-        :title="t('home.rows.newReleases')"
-        :games="landing?.newReleases ?? []"
-        :more-to="newReleasesTo"
-      />
-      <GameRow
-        :title="t('home.rows.topRated')"
-        :games="landing?.topRated ?? []"
-        :more-to="topRatedTo"
+        v-for="shelf in shelves"
+        :key="shelf.id"
+        :data-test="`shelf-${shelf.id}`"
+        :title="shelf.title"
+        :games="shelf.games"
+        :more-to="shelf.moreTo"
       />
 
       <section class="rounded-card border border-line bg-surface-1 px-6 py-12 text-center sm:py-16">

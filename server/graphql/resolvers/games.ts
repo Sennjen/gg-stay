@@ -1,6 +1,5 @@
 import { MAX_PAGE, MAX_PAGE_SIZE } from '../../../shared/catalog'
 import { IndexUnavailableError } from '../../index/index'
-import { toGameCard } from '../../index/toGraphql'
 import { filterToParams } from '../../rawg/filterToParams'
 import { mapGameCard, mapGamePage, type GamePageIndexState } from '../../rawg/mappers'
 import { postFilter } from '../../rawg/postFilter'
@@ -10,19 +9,17 @@ import type { GraphQLContext } from '../context'
 import { withUpstreamErrors } from '../errors'
 import {
   attachIndexData,
+  cachedIndexPage,
   indexFacetFiltersUsed,
   indexFailed,
   INDEX_SORTS,
   indexState,
   priceFiltersUsed,
-  pageCacheKey,
-  PAGE_CACHE_TTL_SECONDS,
   rawgOnlyFiltersUsed,
   toIndexQuery,
   warnIndexOnce,
   withoutPriceFilters,
   withoutPrices,
-  type CachedIndexPage,
   type IndexState,
 } from '../indexPath'
 import type {
@@ -147,7 +144,6 @@ async function indexPage(
     throw new IndexUnavailableError('an earlier call in this request did not answer')
   }
   const query = toIndexQuery({ ...input, today: context.today })
-  const key = pageCacheKey(query, state.version)
   const meta: GamePageIndexState = {
     indexedOnly: true,
     indexStale: state.stale,
@@ -155,19 +151,12 @@ async function indexPage(
     ignoredFilters: [...ignoredFilters, ...rawgOnlyFiltersUsed(input.filter)],
   }
 
-  const cached = await context.cache.get<CachedIndexPage>(key)
-  const answer = cached ?? (await searchIndex())
-  if (!cached) await context.cache.set(key, answer, PAGE_CACHE_TTL_SECONDS)
+  const answer = await cachedIndexPage(context, query, state.version)
 
   // The cached page is the canonical one, prices included; a stale answer strips them on the way
   // out, so the cache does not need a second entry per staleness state.
   const items = state.stale ? withoutPrices(answer.items) : answer.items
   return buildPage(items, answer.total, input, meta)
-
-  async function searchIndex(): Promise<CachedIndexPage> {
-    const result = await context.index.search(query)
-    return { items: result.games.map(toGameCard), total: result.total }
-  }
 }
 
 interface RawgPageOptions {

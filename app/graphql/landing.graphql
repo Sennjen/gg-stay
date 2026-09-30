@@ -9,7 +9,8 @@ fragment RingGameCard on GameCard {
   }
 }
 
-# The two rows render `GameCard`, so this fragment must match what `Games` selects for a card.
+# The shelves (and the game page's similar games) render `GameCard`, so this fragment must match
+# what `Games` selects for a card.
 fragment RowGameCard on GameCard {
   id
   slug
@@ -35,6 +36,7 @@ fragment RowGameCard on GameCard {
     audio
     source
   }
+  madeInUkraine
 }
 
 query Landing {
@@ -53,11 +55,11 @@ query Landing {
     carousel {
       ...RingGameCard
     }
-    newReleases {
-      ...RowGameCard
-    }
-    topRated {
-      ...RowGameCard
+    shelves {
+      id
+      games {
+        ...RowGameCard
+      }
     }
     totalGames
   }

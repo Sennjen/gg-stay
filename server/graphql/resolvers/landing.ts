@@ -1,24 +1,39 @@
+import {
+  SHELF_MIN_GAMES,
+  SHELF_SIZE,
+  SHELVES,
+  type ShelfDefinition,
+  type ShelfIdValue,
+} from '../../../shared/shelves'
 import { safeExternalUrl } from '../../../shared/url'
+import { filterToParams } from '../../rawg/filterToParams'
 import { mapGameCard } from '../../rawg/mappers'
-import { dateRange, pickFeatured, pickTopRated } from '../../rawg/landing'
+import { dateRange, pickFeatured } from '../../rawg/landing'
 import { rawgListOrThrow } from '../../rawg/rawgFetch'
 import type { RawgGameListItem, RawgList, RawgMovie, RawgStoreLink } from '../../rawg/types'
 import { pickTrailer, steamAppIdFromUrl } from '../../steam/steam'
 import type { SteamAppDetailsResponse } from '../../steam/types'
 import { withUpstreamErrors } from '../errors'
-import { attachIndexData, indexState } from '../indexPath'
+import {
+  attachIndexData,
+  cachedIndexPage,
+  indexFailed,
+  indexState,
+  toIndexQuery,
+  warnIndexOnce,
+  withoutPrices,
+  type IndexState,
+} from '../indexPath'
 import type { GraphQLContext } from '../context'
-import type { QueryResolvers } from '../__generated__/resolvers-types'
+import type { GameCard, QueryResolvers, Shelf } from '../__generated__/resolvers-types'
 
 // The landing page is cached server-side for 24h (see docs/specs/2026-09-19-redesign-design.md,
 // "Server additions"): a page view should not reach RAWG on every request.
 const LANDING_TTL = 86_400
 const CAROUSEL_SIZE = 40
 const CAROUSEL_LIMIT = 24
-const NEW_RELEASES_WINDOW_DAYS = 90
-const TOP_RATED_WINDOW_DAYS = 365
-const NEW_RELEASES_LIMIT = 8
-const TOP_RATED_LIMIT = 8
+// The featured game is picked from the last year's most added games.
+const FEATURED_WINDOW_DAYS = 365
 
 async function fetchGamesList(
   context: GraphQLContext,
@@ -87,24 +102,38 @@ async function fetchClip(
   return { clipUrl: null, clipSource: null }
 }
 
+/**
+ * The landing page: the featured game, the ring and five shelves (see `shared/shelves.ts`).
+ *
+ * Everything the index contributes overlaps RAWG instead of queueing behind it. The metadata read
+ * starts first, beside the RAWG lists; the three index shelves start the moment it answers — all
+ * three at once, one round of searches — and the one document read that prices the RAWG-served
+ * cards runs beside them. A page view costs the index at most three round trips, whatever it
+ * holds, and a store that has failed once in this request is not asked again (`indexFailed`).
+ *
+ * The index shelves are left out when the index cannot answer; the sale shelf, the only one that
+ * reads a price, is left out while the prices are stale too, and the other two keep their games
+ * with the prices withheld. A shelf with fewer than four games is left out. Nothing here fails the
+ * landing because of the index.
+ */
 export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
   withUpstreamErrors(async () => {
     const { today } = context
-    // Started before the lists are fetched, awaited after them: the index enhances this page and
-    // must not be a step in front of it, so its latency overlaps RAWG's instead of adding to it.
+    // The one clock read of this request is `today`; the year every shelf is measured against is
+    // taken from it, never from a clock of its own.
+    const year = Number(today.slice(0, 4))
     const pending = indexState(context)
-    const [carouselPage, lastYearPage, newReleasesPage] = await Promise.all([
+    const indexShelvesPending = pending.then((state) => readIndexShelves(context, state, year))
+
+    const rawgShelves = SHELVES.filter((shelf) => shelf.source === 'rawg')
+    const [carouselPage, lastYearPage, ...rawgShelfPages] = await Promise.all([
       fetchGamesList(context, { ordering: '-added', page_size: CAROUSEL_SIZE }),
       fetchGamesList(context, {
         ordering: '-added',
         page_size: CAROUSEL_SIZE,
-        dates: dateRange(today, TOP_RATED_WINDOW_DAYS),
+        dates: dateRange(today, FEATURED_WINDOW_DAYS),
       }),
-      fetchGamesList(context, {
-        ordering: '-added',
-        page_size: NEW_RELEASES_LIMIT,
-        dates: dateRange(today, NEW_RELEASES_WINDOW_DAYS),
-      }),
+      ...rawgShelves.map((shelf) => fetchGamesList(context, rawgShelfParams(shelf, year, today))),
     ])
 
     const carouselItems = (carouselPage.results ?? []).filter((item) => item.background_image)
@@ -117,26 +146,76 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
           ...(await fetchClip(context, featuredItem)),
         }
       : null
+    const carousel = carouselItems.slice(0, CAROUSEL_LIMIT).map(mapGameCard)
+    const shelfGames = new Map<ShelfIdValue, GameCard[]>(
+      rawgShelves.map((shelf, position) => [
+        shelf.id,
+        (rawgShelfPages[position]?.results ?? []).slice(0, SHELF_SIZE).map(mapGameCard),
+      ]),
+    )
 
-    const page = {
-      featured,
-      carousel: carouselItems.slice(0, CAROUSEL_LIMIT).map(mapGameCard),
-      newReleases: (newReleasesPage.results ?? []).slice(0, NEW_RELEASES_LIMIT).map(mapGameCard),
-      topRated: pickTopRated(lastYearItems, TOP_RATED_LIMIT).map(mapGameCard),
-      totalGames: carouselPage.count ?? 0,
-    }
-
-    // Every card of every row in one index read, the featured game and the carousel included: the
-    // rows render `GameCard` and show a price line, and a game that appears in two of them must
-    // not be looked up twice. A stale index withholds the prices and keeps the language lists,
-    // exactly as it does in the catalog.
+    // Every RAWG-served card in one index read, the featured game and the carousel included: the
+    // shelves render `GameCard` with a price line, and a game on two shelves is looked up once. A
+    // stale index withholds the prices and keeps the language lists, exactly as in the catalog.
     const state = await pending
-    const cards = [
-      ...(page.featured ? [page.featured.game] : []),
-      ...page.carousel,
-      ...page.newReleases,
-      ...page.topRated,
+    const rawgCards = [
+      ...(featured ? [featured.game] : []),
+      ...carousel,
+      ...[...shelfGames.values()].flat(),
     ]
-    await attachIndexData(context, cards, { prices: !state.stale })
-    return page
+    const [indexShelves] = await Promise.all([
+      indexShelvesPending,
+      attachIndexData(context, rawgCards, { prices: !state.stale }),
+    ])
+    for (const [id, games] of indexShelves) shelfGames.set(id, games)
+
+    const shelves: Shelf[] = SHELVES.map((shelf) => ({
+      id: shelf.id,
+      games: shelfGames.get(shelf.id) ?? [],
+    })).filter((shelf) => shelf.games.length >= SHELF_MIN_GAMES)
+
+    return { featured, carousel, shelves, totalGames: carouselPage.count ?? 0 }
   })
+
+/** A RAWG shelf's request: the catalog's own translation of the shelf's filter and sort. */
+function rawgShelfParams(shelf: ShelfDefinition, year: number, today: string) {
+  const { filter, sort } = shelf.query(year)
+  return filterToParams({ filter, sort, page: 1, pageSize: SHELF_SIZE, today })
+}
+
+/**
+ * The index shelves that may be shown, read concurrently — one round of searches. A shelf whose
+ * search fails is simply absent; the first failure is logged once for the whole request.
+ */
+async function readIndexShelves(
+  context: GraphQLContext,
+  state: IndexState,
+  year: number,
+): Promise<Map<ShelfIdValue, GameCard[]>> {
+  // No metadata: nothing is published, the index is not configured, or it has already failed in
+  // this request. Either way there is nothing to ask it for.
+  if (state.meta === null || indexFailed(context)) return new Map()
+  const wanted = SHELVES.filter(
+    (shelf) => shelf.source === 'index' && !(shelf.dependsOnPrices && state.stale),
+  )
+  const answers = await Promise.all(
+    wanted.map(async (shelf): Promise<[ShelfIdValue, GameCard[]]> => {
+      const { filter, sort } = shelf.query(year)
+      const query = toIndexQuery({
+        filter,
+        sort,
+        page: 1,
+        pageSize: SHELF_SIZE,
+        today: context.today,
+      })
+      try {
+        const page = await cachedIndexPage(context, query, state.version)
+        return [shelf.id, state.stale ? withoutPrices(page.items) : page.items]
+      } catch (error) {
+        warnIndexOnce(context, 'a landing shelf could not be read', error)
+        return [shelf.id, []]
+      }
+    }),
+  )
+  return new Map(answers)
+}
