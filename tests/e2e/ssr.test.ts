@@ -364,7 +364,7 @@ describe('server-side rendering', async () => {
     const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
     const start = html.indexOf('data-test="similar-games"')
     expect(start).toBeGreaterThan(html.indexOf('https://store.steampowered.com/app/292030/'))
-    const row = html.slice(start)
+    const row = html.slice(start, html.indexOf('</section>', start))
     expect(row).toMatch(/<h2[^>]*>\s*Схожі ігри\s*<\/h2>/)
     expect(row.match(/data-test="game-card"/g)).toHaveLength(5)
     expect(row).toContain('Metro Exodus')
