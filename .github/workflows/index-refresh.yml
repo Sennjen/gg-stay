@@ -9,7 +9,8 @@ on:
   schedule:
     # Prices every six hours — one batched Steam call over the published documents.
     - cron: '15 */6 * * *'
-    # The whole catalog nightly at 02:30 UTC: candidates, new app ids, prices, due languages.
+    # The whole catalog nightly at 02:30 UTC: candidates, Ukrainian studios' games, new app ids,
+    # prices, due languages.
     - cron: '30 2 * * *'
     # The rest of the language sweep, weekly, Sunday 04:00 UTC.
     - cron: '0 4 * * 0'
