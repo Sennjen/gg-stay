@@ -154,7 +154,8 @@ describe('server-side rendering', async () => {
    *
    * The seed holds the three games the RAWG fixtures show — Portal 2 at 225 ₴ with −75 % on PC,
    * The Witcher 3 at 675 ₴ with −50 %, Stardew Valley free — and a fourth RAWG game the index
-   * never saw, plus index-only games made in Ukraine priced above 700 ₴ and discounted under 50 %. Portal 2 is deliberately both cheap and heavily discounted so the literal URL from
+   * never saw, plus index-only games made in Ukraine priced above 700 ₴ and discounted under
+   * 50 %. Portal 2 is deliberately both cheap and heavily discounted so the literal URL from
    * the design has something to match and the resolver's AND between the price ceiling and the
    * discount floor is really exercised; `tests/server/index/publishedFixture.test.ts` pins that
    * property of the seed, so this suite cannot go quietly vacuous again.
