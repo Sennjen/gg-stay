@@ -87,21 +87,24 @@ describe('server-side rendering', async () => {
     // Same as above: the fixture total is too small for a rounded headline, so it is absent.
     expect(html).not.toContain('games in the catalog')
     expect(html).toContain('Why GG Stay')
-    expect(shelfTitles(html)).toEqual(['Made in Ukraine', 'Best of this year', 'Most anticipated'])
+    expect(shelfTitles(html)).toEqual(['Made in Ukraine', 'Most anticipated'])
     expect(html).toContain('Ready to find your next game?')
   })
 
   /**
    * The shelves, from the fixture-mode seed: its five made-in-Ukraine games for the first shelf,
-   * and the RAWG fixture's four games for each RAWG shelf. Two shelves are left out because a
-   * shelf needs four games: "Українською" (the seed has two games with Ukrainian text or audio)
-   * and "Зі знижкою" (three games at −30 % or more: Portal 2, The Witcher 3, Metro Exodus).
+   * and the RAWG fixture's four games for "Очікувані". Three shelves are left out because a shelf
+   * needs four games: "Українською" (the seed has two games with Ukrainian text or audio), "Зі
+   * знижкою" (three games at −30 % or more: Portal 2, The Witcher 3, Metro Exodus) and "Найкращі
+   * цього року" (the RAWG fixture has three games with twenty votes or more — the unreleased
+   * sample has none).
    */
   it('renders the landing shelves in order, each linked to its catalog page', async () => {
     const html = await $fetch<string>('/')
-    expect(shelfTitles(html)).toEqual(['Зроблено в Україні', 'Найкращі цього року', 'Очікувані'])
+    expect(shelfTitles(html)).toEqual(['Зроблено в Україні', 'Очікувані'])
     expect(html).not.toContain('Зі знижкою')
     expect(html).not.toContain('data-test="shelf-UKRAINIAN"')
+    expect(html).not.toContain('data-test="shelf-BEST_THIS_YEAR"')
     const madeInUkraine = shelfHtml(html, 'MADE_IN_UKRAINE')
     expect(madeInUkraine).toContain('href="/games?madeInUkraine=1"')
     expect(madeInUkraine).toContain('S.T.A.L.K.E.R.: Shadow of Chernobyl')
@@ -112,10 +115,7 @@ describe('server-side rendering', async () => {
     ).toHaveLength(5)
     expect(shelfHtml(html, 'UPCOMING')).not.toContain('data-test="made-in-ukraine"')
     expect(shelfHtml(html, 'UPCOMING')).toContain('href="/games?upcoming=1"')
-    expect(shelfHtml(html, 'BEST_THIS_YEAR')).toMatch(
-      /href="\/games\?yearFrom=(\d{4})&amp;yearTo=\1&amp;sort=RATING_DESC"/,
-    )
-    expect(html.match(/>\s*Усі ігри\s*</g)).toHaveLength(3)
+    expect(html.match(/>\s*Усі ігри\s*</g)).toHaveLength(2)
   })
 
   it('renders the English landing headline under /en', async () => {

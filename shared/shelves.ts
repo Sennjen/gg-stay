@@ -3,10 +3,12 @@ import type { GameSortValue, LocalisationValue } from './catalog'
 /**
  * The landing page's shelves, and the one place that says which games each of them holds.
  *
- * The landing resolver asks for exactly `shelfQuery(id, year)` — through the index for the first
- * three, through RAWG for the last two — and the shelf's "Усі ігри" link opens exactly
+ * The landing resolver asks for `shelfQuery(id, year)` — through the index for the first three,
+ * through RAWG for the last two — and the shelf's "Усі ігри" link opens exactly
  * `shelfCatalogQuery(id, year)`, which the catalog page parses back into the same filter and sort.
- * A shelf therefore always shows the first games of the catalog page it links to.
+ * A shelf therefore shows the first games of the catalog page it links to — except "Найкращі
+ * цього року", whose `ratingPick` ranks the year's popular games by rating with a floor on votes,
+ * because RAWG's plain rating order over a year is led by games almost nobody rated.
  *
  * `year` is the current calendar year, read once per request from the resolver's single clock
  * read (`context.today`) and once per render on the page (`useState`), never in a render path.
@@ -45,6 +47,17 @@ export interface ShelfQuery {
   sort: GameSortValue
 }
 
+/**
+ * How a RAWG shelf is picked when its catalog order is not good enough on its own: the `pool`
+ * most popular games of the shelf's filter are fetched, those with fewer than `minRatings` votes
+ * are dropped, and the rest are ranked by rating. RAWG's own rating order over a whole year puts
+ * games with a handful of votes first.
+ */
+export interface ShelfRatingPick {
+  pool: number
+  minRatings: number
+}
+
 export interface ShelfDefinition {
   id: ShelfIdValue
   /** The i18n key of the shelf's visible title. */
@@ -53,7 +66,10 @@ export interface ShelfDefinition {
   source: 'index' | 'rawg'
   /** A shelf that reads a price or a discount is withheld while the index's prices are stale. */
   dependsOnPrices: boolean
+  /** The catalog query the shelf links to; also exactly what fills it, unless `ratingPick` is set. */
   query: (year: number) => ShelfQuery
+  /** RAWG shelves only: fill the shelf from the query's most popular games, ranked by rating. */
+  ratingPick?: ShelfRatingPick
 }
 
 export const SHELVES: readonly ShelfDefinition[] = [
@@ -84,6 +100,9 @@ export const SHELVES: readonly ShelfDefinition[] = [
     source: 'rawg',
     dependsOnPrices: false,
     query: (year) => ({ filter: { yearFrom: year, yearTo: year }, sort: 'RATING_DESC' }),
+    // The link opens the year by rating; the shelf itself is the year's forty most added games
+    // with at least twenty votes, by rating, so a 5.0 from three players cannot lead it.
+    ratingPick: { pool: 40, minRatings: 20 },
   },
   {
     id: 'UPCOMING',

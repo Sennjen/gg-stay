@@ -427,11 +427,13 @@ describe('Query.landing', () => {
       clipSource: 'STEAM',
     })
     expect(data!.landing.carousel).toEqual([{ slug: 'the-witcher-3-wild-hunt' }])
-    // No index is published in this suite, so only the two RAWG shelves are there, each with the
-    // fixture's four games — exactly the minimum a shelf needs to be shown.
+    // No index is published in this suite, so only RAWG shelves can be there. "Очікувані" has the
+    // fixture's four games — exactly the minimum a shelf needs. "Найкращі цього року" keeps only
+    // games with twenty votes or more, and the fixture's unreleased sample has none, so three
+    // are left and the shelf is not shown.
     const shelves = data!.landing.shelves as { id: string; games: { slug: string }[] }[]
-    expect(shelves.map((shelf) => shelf.id)).toEqual(['BEST_THIS_YEAR', 'UPCOMING'])
-    for (const shelf of shelves) expect(shelf.games).toHaveLength(4)
+    expect(shelves.map((shelf) => shelf.id)).toEqual(['UPCOMING'])
+    expect(shelves[0]!.games).toHaveLength(4)
   })
 
   it('prefers the RAWG clip when present, without calling Steam', async () => {

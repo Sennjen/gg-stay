@@ -3,6 +3,7 @@ import type { GameIndex } from '../../server/index/GameIndex'
 import type { IndexedGame } from '../../server/index/document'
 import { degradeOnFailure, withDeadline } from '../../server/index/index'
 import type { RawgFetch, RawgParams } from '../../server/rawg/rawgFetch'
+import type { RawgGameListItem } from '../../server/rawg/types'
 import { SHELF_SIZE } from '../../shared/shelves'
 import {
   countCalls,
@@ -107,7 +108,41 @@ const RICH = [
   ...range(301, 2).map((id) => document(id, onSale(20))),
 ]
 
-function recordingRawg(inner: RawgFetch = fixtureRawg): RawgFetch & { calls: RawgParams[] } {
+/** One RAWG list item of this year, as the `-added` list returns it. */
+function released(id: number, rating: number, ratingsCount: number): RawgGameListItem {
+  return {
+    id,
+    slug: `this-year-${id}`,
+    name: `This Year ${id}`,
+    released: '2026-03-01',
+    rating,
+    ratings_count: ratingsCount,
+    background_image: null,
+  }
+}
+
+/**
+ * This year's games in RAWG's `-added` order — popularity, not rating. The most added one is a
+ * 5.0 with three votes, which a plain rating order would put first; 19 votes is one short of the
+ * floor and 20 is exactly on it.
+ */
+const THIS_YEAR: RawgGameListItem[] = [
+  released(5001, 5, 3),
+  released(5002, 3.9, 400),
+  released(5003, 4.8, 19),
+  released(5004, 4.1, 20),
+  ...range(5005, 12).map((id) => released(id, 3 + (id - 5005) * 0.08, 100 + id)),
+]
+
+/** The fixture RAWG, with a real list of this year's games for the "best of this year" shelf. */
+const landingRawg: RawgFetch = async (path, params, options) => {
+  if (path === 'games' && params?.dates === '2026-01-01,2026-12-31') {
+    return { count: THIS_YEAR.length, next: null, results: THIS_YEAR }
+  }
+  return fixtureRawg(path, params, options)
+}
+
+function recordingRawg(inner: RawgFetch = landingRawg): RawgFetch & { calls: RawgParams[] } {
   const calls: RawgParams[] = []
   const fetch = ((path, params, options) => {
     if (path === 'games') calls.push(params ?? {})
@@ -118,7 +153,7 @@ function recordingRawg(inner: RawgFetch = fixtureRawg): RawgFetch & { calls: Raw
 }
 
 async function shelvesOf(context: Parameters<typeof runQuery>[0]): Promise<ShelfResult[]> {
-  const { data, errors } = await runQuery(context, LANDING)
+  const { data, errors } = await runQuery({ rawg: landingRawg, ...context }, LANDING)
   expect(errors).toBeUndefined()
   return data!.landing.shelves as ShelfResult[]
 }
@@ -185,7 +220,7 @@ describe('the landing shelves', () => {
   it('leave out a RAWG shelf with fewer than four games, too', async () => {
     const index = await publishTestIndex(RICH)
     const rawg: RawgFetch = async (path, params, options) => {
-      const answer = (await fixtureRawg(path, params, options)) as { results?: unknown[] }
+      const answer = (await landingRawg(path, params, options)) as { results?: unknown[] }
       // The upcoming window is the only one that reaches 2099.
       if (path === 'games' && String(params?.dates ?? '').endsWith('2099-12-31')) {
         return { ...answer, results: answer.results?.slice(0, 3) }
@@ -197,14 +232,16 @@ describe('the landing shelves', () => {
     expect(shelves.map((entry) => entry.id)).toContain('BEST_THIS_YEAR')
   })
 
-  it('ask RAWG for this calendar year by rating, and for future releases by popularity', async () => {
+  it('ask RAWG for this calendar year by popularity, and for future releases by popularity', async () => {
     const index = await publishTestIndex(RICH)
     const rawg = recordingRawg()
     await shelvesOf({ index, rawg })
+    // Not `-rating`: over a year that surfaces games with a handful of votes. The year's forty
+    // most added games are ranked by rating here instead, among those with enough votes.
     expect(rawg.calls).toContainEqual({
-      ordering: '-rating',
+      ordering: '-added',
       page: 1,
-      page_size: SHELF_SIZE,
+      page_size: 40,
       dates: '2026-01-01,2026-12-31',
     })
     expect(rawg.calls).toContainEqual({
@@ -213,6 +250,20 @@ describe('the landing shelves', () => {
       page_size: SHELF_SIZE,
       dates: '2026-09-19,2099-12-31',
     })
+  })
+
+  it('rank this year by rating among the games with at least twenty votes', async () => {
+    const index = await publishTestIndex(RICH)
+    const best = shelf(await shelvesOf({ index }), 'BEST_THIS_YEAR')!
+    const ids = best.games.map((game) => Number(game.id))
+    // The 5.0 with three votes and the 4.8 with nineteen are out; twenty votes is enough.
+    expect(ids).not.toContain(5001)
+    expect(ids).not.toContain(5003)
+    expect(ids).toContain(5004)
+    expect(ids).toHaveLength(SHELF_SIZE)
+    const ratings = ids.map((id) => THIS_YEAR.find((item) => item.id === id)!.rating!)
+    expect(ratings).toEqual([...ratings].sort((left, right) => right - left))
+    expect(ids[0]).toBe(5004)
   })
 
   it('ask the index for exactly the catalog query each shelf links to', async () => {

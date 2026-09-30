@@ -944,7 +944,7 @@ describe('the live price is honest about its age', () => {
 })
 
 describe('the landing rows', () => {
-  it('attach prices to every RAWG shelf with a single index read', async () => {
+  it('attach prices to the RAWG shelves with a single index read', async () => {
     const { data, errors } = await runQuery({ index }, LANDING)
     expect(errors).toBeUndefined()
     expect(index.calls.getMany).toHaveLength(1)
@@ -953,7 +953,6 @@ describe('the landing rows', () => {
       bestUah: 675,
     })
     expect(rows.find((row) => row.slug === 'unreleased-sample')?.price).toBeNull()
-    const best = shelfGames(data, 'BEST_THIS_YEAR')
-    expect(best.find((row) => row.slug === 'portal-2')?.price).toEqual({ bestUah: 225 })
+    expect(rows.find((row) => row.slug === 'portal-2')?.price).toEqual({ bestUah: 225 })
   })
 })

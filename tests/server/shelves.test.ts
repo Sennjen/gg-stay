@@ -86,6 +86,13 @@ describe('the landing shelves', () => {
     expect(shelfCatalogQuery('UPCOMING', 2026)).toEqual({ upcoming: '1' })
   })
 
+  it('rank only "best of this year" themselves: forty most added, twenty votes or more', () => {
+    expect(shelfDefinition('BEST_THIS_YEAR').ratingPick).toEqual({ pool: 40, minRatings: 20 })
+    expect(SHELVES.filter((shelf) => shelf.ratingPick).map((shelf) => shelf.id)).toEqual([
+      'BEST_THIS_YEAR',
+    ])
+  })
+
   it('look a shelf up by its id', () => {
     expect(shelfDefinition('ON_SALE').titleKey).toBe('home.shelves.onSale')
   })

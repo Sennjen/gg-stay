@@ -8,7 +8,7 @@ import {
 import { safeExternalUrl } from '../../../shared/url'
 import { filterToParams } from '../../rawg/filterToParams'
 import { mapGameCard } from '../../rawg/mappers'
-import { dateRange, pickFeatured } from '../../rawg/landing'
+import { dateRange, pickBestRated, pickFeatured } from '../../rawg/landing'
 import { rawgListOrThrow } from '../../rawg/rawgFetch'
 import type { RawgGameListItem, RawgList, RawgMovie, RawgStoreLink } from '../../rawg/types'
 import { pickTrailer, steamAppIdFromUrl } from '../../steam/steam'
@@ -150,7 +150,7 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
     const shelfGames = new Map<ShelfIdValue, GameCard[]>(
       rawgShelves.map((shelf, position) => [
         shelf.id,
-        (rawgShelfPages[position]?.results ?? []).slice(0, SHELF_SIZE).map(mapGameCard),
+        pickRawgShelf(shelf, rawgShelfPages[position]?.results ?? []).map(mapGameCard),
       ]),
     )
 
@@ -177,10 +177,23 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
     return { featured, carousel, shelves, totalGames: carouselPage.count ?? 0 }
   })
 
-/** A RAWG shelf's request: the catalog's own translation of the shelf's filter and sort. */
+/**
+ * A RAWG shelf's request: the catalog's own translation of the shelf's filter and sort — or, for a
+ * shelf ranked by rating, of its filter by popularity with a pool large enough to rank.
+ */
 function rawgShelfParams(shelf: ShelfDefinition, year: number, today: string) {
   const { filter, sort } = shelf.query(year)
+  if (shelf.ratingPick) {
+    const { pool } = shelf.ratingPick
+    return filterToParams({ filter, sort: 'POPULARITY_DESC', page: 1, pageSize: pool, today })
+  }
   return filterToParams({ filter, sort, page: 1, pageSize: SHELF_SIZE, today })
+}
+
+/** The games a RAWG shelf shows, out of the list its request returned. */
+function pickRawgShelf(shelf: ShelfDefinition, items: RawgGameListItem[]): RawgGameListItem[] {
+  if (!shelf.ratingPick) return items.slice(0, SHELF_SIZE)
+  return pickBestRated(items, { minRatings: shelf.ratingPick.minRatings, limit: SHELF_SIZE })
 }
 
 /**

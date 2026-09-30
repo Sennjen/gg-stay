@@ -32,3 +32,21 @@ export function pickFeatured(items: readonly RawgGameListItem[]): RawgGameListIt
     return best
   }, null)
 }
+
+/**
+ * The items with at least `minRatings` votes, highest rated first, ties to the more voted one,
+ * capped to `limit`. A floor on votes is what keeps a 5.0 from three players off the top.
+ */
+export function pickBestRated(
+  items: readonly RawgGameListItem[],
+  { minRatings, limit }: { minRatings: number; limit: number },
+): RawgGameListItem[] {
+  return items
+    .filter((item) => (item.ratings_count ?? 0) >= minRatings)
+    .slice()
+    .sort(
+      (a, b) =>
+        (b.rating ?? 0) - (a.rating ?? 0) || (b.ratings_count ?? 0) - (a.ratings_count ?? 0),
+    )
+    .slice(0, limit)
+}

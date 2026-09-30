@@ -363,7 +363,10 @@ off.
   "Зроблено в Україні", "Українською", "Зі знижкою", "Найкращі цього року", "Очікувані", in that
   order. Each has its visible title and an "Усі ігри" link; the title key and the catalog URL
   behind the link come from `shared/shelves.ts`, the same definition the resolver fills the shelf
-  from, so a shelf is always the first games of the page it links to. A shelf the answer left out
+  from, so a shelf shows the first games of the page it links to. The exception is "Найкращі
+  цього року": its link opens the year by rating, but the shelf ranks the year's forty most added
+  games with at least twenty votes, because RAWG's plain rating order is led by games almost
+  nobody rated. A shelf the answer left out
   (fewer than four games, or an index that could not serve it) is simply not rendered.
 - **"Зроблено в Україні" on a card** is a compact text label over the top-left corner of the
   cover: 12px `fg` on `ink` at 85 % with a `line` border, `rounded-chip`. It sits over the cover
