@@ -2,6 +2,7 @@ import type { JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
 import { esrbToAgeRating, gameModesFromTags, storeSlugFromId } from '../../server/rawg/lookups'
 import { positive } from '../../server/rawg/mappers'
+import type { RawgParams } from '../../server/rawg/rawgFetch'
 import type { RawgGameListItem, RawgList, RawgShortScreenshot } from '../../server/rawg/types'
 import { safeExternalUrl } from '../../shared/url'
 
@@ -25,7 +26,7 @@ import { safeExternalUrl } from '../../shared/url'
 export const CANDIDATE_PAGE_SIZE = 40
 export const DEFAULT_CANDIDATE_PAGES = 75
 /** Pages between two renewals of the write lock; see `INDEX_LOCK_TTL_SECONDS`. */
-const PAGES_PER_LOCK_RENEWAL = 20
+export const PAGES_PER_LOCK_RENEWAL = 20
 
 export interface CandidatesOptions {
   /** How many RAWG pages to walk at most. */
@@ -98,26 +99,33 @@ export function toIndexedGame(raw: RawgGameListItem): IndexedGame | null {
   }
 }
 
+export type RawgGamesPage = RawgList<RawgGameListItem> & { results: RawgGameListItem[] }
+
 /**
- * One page of the popularity list. RAWG has been seen answering a page with an empty body (`null`)
+ * One page of a RAWG `games` list. RAWG has been seen answering a page with an empty body (`null`)
  * under a 200; the transport has nothing to retry there, so the page is asked for once more, and a
- * second bad answer fails the stage by name rather than with a TypeError from deep inside the loop.
+ * second bad answer fails by name — `what` says which page of which list — rather than with a
+ * TypeError from deep inside the caller's loop. The popularity walk and the studio lists both read
+ * their pages through here.
  */
-async function fetchCandidatePage(
+export async function fetchGamesPage(
   deps: JobDeps,
-  page: number,
-): Promise<RawgList<RawgGameListItem> & { results: RawgGameListItem[] }> {
+  params: RawgParams,
+  what: string,
+): Promise<RawgGamesPage> {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const response = (await deps.rawg('games', {
-      ordering: '-added',
-      page_size: CANDIDATE_PAGE_SIZE,
-      page,
-    })) as RawgList<RawgGameListItem> | null
-    if (response && Array.isArray(response.results)) {
-      return response as RawgList<RawgGameListItem> & { results: RawgGameListItem[] }
-    }
+    const response = (await deps.rawg('games', params)) as RawgList<RawgGameListItem> | null
+    if (response && Array.isArray(response.results)) return response as RawgGamesPage
   }
-  throw new Error(`RAWG answered page ${page} of the popularity list without a result list twice`)
+  throw new Error(`RAWG answered ${what} without a result list twice`)
+}
+
+function fetchCandidatePage(deps: JobDeps, page: number): Promise<RawgGamesPage> {
+  return fetchGamesPage(
+    deps,
+    { ordering: '-added', page_size: CANDIDATE_PAGE_SIZE, page },
+    `page ${page} of the popularity list`,
+  )
 }
 
 export async function collectCandidates(
