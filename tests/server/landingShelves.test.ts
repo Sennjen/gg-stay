@@ -180,6 +180,23 @@ describe('the landing shelves', () => {
     for (const entry of shelves) expect(entry.games.length).toBeGreaterThanOrEqual(4)
   })
 
+  it('say which calendar year they were built for, from the request date alone', async () => {
+    const index = await publishTestIndex(RICH)
+    const { data, errors } = await runQuery(
+      { index, rawg: landingRawg },
+      /* GraphQL */ `
+        {
+          landing {
+            year
+          }
+        }
+      `,
+    )
+    expect(errors).toBeUndefined()
+    // TEST_TODAY is 2026-09-18: the same year the "best of this year" request asked RAWG for.
+    expect(data!.landing.year).toBe(2026)
+  })
+
   it('hold twelve games at most, most popular first', async () => {
     const index = await publishTestIndex(RICH)
     const madeInUkraine = shelf(await shelvesOf({ index }), 'MADE_IN_UKRAINE')!

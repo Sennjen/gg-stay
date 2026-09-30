@@ -195,6 +195,8 @@ export const typeDefs = /* GraphQL */ `
     """
     shelves: [Shelf!]!
     totalGames: Int!
+    "The calendar year the shelves were built for, so a shelf's catalog link never reads a clock."
+    year: Int!
   }
 
   type PriceSummary {

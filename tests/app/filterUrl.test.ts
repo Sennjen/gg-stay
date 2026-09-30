@@ -337,8 +337,9 @@ describe('the made-in-Ukraine filter', () => {
 })
 
 describe('the landing shelf links', () => {
-  // Each shelf's "Усі ігри" link has to open the catalog page whose first games ARE the shelf:
-  // the catalog parses the link back into exactly the filter and sort the resolver used.
+  // Each shelf's "Усі ігри" link opens the catalog on exactly the query the resolver fetched the
+  // shelf with: its first games ARE the shelf, except for "Найкращі цього року", whose link opens
+  // the pool the shelf is ranked from (and is labelled "Усі ігри цього року" to say so).
   it.each(SHELF_IDS)('%s opens the catalog on the query its shelf was built from', (id) => {
     const { filter, sort } = shelfQuery(id, 2026)
     expect(parseFilterQuery(shelfCatalogQuery(id, 2026))).toEqual({ filter, sort, page: 1 })

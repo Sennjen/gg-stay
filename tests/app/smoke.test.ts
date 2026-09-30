@@ -35,6 +35,7 @@ const landingWithFeatured = {
       { id: 'UPCOMING', games: [rowGame] },
     ],
     totalGames: 900_934,
+    year: 2026,
   },
 }
 

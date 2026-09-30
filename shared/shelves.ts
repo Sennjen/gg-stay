@@ -8,7 +8,8 @@ import type { GameSortValue, LocalisationValue } from './catalog'
  * `shelfCatalogQuery(id, year)`, which the catalog page parses back into the same filter and sort.
  * A shelf therefore shows the first games of the catalog page it links to — except "Найкращі
  * цього року", whose `ratingPick` ranks the year's popular games by rating with a floor on votes,
- * because RAWG's plain rating order over a year is led by games almost nobody rated.
+ * because RAWG's plain rating order over a year is led by games almost nobody rated; its link
+ * opens that year by popularity, the pool it was ranked from, under its own label.
  *
  * `year` is the current calendar year, read once per request from the resolver's single clock
  * read (`context.today`) and once per render on the page (`useState`), never in a render path.
@@ -49,9 +50,9 @@ export interface ShelfQuery {
 
 /**
  * How a RAWG shelf is picked when its catalog order is not good enough on its own: the `pool`
- * most popular games of the shelf's filter are fetched, those with fewer than `minRatings` votes
- * are dropped, and the rest are ranked by rating. RAWG's own rating order over a whole year puts
- * games with a handful of votes first.
+ * first games of the shelf's query (its filter, by popularity) are fetched, those with fewer than
+ * `minRatings` votes are dropped, and the rest are ranked by rating. RAWG's own rating order over
+ * a whole year puts games with a handful of votes first.
  */
 export interface ShelfRatingPick {
   pool: number
@@ -66,10 +67,18 @@ export interface ShelfDefinition {
   source: 'index' | 'rawg'
   /** A shelf that reads a price or a discount is withheld while the index's prices are stale. */
   dependsOnPrices: boolean
-  /** The catalog query the shelf links to; also exactly what fills it, unless `ratingPick` is set. */
+  /**
+   * What the resolver fetches and what "Усі ігри" opens — the same query, so the link always leads
+   * to the games the shelf came from. Without `ratingPick` the shelf IS the first games of it.
+   */
   query: (year: number) => ShelfQuery
-  /** RAWG shelves only: fill the shelf from the query's most popular games, ranked by rating. */
+  /** RAWG shelves only: rank the query's first games by rating instead of taking them in order. */
   ratingPick?: ShelfRatingPick
+  /**
+   * The i18n key of the link's label when "Усі ігри" would promise more than the link gives —
+   * a shelf ranked out of its query links to the whole pool, and the label has to say which.
+   */
+  moreLabelKey?: string
 }
 
 export const SHELVES: readonly ShelfDefinition[] = [
@@ -99,10 +108,15 @@ export const SHELVES: readonly ShelfDefinition[] = [
     titleKey: 'home.shelves.bestThisYear',
     source: 'rawg',
     dependsOnPrices: false,
-    query: (year) => ({ filter: { yearFrom: year, yearTo: year }, sort: 'RATING_DESC' }),
-    // The link opens the year by rating; the shelf itself is the year's forty most added games
-    // with at least twenty votes, by rating, so a 5.0 from three players cannot lead it.
+    // The shelf is this year's forty most added games with at least twenty votes, by rating, so a
+    // 5.0 from three players cannot lead it. Its link opens that pool — this year by popularity —
+    // and not the catalog's rating order: the catalog has no vote floor, so "this year by rating"
+    // there is exactly the list the shelf exists to avoid, and not one of its games would be on
+    // it. Every shelf game is among the first forty of the linked page, and the label says the
+    // link is the whole year rather than more of the same ranking.
+    query: (year) => ({ filter: { yearFrom: year, yearTo: year }, sort: 'POPULARITY_DESC' }),
     ratingPick: { pool: 40, minRatings: 20 },
+    moreLabelKey: 'home.shelves.bestThisYearAll',
   },
   {
     id: 'UPCOMING',
@@ -113,14 +127,18 @@ export const SHELVES: readonly ShelfDefinition[] = [
   },
 ]
 
-export function shelfDefinition(id: ShelfIdValue): ShelfDefinition {
-  const shelf = SHELVES.find((entry) => entry.id === id)
-  if (!shelf) throw new Error(`Unknown shelf: ${id}`)
-  return shelf
+/**
+ * The definition of a shelf, or `undefined` for an id this build does not know — a newer API can
+ * answer an older page with a shelf it has no title or link for, and that shelf is skipped.
+ */
+export function shelfDefinition(id: string): ShelfDefinition | undefined {
+  return SHELVES.find((entry) => entry.id === id)
 }
 
 export function shelfQuery(id: ShelfIdValue, year: number): ShelfQuery {
-  return shelfDefinition(id).query(year)
+  const shelf = shelfDefinition(id)
+  if (!shelf) throw new Error(`Unknown shelf: ${id}`)
+  return shelf.query(year)
 }
 
 /** The catalog's default order, which its URL leaves out. */

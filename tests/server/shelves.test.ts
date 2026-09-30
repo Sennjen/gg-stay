@@ -63,9 +63,10 @@ describe('the landing shelves', () => {
       sort: 'POPULARITY_DESC',
     })
     expect(ON_SALE_MIN_PERCENT).toBe(30)
+    // The pool the shelf is ranked from — this year by popularity — not the ranking itself.
     expect(shelfQuery('BEST_THIS_YEAR', 2026)).toEqual({
       filter: { yearFrom: 2026, yearTo: 2026 },
-      sort: 'RATING_DESC',
+      sort: 'POPULARITY_DESC',
     })
     expect(shelfQuery('UPCOMING', 2026)).toEqual({
       filter: { upcoming: true },
@@ -77,11 +78,7 @@ describe('the landing shelves', () => {
     expect(shelfCatalogQuery('MADE_IN_UKRAINE', 2026)).toEqual({ madeInUkraine: '1' })
     expect(shelfCatalogQuery('UKRAINIAN', 2026)).toEqual({ ukrainianLocalisation: 'ANY' })
     expect(shelfCatalogQuery('ON_SALE', 2026)).toEqual({ onSaleMinPercent: '30' })
-    expect(shelfCatalogQuery('BEST_THIS_YEAR', 2026)).toEqual({
-      yearFrom: '2026',
-      yearTo: '2026',
-      sort: 'RATING_DESC',
-    })
+    expect(shelfCatalogQuery('BEST_THIS_YEAR', 2026)).toEqual({ yearFrom: '2026', yearTo: '2026' })
     expect(shelfCatalogQuery('BEST_THIS_YEAR', 2027)).toMatchObject({ yearFrom: '2027' })
     expect(shelfCatalogQuery('UPCOMING', 2026)).toEqual({ upcoming: '1' })
   })
@@ -93,7 +90,15 @@ describe('the landing shelves', () => {
     ])
   })
 
-  it('look a shelf up by its id', () => {
-    expect(shelfDefinition('ON_SALE').titleKey).toBe('home.shelves.onSale')
+  it('say so on the link when it opens the pool rather than the shelf', () => {
+    expect(shelfDefinition('BEST_THIS_YEAR').moreLabelKey).toBe('home.shelves.bestThisYearAll')
+    expect(SHELVES.filter((shelf) => shelf.moreLabelKey).map((shelf) => shelf.id)).toEqual([
+      'BEST_THIS_YEAR',
+    ])
+  })
+
+  it('look a shelf up by its id, and find nothing for an id it does not know', () => {
+    expect(shelfDefinition('ON_SALE')?.titleKey).toBe('home.shelves.onSale')
+    expect(shelfDefinition('SOMETHING_NEW')).toBeUndefined()
   })
 })

@@ -168,6 +168,8 @@ export type Landing = {
    */
   shelves: Array<Shelf>;
   totalGames: Scalars['Int']['output'];
+  /** The calendar year the shelves were built for, so a shelf's catalog link never reads a clock. */
+  year: Scalars['Int']['output'];
 };
 
 /** Steam reports supported languages and full audio only, so localisation has two levels. */
@@ -470,6 +472,7 @@ export type LandingResolvers<ContextType = GraphQLContext, ParentType extends Re
   featured?: Resolver<Maybe<ResolversTypes['FeaturedGame']>, ParentType, ContextType>;
   shelves?: Resolver<Array<ResolversTypes['Shelf']>, ParentType, ContextType>;
   totalGames?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  year?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
 };
 
 export type LocalisationInfoResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['LocalisationInfo'] = ResolversParentTypes['LocalisationInfo']> = {

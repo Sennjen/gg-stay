@@ -174,20 +174,17 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
       games: shelfGames.get(shelf.id) ?? [],
     })).filter((shelf) => shelf.games.length >= SHELF_MIN_GAMES)
 
-    return { featured, carousel, shelves, totalGames: carouselPage.count ?? 0 }
+    return { featured, carousel, shelves, totalGames: carouselPage.count ?? 0, year }
   })
 
 /**
- * A RAWG shelf's request: the catalog's own translation of the shelf's filter and sort — or, for a
- * shelf ranked by rating, of its filter by popularity with a pool large enough to rank.
+ * A RAWG shelf's request: the catalog's own translation of the shelf's query — the page its link
+ * opens — with a pool large enough to rank when the shelf ranks it.
  */
 function rawgShelfParams(shelf: ShelfDefinition, year: number, today: string) {
   const { filter, sort } = shelf.query(year)
-  if (shelf.ratingPick) {
-    const { pool } = shelf.ratingPick
-    return filterToParams({ filter, sort: 'POPULARITY_DESC', page: 1, pageSize: pool, today })
-  }
-  return filterToParams({ filter, sort, page: 1, pageSize: SHELF_SIZE, today })
+  const pageSize = shelf.ratingPick?.pool ?? SHELF_SIZE
+  return filterToParams({ filter, sort, page: 1, pageSize, today })
 }
 
 /** The games a RAWG shelf shows, out of the list its request returned. */

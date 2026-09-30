@@ -27,22 +27,29 @@ const formattedCount = computed(() =>
   roundedCount.value === null ? '' : formatNumber(roundedCount.value),
 )
 
-// The "Найкращі цього року" link needs the calendar year. Read once — on the server, carried to
-// the client in the payload — so the link in the server HTML and the hydrated one never differ,
-// and nothing in the render path reads a clock. UTC, like the resolver's own `today`.
-const year = useState('landing-year', () => new Date().getUTCFullYear())
-
 // Every shelf the answer kept, in its order: the answer already left out the ones with too few
-// games, and the ones the index could not serve. The title and the catalog URL behind "Усі ігри"
-// both come from `shared/shelves.ts`, the same definition the resolver filled the shelf from.
-const shelves = computed(() =>
-  (landing.value?.shelves ?? []).map((shelf) => ({
-    id: shelf.id,
-    title: t(shelfDefinition(shelf.id).titleKey),
-    games: shelf.games,
-    moreTo: { path: localePath('/games'), query: shelfCatalogQuery(shelf.id, year.value) },
-  })),
-)
+// games, and the ones the index could not serve. The title, the catalog URL behind the link and,
+// where "Усі ігри" would promise more than the link gives, the link's own label all come from
+// `shared/shelves.ts` — the same definition the resolver filled the shelf from. The year in a link
+// is the one the answer says the shelves were built for, so this page reads no clock at all. A
+// shelf this build has no definition for (a newer API during a deploy) is skipped, not fatal.
+const shelves = computed(() => {
+  const answer = landing.value
+  if (!answer) return []
+  return answer.shelves.flatMap((shelf) => {
+    const definition = shelfDefinition(shelf.id)
+    if (!definition) return []
+    return [
+      {
+        id: shelf.id,
+        title: t(definition.titleKey),
+        games: shelf.games,
+        moreTo: { path: localePath('/games'), query: shelfCatalogQuery(shelf.id, answer.year) },
+        moreLabel: definition.moreLabelKey ? t(definition.moreLabelKey) : undefined,
+      },
+    ]
+  })
+})
 
 useSeoMeta({
   title: () => t('home.title'),
@@ -110,6 +117,7 @@ useSeoMeta({
         :title="shelf.title"
         :games="shelf.games"
         :more-to="shelf.moreTo"
+        :more-label="shelf.moreLabel"
       />
 
       <section class="rounded-card border border-line bg-surface-1 px-6 py-12 text-center sm:py-16">

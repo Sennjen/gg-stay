@@ -33,7 +33,7 @@ let shelves: { id: string; games: ReturnType<typeof card>[] }[] = []
 registerEndpoint('/api/graphql', {
   method: 'POST',
   handler: () => ({
-    data: { landing: { featured: null, carousel: [], shelves, totalGames: 0 } },
+    data: { landing: { featured: null, carousel: [], shelves, totalGames: 0, year: 2031 } },
   }),
 })
 
@@ -54,6 +54,7 @@ function rows(wrapper: Awaited<ReturnType<typeof renderLanding>>) {
   return wrapper.findAll('section[data-test^="shelf-"]').map((section) => ({
     title: section.get('h2').text(),
     href: section.find('[data-test="row-more-link"]').attributes('href'),
+    more: section.find('[data-test="row-more-link"]').text(),
     cards: section.findAll('[data-test="game-card"]').length,
   }))
 }
@@ -67,22 +68,26 @@ describe('the landing shelves', () => {
       { id: 'BEST_THIS_YEAR', games: cards(301) },
       { id: 'UPCOMING', games: cards(401) },
     ]
-    const year = new Date().getUTCFullYear()
     const wrapper = await renderLanding()
+    // The year is the answer's — the one the resolver built the shelf for — never the clock's.
     expect(rows(wrapper)).toEqual([
-      { title: 'Зроблено в Україні', href: '/games?madeInUkraine=1', cards: 4 },
-      { title: 'Українською', href: '/games?ukrainianLocalisation=ANY', cards: 4 },
-      { title: 'Зі знижкою', href: '/games?onSaleMinPercent=30', cards: 4 },
+      { title: 'Зроблено в Україні', href: '/games?madeInUkraine=1', more: 'Усі ігри', cards: 4 },
       {
-        title: 'Найкращі цього року',
-        href: `/games?yearFrom=${year}&yearTo=${year}&sort=RATING_DESC`,
+        title: 'Українською',
+        href: '/games?ukrainianLocalisation=ANY',
+        more: 'Усі ігри',
         cards: 4,
       },
-      { title: 'Очікувані', href: '/games?upcoming=1', cards: 4 },
+      { title: 'Зі знижкою', href: '/games?onSaleMinPercent=30', more: 'Усі ігри', cards: 4 },
+      // Not "Усі ігри": the link opens the year the shelf was ranked from, and says so.
+      {
+        title: 'Найкращі цього року',
+        href: '/games?yearFrom=2031&yearTo=2031',
+        more: 'Усі ігри цього року',
+        cards: 4,
+      },
+      { title: 'Очікувані', href: '/games?upcoming=1', more: 'Усі ігри', cards: 4 },
     ])
-    for (const link of wrapper.findAll('[data-test="row-more-link"]')) {
-      expect(link.text()).toBe('Усі ігри')
-    }
   })
 
   it('render only the shelves the answer kept', async () => {
@@ -95,11 +100,29 @@ describe('the landing shelves', () => {
   })
 
   it('title and link the shelves in English under /en', async () => {
-    shelves = [{ id: 'MADE_IN_UKRAINE', games: cards(1) }]
+    shelves = [
+      { id: 'MADE_IN_UKRAINE', games: cards(1) },
+      { id: 'BEST_THIS_YEAR', games: cards(301) },
+    ]
     const wrapper = await renderLanding('/en')
     expect(rows(wrapper)).toEqual([
-      { title: 'Made in Ukraine', href: '/en/games?madeInUkraine=1', cards: 4 },
+      { title: 'Made in Ukraine', href: '/en/games?madeInUkraine=1', more: 'All games', cards: 4 },
+      {
+        title: 'Best of this year',
+        href: '/en/games?yearFrom=2031&yearTo=2031',
+        more: "All of this year's games",
+        cards: 4,
+      },
     ])
-    expect(wrapper.get('[data-test="row-more-link"]').text()).toBe('All games')
+  })
+
+  it('skip a shelf this page does not know yet instead of failing', async () => {
+    // A newer API during a deploy may answer with a shelf an older page has no definition for.
+    shelves = [
+      { id: 'SOMETHING_NEW', games: cards(501) },
+      { id: 'UPCOMING', games: cards(401) },
+    ]
+    const wrapper = await renderLanding()
+    expect(rows(wrapper).map((row) => row.title)).toEqual(['Очікувані'])
   })
 })
