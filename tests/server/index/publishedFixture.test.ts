@@ -46,7 +46,10 @@ describe('the published index fixture', () => {
     await index.publish(version, { ...fixture.meta, version })
     expect((await index.search({ ukrainianLocalisation: 'AUDIO' })).ids).toEqual([3328])
     expect((await index.search({ free: true })).ids).toEqual([654])
-    expect((await index.search({ sort: 'PRICE_ASC' })).ids).toEqual([654, 4200, 3328])
+    // Cheapest first; the two priced games made in Ukraine (749 ₴, 899 ₴) come after the rest.
+    expect((await index.search({ sort: 'PRICE_ASC' })).ids).toEqual([
+      654, 4200, 3328, 28201, 447825,
+    ])
     expect((await index.meta())?.gameCount).toBe(fixture.games.length)
   })
 
@@ -78,9 +81,11 @@ describe('the published index fixture', () => {
     const version = await index.beginVersion()
     await index.writeVersion(version, fixture.games)
     await index.publish(version, { ...fixture.meta, version })
-    // Portal 2 at −75 % ahead of The Witcher 3 at −50 %, then the free game, which is priced
-    // (at nothing) and so is in the discount order too, at zero.
-    expect((await index.search({ sort: 'DISCOUNT_DESC' })).ids).toEqual([4200, 3328, 654])
+    // Portal 2 at −75 % ahead of The Witcher 3 at −50 % and Metro Exodus at −40 %, then the
+    // undiscounted priced games at zero — the free one among them — by popularity.
+    expect((await index.search({ sort: 'DISCOUNT_DESC' })).ids).toEqual([
+      4200, 3328, 28201, 654, 447825,
+    ])
     expect((await index.search({ priceMaxUah: 300, onSaleMinPercent: 50 })).ids).toEqual([4200])
   })
 
