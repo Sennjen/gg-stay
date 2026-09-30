@@ -59,6 +59,13 @@ export interface PublishOutcome {
   previous: IndexMeta | null
 }
 
+/** The middle value of `values` (the lower one of the two middles), or 0 for none. */
+function median(values: number[]): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((left, right) => left - right)
+  return sorted[(sorted.length - 1) >> 1]!
+}
+
 export function countIndexed(games: IndexedGame[]) {
   return {
     gameCount: games.length,
@@ -66,6 +73,8 @@ export function countIndexed(games: IndexedGame[]) {
     textCount: games.filter((game) => game.localisation?.text).length,
     audioCount: games.filter((game) => game.localisation?.audio).length,
     madeInUkraineCount: games.filter((game) => game.madeInUkraine).length,
+    similarCount: games.filter((game) => (game.similar?.length ?? 0) > 0).length,
+    similarMedianLength: median(games.map((game) => game.similar?.length ?? 0)),
   }
 }
 
@@ -112,6 +121,8 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
       textCount: counts.textCount,
       audioCount: counts.audioCount,
       madeInUkraineCount: counts.madeInUkraineCount,
+      similarCount: counts.similarCount,
+      similarMedianLength: counts.similarMedianLength,
       ...(candidateCount === undefined ? {} : { candidateCount }),
     },
   }

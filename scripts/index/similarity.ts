@@ -219,3 +219,18 @@ function insert(
   top.splice(at, 0, entry)
   if (top.length > size) top.pop()
 }
+
+/**
+ * Stores each game's list on the game itself, over exactly the games given — the ones the run is
+ * about to write — so every stored id is a document of the same version. Returns what it stored,
+ * for the log.
+ */
+export function attachSimilar(games: IndexedGame[]): { lists: number; median: number } {
+  const similar = computeSimilar(games)
+  for (const game of games) game.similar = similar.get(game.id) ?? []
+  const lengths = games.map((game) => game.similar!.length).sort((left, right) => left - right)
+  return {
+    lists: lengths.filter((length) => length > 0).length,
+    median: lengths.length === 0 ? 0 : lengths[(lengths.length - 1) >> 1]!,
+  }
+}

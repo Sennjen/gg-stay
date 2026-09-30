@@ -6,6 +6,7 @@ import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
+import { attachSimilar } from './similarity'
 import { collectStudioGames } from './studios'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainianStudios'
 import { createJobRawg, createJobSteam, systemClock } from './upstreams'
@@ -328,6 +329,20 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       }
     }
 
+    // Last, over the final set of games — studio games included — so every id a list names is a
+    // document of this version. The other modes carry the published lists forward with the
+    // documents: their game set is the published one, so the lists still hold.
+    if (options.mode === 'full') {
+      await stage('similar games', async () => {
+        const started = performance.now()
+        const { lists, median } = attachSimilar(games)
+        deps.log(
+          `similar games: ${lists} of ${games.length} games have a list, median length ${median}, ` +
+            `in ${Math.round(performance.now() - started)} ms`,
+        )
+      })
+    }
+
     const outcome = await stage('publish', () =>
       publishVersion(deps, {
         version: version!,
@@ -445,6 +460,15 @@ export function formatSummary(report: JobReport): string {
   }
 
   rows.push(...studioRows(report))
+
+  const similar = outcome?.meta.stats
+  if (similar?.similarCount !== undefined) {
+    rows.push([
+      'Similar lists',
+      `${similar.similarCount} games, median length ${similar.similarMedianLength ?? 0}` +
+        (report.mode === 'full' ? '' : ' (carried forward, not recomputed in this mode)'),
+    ])
+  }
 
   rows.push([
     'Index traffic',

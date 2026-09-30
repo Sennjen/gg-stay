@@ -276,6 +276,57 @@ describe('runJob', () => {
   })
 })
 
+describe('runJob and the similar games', () => {
+  it('stores a similar-games list on every document of a full run', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+
+    const report = await runJob(harness.deps, FULL)
+
+    const documents = await harness.writer.allGames()
+    const ids = new Set(documents.map((game) => game.id))
+    expect(documents).toHaveLength(10)
+    for (const game of documents) {
+      expect(game.similar, `game ${game.id}`).toBeInstanceOf(Array)
+      expect(game.similar).not.toContain(game.id)
+      expect(game.similar!.every((id) => ids.has(id))).toBe(true)
+    }
+    // The other strategy games, the studio game appended after the candidates included — behind
+    // the only other online co-op game, which that rare mode brings close enough across genres.
+    expect((await harness.writer.getOne(104))?.similar).toEqual([108, 109, 110])
+    // The action games, the closest (nothing else to tell them apart) first; no indie-only game.
+    expect((await harness.writer.getOne(101))?.similar).toEqual([107, 106, 108])
+    expect(report.outcome?.meta.stats).toMatchObject({ similarCount: 10, similarMedianLength: 3 })
+    expect(harness.logs).toContainEqual(
+      expect.stringMatching(
+        /^similar games: 10 of 10 games have a list, median length 3, in \d+ ms$/,
+      ),
+    )
+  })
+
+  it('carries the lists and the tags through a price run and a language run unchanged', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+    const published = await harness.writer.getOne(101)
+    expect(published).toMatchObject({ tags: ['story-rich'], similar: [107, 106, 108] })
+
+    const prices = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    const priced = await runJob(prices.deps, { mode: 'prices', pages: 1, forceUnlock: false })
+    expect(await prices.writer.getOne(101)).toMatchObject({
+      tags: published!.tags,
+      similar: published!.similar,
+    })
+    expect(prices.logs.some((line) => line.startsWith('similar games:'))).toBe(false)
+    expect(priced.outcome?.meta.stats).toMatchObject({ similarCount: 9 })
+
+    const weekLater = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-28T03:00:00.000Z',
+    })
+    await runJob(weekLater.deps, { mode: 'languages', pages: 1, forceUnlock: false })
+    expect((await weekLater.writer.getOne(101))?.similar).toEqual(published!.similar)
+  })
+})
+
 describe('runJob with the studios stage', () => {
   const STUDIO_SLUGS = UKRAINIAN_STUDIO_SLUGS.length
 
@@ -539,6 +590,25 @@ describe('formatSummary', () => {
     expect(summary).toContain('| Studio slugs unknown to RAWG | brenntkopf, mokus-games |')
     expect(summary).toContain('| Studio slugs with no games | cyberlight |')
     expect(summary).not.toContain('| Studios stage |')
+  })
+
+  it('reports how many games have a similar-games list, and how long they are', () => {
+    const stats = { ...report.outcome!.meta.stats, similarCount: 2_950, similarMedianLength: 8 }
+    const full = formatSummary({
+      ...report,
+      outcome: { ...report.outcome!, meta: { ...report.outcome!.meta, stats } },
+    })
+    const prices = formatSummary({
+      ...report,
+      mode: 'prices',
+      outcome: { ...report.outcome!, meta: { ...report.outcome!.meta, stats } },
+    })
+
+    expect(full).toContain('| Similar lists | 2950 games, median length 8 |')
+    expect(prices).toContain(
+      '| Similar lists | 2950 games, median length 8 (carried forward, not recomputed in this mode) |',
+    )
+    expect(formatSummary(report)).not.toContain('| Similar lists |')
   })
 
   it('reports the published count of studio games for a run that does not read the studios', () => {
