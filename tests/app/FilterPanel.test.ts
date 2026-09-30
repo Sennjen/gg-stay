@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import FilterPanel from '~/components/FilterPanel.vue'
+import { useFiltersStore } from '~/stores/filters'
 import type { CatalogFilter } from '~/utils/filterUrl'
 
 const base = { genres: [{ slug: 'rpg', name: 'RPG' }], maxYear: 2028 }
@@ -89,6 +90,10 @@ describe('FilterPanel: the index sections', () => {
 })
 
 describe('FilterPanel: made in Ukraine', () => {
+  afterEach(() => {
+    useFiltersStore().$reset()
+  })
+
   function toggleOf(wrapper: Awaited<ReturnType<typeof mount>>) {
     return wrapper.get('[data-test="made-in-ukraine-toggle"]')
   }
@@ -126,6 +131,19 @@ describe('FilterPanel: made in Ukraine', () => {
     const on = await mount({ madeInUkraine: true })
     await toggleOf(on).trigger('click')
     expect(on.emitted('change')![0]).toEqual([{ madeInUkraine: undefined }])
+  })
+
+  it('stays open under the pointer when it is switched off', async () => {
+    // The section opened on its own because it held a value; switching the only control in it off
+    // must not fold it away from under the pointer, so a second press turns it back on.
+    const wrapper = await mount({ madeInUkraine: true })
+    await toggleOf(wrapper).trigger('click')
+    await wrapper.setProps({ filter: {} })
+    const heading = wrapper
+      .findAll('button[aria-expanded]')
+      .find((button) => button.text() === 'Походження')!
+    expect(heading.attributes('aria-expanded')).toBe('true')
+    expect(toggleOf(wrapper).isVisible()).toBe(true)
   })
 
   it('stays while the prices are stale, because it does not depend on them', async () => {

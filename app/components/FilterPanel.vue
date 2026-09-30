@@ -88,7 +88,13 @@ function onMetacriticChange(value: number | undefined) {
 function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
   emit('change', { playtime: value })
 }
+const filtersStore = useFiltersStore()
+
 function toggleMadeInUkraine() {
+  // The section's only control: it must not fold away from under the pointer the moment it is
+  // switched off, so the section is remembered as open (the same record a click on its heading
+  // writes) unless the visitor already chose.
+  filtersStore.openSections.origin ??= true
   emit('change', { madeInUkraine: props.filter.madeInUkraine ? undefined : true })
 }
 function toggleRating() {
