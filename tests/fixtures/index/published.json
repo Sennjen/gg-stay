@@ -3,9 +3,9 @@
     "version": 1,
     "updatedAt": "2026-09-20T06:30:00.000Z",
     "pricesUpdatedAt": "2026-09-20T06:00:00.000Z",
-    "gameCount": 8,
+    "gameCount": 11,
     "stats": {
-      "gamesIndexed": 8,
+      "gamesIndexed": 11,
       "failures": 0
     }
   },
@@ -306,6 +306,122 @@
       "localisation": null,
       "madeInUkraine": true,
       "priceUpdatedAt": null
+    },
+    {
+      "id": 13537,
+      "slug": "half-life-2",
+      "name": "Half-Life 2",
+      "cover": "https://media.rawg.io/media/games/b8c/b8c243eaa0fbac8115e0cdccac3f91dc.jpg",
+      "preview": null,
+      "released": "2004-11-16",
+      "popularity": 17000,
+      "platforms": [
+        4
+      ],
+      "genres": [
+        "action",
+        "shooter"
+      ],
+      "stores": [
+        "steam"
+      ],
+      "gameModes": [
+        "SINGLE"
+      ],
+      "ageRating": null,
+      "rating": null,
+      "ratingsCount": 0,
+      "metacritic": null,
+      "playtime": null,
+      "priceUah": 225,
+      "regularPriceUah": 225,
+      "discountPercent": 0,
+      "free": false,
+      "localisation": {
+        "text": true,
+        "audio": false,
+        "source": "steam"
+      },
+      "madeInUkraine": false,
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
+    },
+    {
+      "id": 41494,
+      "slug": "cyberpunk-2077",
+      "name": "Cyberpunk 2077",
+      "cover": "https://media.rawg.io/media/games/26d/26d4437715bee60138dab4a7c8c59c92.jpg",
+      "preview": null,
+      "released": "2020-12-10",
+      "popularity": 16000,
+      "platforms": [
+        4,
+        18,
+        187,
+        1,
+        186
+      ],
+      "genres": [
+        "action",
+        "shooter",
+        "role-playing-games-rpg"
+      ],
+      "stores": [
+        "steam"
+      ],
+      "gameModes": [
+        "SINGLE"
+      ],
+      "ageRating": null,
+      "rating": null,
+      "ratingsCount": 0,
+      "metacritic": null,
+      "playtime": null,
+      "priceUah": 1399,
+      "regularPriceUah": 1399,
+      "discountPercent": 0,
+      "free": false,
+      "localisation": {
+        "text": true,
+        "audio": false,
+        "source": "steam"
+      },
+      "madeInUkraine": false,
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
+    },
+    {
+      "id": 16944,
+      "slug": "the-witcher-2-assassins-of-kings-enhanced-edition",
+      "name": "The Witcher 2: Assassins of Kings Enhanced Edition",
+      "cover": "https://media.rawg.io/media/games/6cd/6cd653e0aaef5ff8bbd295bf4bcb12eb.jpg",
+      "preview": null,
+      "released": "2012-04-16",
+      "popularity": 11000,
+      "platforms": [
+        4,
+        14
+      ],
+      "genres": [
+        "action",
+        "role-playing-games-rpg"
+      ],
+      "stores": [
+        "steam"
+      ],
+      "gameModes": [
+        "SINGLE"
+      ],
+      "ageRating": null,
+      "rating": null,
+      "ratingsCount": 0,
+      "metacritic": null,
+      "playtime": null,
+      "priceUah": 59,
+      "regularPriceUah": 399,
+      "discountPercent": 85,
+      "free": false,
+      "localisation": null,
+      "madeInUkraine": false,
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
     }
   ]
 }

@@ -80,9 +80,22 @@ export function rawgListOrThrow<T>(body: unknown): RawgList<T> {
   return body as RawgList<T>
 }
 
-export function fixtureName(path: string): string {
+/** A `dates` window that is exactly one calendar year, as a year filter or shelf writes it. */
+const CALENDAR_YEAR = /^(\d{4})-01-01,\1-12-31$/
+
+/**
+ * The recorded fixture a request is served from in fixture mode. Keyed by path, with one
+ * exception: the games list for a single calendar year has its own recording, so the landing's
+ * "best of this year" shelf — and the catalog page its link opens — show a year's worth of rated
+ * games rather than the general list. The year itself is not in the name, so the fixture keeps
+ * answering as the calendar moves on.
+ */
+export function fixtureName(path: string, params?: RawgParams): string {
   const [root, slug, sub] = path.split('/')
   if (root === 'games' && slug) return sub ? `game-${slug}-${sub}` : `game-${slug}`
+  if (root === 'games' && CALENDAR_YEAR.test(String(params?.dates ?? ''))) {
+    return 'games-calendar-year'
+  }
   return root ?? path
 }
 
@@ -105,7 +118,7 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
         return url.toString()
       },
       cacheKey: ({ path, params }) => normalizeKey(path, params),
-      fixtureName: ({ path }) => fixtureName(path),
+      fixtureName: ({ path, params }) => fixtureName(path, params),
       ttlFor: ({ path, options }) => options?.ttl ?? ttlFor(path),
     },
     deps,

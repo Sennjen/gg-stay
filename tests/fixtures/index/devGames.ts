@@ -116,8 +116,8 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
  * The ids, slugs, release dates and covers are RAWG's own; platforms, genres and stores are the
  * real ones. Popularity and rating figures are rounded stand-ins, and the prices are plausible
  * Steam prices in hryvnia, not recorded ones. Every price sits above 700 ₴ and the one discount
- * below 50 %, so the seed's cheap-and-discounted queries — and the acceptance URLs pinned on them —
- * still answer only the three games above. Languages were never recorded, so they stay unknown.
+ * below 50 %, so none of them joins the seed's cheap-and-discounted queries or the acceptance URLs
+ * pinned on them. Languages were never recorded, so they stay unknown.
  * Listed most popular first, the index's own order.
  */
 interface MadeInUkraine
@@ -257,5 +257,98 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     ratingsCount: 150,
     metacritic: null,
     playtime: 6,
+  }),
+]
+
+/**
+ * Three more games so fixture mode renders every landing shelf and the similar-games row: with
+ * them "Українською" reaches four games (The Witcher 3, Portal 2, Half-Life 2, Cyberpunk 2077),
+ * "Зі знижкою" four at −30 % or more (Portal 2, The Witcher 3, The Witcher 2, Metro Exodus), and
+ * The Witcher 3 six games that share a genre with it.
+ *
+ * The ids, slugs, names, release dates, covers, prices, discounts and Ukrainian-text flags are the
+ * production index's own, read on 2026-09-30. That read carries no genres or platforms (the index
+ * path serves neither on a card), so those are the games' RAWG genres and main platforms. The
+ * popularity figures are rounded stand-ins that keep the production order (Half-Life 2 ahead of
+ * Cyberpunk 2077, both behind Portal 2; The Witcher 2 behind The Witcher 3); nothing else is
+ * known, so rating, Metacritic and playtime stay empty.
+ *
+ * The Witcher 2 is cheap AND heavily discounted (59 ₴ at −85 %), so it joins Portal 2 in the
+ * seed's cheap-and-discounted queries; its −85 % is the seed's biggest discount and shares it
+ * with nothing.
+ */
+interface ShelfGame
+  extends Pick<
+    IndexedGame,
+    'id' | 'slug' | 'name' | 'cover' | 'released' | 'popularity' | 'platforms' | 'genres'
+  > {
+  price: { priceUah: number; regularPriceUah: number; discountPercent: number }
+  ukrainianText: boolean
+}
+
+function shelfGame({ price, ukrainianText, ...game }: ShelfGame): IndexedGame {
+  return {
+    id: game.id,
+    slug: game.slug,
+    name: game.name,
+    cover: game.cover,
+    preview: null,
+    released: game.released,
+    popularity: game.popularity,
+    platforms: game.platforms,
+    genres: game.genres,
+    stores: ['steam'],
+    gameModes: ['SINGLE'],
+    ageRating: null,
+    rating: null,
+    ratingsCount: 0,
+    metacritic: null,
+    playtime: null,
+    priceUah: price.priceUah,
+    regularPriceUah: price.regularPriceUah,
+    discountPercent: price.discountPercent,
+    free: false,
+    localisation: ukrainianText ? { text: true, audio: false, source: 'steam' } : null,
+    madeInUkraine: false,
+    priceUpdatedAt: DEV_FIXTURE_PRICES_UPDATED_AT,
+  }
+}
+
+export const DEV_FIXTURE_SHELF_GAMES: IndexedGame[] = [
+  shelfGame({
+    id: 13537,
+    slug: 'half-life-2',
+    name: 'Half-Life 2',
+    cover: 'https://media.rawg.io/media/games/b8c/b8c243eaa0fbac8115e0cdccac3f91dc.jpg',
+    released: '2004-11-16',
+    popularity: 17000,
+    platforms: [4],
+    genres: ['action', 'shooter'],
+    price: { priceUah: 225, regularPriceUah: 225, discountPercent: 0 },
+    ukrainianText: true,
+  }),
+  shelfGame({
+    id: 41494,
+    slug: 'cyberpunk-2077',
+    name: 'Cyberpunk 2077',
+    cover: 'https://media.rawg.io/media/games/26d/26d4437715bee60138dab4a7c8c59c92.jpg',
+    released: '2020-12-10',
+    popularity: 16000,
+    platforms: [4, 18, 187, 1, 186],
+    genres: ['action', 'shooter', 'role-playing-games-rpg'],
+    price: { priceUah: 1399, regularPriceUah: 1399, discountPercent: 0 },
+    ukrainianText: true,
+  }),
+  shelfGame({
+    id: 16944,
+    slug: 'the-witcher-2-assassins-of-kings-enhanced-edition',
+    name: 'The Witcher 2: Assassins of Kings Enhanced Edition',
+    cover: 'https://media.rawg.io/media/games/6cd/6cd653e0aaef5ff8bbd295bf4bcb12eb.jpg',
+    released: '2012-04-16',
+    popularity: 11000,
+    platforms: [4, 14],
+    genres: ['action', 'role-playing-games-rpg'],
+    price: { priceUah: 59, regularPriceUah: 399, discountPercent: 85 },
+    ukrainianText: false,
   }),
 ]

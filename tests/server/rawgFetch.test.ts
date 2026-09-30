@@ -52,6 +52,21 @@ describe('helpers', () => {
     expect(fixtureName('games/portal-2/stores')).toBe('game-portal-2-stores')
     expect(fixtureName('genres')).toBe('genres')
   })
+
+  it('gives a whole calendar year of games its own fixture, whatever the year', () => {
+    // The "best of this year" shelf, and the catalog page its link opens.
+    expect(fixtureName('games', { ordering: '-added', dates: '2026-01-01,2026-12-31' })).toBe(
+      'games-calendar-year',
+    )
+    expect(fixtureName('games', { dates: '2031-01-01,2031-12-31', page: 2 })).toBe(
+      'games-calendar-year',
+    )
+    // Any other window, or a window across years, is the ordinary list.
+    expect(fixtureName('games', { dates: '2015-01-01,2020-12-31' })).toBe('games')
+    expect(fixtureName('games', { dates: '2026-09-19,2099-12-31' })).toBe('games')
+    expect(fixtureName('games', {})).toBe('games')
+    expect(fixtureName('games/portal-2', { dates: '2026-01-01,2026-12-31' })).toBe('game-portal-2')
+  })
 })
 
 describe('createRawgFetch', () => {
