@@ -66,7 +66,7 @@ export function previewOf(
 }
 
 /** The most tags one document keeps; see `indexTags`. */
-export const MAX_INDEXED_TAGS = 15
+export const MAX_INDEXED_TAGS = 12
 
 /**
  * Tags that say what the store or the build offers — achievements, trading cards, controller

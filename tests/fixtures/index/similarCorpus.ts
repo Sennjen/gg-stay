@@ -1,3 +1,4 @@
+import { MAX_INDEXED_TAGS } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
 import type { GameModeValue } from '../../../shared/catalog'
 
@@ -18,6 +19,21 @@ interface Named {
   gameModes?: GameModeValue[]
 }
 
+/**
+ * The tags as the job's mapper would keep them: at most `MAX_INDEXED_TAGS`, the common ones dropped
+ * first (RAWG's `games_count`, here the crowd's share), in the listed order.
+ */
+function keptTags(tags: string[]): string[] {
+  if (tags.length <= MAX_INDEXED_TAGS) return tags
+  const share = new Map(CROWD_TAGS)
+  const kept = new Set(
+    [...tags]
+      .sort((left, right) => (share.get(left) ?? 0) - (share.get(right) ?? 0))
+      .slice(0, MAX_INDEXED_TAGS),
+  )
+  return tags.filter((tag) => kept.has(tag))
+}
+
 export function corpusGame(entry: Named): IndexedGame {
   return {
     id: entry.id,
@@ -32,7 +48,7 @@ export function corpusGame(entry: Named): IndexedGame {
     popularity: entry.popularity,
     platforms: [4],
     genres: entry.genres,
-    tags: entry.tags,
+    tags: keptTags(entry.tags),
     stores: ['steam'],
     gameModes: entry.gameModes ?? ['SINGLE'],
     ageRating: null,
