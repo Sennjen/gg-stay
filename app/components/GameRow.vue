@@ -18,7 +18,10 @@ const headingId = useId()
 </script>
 
 <template>
-  <!-- `min-w-0`: this section is typically a flex item in a flex-column page layout, where
+  <!-- `relative` on the list below: overflow clips only the descendants whose containing block is
+       the scroller or inside it. A card's `sr-only` platform list is absolutely positioned, and
+       with no positioned ancestor inside the row it escaped the scroller and widened the page.
+       `min-w-0`: this section is typically a flex item in a flex-column page layout, where
        flex items default to `min-width: auto` — they refuse to shrink below their content's
        intrinsic width. Without this override the row below never gets to scroll internally;
        it just pushes the whole page wider instead. -->
@@ -37,7 +40,7 @@ const headingId = useId()
       </NuxtLink>
     </div>
     <ul
-      class="row-scroll -mx-4 mt-4 flex scroll-px-4 gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:scroll-px-0 sm:px-0"
+      class="row-scroll relative -mx-4 mt-4 flex scroll-px-4 gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:scroll-px-0 sm:px-0"
       role="list"
     >
       <li v-for="game in props.games" :key="game.id" class="w-[280px] shrink-0 snap-start">

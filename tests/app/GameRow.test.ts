@@ -67,3 +67,14 @@ describe('GameRow', () => {
     expect(wrapper.find('[data-test="row-more-link"]').exists()).toBe(false)
   })
 })
+
+describe('GameRow: the scroller', () => {
+  it('is the containing block of everything positioned inside it', async () => {
+    // A card's screen-reader-only platform list is `position: absolute`. Without a positioned
+    // scroller its containing block is somewhere above the row, so the cards scrolled out of view
+    // (the fifth onwards on a 1024px screen) placed it past the right edge of the page and gave
+    // the whole landing a horizontal scrollbar. `overflow` alone does not clip such an element.
+    const wrapper = await mountSuspended(GameRow, { props: { title: 'Нові релізи', games } })
+    expect(wrapper.get('ul').classes()).toContain('relative')
+  })
+})
