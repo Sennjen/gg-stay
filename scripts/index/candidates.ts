@@ -69,11 +69,11 @@ export function previewOf(
 export const MAX_INDEXED_TAGS = 12
 
 /**
- * Tags RAWG has on fewer games than this, over its whole catalog, are the long tail: too rare to
- * recur among the few thousand indexed games, so they could match nothing. Applied only when the
- * response carries `games_count`.
+ * Tags RAWG has on fewer games than this, over its whole catalog, are the long tail: noise too
+ * rare to recur among the few thousand indexed games. Applied only when the response carries
+ * `games_count`.
  */
-export const MIN_TAG_GAMES_COUNT = 300
+export const MIN_TAG_GAMES_COUNT = 100
 
 /**
  * Tags that say what the store or the build offers — achievements, trading cards, controller
@@ -122,12 +122,13 @@ const MODE_TAGS = new Set(tagsForGameModes(['SINGLE', 'LOCAL_COOP', 'ONLINE_COOP
  * - not those in another language (RAWG tags every game in Russian as well; a tag that names no
  *   language is kept), store features or game modes;
  * - not the long tail — fewer than `MIN_TAG_GAMES_COUNT` games in RAWG's catalog;
- * - of the rest, the `MAX_INDEXED_TAGS` RAWG has seen on the most games (`games_count`), or the
+ * - of the rest, the `MAX_INDEXED_TAGS` RAWG has seen on the fewest games (`games_count`), or the
  *   first ones in RAWG's order when the response carries no counts.
  *
- * The cut prefers established tags on purpose. Which of them is generic in the index — "atmospheric"
- * on half of it — is for the similarity ranking to weigh by its own document frequency; what the cut
- * must avoid is spending the slots on tags no other indexed game carries.
+ * RAWG lists a game's tags most common first, so a plain cut would keep "atmospheric" and "great
+ * soundtrack" and drop "post-apocalyptic" or "chernobyl" — the tags that define the game. The cut
+ * keeps the rarest instead. A kept tag that no other indexed game carries costs a slot and nothing
+ * else: the similarity ranking leaves features of one game out of every vector.
  */
 export function indexTags(tags: readonly RawgTag[] | null | undefined): string[] {
   const seen = new Set<string>()
@@ -149,7 +150,7 @@ export function indexTags(tags: readonly RawgTag[] | null | undefined): string[]
     return eligible.slice(0, MAX_INDEXED_TAGS).map((tag) => tag.slug)
   }
   return [...eligible]
-    .sort((left, right) => right.count! - left.count! || left.position - right.position)
+    .sort((left, right) => left.count! - right.count! || left.position - right.position)
     .slice(0, MAX_INDEXED_TAGS)
     .sort((left, right) => left.position - right.position)
     .map((tag) => tag.slug)

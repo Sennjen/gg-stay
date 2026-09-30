@@ -338,26 +338,45 @@ describe('indexTags', () => {
     ).toEqual(['co-op'])
   })
 
-  it(`drops the long tail, then keeps the ${MAX_INDEXED_TAGS} most established, in RAWG's order`, () => {
-    // RAWG's `games_count` is over its whole catalog. Below the floor a tag is too rare to recur
-    // among the indexed games; above it, how generic a tag is in the index is weighed by the
-    // similarity ranking itself, so the cut keeps the tags RAWG has seen on the most games.
+  it(`drops the long tail, then keeps the ${MAX_INDEXED_TAGS} rarest, in RAWG's order`, () => {
+    // RAWG lists a game's tags most common first, so "atmospheric" leads and "post-apocalyptic"
+    // trails; the defining tags are the rarer ones. Below the floor, a tag is noise too rare to
+    // recur among the indexed games.
     const tags = [
+      ...Array.from({ length: 16 }, (_, n) => eng(`tag-${n}`, 20_000 - n * 1_000)),
       eng('long-tail-a', MIN_TAG_GAMES_COUNT - 1),
-      ...Array.from({ length: 16 }, (_, n) => eng(`tag-${n}`, 1_000 + ((n * 7) % 16) * 1_000)),
       eng('long-tail-b', 5),
       eng('just-above-the-floor', MIN_TAG_GAMES_COUNT),
     ]
     const kept = indexTags(tags)
-    const established = tags
-      .filter((tag) => tag.games_count! >= MIN_TAG_GAMES_COUNT)
-      .sort((left, right) => right.games_count! - left.games_count!)
-      .slice(0, MAX_INDEXED_TAGS)
-      .map((tag) => tag.slug)
+    expect(kept).toEqual([...tags.slice(5, 16).map((tag) => tag.slug), 'just-above-the-floor'])
     expect(kept).toHaveLength(MAX_INDEXED_TAGS)
-    expect(kept).toEqual(tags.map((tag) => tag.slug).filter((slug) => established.includes(slug)))
-    expect(kept).not.toContain('long-tail-a')
-    expect(kept).not.toContain('long-tail-b')
+    expect(MIN_TAG_GAMES_COUNT).toBe(100)
+  })
+
+  it('keeps the defining tags of a well-tagged game over the generic ones', () => {
+    const metro = [
+      eng('atmospheric', 34_000),
+      eng('horror', 45_000),
+      eng('first-person', 30_000),
+      eng('story-rich', 20_000),
+      eng('exploration', 20_000),
+      eng('sci-fi', 18_000),
+      eng('dark', 15_000),
+      eng('fps', 13_000),
+      eng('survival-horror', 8_500),
+      eng('survival', 8_000),
+      eng('open-world', 7_500),
+      eng('stealth', 5_000),
+      eng('great-soundtrack', 4_600),
+      eng('post-apocalyptic', 4_200),
+      eng('volga-river', 12),
+    ]
+    const kept = indexTags(metro)
+    expect(kept).toContain('post-apocalyptic')
+    expect(kept).toContain('survival-horror')
+    expect(kept).not.toContain('horror')
+    expect(kept).not.toContain('volga-river')
   })
 
   it('drops the long tail even when the game has few tags', () => {

@@ -12,7 +12,7 @@ import type { GameModeValue } from '../../../shared/catalog'
  *
  * The named games and the crowd reach the corpus through the job's own mapper (`indexTags`), from
  * RAWG-shaped tag lists: English tags with RAWG's catalog `games_count`, the store features and the
- * game modes RAWG adds to nearly every game, a mid-frequency tag that defines a series
+ * game modes RAWG adds to nearly every game, a rarer tag that defines a series
  * ("chernobyl", "sherlock-holmes"), and the long tail — a tag of the game's own that no other game
  * in the corpus carries, and one below the mapper's catalog floor.
  */
@@ -199,6 +199,8 @@ export const OBRA_DINN = 22509
 export const DISCO_ELYSIUM = 20633
 export const HER_STORY = 11932
 export const WOLF_AMONG_US = 3272
+export const FALLOUT_4 = 3439
+export const DYING_LIGHT = 3636
 
 const NAMED: Named[] = [
   {
@@ -331,7 +333,7 @@ const NAMED: Named[] = [
     ],
   },
   {
-    id: 3439,
+    id: FALLOUT_4,
     name: 'Fallout 4',
     popularity: 13_100,
     genres: ['action', 'role-playing-games-rpg'],
@@ -354,7 +356,7 @@ const NAMED: Named[] = [
     ],
   },
   {
-    id: 3636,
+    id: DYING_LIGHT,
     name: 'Dying Light',
     popularity: 10_300,
     genres: ['action'],

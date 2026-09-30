@@ -13,6 +13,8 @@ import {
   corpusGame,
   CS_GO,
   DISCO_ELYSIUM,
+  DYING_LIGHT,
+  FALLOUT_4,
   GTA_V,
   HER_STORY,
   LA_NOIRE,
@@ -82,11 +84,29 @@ describe('computeSimilar on real-looking games', () => {
     for (const hit of [GTA_V, PORTAL_2, WITCHER_3, CS_GO]) expect(stored).not.toContain(hit)
   })
 
+  it('store the tags that define a series, which the mapper keeps as the rarer ones', () => {
+    const tagsOf = (id: number) => SIMILAR_CORPUS.find((entry) => entry.id === id)!.tags!
+    expect(tagsOf(METRO_EXODUS)).toContain('post-apocalyptic')
+    expect(tagsOf(STALKER_SOC)).toContain('chernobyl')
+    expect(tagsOf(STALKER_COP)).toContain('chernobyl')
+    for (const sherlock of [SHERLOCK_CRIMES, SHERLOCK_DAUGHTER, SHERLOCK_CHAPTER_ONE]) {
+      expect(tagsOf(sherlock)).toContain('sherlock-holmes')
+    }
+  })
+
+  it('fills the rest of the Metro Exodus row with survival shooters, not generic games', () => {
+    const stored = computeSimilar(SIMILAR_CORPUS).get(METRO_EXODUS)!
+    expect(stored.slice(0, 4).sort()).toEqual(
+      [METRO_2033, METRO_LAST_LIGHT, STALKER_SOC, STALKER_COP].sort(),
+    )
+    expect(stored.slice(4)).toEqual(expect.arrayContaining([DYING_LIGHT, FALLOUT_4]))
+  })
+
   it('keeps well-tagged related games whose other tags no game shares', () => {
-    // RAWG gives a big game dozens of tags; some of them no other indexed game carries. They can
-    // match nothing, and must not push the game out of every list by inflating its norm. Here the
-    // four related games keep what they share with Metro Exodus, up to six tags, and fill their
-    // other slots with tags of their own.
+    // The mapper keeps a game's rarest tags, and some of those no other indexed game carries. They
+    // can match nothing, and must not push the game out of every list by inflating its norm. Here
+    // the four related games keep four of the tags they share with Metro Exodus and fill six more
+    // slots with tags of their own; without the ranking's df < 2 pruning they fall out of the row.
     const related = [METRO_2033, METRO_LAST_LIGHT, STALKER_SOC, STALKER_COP]
     const exodus = SIMILAR_CORPUS.find((entry) => entry.id === METRO_EXODUS)!.tags!
     const games = SIMILAR_CORPUS.map((entry) =>
@@ -94,7 +114,7 @@ describe('computeSimilar on real-looking games', () => {
         ? {
             ...entry,
             tags: [
-              ...entry.tags!.filter((tag) => exodus.includes(tag)).slice(0, 6),
+              ...entry.tags!.filter((tag) => exodus.includes(tag)).slice(0, 4),
               ...Array.from({ length: 6 }, (_, n) => `only-${entry.id}-${n}`),
             ],
           }
