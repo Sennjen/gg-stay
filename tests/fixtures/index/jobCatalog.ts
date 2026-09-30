@@ -38,6 +38,11 @@ const STEAM_ACHIEVEMENTS = {
   language: 'eng',
 }
 const STORY_RICH = { id: 118, slug: 'story-rich', name: 'Story Rich', language: 'eng' }
+/**
+ * Without `language`, the shape the recorded RAWG fixtures have: the mapper keeps it. Every game
+ * carries it, so it tells no two games apart and the similar lists do not depend on it.
+ */
+const ATMOSPHERIC = { id: 13, slug: 'atmospheric', name: 'Atmospheric' }
 
 const ACTION = { id: 4, slug: 'action', name: 'Action' }
 const INDIE = { id: 51, slug: 'indie', name: 'Indie' }
@@ -63,7 +68,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 21000,
     platforms: [PC, PS5],
     genres: [ACTION],
-    tags: [SINGLEPLAYER, STEAM_ACHIEVEMENTS, STORY_RICH],
+    tags: [ATMOSPHERIC, SINGLEPLAYER, STEAM_ACHIEVEMENTS, STORY_RICH],
     stores: [STEAM, GOG],
     esrb_rating: { id: 4, slug: 'mature', name: 'Mature' },
   },
@@ -80,7 +85,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 15000,
     platforms: [PC],
     genres: [INDIE],
-    tags: [MULTIPLAYER],
+    tags: [ATMOSPHERIC, MULTIPLAYER],
     stores: [STEAM],
     esrb_rating: { id: 3, slug: 'teen', name: 'Teen' },
   },
@@ -98,7 +103,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 9000,
     platforms: [SWITCH],
     genres: [INDIE],
-    tags: [SINGLEPLAYER],
+    tags: [ATMOSPHERIC, SINGLEPLAYER],
     stores: [],
   },
   {
@@ -114,7 +119,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 8000,
     platforms: [PC],
     genres: [STRATEGY],
-    tags: [SINGLEPLAYER, ONLINE_COOP],
+    tags: [ATMOSPHERIC, SINGLEPLAYER, ONLINE_COOP],
     stores: [STEAM, EPIC],
     esrb_rating: { id: 2, slug: 'everyone-10-plus', name: 'Everyone 10+' },
   },
@@ -131,7 +136,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 7000,
     platforms: [PC],
     genres: [INDIE],
-    tags: [MULTIPLAYER],
+    tags: [ATMOSPHERIC, MULTIPLAYER],
     stores: [STEAM],
     esrb_rating: { id: 1, slug: 'everyone', name: 'Everyone' },
   },
@@ -148,7 +153,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 6000,
     platforms: [PC, PS5],
     genres: [ACTION, INDIE],
-    tags: [SINGLEPLAYER],
+    tags: [ATMOSPHERIC, SINGLEPLAYER],
     stores: [STEAM],
     esrb_rating: { id: 3, slug: 'teen', name: 'Teen' },
   },
@@ -165,7 +170,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 5000,
     platforms: [PC],
     genres: [ACTION],
-    tags: [SINGLEPLAYER],
+    tags: [ATMOSPHERIC, SINGLEPLAYER],
     stores: [STEAM],
   },
   {
@@ -181,7 +186,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 4000,
     platforms: [PC, PS5],
     genres: [ACTION],
-    tags: [SINGLEPLAYER, ONLINE_COOP],
+    tags: [ATMOSPHERIC, SINGLEPLAYER, ONLINE_COOP],
     stores: [STEAM],
     esrb_rating: { id: 4, slug: 'mature', name: 'Mature' },
   },
@@ -198,7 +203,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     added: 3000,
     platforms: [SWITCH],
     genres: [STRATEGY],
-    tags: [SINGLEPLAYER],
+    tags: [ATMOSPHERIC, SINGLEPLAYER],
     stores: [NINTENDO],
   },
 ]
@@ -243,7 +248,7 @@ export const JOB_STUDIO_GAME: RawgGameListItem = {
   added: 1200,
   platforms: [PC],
   genres: [STRATEGY],
-  tags: [SINGLEPLAYER],
+  tags: [ATMOSPHERIC, SINGLEPLAYER],
   stores: [STEAM],
 }
 

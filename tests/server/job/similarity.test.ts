@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computeSimilar,
   editionKey,
+  similarHealthWarning,
   SIMILAR_LIST_SIZE,
   similarityFeatures,
 } from '../../../scripts/index/similarity'
@@ -286,5 +287,33 @@ describe('editionKey', () => {
 
   it('keeps a name that is nothing but an edition word', () => {
     expect(editionKey('Remastered')).toBe('remastered')
+  })
+})
+
+describe('similarHealthWarning', () => {
+  const tagged = (similar: number[]) => ({ ...game({ tags: ['a', 'b'] }), similar })
+  const bare = (similar: number[]) => ({ ...game({ tags: [] }), similar })
+
+  it('is quiet when most games have tags and a list', () => {
+    expect(similarHealthWarning([tagged([1]), tagged([2]), bare([])])).toBeNull()
+    expect(similarHealthWarning([])).toBeNull()
+  })
+
+  it('warns when the median game has no tag at all', () => {
+    expect(similarHealthWarning([tagged([1]), bare([2]), bare([3])])).toBe(
+      'Similar lists look empty — check RAWG tags: median 0 tags per game, 3 of 3 games have a list',
+    )
+  })
+
+  it('warns when fewer than half the games have a list', () => {
+    expect(similarHealthWarning([tagged([1]), tagged([]), tagged([])])).toBe(
+      'Similar lists look empty — check RAWG tags: median 2 tags per game, 1 of 3 games have a list',
+    )
+    expect(similarHealthWarning([tagged([1]), tagged([])])).toBeNull()
+  })
+
+  it('counts a document without the fields as empty', () => {
+    const { tags: _tags, ...old } = game()
+    expect(similarHealthWarning([old, old])).toMatch(/median 0 tags per game, 0 of 2 games/)
   })
 })

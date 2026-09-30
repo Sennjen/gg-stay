@@ -107,7 +107,8 @@ export function isStoreTag(slug: string): boolean {
 const MODE_TAGS = new Set(tagsForGameModes(['SINGLE', 'LOCAL_COOP', 'ONLINE_COOP', 'MULTIPLAYER']))
 
 /**
- * The tags an index document keeps: English ones only (RAWG tags every game in Russian as well),
+ * The tags an index document keeps: not those in another language (RAWG tags every game in Russian
+ * as well; a tag that names no language is kept),
  * without store features and game modes, and at most `MAX_INDEXED_TAGS`. RAWG lists a game's tags
  * most common first, so a plain cut would keep "atmospheric" and "great soundtrack" and drop
  * "post-apocalyptic" — the cut therefore keeps the tags fewest games carry (`games_count`), and
@@ -119,7 +120,10 @@ export function indexTags(tags: readonly RawgTag[] | null | undefined): string[]
   const eligible: { slug: string; count: number; position: number }[] = []
   for (const tag of tags ?? []) {
     const slug = tag.slug
-    if (tag.language !== 'eng' || !slug || seen.has(slug)) continue
+    // Only an explicit other language drops a tag. A tag without `language` is taken as English:
+    // the recorded fixtures carry none, nothing here proves every live tag does, and reading a
+    // missing field as "not English" would quietly empty every document.
+    if ((tag.language !== undefined && tag.language !== 'eng') || !slug || seen.has(slug)) continue
     if (isStoreTag(slug) || MODE_TAGS.has(slug)) continue
     seen.add(slug)
     eligible.push({ slug, count: tag.games_count ?? Infinity, position: eligible.length })

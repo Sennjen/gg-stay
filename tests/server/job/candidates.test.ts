@@ -53,8 +53,9 @@ describe('collectCandidates', () => {
       popularity: 21000,
       platforms: [4, 187],
       genres: ['action'],
-      // `singleplayer` is already the game mode and `steam-achievements` describes the store.
-      tags: ['story-rich'],
+      // `singleplayer` is already the game mode and `steam-achievements` describes the store;
+      // `atmospheric` carries no language, as the hand-written fixture has it, and is kept.
+      tags: ['atmospheric', 'story-rich'],
       stores: ['steam', 'gog'],
       gameModes: ['SINGLE'],
       ageRating: 'PEGI18',
@@ -271,13 +272,26 @@ describe('indexTags', () => {
     ...(gamesCount === undefined ? {} : { games_count: gamesCount }),
   })
 
-  it('keeps the English tags only', () => {
+  it('drops a tag in another language and keeps the English ones', () => {
     expect(
       indexTags([
         eng('post-apocalyptic'),
         { id: 1, slug: 'postapokalipsis', name: 'Постапокалипсис', language: 'rus' },
-        { id: 2, slug: 'no-language', name: 'No language' },
         eng('survival-horror'),
+      ]),
+    ).toEqual(['post-apocalyptic', 'survival-horror'])
+  })
+
+  it('keeps a tag that names no language at all, as the recorded fixtures carry them', () => {
+    // Nothing here proves every live tag carries `language`; a tag without one is taken as English
+    // rather than silently emptying every document. Only an explicit other language is dropped.
+    expect(
+      indexTags([
+        { id: 1, slug: 'post-apocalyptic', name: 'Post-apocalyptic' },
+        { id: 2, slug: 'steam-cloud', name: 'Steam Cloud' },
+        { id: 3, slug: 'singleplayer', name: 'Singleplayer' },
+        { id: 4, slug: 'postapokalipsis', name: 'Постапокалипсис', language: 'rus' },
+        { id: 5, slug: 'survival-horror', name: 'Survival Horror', language: 'eng' },
       ]),
     ).toEqual(['post-apocalyptic', 'survival-horror'])
   })

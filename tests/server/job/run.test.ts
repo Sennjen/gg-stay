@@ -15,7 +15,7 @@ import {
   INDEX_FORCE_AFTER_MS,
   INDEX_LOCK_TTL_SECONDS,
 } from '../../../scripts/index/writer'
-import { JOB_PAGE_COUNT, JOB_STUDIO_GAMES } from '../../fixtures/index/jobCatalog'
+import { JOB_PAGE_COUNT, JOB_STUDIO_GAMES, jobGamesPage } from '../../fixtures/index/jobCatalog'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../../shared/ukrainianStudios'
 import { RedisBatchError } from '../../../server/index/upstashIndex'
 import { createJobHarness, type RawgCall } from './harness'
@@ -303,11 +303,44 @@ describe('runJob and the similar games', () => {
     )
   })
 
+  it('says loudly, without failing, when the lists look empty because the tags went missing', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    for (let page = 1; page <= JOB_PAGE_COUNT; page += 1) {
+      const body = jobGamesPage(page)
+      harness.answerNextWith((call) => call.path === 'games' && call.params.page === String(page), {
+        ...body,
+        results: body.results.map((game) => ({ ...game, tags: [] })),
+      })
+    }
+
+    const report = await runJob(harness.deps, FULL)
+
+    expect(report.outcome?.published).toBe(true)
+    expect(report.similarWarning).toBe(
+      'Similar lists look empty — check RAWG tags: median 0 tags per game, 9 of 9 games have a list',
+    )
+    expect(harness.logs).toContain(`::warning::${report.similarWarning}`)
+    expect(formatSummary(report)).toContain(
+      '| Similar lists look empty — check RAWG tags | median 0 tags per game, 9 of 9 games have a list |',
+    )
+  })
+
+  it('stays quiet when the tags arrived', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const report = await runJob(harness.deps, FULL)
+    expect(report.similarWarning ?? null).toBeNull()
+    expect(harness.logs.some((line) => line.startsWith('::warning::'))).toBe(false)
+    expect(formatSummary(report)).not.toContain('look empty')
+  })
+
   it('carries the lists and the tags through a price run and a language run unchanged', async () => {
     const harness = createJobHarness({ start: RUN_AT })
     await runJob(harness.deps, FULL)
     const published = await harness.writer.getOne(101)
-    expect(published).toMatchObject({ tags: ['story-rich'], similar: [107, 106, 108] })
+    expect(published).toMatchObject({
+      tags: ['atmospheric', 'story-rich'],
+      similar: [107, 106, 108],
+    })
 
     const prices = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
     const priced = await runJob(prices.deps, { mode: 'prices', pages: 1, forceUnlock: false })

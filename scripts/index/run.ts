@@ -6,7 +6,7 @@ import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
-import { attachSimilar } from './similarity'
+import { attachSimilar, similarHealthWarning } from './similarity'
 import { collectStudioGames } from './studios'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainianStudios'
 import { createJobRawg, createJobSteam, systemClock } from './upstreams'
@@ -112,6 +112,11 @@ export interface JobReport {
   durationMs: number
   /** What the store charged this run, when the adapter counts it. */
   writes: IndexWriteStats | null
+  /**
+   * Set when a full run's similar lists look empty (`similarHealthWarning`): the log carries it as
+   * a GitHub `::warning::` and the summary as a row. The run still publishes.
+   */
+  similarWarning?: string | null
   /** The stage that was running when the run failed, and why. */
   failedStage?: string
   error?: string
@@ -219,6 +224,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
   let failures = 0
   let studios: StudioReport | null = null
   let candidateCount: number | undefined
+  let similarWarning: string | null = null
 
   try {
     version = await stage('starting the version', () =>
@@ -340,6 +346,8 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
           `similar games: ${lists} of ${games.length} games have a list, median length ${median}, ` +
             `in ${Math.round(performance.now() - started)} ms`,
         )
+        similarWarning = similarHealthWarning(games)
+        if (similarWarning) deps.log(`::warning::${similarWarning}`)
       })
     }
 
@@ -356,7 +364,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       }),
     )
 
-    return report({ outcome, studios, pricesFetched, languagesFetched, failures })
+    return report({ outcome, studios, pricesFetched, languagesFetched, failures, similarWarning })
   } catch (error) {
     // Give the draft and the lock back before the failure leaves this function — but only a
     // version that was actually begun: nothing is discarded that does not exist. `discardVersion`
@@ -365,7 +373,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // What the run had already done goes out with the failure. The summary of a failed run is the
     // whole of the alert, and one full of zeroes says less than the run knew.
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
-      report: report({ studios, pricesFetched, languagesFetched, failures }),
+      report: report({ studios, pricesFetched, languagesFetched, failures, similarWarning }),
     })
   }
 }
@@ -469,6 +477,10 @@ export function formatSummary(report: JobReport): string {
         (report.mode === 'full' ? '' : ' (carried forward, not recomputed in this mode)'),
     ])
   }
+  if (report.similarWarning) {
+    const [title, detail] = report.similarWarning.split(': ', 2)
+    rows.push([title!, detail ?? ''])
+  }
 
   rows.push([
     'Index traffic',
@@ -555,6 +567,7 @@ export async function runCli(
       failures: reached?.failures ?? 0,
       durationMs: reached?.durationMs ?? 0,
       writes: reached?.writes ?? writerStats?.() ?? null,
+      similarWarning: reached?.similarWarning ?? null,
       failedStage: typeof named.stage === 'string' ? named.stage : 'start-up',
       error: message,
     }

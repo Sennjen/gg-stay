@@ -228,9 +228,38 @@ function insert(
 export function attachSimilar(games: IndexedGame[]): { lists: number; median: number } {
   const similar = computeSimilar(games)
   for (const game of games) game.similar = similar.get(game.id) ?? []
-  const lengths = games.map((game) => game.similar!.length).sort((left, right) => left - right)
+  const lengths = games.map((game) => game.similar!.length)
   return {
     lists: lengths.filter((length) => length > 0).length,
-    median: lengths.length === 0 ? 0 : lengths[(lengths.length - 1) >> 1]!,
+    median: medianOf(lengths),
   }
+}
+
+/** Below this share of games with a list, a full run's lists are reported as looking empty. */
+export const MIN_SHARE_WITH_LIST = 0.5
+
+function medianOf(values: number[]): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((left, right) => left - right)
+  return sorted[(sorted.length - 1) >> 1]!
+}
+
+/**
+ * What the job says when the lists look empty — no tags on the median game, or fewer than half the
+ * games with a list — and `null` when they do not. It never fails a run: a run without tags still
+ * publishes lists by genre, which are what the page showed before. The likely cause is RAWG's tag
+ * shape changing under the mapper, which only a person can look into, so the job says so where a
+ * person looks.
+ */
+export function similarHealthWarning(
+  games: readonly Pick<IndexedGame, 'tags' | 'similar'>[],
+): string | null {
+  if (games.length === 0) return null
+  const tags = medianOf(games.map((game) => game.tags?.length ?? 0))
+  const lists = games.filter((game) => (game.similar?.length ?? 0) > 0).length
+  if (tags > 0 && lists >= games.length * MIN_SHARE_WITH_LIST) return null
+  return (
+    `Similar lists look empty — check RAWG tags: median ${tags} tags per game, ` +
+    `${lists} of ${games.length} games have a list`
+  )
 }
