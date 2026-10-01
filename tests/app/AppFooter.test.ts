@@ -22,7 +22,11 @@ describe('AppFooter', () => {
     expect(github.attributes('rel')).toContain('noopener')
     expect(github.attributes('target')).toBe('_blank')
 
-    expect(wrapper.get('a[href="/en/games"]').text()).toBe('English')
+    // Its own landmark name: the header carries a "Мова" navigation too, and two navigation
+    // landmarks with one name are indistinguishable in a screen reader's landmark list.
+    const language = wrapper.get('nav[aria-label="Мова сайту (внизу сторінки)"]')
+    expect(language.get('a[href="/en/games"]').text()).toBe('English')
+    expect(wrapper.find('nav[aria-label="Мова"]').exists()).toBe(false)
 
     expect(wrapper.get('footer').text()).toContain('Дані про ігри надають RAWG і Steam.')
     const rawgLink = wrapper.get('footer a[href="https://rawg.io"]')

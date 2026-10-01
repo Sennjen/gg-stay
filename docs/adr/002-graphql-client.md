@@ -36,6 +36,14 @@ Option 1, wrapped in a single `useGql` composable.
   the cover ring, and was never re-checked. It stands as written, with the real number recorded
   next to it; the remaining levers (mounting the filter drawer on open, precompiling the i18n
   messages) are named in the perf notes and each needs its own measurement.
+- **The budget is enforced in CI as a ratchet, not as the 120 KB target.** Re-measured on
+  2026-10-01 with the same method, after week 2 added prices, localisation badges, the made-in-Ukraine
+  filter and similar games: **137 745 bytes gzipped (134.5 KiB)** across eight modules. CI fails
+  above **144 633 bytes (141.2 KiB)** — that measurement plus 5 % — checked by
+  `scripts/check-bundle-budget.ts` against the production build on every pull request (see
+  [docs/perf](../perf/README.md#the-budget-in-ci)). The 120 KB target above stays missed and stays
+  written down; the gate exists so the number cannot drift further without someone deciding it
+  should. Raising it means a measurement in the perf notes and a line here, in the same change.
 - No normalised cache: two queries returning the same game are fetched independently. Acceptable for a catalog.
 - Schema drift is caught at compile time: one SDL schema generates both resolver types and operation types, and CI fails when generated files are stale.
 - Revisit if user-specific data or mutations are introduced.

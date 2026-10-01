@@ -100,6 +100,13 @@ export default defineNuxtConfig({
     screens: { sm: 420, md: 640, lg: 1280 },
   },
   nitro: {
+    // Vercel compresses at its edge; a node-server build serves `public/` itself and, without
+    // this, sends every script and stylesheet uncompressed. The quality gates in CI (Lighthouse,
+    // the bundle budget's server) run a node-server build, so it gets precompressed gzip and
+    // brotli copies to match what production transfers — as does a plain local `pnpm build`,
+    // whose preset is node-server without `NITRO_PRESET` being set. Off for any Vercel build
+    // (named, or detected on Vercel itself), so the Vercel output is unchanged.
+    compressPublicAssets: !process.env.NITRO_PRESET?.startsWith('vercel') && !process.env.VERCEL,
     // graphql ships an ESM and a CJS build and picks one by export condition. Dependency tracing
     // copies only the build that the build machine's Node resolves (ESM, via "module-sync"), while
     // the serverless runtime resolves the "node" condition and fails with ERR_MODULE_NOT_FOUND on

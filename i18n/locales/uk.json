@@ -30,6 +30,7 @@
   "nav": {
     "catalog": "Каталог",
     "language": "Мова",
+    "languageFooter": "Мова сайту (внизу сторінки)",
     "skipToContent": "Перейти до вмісту",
     "primary": "Основна навігація"
   },

@@ -58,7 +58,10 @@ const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DES
             </a>
           </nav>
 
-          <LocaleSwitcher class="-ml-2 self-start sm:ml-0 sm:self-auto" />
+          <LocaleSwitcher
+            :label="t('nav.languageFooter')"
+            class="-ml-2 self-start sm:ml-0 sm:self-auto"
+          />
         </div>
       </div>
 

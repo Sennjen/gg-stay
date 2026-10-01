@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import {
   API_CONTENT_SECURITY_POLICY,
   CSP_HEADER,
+  NUXT_IMG_ERROR_HANDLER_HASH,
   STATIC_SECURITY_HEADERS,
   contentSecurityPolicy,
 } from '../../server/security/headers'
@@ -101,5 +103,21 @@ describe('the policy itself', () => {
       expect(scriptSrc).not.toContain('unsafe-eval')
     }
     expect(contentSecurityPolicy(["'sha256-abc'"])).toContain("script-src 'self' 'sha256-abc'")
+  })
+
+  it("lets a page run @nuxt/image's error marker on a broken image, and no other inline handler", () => {
+    // The server-rendered <img> carries `onerror="this.setAttribute('data-error', 1)"`. Without a
+    // matching hash the browser blocks it and logs a CSP violation for every cover RAWG fails to
+    // serve. `'unsafe-hashes'` lets hashes match event-handler attributes; only this body has one.
+    const handlerHash = `'sha256-${createHash('sha256').update("this.setAttribute('data-error', 1)").digest('base64')}'`
+    expect(NUXT_IMG_ERROR_HANDLER_HASH).toBe(handlerHash)
+
+    const page = contentSecurityPolicy(["'sha256-abc'"])
+    const scriptSrc = page.split('; ').find((entry) => entry.startsWith('script-src'))!
+    expect(scriptSrc).toBe(`script-src 'self' 'sha256-abc' 'unsafe-hashes' ${handlerHash}`)
+
+    // A response with no inline scripts renders no images either; it stays strictly tighter.
+    expect(contentSecurityPolicy()).toContain("script-src 'self'; ")
+    expect(contentSecurityPolicy()).not.toContain('unsafe-hashes')
   })
 })

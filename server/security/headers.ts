@@ -18,6 +18,20 @@ const RAWG_MEDIA_REDIRECT = 'https://api.rawg.io'
 const STEAM_VIDEO = 'https://video.akamai.steamstatic.com'
 
 /**
+ * `<NuxtImg>` renders `onerror="this.setAttribute('data-error', 1)"` on every server-rendered
+ * image, so that a picture which failed before hydration is still reported once the component
+ * mounts. An inline event handler needs `'unsafe-hashes'` plus the hash of its exact body; without
+ * them the browser blocks it and logs a CSP violation for every cover RAWG fails to serve. Only
+ * this one body is allowed, and only on pages (the policy with script hashes) — an injected
+ * handler with any other body is still blocked.
+ *
+ * Nothing in the app consumes the marker today: no `<NuxtImg>` listens to `@error`. If that stays
+ * true, the narrower fix is to drop the attribute at the source (`:onerror="undefined"` on the
+ * call sites, or a thin wrapper component) and remove `'unsafe-hashes'` from the policy.
+ */
+export const NUXT_IMG_ERROR_HANDLER_HASH = "'sha256-bwK6T5wZVTANitXbrTsel7kl/PyCjCd/Dq5Qoz3imjM='"
+
+/**
  * Builds the policy. `scriptHashes` are `'sha256-…'` sources for the two scripts Nuxt inlines into
  * every server-rendered page (the import map and the `window.__NUXT__.config` assignment); the
  * Nitro plugin in server/plugins/csp.ts computes them per response, so HTML gets an exact-hash
@@ -39,7 +53,8 @@ const STEAM_VIDEO = 'https://video.akamai.steamstatic.com'
  * policy exists for.
  */
 export function contentSecurityPolicy(scriptHashes: readonly string[] = []): string {
-  const scriptSrc = ["'self'", ...scriptHashes].join(' ')
+  const handlers = scriptHashes.length ? ["'unsafe-hashes'", NUXT_IMG_ERROR_HANDLER_HASH] : []
+  const scriptSrc = ["'self'", ...scriptHashes, ...handlers].join(' ')
   return [
     "default-src 'self'",
     "base-uri 'self'",

@@ -30,6 +30,7 @@
   "nav": {
     "catalog": "Catalog",
     "language": "Language",
+    "languageFooter": "Site language (footer)",
     "skipToContent": "Skip to content",
     "primary": "Primary navigation"
   },
