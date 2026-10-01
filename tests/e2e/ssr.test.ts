@@ -640,9 +640,9 @@ describe('server-side rendering', async () => {
     },
   )
 
-  it('leaves Speed Insights out of the server HTML, and off in a build that did not opt in', async () => {
+  it('leaves Speed Insights out of the server HTML, and off in a build that is not Vercel production', async () => {
     // The loader is client-only and injects its script after hydration, so no page's HTML ever
-    // names it; and this production build has no `NUXT_PUBLIC_SPEED_INSIGHTS`, so the client is
+    // names it; and this production build is not a Vercel production build, so the client is
     // told it is off and never requests a script only a Vercel deployment serves.
     for (const path of ['/', '/en', '/games', '/games/the-witcher-3-wild-hunt']) {
       const html = await $fetch<string>(path)

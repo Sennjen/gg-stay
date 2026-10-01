@@ -9,9 +9,9 @@ import type { RouteLocationNormalized } from 'vue-router'
  * `/games/[slug]`, not each slug), updated after every client-side navigation, plus the two build
  * variables Vercel uses to relocate the script — and adds what the module cannot:
  *
- *  - production builds of a deployment that opted in only (`NUXT_PUBLIC_SPEED_INSIGHTS=1`), so a
- *    local or CI build never requests `/_vercel/speed-insights/script.js`, which exists only on a
- *    Vercel deployment with Speed Insights enabled;
+ *  - Vercel production builds only by default (`speedInsightsDefault`; `NUXT_PUBLIC_SPEED_INSIGHTS`
+ *    0/1 overrides it), so previews, local and CI builds never request
+ *    `/_vercel/speed-insights/script.js`, which exists only on a deployment with it enabled;
  *  - nothing at all for a visitor who sends Do Not Track or Global Privacy Control;
  *  - loaded after hydration, when the browser is idle, from its own chunk, and never prefetched
  *    (see the `build:manifest` hook in nuxt.config.ts): first-load JavaScript carries only this

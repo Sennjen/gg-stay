@@ -9,6 +9,17 @@ export interface PrivacySignals {
   globalPrivacyControl?: boolean
 }
 
+/**
+ * The build-time default of `runtimeConfig.public.speedInsights`: on for a Vercel production build
+ * (`VERCEL_ENV=production`), where the project has Speed Insights enabled and
+ * `/_vercel/speed-insights/script.js` exists; off for previews, local and CI builds, and fixture
+ * mode, which would otherwise request a script that is not there or measure recorded data.
+ * `NUXT_PUBLIC_SPEED_INSIGHTS` overrides it at runtime either way (`0` off, `1` on).
+ */
+export function speedInsightsDefault(env: Record<string, string | undefined>): '1' | '' {
+  return env.VERCEL_ENV === 'production' && env.RAWG_FIXTURES !== '1' ? '1' : ''
+}
+
 export interface SpeedInsightsGate {
   /** `runtimeConfig.public.speedInsights`; env overrides arrive parsed by destr. */
   enabled: unknown
@@ -19,7 +30,7 @@ export interface SpeedInsightsGate {
 
 /**
  * Whether this page view may load Speed Insights at all: only in a production build of a deployment
- * that opted in, and never for a visitor who sent Do Not Track or Global Privacy Control. A visitor
+ * where it is on (see `speedInsightsDefault`), and never for a visitor who sent Do Not Track or Global Privacy Control. A visitor
  * who declined is not measured less — the script is simply never requested.
  */
 export function speedInsightsWanted({ enabled, dev, navigator }: SpeedInsightsGate): boolean {

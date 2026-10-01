@@ -97,11 +97,11 @@ through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
 - **Where the numbers are:** the project's **Speed Insights** tab in the
   Vercel dashboard (p75 per route, per device, over time). They are not
   published from this repository.
-- **Turning it on** is the owner's step in Vercel: enable Speed Insights for
-  the project, then set `NUXT_PUBLIC_SPEED_INSIGHTS=1` for the Production
-  environment and redeploy. Without that variable — every local build, CI
-  and fixture mode included — nothing is loaded, because the script only
-  exists on a Vercel deployment with Speed Insights enabled.
+- **When it is on:** by default in Vercel production builds only
+  (`VERCEL_ENV=production`, Speed Insights is enabled for the project).
+  Preview deployments, local and CI builds and fixture mode load nothing,
+  because the script exists only where Speed Insights is enabled.
+  `NUXT_PUBLIC_SPEED_INSIGHTS=0` turns it off at runtime; `=1` forces it on.
 
 ## Development
 

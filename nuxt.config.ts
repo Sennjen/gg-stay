@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import { STATIC_SECURITY_HEADERS } from './server/security/headers'
+import { speedInsightsDefault } from './app/utils/speedInsights'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
@@ -76,10 +77,9 @@ export default defineNuxtConfig({
     // alone (`useGameIndex`) — it cannot affect a deployment that has real credentials.
     indexFixtureStale: process.env.INDEX_FIXTURE_STALE ?? '',
     public: {
-      // Vercel Speed Insights, opt-in per deployment: set `NUXT_PUBLIC_SPEED_INSIGHTS=1` on Vercel
-      // once Speed Insights is enabled for the project. Off everywhere else, so local and CI builds
-      // never request a script only Vercel serves. See app/plugins/speed-insights.client.ts.
-      speedInsights: '',
+      // Vercel Speed Insights: on for Vercel production builds only; `NUXT_PUBLIC_SPEED_INSIGHTS`
+      // (0 or 1) overrides it at runtime. See app/plugins/speed-insights.client.ts.
+      speedInsights: speedInsightsDefault(process.env),
     },
   },
   routeRules: {

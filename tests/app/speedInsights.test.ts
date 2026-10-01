@@ -31,12 +31,12 @@ const signals = (doNotTrack: string | null = null, globalPrivacyControl?: boolea
 })
 
 describe('speedInsightsWanted', () => {
-  it('loads in a production build that opted in, for a visitor sending no privacy signal', () => {
+  it('loads in a production build where it is on, for a visitor sending no privacy signal', () => {
     expect(speedInsightsWanted({ enabled: '1', dev: false, navigator: signals() })).toBe(true)
   })
 
   it.each([
-    ['the flag is empty (every build that did not opt in)', { enabled: '' }],
+    ['the flag is empty (every build but Vercel production)', { enabled: '' }],
     ['the flag is off', { enabled: '0' }],
     ['the flag is missing', { enabled: undefined }],
     ['the build is a development build', { dev: true }],
@@ -108,7 +108,7 @@ describe('the Speed Insights plugin', () => {
     setNavigator('globalPrivacyControl', undefined)
   })
 
-  it('is off unless the deployment opts in', async () => {
+  it('is off by default outside a Vercel production build', async () => {
     expect(saved).toBe('')
     await runPlugin()
     await hydrate()
