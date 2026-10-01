@@ -1,3 +1,8 @@
 allowBuilds:
   esbuild: true
   unrs-resolver: true
+peerDependencyRules:
+  allowedVersions:
+    # Its optional vue-router peer serves the Vue and Nuxt integrations, which are not imported:
+    # app/plugins/speed-insights.client.ts uses the framework-free entry alone.
+    '@vercel/speed-insights>vue-router': '5'
