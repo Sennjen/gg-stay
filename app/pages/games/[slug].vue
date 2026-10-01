@@ -2,9 +2,11 @@
 import { GameDocument } from '~/graphql/__generated__/operations'
 import { safeExternalUrl } from '#shared/url'
 import { splitParagraphs } from '~/utils/format'
+import { INDEXABLE, SITE_NAME, metaDescription, withSiteName } from '~/utils/seo'
+import { coverShareImage, gameJsonLd, serializeJsonLd } from '~/utils/structuredData'
 
 const route = useRoute()
-const { t, locale } = useI18n()
+const { t, locale, localeProperties } = useI18n()
 const localePath = useLocalePath()
 const store = useFiltersStore()
 
@@ -31,10 +33,17 @@ const localizedDescription = computed(() => game.value?.localizedDescription ?? 
 const descriptionParagraphs = computed(() => splitParagraphs(localizedDescription.value?.text))
 const isSteamDescription = computed(() => localizedDescription.value?.source === 'STEAM')
 
+/**
+ * The description in the page's own language: the text the page shows when it is in that language
+ * (the Ukrainian Steam description on `/games/…`, RAWG's English one on `/en/games/…`), trimmed on
+ * a word boundary; otherwise a sentence of our own in the page's language rather than RAWG's
+ * English under a Ukrainian page.
+ */
 const description = computed(() => {
-  const text = localizedDescription.value?.text.replace(/\s+/g, ' ').trim()
-  if (text) return text.length > 160 ? `${text.slice(0, 157)}…` : text
-  return t('game.metaFallback', { name: game.value?.name ?? '' })
+  const shown = localizedDescription.value
+  const sameLanguage = shown?.language.slice(0, 2) === locale.value
+  const text = sameLanguage ? metaDescription(shown?.text) : ''
+  return text || t('game.metaFallback', { name: game.value?.name ?? '' })
 })
 
 // Computed once (server or first client render) and reused from then on — see the comment on
@@ -44,12 +53,42 @@ const description = computed(() => {
 // passes between the two renders, which is the exact shape of a hydration mismatch).
 const now = useState('game-page-now', () => new Date().toISOString())
 
+const { absoluteUrl } = useSiteUrl()
+const shareImage = computed(() => coverShareImage(game.value?.cover?.url))
+
 useSeoMeta({
-  title: () => (game.value ? `${game.value.name} — GG Stay` : 'GG Stay'),
+  title: () => (game.value ? withSiteName(game.value.name) : SITE_NAME),
   description: () => description.value,
+  robots: INDEXABLE,
   ogTitle: () => game.value?.name,
   ogDescription: () => description.value,
-  ogImage: () => game.value?.cover?.url,
+  ogImage: () => shareImage.value?.url,
+  ogImageWidth: () => shareImage.value?.width,
+  ogImageHeight: () => shareImage.value?.height,
+  ogImageAlt: () => game.value?.name,
+})
+
+// The page's facts as a `VideoGame`, from the same answer the page renders. Data, not code: the
+// CSP plugin leaves `application/ld+json` out of its script hashes, and `serializeJsonLd` makes
+// sure a game name can never end the element early.
+useHead({
+  script: () =>
+    game.value
+      ? [
+          {
+            key: 'ld-game',
+            type: 'application/ld+json',
+            innerHTML: serializeJsonLd(
+              gameJsonLd(game.value, {
+                url: absoluteUrl(route.path),
+                description: description.value,
+                inLanguage: localeProperties.value.language ?? 'uk-UA',
+                now: now.value,
+              }),
+            ),
+          },
+        ]
+      : [],
 })
 </script>
 

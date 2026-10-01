@@ -25,7 +25,8 @@
     },
     "cta": {
       "title": "Готові знайти свою наступну гру?"
-    }
+    },
+    "shareImageAlt": "GG Stay — каталог відеоігор для українського гравця"
   },
   "nav": {
     "catalog": "Каталог",
@@ -89,7 +90,11 @@
     "pricesUpdatedRecently": "Ціни оновлено щойно",
     "staleTitle": "Ціни тимчасово не оновлюються",
     "staleBody": "Ми не показуємо застарілі ціни, тож фільтри й сортування за ціною зараз вимкнені. Решта каталогу працює як завжди.",
-    "sortIgnored": "«{name}» не застосовано"
+    "sortIgnored": "«{name}» не застосовано",
+    "titleFiltered": "Ігри ({filters})",
+    "titlePage": "{title}, сторінка {page}",
+    "descriptionFiltered": "Ігри за фільтрами: {filters}. Ціни в гривнях і українська локалізація — у каталозі GG Stay.",
+    "descriptionPage": "{description} Сторінка {page}."
   },
   "filters": {
     "platform": "Платформа",

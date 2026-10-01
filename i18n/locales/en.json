@@ -25,7 +25,8 @@
     },
     "cta": {
       "title": "Ready to find your next game?"
-    }
+    },
+    "shareImageAlt": "GG Stay — a video game catalog for Ukrainian players"
   },
   "nav": {
     "catalog": "Catalog",
@@ -89,7 +90,11 @@
     "pricesUpdatedRecently": "Prices updated just now",
     "staleTitle": "Prices are not being refreshed right now",
     "staleBody": "We do not show stale prices, so the price filters and sorts are off for now. The rest of the catalog works as usual.",
-    "sortIgnored": "“{name}” was not applied"
+    "sortIgnored": "“{name}” was not applied",
+    "titleFiltered": "Games ({filters})",
+    "titlePage": "{title}, page {page}",
+    "descriptionFiltered": "Games filtered by {filters}. Prices in hryvnias and Ukrainian localisation in the GG Stay catalog.",
+    "descriptionPage": "{description} Page {page}."
   },
   "filters": {
     "platform": "Platform",

@@ -2,6 +2,12 @@
 import { CatalogTaxonomiesDocument, GamesDocument } from '~/graphql/__generated__/operations'
 import { countActiveFilters } from '~/utils/filterUrl'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE } from '#shared/catalog'
+import { filterLabels } from '~/utils/filterLabels'
+import { OG_IMAGE, catalogRobots, trimDescription, withSiteName } from '~/utils/seo'
+import { coverShareImage } from '~/utils/structuredData'
+
+/** How much of a title the filter list may take before it is cut on a word boundary. */
+const TITLE_FILTERS_LIMIT = 60
 
 const { t } = useI18n()
 const { state, activeCount, setFilter, setSort, setPage, clear } = useGameFilters()
@@ -51,13 +57,53 @@ const appliedCount = computed(() => countActiveFilters(state.value.filter, ignor
 
 const filtersButtonEl = ref<HTMLButtonElement>()
 
+const { formatUah } = useFormatters()
+const { absoluteUrl } = useSiteUrl()
+
+/**
+ * The page described in the words its own chips use (`filterLabels`), so a filtered page's title
+ * and description say what it lists — "Ігри (Українська: озвучка, PC)" — rather than repeating
+ * the plain catalog's. The labels are trimmed to fit a title; the description takes them whole up
+ * to its own limit.
+ */
+const filterProse = computed(() =>
+  filterLabels(state.value.filter, { t, formatUah, genres: genres.value }).map(
+    (label) => label.prose,
+  ),
+)
+const headTitle = computed(() => {
+  const prose = filterProse.value
+  const title = prose.length
+    ? t('catalog.titleFiltered', {
+        filters: trimDescription(prose.join(', '), TITLE_FILTERS_LIMIT),
+      })
+    : t('catalog.title')
+  return state.value.page > 1 ? t('catalog.titlePage', { title, page: state.value.page }) : title
+})
+const headDescription = computed(() => {
+  const prose = filterProse.value
+  const description = prose.length
+    ? t('catalog.descriptionFiltered', { filters: prose.join(', ') })
+    : t('catalog.description')
+  return trimDescription(
+    state.value.page > 1
+      ? t('catalog.descriptionPage', { description, page: state.value.page })
+      : description,
+  )
+})
+// The first card's cover: the page has no art of its own, and this is what a visitor sees. A
+// page with no cards shares the site's own card instead.
+const shareImage = computed(() => coverShareImage(page.value?.items[0]?.cover?.url))
+
 useSeoMeta({
-  title: () => t('catalog.title'),
-  description: () => t('catalog.description'),
-  ogTitle: () => t('catalog.title'),
-  ogDescription: () => t('catalog.description'),
-  // The first card's cover: the page has no art of its own, and this is what a visitor sees.
-  ogImage: () => page.value?.items[0]?.cover?.url ?? undefined,
+  title: () => withSiteName(headTitle.value),
+  description: () => headDescription.value,
+  robots: () => catalogRobots({ filtered: activeCount.value > 0, page: state.value.page }),
+  ogTitle: () => headTitle.value,
+  ogDescription: () => headDescription.value,
+  ogImage: () => shareImage.value?.url ?? absoluteUrl(OG_IMAGE.path),
+  ogImageWidth: () => (shareImage.value ? shareImage.value.width : OG_IMAGE.width),
+  ogImageHeight: () => (shareImage.value ? shareImage.value.height : OG_IMAGE.height),
 })
 </script>
 

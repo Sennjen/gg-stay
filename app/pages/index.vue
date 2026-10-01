@@ -3,8 +3,10 @@ import { LandingDocument } from '~/graphql/__generated__/operations'
 import { RING_HEIGHT_CLASS } from '~/components/CoverRing.vue'
 import { roundGameCount } from '~/utils/roundGameCount'
 import { shelfCatalogQuery, shelfDefinition } from '#shared/shelves'
+import { INDEXABLE, OG_IMAGE } from '~/utils/seo'
+import { serializeJsonLd, websiteJsonLd } from '~/utils/structuredData'
 
-const { t } = useI18n()
+const { t, localeProperties } = useI18n()
 const { formatNumber } = useFormatters()
 const localePath = useLocalePath()
 
@@ -51,14 +53,40 @@ const shelves = computed(() => {
   })
 })
 
+const { absoluteUrl } = useSiteUrl()
+
+// The landing keeps its own title ("GG Stay — …") rather than the "… — GG Stay" every other page
+// ends with. Its share image is a static card of its own (`public/og.png`, drawn by
+// `scripts/og-image.ts`): the featured game changes daily, and a link shared once should not
+// preview as whatever game happened to be featured when a crawler fetched it.
 useSeoMeta({
   title: () => t('home.title'),
   description: () => t('home.description'),
+  robots: INDEXABLE,
   ogTitle: () => t('home.title'),
   ogDescription: () => t('home.description'),
-  // The featured game's cover doubles as the social preview: it is already the hero, already
-  // fetched, and it changes with the featured game rather than going stale as a static asset.
-  ogImage: () => featured.value?.game.cover?.url ?? undefined,
+  ogImage: absoluteUrl(OG_IMAGE.path),
+  ogImageWidth: OG_IMAGE.width,
+  ogImageHeight: OG_IMAGE.height,
+  ogImageType: 'image/png',
+  ogImageAlt: () => t('home.shareImageAlt'),
+})
+
+useHead({
+  script: () => [
+    {
+      key: 'ld-website',
+      type: 'application/ld+json',
+      innerHTML: serializeJsonLd(
+        websiteJsonLd({
+          homeUrl: absoluteUrl(localePath('/')),
+          catalogUrl: absoluteUrl(localePath('/games')),
+          description: t('home.description'),
+          inLanguage: localeProperties.value.language ?? 'uk-UA',
+        }),
+      ),
+    },
+  ],
 })
 
 // Full-bleed breakout: the layout's container (app/layouts/default.vue) centers content at
