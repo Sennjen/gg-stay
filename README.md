@@ -71,6 +71,36 @@ performance change lands, with the report and numbers recorded in
 first-load JavaScript for `/games` (131.1 KB gzipped, 117.5 KB brotli) against
 the 120 KB budget ADR-002 set, chunk by chunk, and what is left to move.
 
+## Field metrics
+
+Lighthouse measures one machine; the field numbers come from real visitors
+through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
+
+- **What is collected:** the Core Web Vitals of each page view — LCP, INP,
+  CLS, FCP and TTFB — grouped by route pattern (`/games/[slug]`, not each
+  game; `/en/…` separately), together with the page address and the coarse
+  context Vercel records with every report (device type, browser, country),
+  as described in Vercel's Speed Insights privacy documentation.
+- **What is not:** no cookies and no identifiers of any kind are set or sent
+  by this app; query strings and fragments are removed from the address
+  before a report leaves the browser, so searches and filters are never
+  recorded. A visitor whose browser sends Do Not Track or Global Privacy
+  Control is not measured at all: the script is never requested.
+- **How it loads:** `app/plugins/speed-insights.client.ts` imports the
+  Speed Insights runtime after hydration, when the browser is idle, from its
+  own chunk, so the first-load JavaScript of every page is unchanged. The
+  script (`/_vercel/speed-insights/script.js`) and its reports
+  (`/_vercel/speed-insights/vitals`) are same-origin, so the existing
+  Content-Security-Policy covers both.
+- **Where the numbers are:** the project's **Speed Insights** tab in the
+  Vercel dashboard (p75 per route, per device, over time). They are not
+  published from this repository.
+- **Turning it on** is the owner's step in Vercel: enable Speed Insights for
+  the project, then set `NUXT_PUBLIC_SPEED_INSIGHTS=1` for the Production
+  environment and redeploy. Without that variable — every local build, CI
+  and fixture mode included — nothing is loaded, because the script only
+  exists on a Vercel deployment with Speed Insights enabled.
+
 ## Development
 
 ```bash
