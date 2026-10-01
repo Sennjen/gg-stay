@@ -26,6 +26,25 @@ export async function readSitemapSource(index: GameIndex): Promise<SitemapSource
   }
 }
 
+/** What the static sitemap needs: the publication date alone. */
+export interface SitemapMeta {
+  updatedAt: string | null
+  complete: boolean
+}
+
+/**
+ * The publication date, for the static sitemap, without reading a single game: the landing and
+ * the catalog are listed whatever the index holds, and `allSlugs` reads every document.
+ */
+export async function readSitemapMeta(index: GameIndex): Promise<SitemapMeta> {
+  try {
+    const meta = await index.meta()
+    return { updatedAt: meta?.updatedAt ?? null, complete: true }
+  } catch {
+    return { updatedAt: null, complete: false }
+  }
+}
+
 /** Six hours: the index is published once a night, and a crawler needs no fresher list than that. */
 export const SITEMAP_CACHE_SECONDS = 6 * 60 * 60
 
