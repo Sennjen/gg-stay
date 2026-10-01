@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import type { NuxtError } from '#app'
+import { withSiteName } from '~/utils/seo'
 
 const props = defineProps<{ error: NuxtError }>()
 const { t } = useI18n()
 const localePath = useLocalePath()
 const isNotFound = computed(() => props.error.statusCode === 404)
 
-useHead({ meta: [{ name: 'robots', content: 'noindex' }] })
-useSeoMeta({ title: () => (isNotFound.value ? t('notFound.title') : t('errors.UPSTREAM_ERROR')) })
+const { localeProperties } = useI18n()
+
+// The error page replaces `app.vue` entirely, so it sets its own `lang`. It has no canonical and
+// no alternates on purpose: it is not a page anyone should index or be sent to in another language.
+useHead({ htmlAttrs: { lang: () => localeProperties.value.language } })
+useSeoMeta({
+  title: () => withSiteName(isNotFound.value ? t('notFound.title') : t('errors.UPSTREAM_ERROR')),
+  description: () => (isNotFound.value ? t('notFound.hint') : t('home.description')),
+  robots: useRobots()('noindex'),
+})
 </script>
 
 <template>

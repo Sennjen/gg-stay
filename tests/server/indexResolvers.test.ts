@@ -509,6 +509,7 @@ describe('an index that never answers', () => {
       getMany: () => new Promise(() => {}),
       getOne: () => new Promise(() => {}),
       meta: () => new Promise(() => {}),
+      allSlugs: () => new Promise(() => {}),
     }
     return countCalls(degradeOnFailure(withDeadline(hung, { setTimer: immediate }), () => {}))
   }

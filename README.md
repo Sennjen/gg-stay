@@ -63,6 +63,25 @@ Decisions are recorded in [docs/adr](docs/adr); the week 1 design is in
 [docs/specs](docs/specs); the redesign design is in
 [docs/specs/2026-09-19-redesign-design.md](docs/specs/2026-09-19-redesign-design.md).
 
+## Search engines
+
+- Every page has a title ending in "— GG Stay" (the landing keeps its own), a description in the
+  page's language, a canonical link without the query string, the uk/en hreflang pair, Open Graph
+  and Twitter tags. The game page describes itself with the description it shows (the Ukrainian
+  Steam text on `/games/…`), and emits `VideoGame` JSON-LD; the landing emits `WebSite` with a
+  catalog `SearchAction`. A filtered or paginated catalog page is `noindex, follow`.
+- `/sitemap.xml` indexes `/sitemaps/static.xml` and `/sitemaps/games-<n>.xml`, built from the
+  published price index, with `xhtml:link` alternates for both locales; cached for six hours.
+  `robots.txt` keeps crawlers off `/api/` and names the sitemap.
+- `NUXT_PUBLIC_SITE_URL` must be a bare `http(s)` origin; the build fails on anything else
+  (`shared/siteUrl.ts`). It is required on a Vercel production build, where it must also be a
+  public `https` origin. A Vercel preview without it uses its own deployment host (`VERCEL_URL`),
+  and every preview response carries `X-Robots-Tag: noindex, nofollow`. Elsewhere (local, CI,
+  tests) it falls back to `http://localhost:3000`. Do not set `NUXT_PUBLIC_I18N_BASE_URL`: it
+  would override the validated value at runtime without being checked.
+- The landing's share card, `public/og.png`, is drawn from the design tokens by
+  `scripts/og-image.ts` (`pnpm build && pnpm exec tsx scripts/og-image.ts`).
+
 ## Performance
 
 Lighthouse (mobile) is measured on `/`, `/games` and a game page after each

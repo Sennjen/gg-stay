@@ -1,4 +1,4 @@
-import type { GameIndex, IndexQuery, IndexSearchResult } from './GameIndex'
+import type { GameIndex, IndexQuery, IndexSearchResult, IndexedSlug } from './GameIndex'
 import type { IndexMeta, IndexedGame } from './document'
 import { createMemoryGameIndex } from './memoryIndex'
 import { createUpstashCommands, createUpstashIndex } from './upstashIndex'
@@ -50,6 +50,7 @@ export function unavailableGameIndex(reason: string): GameIndex {
     getMany: async (): Promise<Map<number, IndexedGame>> => new Map(),
     getOne: async (): Promise<IndexedGame | null> => null,
     meta: async (): Promise<IndexMeta | null> => null,
+    allSlugs: async (): Promise<IndexedSlug[]> => [],
   }
 }
 
@@ -84,6 +85,7 @@ export function degradeOnFailure(
     getMany: (ids: number[]) => attempt(() => index.getMany(ids)),
     getOne: (id: number) => attempt(() => index.getOne(id)),
     meta: () => attempt(() => index.meta()),
+    allSlugs: () => attempt(() => index.allSlugs()),
   }
 }
 
@@ -93,6 +95,13 @@ export function degradeOnFailure(
  * have used, so it is deliberately short.
  */
 export const DEFAULT_INDEX_TIMEOUT_MS = 1_500
+
+/**
+ * The deadline of `allSlugs`, the one read that walks the whole version. It serves the sitemap,
+ * which a crawler fetches and the CDN then keeps for hours — nobody is waiting on a page for it —
+ * and thousands of documents do not fit the page budget.
+ */
+export const DEFAULT_BULK_TIMEOUT_MS = 10_000
 
 /** How long the whole process skips the index after one call failed or timed out. */
 export const CIRCUIT_OPEN_MS = 30_000
@@ -128,12 +137,13 @@ const realTimers: TimerFunctions = {
  */
 export function withDeadline(
   index: GameIndex,
-  options: { timeoutMs?: number; setTimer?: TimerFunctions } = {},
+  options: { timeoutMs?: number; bulkTimeoutMs?: number; setTimer?: TimerFunctions } = {},
 ): GameIndex {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_INDEX_TIMEOUT_MS
+  const pageTimeoutMs = options.timeoutMs ?? DEFAULT_INDEX_TIMEOUT_MS
+  const bulkTimeoutMs = options.bulkTimeoutMs ?? DEFAULT_BULK_TIMEOUT_MS
   const timers = options.setTimer ?? realTimers
 
-  function race<T>(call: () => Promise<T>): Promise<T> {
+  function race<T>(call: () => Promise<T>, timeoutMs: number = pageTimeoutMs): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       let settled = false
       const handle = timers.setTimeout(() => {
@@ -159,6 +169,7 @@ export function withDeadline(
     getMany: (ids) => race(() => index.getMany(ids)),
     getOne: (id) => race(() => index.getOne(id)),
     meta: () => race(() => index.meta()),
+    allSlugs: () => race(() => index.allSlugs(), bulkTimeoutMs),
   }
 }
 
@@ -231,6 +242,16 @@ export function withCircuit(
     getMany: (ids) => through(() => index.getMany(ids)),
     getOne: (id) => through(() => index.getOne(id)),
     meta: () => through(() => index.meta()),
+    // The sitemap read respects an open circuit — a store the pages have given up on is not asked
+    // for its whole version — but never feeds it: reading thousands of documents is slow by
+    // nature, and neither its slowness nor its failure says anything about whether a page read of
+    // twenty cards would succeed.
+    allSlugs: () => {
+      if (isOpen()) {
+        return Promise.reject(new IndexUnavailableError('it failed recently and is being skipped'))
+      }
+      return index.allSlugs()
+    },
   }
 }
 

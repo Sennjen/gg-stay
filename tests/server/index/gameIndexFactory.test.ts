@@ -3,6 +3,8 @@ import type { GameIndex } from '../../../server/index/GameIndex'
 import type { PublishedFixture } from '../../../server/index/index'
 import {
   createGameIndex,
+  DEFAULT_BULK_TIMEOUT_MS,
+  DEFAULT_INDEX_TIMEOUT_MS,
   degradeOnFailure,
   IndexUnavailableError,
   STALE_SEED_AGE_MS,
@@ -177,6 +179,7 @@ describe('an unavailable index', () => {
     expect(await index.meta()).toBeNull()
     expect(await index.getMany([1])).toEqual(new Map())
     expect(await index.getOne(1)).toBeNull()
+    expect(await index.allSlugs()).toEqual([])
   })
 })
 
@@ -186,6 +189,7 @@ describe('withDeadline', () => {
     getMany: () => new Promise(() => {}),
     getOne: () => new Promise(() => {}),
     meta: () => new Promise(() => {}),
+    allSlugs: () => new Promise(() => {}),
   }
 
   /** Fires every pending deadline immediately, so no test waits for a real timer. */
@@ -206,6 +210,29 @@ describe('withDeadline', () => {
     await expect(index.meta()).rejects.toBeInstanceOf(IndexUnavailableError)
     await expect(index.getOne(1)).rejects.toBeInstanceOf(IndexUnavailableError)
     await expect(index.getMany([1])).rejects.toBeInstanceOf(IndexUnavailableError)
+    await expect(index.allSlugs()).rejects.toBeInstanceOf(IndexUnavailableError)
+  })
+
+  it('gives the sitemap read a budget of its own, far longer than a page read', async () => {
+    // Every slug of the index is thousands of documents: it would never fit the page budget,
+    // and a sitemap is fetched by a crawler, not waited for by a visitor.
+    const budgets: number[] = []
+    const index = withDeadline(hung, {
+      timeoutMs: 1500,
+      bulkTimeoutMs: 10_000,
+      setTimer: {
+        setTimeout: (handler, ms) => {
+          budgets.push(ms)
+          handler()
+          return 0
+        },
+        clearTimeout: () => undefined,
+      },
+    })
+    await expect(index.allSlugs()).rejects.toThrow(/within 10000ms/)
+    await expect(index.meta()).rejects.toThrow(/within 1500ms/)
+    expect(budgets).toEqual([10_000, 1500])
+    expect(DEFAULT_BULK_TIMEOUT_MS).toBeGreaterThan(DEFAULT_INDEX_TIMEOUT_MS)
   })
 
   it('lets an answer that arrives in time through, and cancels its timer', async () => {
@@ -238,6 +265,7 @@ describe('withCircuit', () => {
     getMany: () => Promise.reject(new Error('ECONNRESET')),
     getOne: () => Promise.reject(new Error('ECONNRESET')),
     meta: () => Promise.reject(new Error('ECONNRESET')),
+    allSlugs: () => Promise.reject(new Error('ECONNRESET')),
   }
 
   it('skips the index for a while after one failure, then tries again', async () => {
@@ -329,12 +357,44 @@ describe('withCircuit', () => {
       getMany: () => tick(new Map()),
       getOne: () => tick(null),
       meta: () => tick(null),
+      allSlugs: () => tick([]),
     }
     const index = withCircuit(slow, { slowMs: 700, strikes: 3, now: () => now })
     await index.meta()
     await index.getOne(1)
     await index.getMany([1])
     await expect(index.search({})).rejects.toBeInstanceOf(IndexUnavailableError)
+  })
+
+  it('keeps the sitemap read out of an open circuit, without letting it open or feed one', async () => {
+    let now = 1_000
+    const reasons: string[] = []
+    const slowSlugs: GameIndex = {
+      ...broken,
+      meta: async () => null,
+      allSlugs: async () => {
+        now += 5_000
+        return [{ slug: 'a', updatedAt: '2026-09-20T06:30:00.000Z' }]
+      },
+    }
+    const index = withCircuit(slowSlugs, {
+      slowMs: 700,
+      strikes: 1,
+      now: () => now,
+      onOpen: (reason) => reasons.push(reason),
+    })
+    // A read of the whole index is slow by nature; it must not close the index for the pages.
+    expect(await index.allSlugs()).toHaveLength(1)
+    expect(await index.meta()).toBeNull()
+    expect(reasons).toEqual([])
+
+    const failing = withCircuit(broken, { now: () => now, onOpen: (r) => reasons.push(r) })
+    await expect(failing.allSlugs()).rejects.toThrow('ECONNRESET')
+    expect(reasons).toEqual([])
+
+    // But while a page has closed the index, the sitemap does not knock on it either.
+    await expect(failing.meta()).rejects.toThrow('ECONNRESET')
+    await expect(failing.allSlugs()).rejects.toBeInstanceOf(IndexUnavailableError)
   })
 
   it('leaves a healthy index alone', async () => {
@@ -350,6 +410,7 @@ describe('degradeOnFailure', () => {
     getMany: () => Promise.reject(new Error('ECONNRESET')),
     getOne: () => Promise.reject(new Error('ECONNRESET')),
     meta: () => Promise.reject(new Error('ECONNRESET')),
+    allSlugs: () => Promise.reject(new Error('ECONNRESET')),
   }
 
   it('turns a store that stopped answering into the unavailable shape, on every method', async () => {
@@ -361,7 +422,8 @@ describe('degradeOnFailure', () => {
     await expect(index.getMany([1])).rejects.toBeInstanceOf(IndexUnavailableError)
     await expect(index.getOne(1)).rejects.toBeInstanceOf(IndexUnavailableError)
     await expect(index.meta()).rejects.toBeInstanceOf(IndexUnavailableError)
-    expect(onError).toHaveBeenCalledTimes(4)
+    await expect(index.allSlugs()).rejects.toBeInstanceOf(IndexUnavailableError)
+    expect(onError).toHaveBeenCalledTimes(5)
   })
 
   it('keeps a deadline as the deadline it was, rather than renaming it', async () => {
@@ -370,6 +432,7 @@ describe('degradeOnFailure', () => {
       getMany: () => new Promise(() => {}),
       getOne: () => new Promise(() => {}),
       meta: () => new Promise(() => {}),
+      allSlugs: () => new Promise(() => {}),
     }
     const index = degradeOnFailure(
       withDeadline(hung, {

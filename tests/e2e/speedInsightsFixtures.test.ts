@@ -6,6 +6,8 @@ import { $fetch, setup } from '@nuxt/test-utils/e2e'
 // never be reported as field metrics, so the page must still be told Speed Insights is off, even
 // with NUXT_PUBLIC_SPEED_INSIGHTS=1 forcing it on.
 process.env.VERCEL_ENV = 'production'
+// A Vercel production build refuses to build without its public origin (shared/siteUrl.ts).
+process.env.NUXT_PUBLIC_SITE_URL = 'https://gg-stay.vercel.app'
 delete process.env.RAWG_FIXTURES
 delete process.env.NUXT_RAWG_FIXTURES
 

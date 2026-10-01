@@ -605,7 +605,8 @@ describe('server-side rendering', async () => {
       // property the whole arrangement exists for, checked against the markup actually served.
       const html = await fetch(path, { headers: { accept: 'text/html' } }).then((r) => r.text())
       const inline = [...html.matchAll(/<script(?![^>]*\ssrc=)([^>]*)>([\s\S]*?)<\/script>/g)]
-        .filter(([, tag]) => !tag!.includes('application/json'))
+        // JSON and JSON-LD are data blocks: never executed, and never hashed by the plugin.
+        .filter(([, tag]) => !/type="application\/(?:ld\+)?json"/.test(tag!))
         .map(([, , body]) => body!)
       expect(inline).toHaveLength(2)
       for (const body of inline) {

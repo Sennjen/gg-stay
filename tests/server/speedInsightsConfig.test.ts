@@ -12,6 +12,10 @@ async function loadConfig(env: Record<string, string | undefined> = {}) {
   for (const name of ['VERCEL_ENV', 'RAWG_FIXTURES', 'NUXT_RAWG_FIXTURES']) {
     vi.stubEnv(name, env[name])
   }
+  // A Vercel build needs its site URL (shared/siteUrl.ts): production refuses to build without
+  // one, and a preview falls back to its own host. Neither is what this file is about.
+  vi.stubEnv('NUXT_PUBLIC_SITE_URL', 'https://gg-stay.vercel.app')
+  vi.stubEnv('VERCEL_URL', 'gg-stay-git-x.vercel.app')
   const module = await import('../../nuxt.config')
   return module.default as {
     runtimeConfig?: { public?: { speedInsights?: unknown } }

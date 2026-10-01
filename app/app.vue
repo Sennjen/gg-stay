@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { SITE_NAME } from '~/utils/seo'
+
 // Adds <html lang>, hreflang alternates and the canonical link for the current locale.
 const head = useLocaleHead({ seo: true })
 useHead({
@@ -11,6 +13,12 @@ useHead({
     ...(head.value.link ?? []),
   ],
   meta: () => head.value.meta ?? [],
+})
+// What every page's preview card shares; each page adds its own title, description and image.
+useSeoMeta({
+  ogSiteName: SITE_NAME,
+  ogType: 'website',
+  twitterCard: 'summary_large_image',
 })
 </script>
 

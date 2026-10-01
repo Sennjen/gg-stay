@@ -6,7 +6,10 @@ import type {
   GameIndexWriter,
   IndexQuery,
   IndexSearchResult,
+  IndexedSlug,
 } from './GameIndex'
+import { DEFAULT_SORT } from './GameIndex'
+import { orderKey } from './keys'
 import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
 import type { PlannedRange, QueryPlan } from './queryPlan'
 import { planQuery } from './queryPlan'
@@ -202,6 +205,16 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
 
   async meta(): Promise<IndexMeta | null> {
     return this.live ? { ...this.live.meta } : null
+  }
+
+  async allSlugs(): Promise<IndexedSlug[]> {
+    const live = this.live
+    if (!live) return []
+    const updatedAt = live.meta.updatedAt
+    return (live.orders.get(orderKey(live.version, DEFAULT_SORT)) ?? []).flatMap((id) => {
+      const game = live.plan.docs.get(id)
+      return game ? [{ slug: game.slug, updatedAt }] : []
+    })
   }
 
   async previousMeta(): Promise<IndexMeta | null> {
