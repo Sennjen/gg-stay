@@ -36,9 +36,36 @@ export interface SpeedInsightsGate {
 export function speedInsightsWanted({ enabled, dev, navigator }: SpeedInsightsGate): boolean {
   if (dev) return false
   if (!['1', 'true'].includes(String(enabled))) return false
-  if (navigator.doNotTrack === '1') return false
+  // "yes" is what older Firefox and Safari sent.
+  if (['1', 'yes'].includes(String(navigator.doNotTrack))) return false
   if (navigator.globalPrivacyControl === true) return false
   return true
+}
+
+/** The part of a resolved route `routePattern` reads. */
+export interface MatchedRoute {
+  matched: readonly { path: string }[]
+}
+
+/**
+ * The route a page view is reported under. Always a pattern from a fixed, small set, so the
+ * dashboard groups page views instead of growing one row per address:
+ *
+ *  - a matched route → its record's path with every parameter written as `[name]`
+ *    (`/en/games/:slug()` → `/en/games/[slug]`), read from the route table rather than rebuilt
+ *    from the address, so a slug can never leak into it;
+ *  - a page showing an error → `/404` for not found, `/error` for anything else, whatever route it
+ *    is on — an unknown slug must not count towards the game page's numbers;
+ *  - an address nothing matched → `/404`, never the address itself.
+ */
+export function routePattern(
+  to: MatchedRoute,
+  error: { statusCode?: number } | null | undefined,
+): string {
+  if (error) return error.statusCode === 404 ? '/404' : '/error'
+  const record = to.matched.at(-1)
+  if (!record) return '/404'
+  return record.path.replace(/:(\w+)(?:\([^)]*\))?[?*+]?/g, '[$1]')
 }
 
 /**

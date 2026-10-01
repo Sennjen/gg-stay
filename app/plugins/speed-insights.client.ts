@@ -1,5 +1,3 @@
-import type { RouteLocationNormalized } from 'vue-router'
-
 /**
  * Vercel Speed Insights: Core Web Vitals from real visitors, grouped by route pattern.
  *
@@ -16,7 +14,10 @@ import type { RouteLocationNormalized } from 'vue-router'
  *  - loaded after hydration, when the browser is idle, from its own chunk, and never prefetched
  *    (see the `build:manifest` hook in nuxt.config.ts): first-load JavaScript carries only this
  *    file;
- *  - no query strings or fragments in the reported address (`withoutQuery`).
+ *  - no query strings or fragments in the reported address (`withoutQuery`);
+ *  - a route pattern taken from the route table, with error pages and unmatched addresses reported
+ *    as `/404` or `/error` (`routePattern`) — the package's `computeRoute` rebuilds the pattern
+ *    from the address and returns an unmatched address unchanged.
  *
  * It imports the framework-free entry (`@vercel/speed-insights`) rather than
  * `@vercel/speed-insights/nuxt/runtime`: the latter imports Nuxt's and Vue's composables, and a
@@ -30,29 +31,37 @@ import type { RouteLocationNormalized } from 'vue-router'
 export default defineNuxtPlugin({
   name: 'speed-insights',
   setup(nuxtApp) {
+    const navigator: PrivacySignals = window.navigator
     const wanted = speedInsightsWanted({
       enabled: useRuntimeConfig().public.speedInsights,
       dev: import.meta.dev,
-      navigator: window.navigator,
+      navigator: {
+        // Older Safari sent Do Not Track on `window` instead.
+        doNotTrack: navigator.doNotTrack ?? (window as PrivacySignals).doNotTrack,
+        globalPrivacyControl: navigator.globalPrivacyControl,
+      },
     })
     if (!wanted) return
 
+    const error = useError()
     onNuxtReady(async () => {
       try {
-        const { computeRoute, injectSpeedInsights } = await import('@vercel/speed-insights')
+        const { injectSpeedInsights } = await import('@vercel/speed-insights')
         const router = nuxtApp.$router
-        const pattern = (to: RouteLocationNormalized) =>
-          computeRoute(to.path, to.params as Record<string, string | string[]>)
         const insights = injectSpeedInsights(
           {
-            route: pattern(router.currentRoute.value),
+            route: routePattern(router.currentRoute.value, error.value),
             framework: 'nuxt',
             basePath: import.meta.env.VITE_VERCEL_OBSERVABILITY_BASEPATH,
             beforeSend: withoutQuery,
           },
           import.meta.env.VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG,
         )
-        router.afterEach((to) => insights?.setRoute(pattern(to)))
+        if (!insights) return
+        router.afterEach((to) => insights.setRoute(routePattern(to, error.value)))
+        // A page throws its 404 after the navigation that led to it has finished, and leaving an
+        // error page clears the error after it; both have to move the route too.
+        watch(error, () => insights.setRoute(routePattern(router.currentRoute.value, error.value)))
       } catch {
         // A blocked or failed chunk costs the page nothing; the measurement is simply missing.
       }
