@@ -6,6 +6,9 @@ on: workflow_dispatch
 concurrency:
   group: index-smoke
   cancel-in-progress: false
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
