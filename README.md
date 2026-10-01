@@ -91,7 +91,7 @@ through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
 - **How it loads:** `app/plugins/speed-insights.client.ts` imports the
   Speed Insights SDK after hydration, when the browser is idle, from its own
   chunk that is never preloaded or prefetched. The first-load JavaScript of
-  `/games` grew by the loader alone (0.3 KB gzipped); the SDK (1 KB gzipped)
+  `/games` grew by the loader alone (0.4 KB gzipped); the SDK (1 KB gzipped)
   is downloaded only by visitors who are measured. A visitor who leaves
   before the page first goes idle is never measured, so the numbers lean
   slightly towards longer visits. The script
