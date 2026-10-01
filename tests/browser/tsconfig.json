@@ -1,0 +1,18 @@
+{
+  // The browser flows and their Playwright config run outside Nuxt and outside Vitest, so neither
+  // `pnpm typecheck` nor the scripts project sees them. Same strictness as tsconfig.scripts.json,
+  // plus the DOM library for the code that runs inside the page (`page.waitForFunction`).
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["esnext", "dom"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["./**/*.ts", "../../playwright.config.ts"]
+}
