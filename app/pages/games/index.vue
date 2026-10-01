@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CatalogTaxonomiesDocument, GamesDocument } from '~/graphql/__generated__/operations'
-import { countActiveFilters } from '~/utils/filterUrl'
+import { DEFAULT_SORT, countActiveFilters } from '~/utils/filterUrl'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE } from '#shared/catalog'
 import { filterLabels } from '~/utils/filterLabels'
 import { OG_IMAGE, catalogRobots, trimDescription, withSiteName } from '~/utils/seo'
@@ -99,12 +99,21 @@ const shareImage = computed(() => coverShareImage(page.value?.items[0]?.cover?.u
 useSeoMeta({
   title: () => withSiteName(headTitle.value),
   description: () => headDescription.value,
-  robots: () => robots(catalogRobots({ filtered: activeCount.value > 0, page: state.value.page })),
+  robots: () =>
+    robots(
+      catalogRobots({
+        filtered: activeCount.value > 0,
+        sorted: state.value.sort !== DEFAULT_SORT,
+        page: state.value.page,
+      }),
+    ),
   ogTitle: () => headTitle.value,
   ogDescription: () => headDescription.value,
   ogImage: () => shareImage.value?.url ?? absoluteUrl(OG_IMAGE.path),
   ogImageWidth: () => (shareImage.value ? shareImage.value.width : OG_IMAGE.width),
   ogImageHeight: () => (shareImage.value ? shareImage.value.height : OG_IMAGE.height),
+  ogImageType: () => (shareImage.value ? undefined : 'image/png'),
+  ogImageAlt: () => page.value?.items[0]?.name ?? t('home.shareImageAlt'),
 })
 </script>
 

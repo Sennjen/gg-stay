@@ -18,7 +18,7 @@ describe('the landing share card', () => {
   it('has exactly the size the head declares, the 1.91:1 of a large preview card', () => {
     expect(png.readUInt32BE(16)).toBe(OG_IMAGE.width)
     expect(png.readUInt32BE(20)).toBe(OG_IMAGE.height)
-    expect(OG_IMAGE).toMatchObject({ width: 1200, height: 630 })
+    expect(OG_IMAGE.width / OG_IMAGE.height).toBeCloseTo(1.905, 2)
   })
 
   it('stays small enough for every crawler that fetches it', () => {

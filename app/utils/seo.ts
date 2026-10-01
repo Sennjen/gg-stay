@@ -36,8 +36,10 @@ const TRAILING_PUNCTUATION = /[\s,;:—–-]+$/
  */
 export function trimDescription(text: string, limit: number = DESCRIPTION_LIMIT): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  if (flat.length <= limit) return flat
-  const room = flat.slice(0, limit - 1)
+  // Counted in code points, so a cut never splits an emoji's surrogate pair.
+  const characters = Array.from(flat)
+  if (characters.length <= limit) return flat
+  const room = characters.slice(0, limit - 1).join('')
   const boundary = room.lastIndexOf(' ')
   const cut = boundary >= limit * MIN_KEPT_SHARE ? room.slice(0, boundary) : room
   return `${cut.replace(TRAILING_PUNCTUATION, '')}…`
@@ -57,7 +59,9 @@ export function metaDescription(text: string | null | undefined): string {
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-  while (lines.length > 1 && isHeading(lines[0]!)) lines.shift()
+  // Only the first line: a short line further down ("Ключові риси", a list item) is part of the
+  // text, and dropping every one of them could leave a description of the last line alone.
+  if (lines.length > 1 && isHeading(lines[0]!)) lines.shift()
   return trimDescription(lines.join(' '))
 }
 
@@ -68,12 +72,12 @@ export const INDEXABLE = 'index, follow, max-image-preview:large'
 export const NOT_INDEXABLE = 'noindex, follow'
 
 /**
- * The catalog's first plain page is the one worth a search result. A filtered or later page is a
- * view of it — one per combination of a dozen filters — so it stays out of the index, while its
+ * The catalog's first plain page is the one worth a search result. A filtered, re-sorted or later
+ * page is a view of it — one per combination of a dozen filters — so it stays out of the index, while its
  * canonical (always the query-free URL) points back at the page that is in.
  */
-export function catalogRobots(state: { filtered: boolean; page: number }): string {
-  return state.filtered || state.page > 1 ? NOT_INDEXABLE : INDEXABLE
+export function catalogRobots(state: { filtered: boolean; sorted: boolean; page: number }): string {
+  return state.filtered || state.sorted || state.page > 1 ? NOT_INDEXABLE : INDEXABLE
 }
 
 /**

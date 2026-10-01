@@ -40,6 +40,12 @@ describe('trimDescription', () => {
     expect(trimmed).toBe(`${'ж'.repeat(159)}…`)
   })
 
+  it('never cuts a character in half', () => {
+    // An emoji is two UTF-16 code units; a cut between them leaves a lone surrogate.
+    const trimmed = trimDescription(`${'а'.repeat(158)}🎮🎮🎮`)
+    expect(trimmed).toBe(`${'а'.repeat(158)}🎮…`)
+  })
+
   it('takes another limit when asked', () => {
     expect(trimDescription('one two three four', 10)).toBe('one two…')
   })
@@ -61,6 +67,12 @@ describe('metaDescription', () => {
     expect(metaDescription('Про гру')).toBe('Про гру')
   })
 
+  it('skips only the first line: a short line further down is part of the text', () => {
+    expect(metaDescription('Про гру\nКлючові риси\nВідкритий світ\nДовга історія.')).toBe(
+      'Ключові риси Відкритий світ Довга історія.',
+    )
+  })
+
   it('trims to the description limit', () => {
     expect(metaDescription(`Заголовок\n${'слово '.repeat(60)}`).length).toBeLessThanOrEqual(160)
   })
@@ -72,18 +84,21 @@ describe('metaDescription', () => {
 })
 
 describe('catalogRobots', () => {
-  it('lets the plain first page be indexed', () => {
-    expect(catalogRobots({ filtered: false, page: 1 })).toBe(INDEXABLE)
+  const plain = { filtered: false, sorted: false, page: 1 }
+
+  it('lets the plain first page be indexed, with large image previews', () => {
+    expect(catalogRobots(plain)).toBe('index, follow, max-image-preview:large')
   })
 
-  it('keeps any filtered page and any page past the first out of the index, links followed', () => {
-    expect(catalogRobots({ filtered: true, page: 1 })).toBe(NOT_INDEXABLE)
-    expect(catalogRobots({ filtered: false, page: 2 })).toBe(NOT_INDEXABLE)
-    expect(NOT_INDEXABLE).toBe('noindex, follow')
-  })
-
-  it('allows large image previews wherever it allows indexing', () => {
-    expect(INDEXABLE).toBe('index, follow, max-image-preview:large')
+  it('keeps every other view of the catalog out of the index, links still followed', () => {
+    for (const view of [
+      { ...plain, filtered: true },
+      { ...plain, page: 2 },
+      // A different order of the same games is another view of the first page, not a page.
+      { ...plain, sorted: true },
+    ]) {
+      expect(catalogRobots(view)).toBe('noindex, follow')
+    }
   })
 })
 
