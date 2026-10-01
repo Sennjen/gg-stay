@@ -11,13 +11,23 @@ export interface PrivacySignals {
 
 /**
  * The build-time default of `runtimeConfig.public.speedInsights`: on for a Vercel production build
- * (`VERCEL_ENV=production`), where the project has Speed Insights enabled and
- * `/_vercel/speed-insights/script.js` exists; off for previews, local and CI builds, and fixture
- * mode, which would otherwise request a script that is not there or measure recorded data.
- * `NUXT_PUBLIC_SPEED_INSIGHTS` overrides it at runtime either way (`0` off, `1` on).
+ * (`VERCEL_ENV=production`), where the project has Speed Insights enabled; off for previews (kept
+ * out of production data), local and CI builds, and fixture mode (recorded data is not a field
+ * metric). `NUXT_PUBLIC_SPEED_INSIGHTS` overrides it at runtime (`0` off, `1` on), except that
+ * fixture mode always wins — see `speedInsightsAtRuntime`.
  */
 export function speedInsightsDefault(env: Record<string, string | undefined>): '1' | '' {
-  return env.VERCEL_ENV === 'production' && env.RAWG_FIXTURES !== '1' ? '1' : ''
+  const fixtures = env.RAWG_FIXTURES === '1' || env.NUXT_RAWG_FIXTURES === '1'
+  return env.VERCEL_ENV === 'production' && !fixtures ? '1' : ''
+}
+
+/**
+ * The flag a rendered page receives. Fixture mode is also a runtime switch (`NUXT_RAWG_FIXTURES`
+ * overrides `rawgFixtures`), which a build-time default cannot see, so the server applies it on
+ * every render (`app/plugins/speed-insights.server.ts`). Both values arrive as destr parses them.
+ */
+export function speedInsightsAtRuntime(flag: unknown, rawgFixtures: unknown): unknown {
+  return String(rawgFixtures) === '1' ? '' : flag
 }
 
 export interface SpeedInsightsGate {

@@ -14,7 +14,10 @@ export default defineNuxtConfig({
     // The renderer prefetches every dynamic import of the entry on every page. The Speed Insights
     // SDK is imported after hydration and only for visitors it may measure (see
     // app/plugins/speed-insights.client.ts), so prefetching it would download it for everyone else
-    // too — on every deployment that never opted in, and for visitors who sent Do Not Track.
+    // too — on every deployment where it is off, and for visitors who sent Do Not Track. The key is
+    // matched by substring: if a Nuxt or bundler upgrade renames it, or the import moves out of the
+    // entry, this silently stops working, and the e2e test that fetches every script a page loads,
+    // preloads or prefetches (tests/e2e/ssr.test.ts) is the guard that fails.
     'build:manifest'(manifest) {
       for (const chunk of Object.values(manifest)) {
         if (!chunk.isEntry) continue
