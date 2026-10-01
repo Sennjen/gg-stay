@@ -56,9 +56,10 @@ const now = useState('game-page-now', () => new Date().toISOString())
 const { absoluteUrl } = useSiteUrl()
 const robots = useRobots()
 const shareImage = computed(() => coverShareImage(game.value?.cover?.url))
+const headTitle = computed(() => (game.value ? withSiteName(game.value.name) : SITE_NAME))
 
 useSeoMeta({
-  title: () => (game.value ? withSiteName(game.value.name) : SITE_NAME),
+  title: () => headTitle.value,
   description: () => description.value,
   robots: robots(INDEXABLE),
   ogTitle: () => game.value?.name,
@@ -82,6 +83,7 @@ useHead({
             innerHTML: serializeJsonLd(
               gameJsonLd(game.value, {
                 url: absoluteUrl(route.path),
+                title: headTitle.value,
                 description: description.value,
                 inLanguage: localeProperties.value.language ?? 'uk-UA',
                 now: now.value,

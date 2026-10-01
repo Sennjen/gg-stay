@@ -36,8 +36,6 @@ export function coverShareImage(cover: string | null | undefined): ShareImage | 
 export interface GameForJsonLd {
   name: string
   released?: string | null
-  rating?: number | null
-  ratingsCount?: number | null
   cover?: { url: string } | null
   platforms: readonly { name: string }[]
   genres: readonly { name: string }[]
@@ -53,17 +51,12 @@ export interface GameForJsonLd {
 }
 
 /**
- * An average of fewer ratings than this says little, and a search result that shows four stars
- * from two votes would be promising more than the page knows.
- */
-const MIN_RATINGS = 5
-
-/**
  * How old a price may be and still be offered to a search engine. The page itself shows any price
  * it has, with its age beside it; a search result shows the price alone, possibly for days, so it
- * gets only a price the nightly job or the page's own live refresh read within the last day.
+ * gets only a recent one. A day and a half rather than a day: the index is refreshed nightly, and
+ * a run that is an hour late must not take every offer away until the next one.
  */
-export const PRICE_FRESH_MS = 24 * 60 * 60 * 1000
+export const PRICE_FRESH_MS = 36 * 60 * 60 * 1000
 
 function organizations(list: readonly { name: string }[]): JsonLd[] {
   return list.map((entry) => ({ '@type': 'Organization', name: entry.name }))
@@ -78,47 +71,63 @@ function steamOffer(game: GameForJsonLd, now: string): JsonLd | null {
   if (!steam || steam.priceUah == null || !steam.updatedAt) return null
   const age = Date.parse(now) - Date.parse(steam.updatedAt)
   if (!Number.isFinite(age) || age > PRICE_FRESH_MS) return null
+  // A Steam price on a game that is not out yet is a pre-order. ISO dates compare as strings.
+  const upcoming = Boolean(game.released && game.released > now.slice(0, 10))
   return {
     '@type': 'Offer',
     price: String(steam.priceUah),
     priceCurrency: 'UAH',
-    availability: 'https://schema.org/InStock',
+    availability: upcoming ? 'https://schema.org/PreOrder' : 'https://schema.org/InStock',
     url: steam.url,
   }
 }
 
+/**
+ * The game page as a graph of two nodes: the `WebPage`, which is in the page's language, and the
+ * `VideoGame` it is about. The language belongs to the page only — the game's own languages are
+ * not what the page's locale says, and declaring every game Ukrainian on `/games/…` would be false
+ * about the one thing this site is for.
+ *
+ * There is no `aggregateRating`: the only ratings the page has are RAWG's, and Google's
+ * review-snippet rules forbid marking up ratings aggregated from another site.
+ */
 export function gameJsonLd(
   game: GameForJsonLd,
-  options: { url: string; description: string; inLanguage: string; now: string },
+  options: { url: string; title: string; description: string; inLanguage: string; now: string },
 ): JsonLd {
-  const data: JsonLd = {
-    '@context': 'https://schema.org',
+  const gameId = `${options.url}#game`
+  const video: JsonLd = {
     '@type': 'VideoGame',
+    '@id': gameId,
     name: game.name,
     url: options.url,
   }
   const image = coverShareImage(game.cover?.url)
-  if (image) data.image = image.url
-  data.description = options.description
-  if (game.released) data.datePublished = game.released
-  if (game.genres.length) data.genre = names(game.genres)
-  if (game.platforms.length) data.gamePlatform = names(game.platforms)
-  if (game.publishers.length) data.publisher = organizations(game.publishers)
-  if (game.developers.length) data.author = organizations(game.developers)
-  if (game.rating && game.ratingsCount && game.ratingsCount >= MIN_RATINGS) {
-    // RAWG's own scale: an average of votes out of five.
-    data.aggregateRating = {
-      '@type': 'AggregateRating',
-      ratingValue: game.rating,
-      ratingCount: game.ratingsCount,
-      bestRating: 5,
-      worstRating: 0,
-    }
-  }
+  if (image) video.image = image.url
+  video.description = options.description
+  if (game.released) video.datePublished = game.released
+  if (game.genres.length) video.genre = names(game.genres)
+  if (game.platforms.length) video.gamePlatform = names(game.platforms)
+  if (game.publishers.length) video.publisher = organizations(game.publishers)
+  if (game.developers.length) video.author = organizations(game.developers)
   const offer = steamOffer(game, options.now)
-  if (offer) data.offers = offer
-  data.inLanguage = options.inLanguage
-  return data
+  if (offer) video.offers = offer
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebPage',
+        '@id': `${options.url}#webpage`,
+        url: options.url,
+        name: options.title,
+        description: options.description,
+        inLanguage: options.inLanguage,
+        mainEntity: { '@id': gameId },
+      },
+      video,
+    ],
+  }
 }
 
 /** The site, and the catalog search a result can offer a search box for. */

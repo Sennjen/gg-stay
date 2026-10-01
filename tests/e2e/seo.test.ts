@@ -259,19 +259,32 @@ describe('SEO: what a crawler reads', async () => {
     }
   })
 
-  it('emits the game JSON-LD with every required field', async () => {
+  it('emits the game JSON-LD: the page in its language, the game as its main entity', async () => {
     for (const [path, language] of [
       [GAME, 'uk-UA'],
       [`/en${GAME}`, 'en-US'],
     ] as const) {
       const head = await headOf(path)
-      const [game, ...rest] = head.jsonLd
+      const [data, ...rest] = head.jsonLd
       expect(rest).toEqual([])
-      expect(game).toMatchObject({
-        '@context': 'https://schema.org',
+      expect(data!['@context']).toBe('https://schema.org')
+      const [page, game, ...more] = data!['@graph'] as Record<string, unknown>[]
+      expect(more).toEqual([])
+      const url = canonical(head)
+      expect(page).toEqual({
+        '@type': 'WebPage',
+        '@id': `${url}#webpage`,
+        url,
+        name: head.title,
+        description: metaName(head, 'description'),
+        inLanguage: language,
+        mainEntity: { '@id': `${url}#game` },
+      })
+      expect(game).toEqual({
         '@type': 'VideoGame',
+        '@id': `${url}#game`,
         name: 'The Witcher 3: Wild Hunt',
-        url: canonical(head),
+        url,
         image: og(head, 'og:image'),
         description: metaName(head, 'description'),
         datePublished: '2015-05-18',
@@ -279,13 +292,6 @@ describe('SEO: what a crawler reads', async () => {
         gamePlatform: expect.arrayContaining(['PC']),
         publisher: [{ '@type': 'Organization', name: 'CD PROJEKT RED' }],
         author: [{ '@type': 'Organization', name: 'CD PROJEKT RED' }],
-        aggregateRating: {
-          '@type': 'AggregateRating',
-          ratingValue: 4.65,
-          ratingCount: 6800,
-          bestRating: 5,
-          worstRating: 0,
-        },
         // The fixture index is published as of the server's start, so its price is fresh.
         offers: {
           '@type': 'Offer',
@@ -294,7 +300,6 @@ describe('SEO: what a crawler reads', async () => {
           availability: 'https://schema.org/InStock',
           url: 'https://store.steampowered.com/app/292030/',
         },
-        inLanguage: language,
       })
     }
   })
