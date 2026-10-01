@@ -12,11 +12,15 @@ const PLACEHOLDER_PNG = Buffer.from(
 )
 const RAWG_IMAGES = /^https:\/\/(media|api)\.rawg\.io\//
 
-/** Impacts that fail a flow; `minor` and `moderate` findings are annotated but not fatal. */
-const BLOCKING_IMPACTS = new Set(['serious', 'critical'])
+/**
+ * Impacts that fail a flow. The spec's bar is serious and critical; moderate is held too, because no
+ * moderate finding remains and the gate should keep it that way. `minor` findings are annotated in
+ * the report but not fatal.
+ */
+const BLOCKING_IMPACTS = new Set(['moderate', 'serious', 'critical'])
 
 /**
- * Runs axe on the page as it is now and fails on any serious or critical violation, listing each
+ * Runs axe on the page as it is now and fails on any moderate, serious or critical violation, listing each
  * rule and the elements it flagged. Call it on every page a flow visits and in every dialog state.
  */
 export async function expectAccessible(page: Page, state: string): Promise<void> {

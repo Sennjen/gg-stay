@@ -1,11 +1,17 @@
 <script setup lang="ts">
+/**
+ * `label` names the navigation landmark. The switcher sits in both the header and the footer, and
+ * two navigation landmarks with the same name cannot be told apart in a landmark list, so the
+ * footer passes its own.
+ */
+const props = defineProps<{ label?: string }>()
 const { locale, locales, t } = useI18n()
 const switchLocalePath = useSwitchLocalePath()
 const others = computed(() => locales.value.filter((entry) => entry.code !== locale.value))
 </script>
 
 <template>
-  <nav :aria-label="t('nav.language')">
+  <nav :aria-label="props.label ?? t('nav.language')">
     <NuxtLink
       v-for="entry in others"
       :key="entry.code"
