@@ -50,7 +50,10 @@ function builtFontFaces(family: string): string {
   const faces = files.flatMap((file) =>
     [...readFileSync(join(assets, file), 'utf8').matchAll(/@font-face\{[^}]*\}/g)]
       .map(([rule]) => rule)
-      .filter((rule) => rule.includes(`font-family:${family};`) && rule.includes('_fonts/')),
+      .filter(
+        (rule) =>
+          new RegExp(`font-family:\\s*["']?${family}["']?;`).test(rule) && rule.includes('_fonts/'),
+      ),
   )
   if (faces.length === 0) throw new Error(`The build has no @font-face for ${family}.`)
   return faces
@@ -95,10 +98,14 @@ svg { display: block; }
     await page.setContent(html)
     // Text drawn before its face has loaded would be drawn in the fallback.
     // (A string, because this script is typechecked without the DOM library.)
-    await page.evaluate(
+    const loaded = await page.evaluate(
       `Promise.all(['132px Tektur', '44px Inter'].map((font) => document.fonts.load(font, 'GG Stay Каталог')))` +
-        `.then(() => document.fonts.ready).then(() => true)`,
+        `.then(() => document.fonts.ready)` +
+        `.then(() => document.fonts.check('132px Tektur', 'GG Stay') && document.fonts.check('44px Inter', 'Каталог'))`,
     )
+    // `document.fonts.load` resolves with an empty list when no face matched, so a card drawn in a
+    // fallback face would otherwise be written without a word.
+    if (loaded !== true) throw new Error('Tektur or Inter did not load; the card was not written.')
     const png = await page.screenshot({ clip: { x: 0, y: 0, width: WIDTH, height: HEIGHT } })
     writeFileSync(join(ROOT, 'public/og.png'), png)
     console.log(`public/og.png written (${WIDTH}×${HEIGHT}, ${png.length} bytes)`)
