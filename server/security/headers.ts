@@ -24,6 +24,10 @@ const STEAM_VIDEO = 'https://video.akamai.steamstatic.com'
  * them the browser blocks it and logs a CSP violation for every cover RAWG fails to serve. Only
  * this one body is allowed, and only on pages (the policy with script hashes) — an injected
  * handler with any other body is still blocked.
+ *
+ * Nothing in the app consumes the marker today: no `<NuxtImg>` listens to `@error`. If that stays
+ * true, the narrower fix is to drop the attribute at the source (`:onerror="undefined"` on the
+ * call sites, or a thin wrapper component) and remove `'unsafe-hashes'` from the policy.
  */
 export const NUXT_IMG_ERROR_HANDLER_HASH = "'sha256-bwK6T5wZVTANitXbrTsel7kl/PyCjCd/Dq5Qoz3imjM='"
 

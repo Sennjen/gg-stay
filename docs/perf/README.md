@@ -182,7 +182,8 @@ What moved and what is left:
 Measured 2026-10-01 on the fixture-mode production build (`NITRO_PRESET=node-server`, the build
 the CI quality gates serve), with the same method: the `/games` HTML's entry module plus every
 `<link rel="modulepreload">`, each file compressed at gzip level 9 (Node's zlib, which comes out a
-few hundred bytes above `gzip -9` on the same files).
+few hundred bytes above `gzip -9` on the same files). The file names are this build's: the entry
+chunk carries the build-time site URL, so its hash (and a few bytes) differ from build to build.
 
 | Chunk         | Contents (roughly)                                              |     Raw | gzip -9 (zlib) |
 | ------------- | --------------------------------------------------------------- | ------: | -------------: |
@@ -205,6 +206,9 @@ catalog's own components.
 above **144 633 bytes (141.2 KiB)** — today's size plus 5 %. It runs in the `quality` job of CI on
 every pull request, beside Lighthouse CI and the Playwright flows (below). The 120 KB target in
 ADR-002 is still missed and still recorded there; this number only stops further drift.
+
+The Vercel Speed Insights loader (#52) adds about 0.4 KB gzip to the `/games` first load, inside
+the 5 % headroom.
 
 ## Quality gates in CI
 
