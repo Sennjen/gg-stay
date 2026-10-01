@@ -2,7 +2,17 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import { STATIC_SECURITY_HEADERS } from './server/security/headers'
 import { speedInsightsDefault } from './app/utils/speedInsights'
-import { parseSiteUrl } from './shared/siteUrl'
+import { PREVIEW_ROBOTS, isPreviewDeployment, parseSiteUrl } from './shared/siteUrl'
+
+// Validated, because every canonical, hreflang, sitemap and JSON-LD URL is built on it: a malformed
+// value — or none at all on a Vercel production build — fails the build here instead of shipping
+// `https://host;/games` or `http://localhost:3000/games` links. See `shared/siteUrl.ts`.
+const siteUrl = parseSiteUrl(process.env.NUXT_PUBLIC_SITE_URL, {
+  vercelEnv: process.env.VERCEL_ENV,
+  vercelUrl: process.env.VERCEL_URL,
+})
+// A preview deployment is a full copy of the site; it must never be indexed beside production.
+const previewDeployment = isPreviewDeployment(process.env.VERCEL_ENV)
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
@@ -63,6 +73,11 @@ export default defineNuxtConfig({
   },
   typescript: { strict: true },
   runtimeConfig: {
+    public: {
+      // Pages say `noindex` in their own robots meta too on a preview (`robotsFor`), so the page and
+      // the header never disagree.
+      previewDeployment,
+    },
     rawgApiKey: process.env.RAWG_API_KEY ?? '',
     rawgFixtures: process.env.RAWG_FIXTURES ?? '',
     // The price and localisation index. Server-side only, and deliberately not under `public`:
@@ -91,7 +106,13 @@ export default defineNuxtConfig({
     // compiles a routeRules header into a proxy-level entry in `.vercel/output/config.json`, and a
     // hash-free `script-src 'self'` applied there would block the scripts Nuxt inlines and leave
     // every page unhydrated in production. It is sent from `server/plugins/csp.ts` instead.
-    '/**': { headers: STATIC_SECURITY_HEADERS },
+    // On a preview, `X-Robots-Tag` keeps every response — pages, sitemap, images — out of the
+    // index; it is a static header, so the CDN may apply it as well.
+    '/**': {
+      headers: previewDeployment
+        ? { ...STATIC_SECURITY_HEADERS, 'X-Robots-Tag': PREVIEW_ROBOTS }
+        : STATIC_SECURITY_HEADERS,
+    },
     '/': { isr: 600 },
     '/en': { isr: 600 },
   },
@@ -134,9 +155,7 @@ export default defineNuxtConfig({
     defaultLocale: 'uk',
     strategy: 'prefix_except_default',
     detectBrowserLanguage: false,
-    // Validated, because every canonical, hreflang, sitemap and JSON-LD URL is built on it: a
-    // malformed value fails the build here instead of shipping `https://host;/games` links.
-    baseUrl: parseSiteUrl(process.env.NUXT_PUBLIC_SITE_URL),
+    baseUrl: siteUrl,
     locales: [
       { code: 'uk', language: 'uk-UA', name: 'Українська', file: 'uk.json' },
       { code: 'en', language: 'en-US', name: 'English', file: 'en.json' },

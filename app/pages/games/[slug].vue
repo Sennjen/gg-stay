@@ -54,12 +54,13 @@ const description = computed(() => {
 const now = useState('game-page-now', () => new Date().toISOString())
 
 const { absoluteUrl } = useSiteUrl()
+const robots = useRobots()
 const shareImage = computed(() => coverShareImage(game.value?.cover?.url))
 
 useSeoMeta({
   title: () => (game.value ? withSiteName(game.value.name) : SITE_NAME),
   description: () => description.value,
-  robots: INDEXABLE,
+  robots: robots(INDEXABLE),
   ogTitle: () => game.value?.name,
   ogDescription: () => description.value,
   ogImage: () => shareImage.value?.url,

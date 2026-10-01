@@ -59,6 +59,7 @@ const filtersButtonEl = ref<HTMLButtonElement>()
 
 const { formatUah } = useFormatters()
 const { absoluteUrl } = useSiteUrl()
+const robots = useRobots()
 
 /**
  * The page described in the words its own chips use (`filterLabels`), so a filtered page's title
@@ -98,7 +99,7 @@ const shareImage = computed(() => coverShareImage(page.value?.items[0]?.cover?.u
 useSeoMeta({
   title: () => withSiteName(headTitle.value),
   description: () => headDescription.value,
-  robots: () => catalogRobots({ filtered: activeCount.value > 0, page: state.value.page }),
+  robots: () => robots(catalogRobots({ filtered: activeCount.value > 0, page: state.value.page })),
   ogTitle: () => headTitle.value,
   ogDescription: () => headDescription.value,
   ogImage: () => shareImage.value?.url ?? absoluteUrl(OG_IMAGE.path),

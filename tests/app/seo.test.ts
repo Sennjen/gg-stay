@@ -4,6 +4,7 @@ import {
   NOT_INDEXABLE,
   catalogRobots,
   metaDescription,
+  robotsFor,
   trimDescription,
   withSiteName,
 } from '~/utils/seo'
@@ -83,5 +84,17 @@ describe('catalogRobots', () => {
 
   it('allows large image previews wherever it allows indexing', () => {
     expect(INDEXABLE).toBe('index, follow, max-image-preview:large')
+  })
+})
+
+describe('robotsFor', () => {
+  it('passes a page’s own rule through on a deployment that may be indexed', () => {
+    expect(robotsFor(INDEXABLE, false)).toBe(INDEXABLE)
+    expect(robotsFor(NOT_INDEXABLE, false)).toBe(NOT_INDEXABLE)
+  })
+
+  it('keeps every page of a preview deployment out of the index, whatever the page says', () => {
+    expect(robotsFor(INDEXABLE, true)).toBe('noindex, nofollow')
+    expect(robotsFor('noindex', true)).toBe('noindex, nofollow')
   })
 })

@@ -15,7 +15,7 @@ useHead({ htmlAttrs: { lang: () => localeProperties.value.language } })
 useSeoMeta({
   title: () => withSiteName(isNotFound.value ? t('notFound.title') : t('errors.UPSTREAM_ERROR')),
   description: () => (isNotFound.value ? t('notFound.hint') : t('home.description')),
-  robots: 'noindex',
+  robots: useRobots()('noindex'),
 })
 </script>
 

@@ -1,3 +1,5 @@
+import { PREVIEW_ROBOTS } from '#shared/siteUrl'
+
 /**
  * The small rules every page's head follows, kept pure so they are tested once rather than read
  * off three pages: how a title ends, how long a description may run and where it is cut, and which
@@ -72,4 +74,12 @@ export const NOT_INDEXABLE = 'noindex, follow'
  */
 export function catalogRobots(state: { filtered: boolean; page: number }): string {
   return state.filtered || state.page > 1 ? NOT_INDEXABLE : INDEXABLE
+}
+
+/**
+ * The robots rule a page sends: its own, except on a preview deployment, where every page is kept
+ * out of the index — the same rule the `X-Robots-Tag` header carries there (`nuxt.config.ts`).
+ */
+export function robotsFor(rule: string, previewDeployment: boolean): string {
+  return previewDeployment ? PREVIEW_ROBOTS : rule
 }

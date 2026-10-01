@@ -54,6 +54,7 @@ const shelves = computed(() => {
 })
 
 const { absoluteUrl } = useSiteUrl()
+const robots = useRobots()
 
 // The landing keeps its own title ("GG Stay — …") rather than the "… — GG Stay" every other page
 // ends with. Its share image is a static card of its own (`public/og.png`, drawn by
@@ -62,7 +63,7 @@ const { absoluteUrl } = useSiteUrl()
 useSeoMeta({
   title: () => t('home.title'),
   description: () => t('home.description'),
-  robots: INDEXABLE,
+  robots: robots(INDEXABLE),
   ogTitle: () => t('home.title'),
   ogDescription: () => t('home.description'),
   ogImage: absoluteUrl(OG_IMAGE.path),
