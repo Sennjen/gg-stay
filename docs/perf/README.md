@@ -177,6 +177,72 @@ What moved and what is left:
   when it opens (9.6 KB gz), and precompiling the i18n messages so the runtime compiler can be
   dropped. Neither is a change to make without a measurement of its own.
 
+## The budget in CI
+
+Measured 2026-10-01 on the fixture-mode production build (`NITRO_PRESET=node-server`, the build
+the CI quality gates serve), with the same method: the `/games` HTML's entry module plus every
+`<link rel="modulepreload">`, each file compressed at gzip level 9 (Node's zlib, which comes out a
+few hundred bytes above `gzip -9` on the same files).
+
+| Chunk         | Contents (roughly)                                              |     Raw | gzip -9 (zlib) |
+| ------------- | --------------------------------------------------------------- | ------: | -------------: |
+| `Cekng0HH.js` | Vue, vue-router and the Nuxt runtime                            | 151 284 |         54 771 |
+| `CI_eMhvL.js` | Nuxt app entry: plugins, runtime config, i18n and Pinia setup   |  85 910 |         31 481 |
+| `Kun-GnWH.js` | Shared vendor chunk (vue-i18n runtime)                          |  68 998 |         25 331 |
+| `DXbnfhkA.js` | Catalog page, filter drawer and filter panel                    |  43 084 |         11 937 |
+| `CTUlQ6Bv.js` | Game card                                                       |  12 756 |          4 409 |
+| `ZGwyw13W.js` | Default layout and header search                                |  11 083 |          4 396 |
+| `ByVzPUUs.js` | Shared card pieces (platforms, Metacritic, price, localisation) |  20 932 |          4 325 |
+| `BjKjnDbI.js` | Loading / empty / error states                                  |   1 959 |          1 095 |
+| **Total**     |                                                                 | 396 006 |    **137 745** |
+
+**137 745 bytes (134.5 KiB) gzipped**, up from 131.1 KB in the measurement above: week 2 added
+prices, discount chips, localisation badges, the made-in-Ukraine filter and the price and
+localisation sections of the drawer. The framework chunks did not move; the growth is the
+catalog's own components.
+
+`pnpm check:bundle-budget` repeats this measurement against a running production build and fails
+above **144 633 bytes (141.2 KiB)** — today's size plus 5 %. It runs in the `quality` job of CI on
+every pull request, beside Lighthouse CI and the Playwright flows (below). The 120 KB target in
+ADR-002 is still missed and still recorded there; this number only stops further drift.
+
+## Quality gates in CI
+
+Every pull request builds the app once more with the node preset in fixture mode, starts it in the
+job, and runs three gates against it:
+
+- **Bundle budget** — the measurement above.
+- **Playwright smoke flows with axe** (`pnpm e2e`): landing → a shelf's "Усі ігри" → catalog;
+  catalog → filter drawer → price and localisation change the count → a game; the screenshot
+  lightbox opened, paged and closed from the keyboard; the locale switch keeping the page. axe runs
+  on every page and dialog state and fails on any serious or critical violation; any console error
+  fails a flow. Screenshots and traces of a failure are uploaded as an artifact.
+- **Lighthouse CI** (`lighthouserc.cjs`): mobile profile, three runs per page, median asserted —
+  performance ≥ 85 on `/games` and the game page and ≥ 70 on `/`, accessibility, best practices and
+  SEO ≥ 95, CLS ≤ 0.1. Reports are uploaded as an artifact.
+
+These thresholds are a regression net for this fixture build, not a claim about production — the
+production numbers are the tables above. Requests that would leave the runner are blocked in both
+browsers: Lighthouse refuses RAWG's image CDN and Steam's video CDN, and the Playwright flows answer
+RAWG images with a local placeholder. The gates need no secrets and no network, and a slow third
+party cannot fail them; image loading is covered by the SSR tests and the production runs here.
+
+A node-server build serves its own static files, so it precompresses them (gzip and brotli) to
+transfer what Vercel's edge transfers; the Vercel build is unchanged. Measured locally on
+2026-10-01 against this build, the medians were:
+
+| Page            | Performance | LCP   | CLS | TBT   | Accessibility | Best practices | SEO |
+| --------------- | ----------- | ----- | --- | ----- | ------------- | -------------- | --- |
+| `/` (landing)   | 82          | 4.0 s | 0   | 40 ms | 100           | 100            | 100 |
+| `/games`        | 92          | 2.7 s | 0   | 0 ms  | 100           | 100            | 100 |
+| `/games/[slug]` | 89          | 3.2 s | 0   | 10 ms | 100           | 100            | 100 |
+
+Running the gate surfaced one real defect: `<NuxtImg>` renders an inline
+`onerror="this.setAttribute('data-error', 1)"` on every server-rendered image, and the page's CSP
+blocked it — a CSP violation in the console for every image that failed to load, which would have
+cost best practices in production whenever RAWG lost a cover. The page policy now allows exactly
+that handler body (`'unsafe-hashes'` plus its sha256); any other inline handler is still blocked.
+
 ## Fonts, measured
 
 The stylesheet declared 42 `@font-face` blocks — every family crossed with every weight, both
