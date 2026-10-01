@@ -6,6 +6,11 @@ on:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+# Both jobs only read the repository. Declared rather than inherited, so the token handed to the
+# build, Lighthouse and the Playwright installer never carries more than that, whatever the
+# repository default becomes. Artifact uploads use the runtime token, not these scopes.
+permissions:
+  contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -68,10 +73,12 @@ jobs:
         run: |
           nohup node .output/server/index.mjs > server.log 2>&1 &
           for attempt in $(seq 1 60); do
-            if curl --silent --fail --output /dev/null "$QUALITY_BASE_URL/games"; then exit 0; fi
+            if curl --silent --fail --max-time 5 --output /dev/null "$QUALITY_BASE_URL/games"; then
+              exit 0
+            fi
             sleep 1
           done
-          echo "The server did not answer within a minute." >&2
+          echo "The server did not answer /games within 60 attempts." >&2
           cat server.log >&2
           exit 1
       # Each gate runs whenever the server is up, so one failing gate does not hide the others.
@@ -92,8 +99,11 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: lighthouse-reports
-          path: .lighthouseci/
+          # The reports folder holds one HTML and one JSON per run; the raw copies beside it are
+          # duplicates.
+          path: .lighthouseci/reports/
           if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v7
         if: ${{ failure() }}
         with:
@@ -103,3 +113,4 @@ jobs:
             test-results/
             server.log
           if-no-files-found: ignore
+          retention-days: 14
