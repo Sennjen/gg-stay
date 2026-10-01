@@ -572,6 +572,7 @@ describe('server-side rendering', async () => {
   })
 
   it('sends the security headers on every page, with an exact-hash script-src', async () => {
+    let handlerCount = 0
     for (const path of ['/', '/en', '/games', '/games/the-witcher-3-wild-hunt']) {
       const response = await fetch(path, { headers: { accept: 'text/html' } })
       const csp = response.headers.get('content-security-policy')!
@@ -619,14 +620,18 @@ describe('server-side rendering', async () => {
       for (const body of new Set(handlers)) {
         const hash = createHash('sha256').update(body, 'utf8').digest('base64')
         expect(`'sha256-${hash}'`).toBe(NUXT_IMG_ERROR_HANDLER_HASH)
+        expect(scriptSrc).toContain(`'sha256-${hash}'`)
+        expect(scriptSrc).toContain("'unsafe-hashes'")
       }
-      if (handlers.length) expect(scriptSrc).toContain("'unsafe-hashes'")
+      handlerCount += handlers.length
 
       expect(response.headers.get('x-content-type-options')).toBe('nosniff')
       expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
       expect(response.headers.get('x-frame-options')).toBe('DENY')
       expect(response.headers.get('permissions-policy')).toContain('camera=()')
     }
+    // Every page here renders covers in fixture mode, so the handler checks above did run.
+    expect(handlerCount).toBeGreaterThan(0)
   })
 
   it(

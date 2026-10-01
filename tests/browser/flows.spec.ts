@@ -49,13 +49,17 @@ test('catalog → filter drawer → price and localisation change the count → 
   await drawer.getByRole('button', { name: 'Ціна', exact: true }).click()
   await drawer.getByRole('button', { name: /^до 1\s?000/ }).click()
   await expect(page).toHaveURL(/priceMaxUah=1000/)
-  await expect.poll(() => resultTotal(page)).not.toBe(before)
+  // A ceiling switches the catalog to the price index, which holds more games than the plain
+  // RAWG fixture page (4 → 7); a drop here would mean the index answered nothing.
+  await expect.poll(() => resultTotal(page)).toBeGreaterThan(before)
   const withPrice = await resultTotal(page)
 
   await drawer.getByRole('button', { name: 'Українська локалізація', exact: true }).click()
   await drawer.getByRole('radio', { name: 'Будь-яка' }).click()
   await expect(page).toHaveURL(/ukrainianLocalisation=ANY/)
-  await expect.poll(() => resultTotal(page)).not.toBe(withPrice)
+  // Localisation narrows the indexed set (7 → 3), never to nothing.
+  await expect.poll(() => resultTotal(page)).toBeLessThan(withPrice)
+  expect(await resultTotal(page)).toBeGreaterThan(0)
   const filtered = await resultTotal(page)
   await expectAccessible(page, 'filter drawer with price and localisation applied')
 
@@ -130,6 +134,7 @@ test('the locale switch keeps the page, uk → en → uk', async ({ page }) => {
   // The catalog keeps its filters across the switch: the query string travels with the path.
   await page.goto('/games?ukrainianLocalisation=ANY')
   await waitForHydration(page)
+  await expectAccessible(page, 'catalog with a filter')
   await page
     .getByRole('banner')
     .getByRole('navigation', { name: 'Мова' })

@@ -5,7 +5,9 @@ import { gzipSync } from 'node:zlib'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   BUNDLE_BUDGET_BYTES,
+  budgetVerdict,
   firstLoadScripts,
+  MEASURED_BYTES,
   measureFirstLoadJs,
 } from '../../scripts/check-bundle-budget'
 
@@ -94,8 +96,25 @@ describe('measureFirstLoadJs', () => {
 })
 
 describe('BUNDLE_BUDGET_BYTES', () => {
-  it('is a whole number of bytes above the 120 KB target that ADR-002 records as missed', () => {
-    expect(Number.isInteger(BUNDLE_BUDGET_BYTES)).toBe(true)
-    expect(BUNDLE_BUDGET_BYTES).toBeGreaterThan(120 * 1024)
+  it('is the recorded measurement plus 5 %, rounded up to a whole byte', () => {
+    expect(BUNDLE_BUDGET_BYTES).toBe(Math.ceil(MEASURED_BYTES * 1.05))
+  })
+})
+
+describe('budgetVerdict', () => {
+  const result = { chunks: [], totalRaw: 0, totalGzip: 1000 }
+
+  it('passes at or under the budget and says so', () => {
+    expect(budgetVerdict({ ...result, totalGzip: 1000 }, 1000)).toEqual({
+      ok: true,
+      message: expect.stringMatching(/^✔ 1000 bytes .* budget of 1000 bytes/),
+    })
+  })
+
+  it('fails one byte over and tells the reader what to do', () => {
+    const verdict = budgetVerdict({ ...result, totalGzip: 1001 }, 1000)
+    expect(verdict.ok).toBe(false)
+    expect(verdict.message).toMatch(/^✖ over budget: 1001 bytes/)
+    expect(verdict.message).toContain('MEASURED_BYTES')
   })
 })

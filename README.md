@@ -143,8 +143,9 @@ pnpm dev
 
 The last three run against a production build in fixture mode:
 `RAWG_FIXTURES=1 NITRO_PRESET=node-server NUXT_PUBLIC_SITE_URL=http://localhost:3000 pnpm build`,
-then `RAWG_FIXTURES=1 NUXT_RAWG_FIXTURES=1 node .output/server/index.mjs` (Playwright starts it
-itself when nothing is listening). `QUALITY_BASE_URL` points them at another address.
+then `RAWG_FIXTURES=1 NUXT_RAWG_FIXTURES=1 node .output/server/index.mjs`. Playwright starts that
+server itself; set `QUALITY_REUSE_SERVER=1` to run it against one already listening.
+`QUALITY_BASE_URL` points all three at another address.
 
 ## Security
 

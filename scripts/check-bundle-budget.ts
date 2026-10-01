@@ -10,8 +10,10 @@ import { gzipSync } from 'node:zlib'
  * `/games` HTML, takes exactly the modules that page loads on first visit — the entry
  * `<script type="module">` plus every `<link rel="modulepreload">` — and compresses each file from
  * the build's public directory at gzip level 9. That is the method behind the table in
- * `docs/perf/README.md` ("JavaScript budget for /games, measured"); client assets are byte-identical
- * between the node-server and the Vercel preset, so a node build measures the deployed bundle.
+ * `docs/perf/README.md` ("JavaScript budget for /games, measured"). Client assets are the same
+ * between the node-server and the Vercel preset apart from the build-time site URL baked into the
+ * entry chunk (a few bytes, and a different file hash), so a node build measures the deployed
+ * bundle.
  *
  *   QUALITY_BASE_URL=http://localhost:3000 pnpm check:bundle-budget
  */
@@ -103,6 +105,22 @@ export async function measureFirstLoadJs(html: string, publicDir: string): Promi
 
 const kib = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`
 
+/** Pass or fail against `budget`, with the line the CLI prints; over by one byte is a failure. */
+export function budgetVerdict(
+  result: FirstLoadJs,
+  budget: number,
+): { ok: boolean; message: string } {
+  const sizes = `${result.totalGzip} bytes (${kib(result.totalGzip)}) against a budget of ${budget} bytes (${kib(budget)})`
+  if (result.totalGzip <= budget) return { ok: true, message: `✔ ${sizes}` }
+  return {
+    ok: false,
+    message:
+      `✖ over budget: ${sizes}.\n` +
+      '  Find what grew in the list above. If the growth is wanted, measure it, record it in ' +
+      'docs/perf/README.md and ADR-002, and raise MEASURED_BYTES in this script in the same change.',
+  }
+}
+
 async function main(): Promise<number> {
   const base = process.env.QUALITY_BASE_URL ?? 'http://localhost:3000'
   const publicDir = process.env.BUNDLE_PUBLIC_DIR ?? '.output/public'
@@ -121,17 +139,10 @@ async function main(): Promise<number> {
       `  ${chunk.path.padEnd(28)} ${String(chunk.raw).padStart(8)} raw ${String(chunk.gzip).padStart(8)} gz`,
     )
   }
-  const verdict = `${result.totalGzip} bytes (${kib(result.totalGzip)}) against a budget of ${BUNDLE_BUDGET_BYTES} bytes (${kib(BUNDLE_BUDGET_BYTES)})`
-  if (result.totalGzip > BUNDLE_BUDGET_BYTES) {
-    console.error(`✖ over budget: ${verdict}.`)
-    console.error(
-      '  Find what grew in the list above. If the growth is wanted, measure it, record it in ' +
-        'docs/perf/README.md and ADR-002, and raise MEASURED_BYTES in this script in the same change.',
-    )
-    return 1
-  }
-  console.log(`✔ ${verdict}`)
-  return 0
+  const verdict = budgetVerdict(result, BUNDLE_BUDGET_BYTES)
+  if (verdict.ok) console.log(verdict.message)
+  else console.error(verdict.message)
+  return verdict.ok ? 0 : 1
 }
 
 const entry = process.argv[1]
