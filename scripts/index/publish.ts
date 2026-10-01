@@ -1,5 +1,6 @@
 import { isoNow, type JobDeps } from './deps'
 import type { IndexMeta, IndexedGame } from '../../server/index/document'
+import { median } from './similarity'
 
 /**
  * Stage 5: validation, then the blue/green swap.
@@ -66,6 +67,8 @@ export function countIndexed(games: IndexedGame[]) {
     textCount: games.filter((game) => game.localisation?.text).length,
     audioCount: games.filter((game) => game.localisation?.audio).length,
     madeInUkraineCount: games.filter((game) => game.madeInUkraine).length,
+    similarCount: games.filter((game) => (game.similar?.length ?? 0) > 0).length,
+    similarMedianLength: median(games.map((game) => game.similar?.length ?? 0)),
   }
 }
 
@@ -112,6 +115,8 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
       textCount: counts.textCount,
       audioCount: counts.audioCount,
       madeInUkraineCount: counts.madeInUkraineCount,
+      similarCount: counts.similarCount,
+      similarMedianLength: counts.similarMedianLength,
       ...(candidateCount === undefined ? {} : { candidateCount }),
     },
   }

@@ -1,9 +1,19 @@
 import type { JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
-import { esrbToAgeRating, gameModesFromTags, storeSlugFromId } from '../../server/rawg/lookups'
+import {
+  esrbToAgeRating,
+  gameModesFromTags,
+  storeSlugFromId,
+  tagsForGameModes,
+} from '../../server/rawg/lookups'
 import { positive } from '../../server/rawg/mappers'
 import type { RawgParams } from '../../server/rawg/rawgFetch'
-import type { RawgGameListItem, RawgList, RawgShortScreenshot } from '../../server/rawg/types'
+import type {
+  RawgGameListItem,
+  RawgList,
+  RawgShortScreenshot,
+  RawgTag,
+} from '../../server/rawg/types'
 import { safeExternalUrl } from '../../shared/url'
 
 /**
@@ -55,6 +65,97 @@ export function previewOf(
   return null
 }
 
+/** The most tags one document keeps; see `indexTags`. */
+export const MAX_INDEXED_TAGS = 12
+
+/**
+ * Tags RAWG has on fewer games than this, over its whole catalog, are the long tail: noise too
+ * rare to recur among the few thousand indexed games. Applied only when the response carries
+ * `games_count`.
+ */
+export const MIN_TAG_GAMES_COUNT = 100
+
+/**
+ * Tags that say what the store or the build offers — achievements, trading cards, controller
+ * support, cloud saves, remote play — rather than what the game is. Every other English RAWG tag
+ * describes the game, even the very common ones: the similarity ranking weighs a tag by how rare it
+ * is in the index, so "atmospheric" barely counts without being listed here.
+ */
+const STORE_TAGS = new Set([
+  'in-app-purchases',
+  'includes-level-editor',
+  'includes-source-sdk',
+  'family-sharing',
+  'cloud-saves',
+  'valve-anti-cheat-enabled',
+  'captions-available',
+  'commentary-available',
+  'stats',
+  'hdr-available',
+  'early-access',
+  'cross-platform-multiplayer',
+  'steamvr-collectibles',
+  'additional-high-quality-audio',
+  // Platform exclusivity, which RAWG tags console exclusives with.
+  'exclusive',
+  'true-exclusive',
+])
+/** `steam-achievements`, `steam-cloud`, `steam-workshop`… — never `steampunk`. */
+const STORE_TAG_PREFIXES = ['steam-', 'remote-play-']
+/** `full-controller-support`, `partial-controller-support`, `tracked-controller-support`… */
+const STORE_TAG_WORD = 'controller'
+
+export function isStoreTag(slug: string): boolean {
+  return (
+    STORE_TAGS.has(slug) ||
+    STORE_TAG_PREFIXES.some((prefix) => slug.startsWith(prefix)) ||
+    slug.split('-').includes(STORE_TAG_WORD)
+  )
+}
+
+/** The mode tags `gameModes` already carries; kept twice, they would count twice. */
+const MODE_TAGS = new Set(tagsForGameModes(['SINGLE', 'LOCAL_COOP', 'ONLINE_COOP', 'MULTIPLAYER']))
+
+/**
+ * The tags an index document keeps, in RAWG's order:
+ *
+ * - not those in another language (RAWG tags every game in Russian as well; a tag that names no
+ *   language is kept), store features or game modes;
+ * - not the long tail — fewer than `MIN_TAG_GAMES_COUNT` games in RAWG's catalog;
+ * - of the rest, the `MAX_INDEXED_TAGS` RAWG has seen on the fewest games (`games_count`), or the
+ *   first ones in RAWG's order when the response carries no counts.
+ *
+ * RAWG lists a game's tags most common first, so a plain cut would keep "atmospheric" and "great
+ * soundtrack" and drop "post-apocalyptic" or "chernobyl" — the tags that define the game. The cut
+ * keeps the rarest instead. A kept tag that no other indexed game carries costs a slot and nothing
+ * else: the similarity ranking leaves features of one game out of every vector.
+ */
+export function indexTags(tags: readonly RawgTag[] | null | undefined): string[] {
+  const seen = new Set<string>()
+  const eligible: { slug: string; count: number | undefined; position: number }[] = []
+  for (const tag of tags ?? []) {
+    const slug = tag.slug
+    // Only an explicit other language drops a tag. A tag without `language` is taken as English:
+    // the recorded fixtures carry none, nothing here proves every live tag does, and reading a
+    // missing field as "not English" would quietly empty every document.
+    if ((tag.language !== undefined && tag.language !== 'eng') || !slug || seen.has(slug)) continue
+    if (isStoreTag(slug) || MODE_TAGS.has(slug)) continue
+    seen.add(slug)
+    const count = tag.games_count
+    if (count !== undefined && count < MIN_TAG_GAMES_COUNT) continue
+    eligible.push({ slug, count, position: eligible.length })
+  }
+  if (eligible.length <= MAX_INDEXED_TAGS) return eligible.map((tag) => tag.slug)
+  if (eligible.some((tag) => tag.count === undefined)) {
+    return eligible.slice(0, MAX_INDEXED_TAGS).map((tag) => tag.slug)
+  }
+  return [...eligible]
+    .sort((left, right) => left.count! - right.count! || left.position - right.position)
+    .slice(0, MAX_INDEXED_TAGS)
+    .sort((left, right) => left.position - right.position)
+    .map((tag) => tag.slug)
+}
+
 function taxonomySlugs(list: { slug?: string }[] | null | undefined): string[] {
   return (list ?? []).flatMap((item) => (item.slug ? [item.slug] : []))
 }
@@ -79,6 +180,7 @@ export function toIndexedGame(raw: RawgGameListItem): IndexedGame | null {
       typeof entry.platform?.id === 'number' ? [entry.platform.id] : [],
     ),
     genres: taxonomySlugs(raw.genres),
+    tags: indexTags(raw.tags),
     stores: (raw.stores ?? []).flatMap((entry) => {
       const slug = storeSlugFromId(entry.store?.id)
       return slug ? [slug] : []

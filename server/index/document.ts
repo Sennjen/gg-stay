@@ -41,6 +41,13 @@ export interface IndexedGame {
   popularity: number
   platforms: number[]
   genres: string[]
+  /**
+   * RAWG's English tags for the game, without the ones that describe the store (achievements,
+   * controller support, cloud saves) or repeat `gameModes`, at most twelve. The refresh job ranks
+   * similar games on them; no query filters on them. Optional: documents published before the
+   * job mapped tags have none.
+   */
+  tags?: string[]
   stores: string[]
   gameModes: GameModeValue[]
   ageRating: AgeRatingValue | null
@@ -69,6 +76,14 @@ export interface IndexedGame {
   studioSeenAt?: string
   /** ISO timestamp of the last successful price read. */
   priceUpdatedAt: string | null
+  /**
+   * The ids of the games most like this one, best first, all of them in the same version: the
+   * refresh job's full run ranks them over the whole index (`scripts/index/similarity.ts`) and the
+   * other runs carry them forward. The game page reads them with one `getMany`. Optional:
+   * documents published before the job computed them have none, and the page then falls back to
+   * games of the same genre.
+   */
+  similar?: number[]
 }
 
 /**
@@ -100,6 +115,9 @@ export interface IndexRunStats {
   audioCount: number
   /** Games published with the made-in-Ukraine flag. */
   madeInUkraineCount: number
+  /** Games published with a non-empty similar-games list, and the median length over all games. */
+  similarCount: number
+  similarMedianLength: number
   /**
    * Games that came from RAWG's popularity list, as opposed to the studio games a full run adds to
    * it. The blue/green game-count check is measured on this, so studio games cannot hide a

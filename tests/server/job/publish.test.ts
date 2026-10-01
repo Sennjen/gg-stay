@@ -56,6 +56,8 @@ describe('publishVersion', () => {
         textCount: 4,
         audioCount: 2,
         madeInUkraineCount: 0,
+        similarCount: 0,
+        similarMedianLength: 0,
       },
     })
   })

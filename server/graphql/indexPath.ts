@@ -1,5 +1,5 @@
 import { MAX_SEARCH_LENGTH } from '../../shared/catalog'
-import type { IndexMeta } from '../index/document'
+import type { IndexMeta, IndexedGame } from '../index/document'
 import type { IndexQuery } from '../index/GameIndex'
 import { toGameCard, toLocalisationInfo, toPriceSummary } from '../index/toGraphql'
 import type { GraphQLContext } from './context'
@@ -61,6 +61,8 @@ export interface IndexState {
 
 interface RequestState {
   index?: Promise<IndexState>
+  /** Documents read by id in this request, so the game page and its similar row share one read. */
+  entries?: Map<number, Promise<IndexedGame | null>>
   warned: boolean
   failed: boolean
 }
@@ -128,6 +130,33 @@ async function readIndexState(context: GraphQLContext): Promise<IndexState> {
     stale: !Number.isFinite(age) || age > INDEX_STALE_AFTER_MS,
     updatedAt: pricesUpdatedAt,
     version: meta.version,
+  }
+}
+
+/**
+ * One game's index document, read once per request: the game page reads it for its price, its
+ * languages and its flag, and `Game.similar` for the list stored on it, and the second reader
+ * costs nothing. `null` when the index does not hold the game, and when it could not be read —
+ * which is warned about and marks the request's index as failed, like every other index read.
+ */
+export function indexEntry(context: GraphQLContext, id: number): Promise<IndexedGame | null> {
+  const state = requestState(context)
+  state.entries ??= new Map()
+  let entry = state.entries.get(id)
+  if (!entry) {
+    entry = readIndexEntry(context, id)
+    state.entries.set(id, entry)
+  }
+  return entry
+}
+
+async function readIndexEntry(context: GraphQLContext, id: number): Promise<IndexedGame | null> {
+  if (indexFailed(context)) return null
+  try {
+    return await context.index.getOne(id)
+  } catch (error) {
+    warnIndexOnce(context, 'the game page could not read its index entry', error)
+    return null
   }
 }
 

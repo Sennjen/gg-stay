@@ -5,6 +5,15 @@ export interface RawgTaxonomy {
   name?: string
 }
 
+/**
+ * A RAWG tag. RAWG tags every game in several languages at once (`eng` and `rus` today), and
+ * `games_count` is how many games in the whole catalog carry the tag.
+ */
+export interface RawgTag extends RawgTaxonomy {
+  language?: string
+  games_count?: number
+}
+
 export interface RawgShortScreenshot {
   id?: number
   image?: string | null
@@ -25,7 +34,7 @@ export interface RawgGameListItem {
   parent_platforms?: { platform?: RawgTaxonomy }[] | null
   short_screenshots?: RawgShortScreenshot[] | null
   genres?: RawgTaxonomy[] | null
-  tags?: RawgTaxonomy[] | null
+  tags?: RawgTag[] | null
   stores?: { store?: RawgTaxonomy }[] | null
   esrb_rating?: RawgTaxonomy | null
 }

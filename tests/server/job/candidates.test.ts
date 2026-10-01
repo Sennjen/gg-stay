@@ -3,7 +3,12 @@ import {
   CANDIDATE_PAGE_SIZE,
   carryPublishedForward,
   collectCandidates,
+  indexTags,
+  isStoreTag,
+  MAX_INDEXED_TAGS,
+  MIN_TAG_GAMES_COUNT,
   previewOf,
+  toIndexedGame,
 } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
 import { JOB_GAMES, JOB_PAGE_COUNT, jobGamesPage } from '../../fixtures/index/jobCatalog'
@@ -49,6 +54,9 @@ describe('collectCandidates', () => {
       popularity: 21000,
       platforms: [4, 187],
       genres: ['action'],
+      // `singleplayer` is already the game mode and `steam-achievements` describes the store;
+      // `atmospheric` carries no language, as the hand-written fixture has it, and is kept.
+      tags: ['atmospheric', 'story-rich'],
       stores: ['steam', 'gog'],
       gameModes: ['SINGLE'],
       ageRating: 'PEGI18',
@@ -253,5 +261,145 @@ describe('previewOf', () => {
 
   it('drops a screenshot whose URL would not be safe to render', () => {
     expect(previewOf([{ id: 2, image: 'javascript:alert(1)' }], cover)).toBeNull()
+  })
+})
+
+describe('indexTags', () => {
+  const eng = (slug: string, gamesCount?: number) => ({
+    id: slug.length,
+    slug,
+    name: slug,
+    language: 'eng',
+    ...(gamesCount === undefined ? {} : { games_count: gamesCount }),
+  })
+
+  it('drops a tag in another language and keeps the English ones', () => {
+    expect(
+      indexTags([
+        eng('post-apocalyptic'),
+        { id: 1, slug: 'postapokalipsis', name: 'Постапокалипсис', language: 'rus' },
+        eng('survival-horror'),
+      ]),
+    ).toEqual(['post-apocalyptic', 'survival-horror'])
+  })
+
+  it('keeps a tag that names no language at all, as the recorded fixtures carry them', () => {
+    // Nothing here proves every live tag carries `language`; a tag without one is taken as English
+    // rather than silently emptying every document. Only an explicit other language is dropped.
+    expect(
+      indexTags([
+        { id: 1, slug: 'post-apocalyptic', name: 'Post-apocalyptic' },
+        { id: 2, slug: 'steam-cloud', name: 'Steam Cloud' },
+        { id: 3, slug: 'singleplayer', name: 'Singleplayer' },
+        { id: 4, slug: 'postapokalipsis', name: 'Постапокалипсис', language: 'rus' },
+        { id: 5, slug: 'survival-horror', name: 'Survival Horror', language: 'eng' },
+      ]),
+    ).toEqual(['post-apocalyptic', 'survival-horror'])
+  })
+
+  it('drops the tags that describe the store rather than the game', () => {
+    const store = [
+      'steam-achievements',
+      'full-controller-support',
+      'steam-cloud',
+      'steam-trading-cards',
+      'partial-controller-support',
+      'steam-leaderboards',
+      'controller-support',
+      'in-app-purchases',
+      'steam-workshop',
+      'includes-level-editor',
+      'remote-play-together',
+      'remote-play-on-tv',
+      'family-sharing',
+      'cloud-saves',
+      'valve-anti-cheat-enabled',
+      'steam-turn-notifications',
+      'steamvr-collectibles',
+      'tracked-controller-support',
+      'captions-available',
+      'commentary-available',
+      'stats',
+      'exclusive',
+      'true-exclusive',
+      'early-access',
+    ]
+    for (const slug of store) expect(isStoreTag(slug), slug).toBe(true)
+    expect(indexTags([...store.map((slug) => eng(slug)), eng('steampunk')])).toEqual(['steampunk'])
+  })
+
+  it('leaves the game modes to the game-mode field', () => {
+    expect(
+      indexTags(
+        ['singleplayer', 'multiplayer', 'online-co-op', 'local-co-op', 'co-op'].map((slug) =>
+          eng(slug),
+        ),
+      ),
+    ).toEqual(['co-op'])
+  })
+
+  it(`drops the long tail, then keeps the ${MAX_INDEXED_TAGS} rarest, in RAWG's order`, () => {
+    // RAWG lists a game's tags most common first, so "atmospheric" leads and "post-apocalyptic"
+    // trails; the defining tags are the rarer ones. Below the floor, a tag is noise too rare to
+    // recur among the indexed games.
+    const tags = [
+      ...Array.from({ length: 16 }, (_, n) => eng(`tag-${n}`, 20_000 - n * 1_000)),
+      eng('long-tail-a', MIN_TAG_GAMES_COUNT - 1),
+      eng('long-tail-b', 5),
+      eng('just-above-the-floor', MIN_TAG_GAMES_COUNT),
+    ]
+    const kept = indexTags(tags)
+    expect(kept).toEqual([...tags.slice(5, 16).map((tag) => tag.slug), 'just-above-the-floor'])
+    expect(kept).toHaveLength(MAX_INDEXED_TAGS)
+    expect(MIN_TAG_GAMES_COUNT).toBe(100)
+  })
+
+  it('keeps the defining tags of a well-tagged game over the generic ones', () => {
+    const metro = [
+      eng('atmospheric', 34_000),
+      eng('horror', 45_000),
+      eng('first-person', 30_000),
+      eng('story-rich', 20_000),
+      eng('exploration', 20_000),
+      eng('sci-fi', 18_000),
+      eng('dark', 15_000),
+      eng('fps', 13_000),
+      eng('survival-horror', 8_500),
+      eng('survival', 8_000),
+      eng('open-world', 7_500),
+      eng('stealth', 5_000),
+      eng('great-soundtrack', 4_600),
+      eng('post-apocalyptic', 4_200),
+      eng('volga-river', 12),
+    ]
+    const kept = indexTags(metro)
+    expect(kept).toContain('post-apocalyptic')
+    expect(kept).toContain('survival-horror')
+    expect(kept).not.toContain('horror')
+    expect(kept).not.toContain('volga-river')
+  })
+
+  it('drops the long tail even when the game has few tags', () => {
+    expect(
+      indexTags([eng('fps', 13_000), eng('volga-river', 12), eng('ray-tracing', 350)]),
+    ).toEqual(['fps', 'ray-tracing'])
+  })
+
+  it("keeps RAWG's order when it gave no counts, and survives no tags at all", () => {
+    const tags = Array.from({ length: 20 }, (_, n) => eng(`tag-${n}`))
+    expect(indexTags(tags)).toEqual(tags.slice(0, MAX_INDEXED_TAGS).map((tag) => tag.slug))
+    expect(indexTags(null)).toEqual([])
+    expect(indexTags(undefined)).toEqual([])
+    expect(indexTags([eng(''), eng('fps'), eng('fps')])).toEqual(['fps'])
+  })
+
+  it('reaches the index document through the one mapper', () => {
+    expect(
+      toIndexedGame({
+        id: 1,
+        slug: 'a',
+        tags: [eng('singleplayer'), eng('steam-cloud'), eng('post-apocalyptic')],
+      }),
+    ).toMatchObject({ tags: ['post-apocalyptic'], gameModes: ['SINGLE'] })
   })
 })
