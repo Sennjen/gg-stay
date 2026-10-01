@@ -9,6 +9,20 @@ export default defineNuxtConfig({
   modules: ['@nuxt/eslint', '@nuxt/fonts', '@nuxt/image', '@nuxtjs/i18n', '@pinia/nuxt'],
   css: ['~/assets/css/main.css'],
   vite: { plugins: [tailwindcss()] },
+  hooks: {
+    // The renderer prefetches every dynamic import of the entry on every page. The Speed Insights
+    // SDK is imported after hydration and only for visitors it may measure (see
+    // app/plugins/speed-insights.client.ts), so prefetching it would download it for everyone else
+    // too — on every deployment that never opted in, and for visitors who sent Do Not Track.
+    'build:manifest'(manifest) {
+      for (const chunk of Object.values(manifest)) {
+        if (!chunk.isEntry) continue
+        chunk.dynamicImports = chunk.dynamicImports?.filter(
+          (source) => !source.includes('@vercel/speed-insights'),
+        )
+      }
+    },
+  },
   fonts: {
     // Weights and styles are declared to match what the app actually renders, because every
     // declared combination becomes an `@font-face` block in the render-blocking stylesheet even

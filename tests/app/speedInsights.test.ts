@@ -1,15 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockNuxtImport } from '@nuxt/test-utils/runtime'
+import type { Router } from 'vue-router'
 import plugin from '~/plugins/speed-insights.client'
 import { speedInsightsWanted, withoutQuery } from '~/utils/speedInsights'
 
-const { injectSpeedInsights, ready } = vi.hoisted(() => ({
-  injectSpeedInsights: vi.fn(),
-  // The callbacks handed to `onNuxtReady`, run by the test when it says hydration has finished.
-  ready: [] as (() => unknown)[],
-}))
+const { injectSpeedInsights, setRoute, ready } = vi.hoisted(() => {
+  const setRoute = vi.fn()
+  return {
+    setRoute,
+    injectSpeedInsights: vi.fn(() => ({ setRoute })),
+    // The callbacks handed to `onNuxtReady`, run by the test when it says hydration has finished.
+    ready: [] as (() => unknown)[],
+  }
+})
 
-vi.mock('@vercel/speed-insights/nuxt/runtime', () => ({ injectSpeedInsights }))
+// The real `computeRoute`, so the route patterns asserted below are the ones Vercel would see.
+vi.mock('@vercel/speed-insights', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@vercel/speed-insights')>()),
+  injectSpeedInsights,
+}))
 
 mockNuxtImport('onNuxtReady', () => (callback: () => unknown) => {
   ready.push(callback)
@@ -72,6 +81,8 @@ describe('withoutQuery', () => {
 describe('the Speed Insights plugin', () => {
   const config = () => useRuntimeConfig().public as Record<string, unknown>
   let saved: unknown
+  // The plugin's navigation hook, captured instead of registered on the test app's real router.
+  let navigationHook: ReturnType<typeof vi.spyOn<Router, 'afterEach'>>
 
   const runPlugin = async () => {
     const nuxtApp = useNuxtApp()
@@ -86,9 +97,12 @@ describe('the Speed Insights plugin', () => {
   beforeEach(() => {
     saved = config().speedInsights
     injectSpeedInsights.mockClear()
+    setRoute.mockClear()
     ready.length = 0
+    navigationHook = vi.spyOn(useNuxtApp().$router, 'afterEach').mockImplementation(() => () => {})
   })
   afterEach(() => {
+    navigationHook.mockRestore()
     config().speedInsights = saved
     setNavigator('doNotTrack', null)
     setNavigator('globalPrivacyControl', undefined)
@@ -108,7 +122,26 @@ describe('the Speed Insights plugin', () => {
     expect(injectSpeedInsights).not.toHaveBeenCalled()
     await hydrate()
     expect(injectSpeedInsights).toHaveBeenCalledTimes(1)
-    expect(injectSpeedInsights).toHaveBeenCalledWith({ beforeSend: withoutQuery })
+    expect(injectSpeedInsights).toHaveBeenCalledWith(
+      expect.objectContaining({ route: '/', framework: 'nuxt', beforeSend: withoutQuery }),
+      undefined,
+    )
+  })
+
+  it.each([
+    ['/games/portal-2', { slug: 'portal-2' }, '/games/[slug]'],
+    ['/en/games/the-witcher-3-wild-hunt', { slug: 'the-witcher-3-wild-hunt' }, '/en/games/[slug]'],
+    ['/games', {}, '/games'],
+    ['/en', {}, '/en'],
+  ])('reports a navigation to %s as the route %s', async (path, params, route) => {
+    config().speedInsights = '1'
+    const router = useNuxtApp().$router
+    await runPlugin()
+    await hydrate()
+    expect(navigationHook).toHaveBeenCalledTimes(1)
+    const guard = navigationHook.mock.calls[0]![0]
+    guard({ path, params } as never, router.currentRoute.value, undefined)
+    expect(setRoute).toHaveBeenCalledWith(route)
   })
 
   it.each([
