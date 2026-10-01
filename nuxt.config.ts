@@ -61,6 +61,12 @@ export default defineNuxtConfig({
     // filters it takes away can be looked at in a browser. Read in the fixture-mode seed path
     // alone (`useGameIndex`) — it cannot affect a deployment that has real credentials.
     indexFixtureStale: process.env.INDEX_FIXTURE_STALE ?? '',
+    public: {
+      // Vercel Speed Insights, opt-in per deployment: set `NUXT_PUBLIC_SPEED_INSIGHTS=1` on Vercel
+      // once Speed Insights is enabled for the project. Off everywhere else, so local and CI builds
+      // never request a script only Vercel serves. See app/plugins/speed-insights.client.ts.
+      speedInsights: '',
+    },
   },
   routeRules: {
     // Static headers only. The Content-Security-Policy is deliberately NOT here: the Vercel preset
