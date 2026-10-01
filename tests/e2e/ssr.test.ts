@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
+import { NUXT_IMG_ERROR_HANDLER_HASH } from '../../server/security/headers'
 
 // Build-time default and runtime override, so the server under test never calls RAWG.
 process.env.RAWG_FIXTURES = '1'
@@ -596,7 +597,8 @@ describe('server-side rendering', async () => {
       const scriptSrc = csp.split('; ').find((directive) => directive.startsWith('script-src'))!
       expect(scriptSrc).not.toContain('unsafe-inline')
       expect(scriptSrc).not.toContain('unsafe-eval')
-      expect(scriptSrc.match(/'sha256-[^']+'/g) ?? []).toHaveLength(2)
+      const hashes = scriptSrc.match(/'sha256-[^']+'/g) ?? []
+      expect(hashes.filter((hash) => hash !== NUXT_IMG_ERROR_HANDLER_HASH)).toHaveLength(2)
 
       // Every executable inline script in the body must be covered by a hash in the header — the
       // property the whole arrangement exists for, checked against the markup actually served.
@@ -609,6 +611,16 @@ describe('server-side rendering', async () => {
         const hash = createHash('sha256').update(body, 'utf8').digest('base64')
         expect(scriptSrc).toContain(`'sha256-${hash}'`)
       }
+      // Inline event handlers need 'unsafe-hashes' and a hash of their exact body. The only one a
+      // page may carry is @nuxt/image's error marker on server-rendered images.
+      const handlers = [...html.matchAll(/\son[a-z]+="([^"]*)"/g)].map(([, body]) =>
+        body!.replaceAll('&#39;', "'"),
+      )
+      for (const body of new Set(handlers)) {
+        const hash = createHash('sha256').update(body, 'utf8').digest('base64')
+        expect(`'sha256-${hash}'`).toBe(NUXT_IMG_ERROR_HANDLER_HASH)
+      }
+      if (handlers.length) expect(scriptSrc).toContain("'unsafe-hashes'")
 
       expect(response.headers.get('x-content-type-options')).toBe('nosniff')
       expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
