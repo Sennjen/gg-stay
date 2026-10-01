@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import { STATIC_SECURITY_HEADERS } from './server/security/headers'
 import { speedInsightsDefault } from './app/utils/speedInsights'
+import { parseSiteUrl } from './shared/siteUrl'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
@@ -133,7 +134,9 @@ export default defineNuxtConfig({
     defaultLocale: 'uk',
     strategy: 'prefix_except_default',
     detectBrowserLanguage: false,
-    baseUrl: process.env.NUXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
+    // Validated, because every canonical, hreflang, sitemap and JSON-LD URL is built on it: a
+    // malformed value fails the build here instead of shipping `https://host;/games` links.
+    baseUrl: parseSiteUrl(process.env.NUXT_PUBLIC_SITE_URL),
     locales: [
       { code: 'uk', language: 'uk-UA', name: 'Українська', file: 'uk.json' },
       { code: 'en', language: 'en-US', name: 'English', file: 'en.json' },
