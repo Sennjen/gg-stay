@@ -385,3 +385,13 @@ off.
   explanation under it in `fg-2`. It writes `madeInUkraine=1`, has its own chip, counts in the
   badge, and stays while the prices are stale, because it reads no price. The index note now reads
   "3 000 найпопулярніших ігор і всіх ігор українських студій".
+
+### Share card (week 2C)
+
+`public/og.png` (1200×630) is what a shared landing link previews as. It is drawn, not hand-made:
+`scripts/og-image.ts` builds an SVG from the `@theme` tokens in `main.css` and renders it with the
+site's own Tektur and Inter from the production build. On `ink`, a `surface-1` panel with a `line`
+border holds the favicon's mark (the only accent on the card, as in the favicon itself), "GG Stay"
+in Tektur and two lines in Inter `fg-2` — "Каталог відеоігор для українського гравця" and "Ціни в
+гривнях · українська локалізація". `fg-2` on `surface-1` is 7.59:1. Game pages share their own
+cover instead (the 1280 CDN variant), and the catalog shares its first card's cover.
