@@ -18,6 +18,7 @@ interface Head {
   status: number
   lang: string | undefined
   title: string | undefined
+  titleCount: number
   meta: Record<string, string>[]
   links: Record<string, string>[]
   jsonLd: Record<string, unknown>[]
@@ -46,6 +47,7 @@ async function headOf(path: string): Promise<Head> {
     status: response.status,
     lang: /<html[^>]*\slang="([^"]*)"/.exec(html)?.[1],
     title: /<title>([^<]*)<\/title>/.exec(head)?.[1]?.replace(/&amp;/g, '&'),
+    titleCount: head.match(/<title>/g)?.length ?? 0,
     meta: [...head.matchAll(/<meta\s[^>]*>/g)].map(([tag]) => attributesOf(tag)),
     links: [...head.matchAll(/<link\s[^>]*>/g)].map(([tag]) => attributesOf(tag)),
     jsonLd: [
@@ -120,6 +122,20 @@ const PAGES: PageCase[] = [
     robots: NOT_INDEXABLE,
   },
   {
+    path: '/en/games?page=2',
+    locale: 'en',
+    canonical: `${SITE}/en/games`,
+    pair: [`${SITE}/games`, `${SITE}/en/games`],
+    robots: NOT_INDEXABLE,
+  },
+  {
+    path: '/games?search=witcher',
+    locale: 'uk',
+    canonical: `${SITE}/games`,
+    pair: [`${SITE}/games`, `${SITE}/en/games`],
+    robots: NOT_INDEXABLE,
+  },
+  {
     path: GAME,
     locale: 'uk',
     canonical: `${SITE}${GAME}`,
@@ -143,6 +159,25 @@ describe('SEO: what a crawler reads', async () => {
   })
 
   describe.each(PAGES)('$path', (page) => {
+    it('says everything exactly once: a duplicated tag is the classic head regression', async () => {
+      const head = await headOf(page.path)
+      expect(head.titleCount).toBe(1)
+      for (const name of ['description', 'robots', 'twitter:card']) {
+        expect(
+          head.meta.filter((m) => m.name === name),
+          name,
+        ).toHaveLength(1)
+      }
+      for (const property of ['og:title', 'og:description', 'og:url', 'og:type', 'og:image']) {
+        expect(metaProperty(head, property), property).toHaveLength(1)
+      }
+      expect(head.links.filter((l) => l.rel === 'canonical')).toHaveLength(1)
+      for (const hreflang of ['uk', 'en', 'x-default']) {
+        const links = head.links.filter((l) => l.rel === 'alternate' && l.hreflang === hreflang)
+        expect(links, hreflang).toHaveLength(1)
+      }
+    })
+
     it('has a title that names the site, and a description in the page language', async () => {
       const head = await headOf(page.path)
       expect(head.status).toBe(200)
@@ -197,6 +232,12 @@ describe('SEO: what a crawler reads', async () => {
     expect(metaName(head, 'description')).toContain('PC, Українська: озвучка')
     const english = await headOf('/en/games?ukrainianLocalisation=AUDIO&platforms=4')
     expect(english.title).toBe('Games (PC, Ukrainian: voice acting) — GG Stay')
+  })
+
+  it('keeps a re-sorted catalog out of the index: it is the first page in another order', async () => {
+    const head = await headOf('/games?sort=RELEASED_DESC')
+    expect(metaName(head, 'robots')).toBe(NOT_INDEXABLE)
+    expect(canonical(head)).toBe(`${SITE}/games`)
   })
 
   it('numbers a later catalog page in its title', async () => {
@@ -318,6 +359,9 @@ describe('SEO: what a crawler reads', async () => {
       expect(head.lang).toBe(lang)
       expect(head.title).toBe(title)
       expect(metaName(head, 'robots')).toBe('noindex')
+      expect(head.titleCount).toBe(1)
+      expect(head.meta.filter((m) => m.name === 'robots')).toHaveLength(1)
+      expect(head.meta.filter((m) => m.name === 'description')).toHaveLength(1)
       expect(metaName(head, 'description')).toBeTruthy()
       // Nothing to point at: a missing page has no canonical and no alternates.
       expect(canonical(head)).toBeUndefined()
