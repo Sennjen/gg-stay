@@ -319,6 +319,19 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           )
         })
 
+        it('lists every slug of the published version for the sitemap, in the default order', async () => {
+          const slugs = await adapter.index.allSlugs()
+          const bySlug = new Map(FIXTURE_GAMES.map((entry) => [entry.id, entry.slug]))
+          // Most popular first, exactly as the unfiltered catalog lists them, so the first sitemap
+          // file carries the pages most worth crawling.
+          expect(slugs.map((entry) => entry.slug)).toEqual(
+            (await allIds({})).map((id) => bySlug.get(id)),
+          )
+          expect(new Set(slugs.map((entry) => entry.slug)).size).toBe(FIXTURE_GAMES.length)
+          // Dated by the publication that holds them: the version is what a crawler would see.
+          for (const entry of slugs) expect(entry.updatedAt).toBe(FIXTURE_META.updatedAt)
+        })
+
         it('reports the published meta, version included', async () => {
           const meta = await adapter.index.meta()
           expect(meta).toMatchObject({
@@ -355,6 +368,7 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(await adapter.index.getOne(1)).toBeNull()
         expect(await adapter.index.getMany([1, 2])).toEqual(new Map())
         expect(await adapter.index.meta()).toBeNull()
+        expect(await adapter.index.allSlugs()).toEqual([])
         expect(await adapter.writer.meta()).toBeNull()
         expect(await adapter.writer.allGames()).toEqual([])
         expect(await adapter.writer.previousMeta()).toBeNull()

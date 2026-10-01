@@ -141,6 +141,7 @@ export function countCalls(index: GameIndex): CountingIndex {
       calls.meta += 1
       return index.meta()
     },
+    allSlugs: () => index.allSlugs(),
   }
 }
 
@@ -173,6 +174,7 @@ export function overriding(index: GameIndex, overrides: Partial<GameIndex>): Gam
     getMany: (ids) => (overrides.getMany ?? index.getMany.bind(index))(ids),
     getOne: (id) => (overrides.getOne ?? index.getOne.bind(index))(id),
     meta: () => (overrides.meta ?? index.meta.bind(index))(),
+    allSlugs: () => (overrides.allSlugs ?? index.allSlugs.bind(index))(),
   }
 }
 

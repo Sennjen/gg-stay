@@ -81,12 +81,26 @@ export interface IndexSearchResult {
   games: IndexedGame[]
 }
 
+/** One game page the sitemap lists. */
+export interface IndexedSlug {
+  slug: string
+  /** ISO timestamp of the publication that holds the game: what a crawler would see changed. */
+  updatedAt: string
+}
+
 /** The read side: everything a request needs from a published version. */
 export interface GameIndex {
   search(query: IndexQuery): Promise<IndexSearchResult>
   getMany(ids: number[]): Promise<Map<number, IndexedGame>>
   getOne(id: number): Promise<IndexedGame | null>
   meta(): Promise<IndexMeta | null>
+  /**
+   * Every game of the published version, in the default (popularity) order, for the sitemap; empty
+   * when nothing is published. Read commands only, like every other read: the site's token is
+   * read-only. It is the one read that touches the whole version, so an adapter reads it in pages
+   * and the site gives it a longer deadline than a page read (`withDeadline`).
+   */
+  allSlugs(): Promise<IndexedSlug[]>
 }
 
 /**

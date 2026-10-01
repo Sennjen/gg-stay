@@ -205,12 +205,41 @@ describe('upstashIndex', () => {
       await index.getOne(3)
       await index.getMany([1, 2, 3])
       await index.meta()
+      await index.allSlugs()
 
       const used = [...new Set(commandsSince(redis, before))]
       expect(used.length).toBeGreaterThan(4)
       for (const write of WRITE_COMMANDS) expect(used).not.toContain(write)
       const reads = ['get', 'hgetall', 'mget', 'smembers', 'sunion', 'zrangeAll', 'zrangebyscore']
       for (const command of used) expect(reads).toContain(command)
+    })
+  })
+
+  describe('what the sitemap read costs', () => {
+    it('reads the slugs in pages of documents, one request per page', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, { bulkReadPageSize: 500 })
+      const games = manyGames(1_200)
+      await publishGames(adapterFor(index, redis), games)
+
+      const before = redis.requests.length
+      const slugs = await index.allSlugs()
+      expect(slugs.map((entry) => entry.slug)).toEqual(games.map((game) => game.slug))
+
+      // A version of 3 000 full card documents is megabytes; read in one answer it would be one
+      // slow, oversized response. Pages keep every answer bounded.
+      const documentReads = redis.requests
+        .slice(before)
+        .filter((request) => request.commands.includes('mget'))
+      expect(documentReads).toHaveLength(3)
+      for (const request of documentReads) expect(request.commands).toEqual(['mget'])
+    })
+
+    it('reads no documents at all before anything is published', async () => {
+      const { redis, index } = makeAdapter()
+      const before = redis.requests.length
+      expect(await index.allSlugs()).toEqual([])
+      expect(commandsSince(redis, before)).not.toContain('mget')
     })
   })
 

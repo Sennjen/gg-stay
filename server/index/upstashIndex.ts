@@ -9,6 +9,7 @@ import type {
   IndexQuery,
   IndexSearchResult,
   IndexWriteStats,
+  IndexedSlug,
 } from './GameIndex'
 import { DEFAULT_SORT } from './GameIndex'
 import {
@@ -136,6 +137,12 @@ export interface UpstashIndexOptions {
    * not a fraction of it.
    */
   cacheBytes?: number
+  /**
+   * How many documents one request of `allSlugs` reads. The sitemap is the one read that walks the
+   * whole version, megabytes of card documents; read in one answer it would be one slow, oversized
+   * response, so it goes a page of documents per request.
+   */
+  bulkReadPageSize?: number
   /**
    * Moves every key this adapter touches aside, under a namespace of its own. Empty in the site
    * and in the job; the live smoke test sets it so that it can exercise a real database without
@@ -289,6 +296,7 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
   private readonly renewIntervalMs: number
   private readonly cacheEntries: number
   private readonly cacheBytes: number
+  private readonly bulkReadPageSize: number
   private readonly runId: string
   private readonly usage: () => RedisUsage
   private lastRenewedAt = Number.NEGATIVE_INFINITY
@@ -310,6 +318,7 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     this.renewIntervalMs = options.renewIntervalMs ?? 60_000
     this.cacheEntries = options.cacheEntries ?? 200
     this.cacheBytes = options.cacheBytes ?? 8_000_000
+    this.bulkReadPageSize = options.bulkReadPageSize ?? 500
     this.runId = options.runId ?? `run-${Math.random().toString(36).slice(2, 10)}`
   }
 
@@ -489,6 +498,31 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     const version = await this.currentVersion()
     if (version === null) return null
     return decodeMeta(await this.read((batch) => batch.hgetall(metaKey(version))))
+  }
+
+  /**
+   * Every slug of the published version, for the sitemap: the meta (for the date), the default
+   * order set (the one set that holds every game) and then the documents, one page per request.
+   * `GET`, `HGETALL`, `ZRANGE` and `MGET` — read commands only, so it works on the site's token.
+   */
+  async allSlugs(): Promise<IndexedSlug[]> {
+    const version = await this.currentVersion()
+    if (version === null) return []
+    const [meta, ranked] = await this.readTogether(
+      (batch) => batch.hgetall(metaKey(version)),
+      (batch) => batch.zrangeAll(orderSetKey(version, DEFAULT_SORT)),
+    )
+    const updatedAt = decodeMeta(meta)?.updatedAt
+    if (!updatedAt) return []
+    const slugs: IndexedSlug[] = []
+    for (const page of chunk(ranked.map(Number), this.bulkReadPageSize)) {
+      const documents = await this.readDocuments(version, page)
+      for (const id of page) {
+        const game = documents.get(id)
+        if (game) slugs.push({ slug: game.slug, updatedAt })
+      }
+    }
+    return slugs
   }
 
   async previousMeta(): Promise<IndexMeta | null> {
@@ -1010,6 +1044,18 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     const result = queue(batch)
     await batch.exec()
     return result.value
+  }
+
+  /** One request that reads two things. */
+  private async readTogether<A, B>(
+    first: (batch: RedisBatch) => RedisResult<A>,
+    second: (batch: RedisBatch) => RedisResult<B>,
+  ): Promise<[A, B]> {
+    const batch = this.commands.pipeline()
+    const a = first(batch)
+    const b = second(batch)
+    await batch.exec()
+    return [a.value, b.value]
   }
 
   /** One request, however many keys: `MGET` is chunked into several commands, not several trips. */
