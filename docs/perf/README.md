@@ -215,14 +215,17 @@ job, and runs three gates against it:
 - **Playwright smoke flows with axe** (`pnpm e2e`): landing → a shelf's "Усі ігри" → catalog;
   catalog → filter drawer → price and localisation change the count → a game; the screenshot
   lightbox opened, paged and closed from the keyboard; the locale switch keeping the page. axe runs
-  on every page and dialog state and fails on any serious or critical violation; any console error
-  fails a flow. Screenshots and traces of a failure are uploaded as an artifact.
+  on every page and dialog state and fails on any moderate, serious or critical violation (the spec
+  asks for serious and critical; no moderate finding remains, so moderate is held too); any console
+  error fails a flow. Screenshots and traces of a failure are uploaded as an artifact.
 - **Lighthouse CI** (`lighthouserc.cjs`): mobile profile, three runs per page, median asserted —
-  performance ≥ 85 on `/games` and the game page and ≥ 70 on `/`, accessibility, best practices and
-  SEO ≥ 95, CLS ≤ 0.1. Reports are uploaded as an artifact.
+  performance ≥ 85 on `/games`, ≥ 80 on the game page and ≥ 70 on `/`; accessibility, best
+  practices and SEO ≥ 95; CLS ≤ 0.1. Reports are uploaded as an artifact.
 
 These thresholds are a regression net for this fixture build, not a claim about production — the
-production numbers are the tables above. Requests that would leave the runner are blocked in both
+production numbers are the tables above. They run on shared CI runners, where ±5 points between
+runs is normal noise; the game page measured 89 locally, so its bar is 80 rather than 85, which
+would flap on noise without catching anything more. Requests that would leave the runner are blocked in both
 browsers: Lighthouse refuses RAWG's image CDN and Steam's video CDN, and the Playwright flows answer
 RAWG images with a local placeholder. The gates need no secrets and no network, and a slow third
 party cannot fail them; image loading is covered by the SSR tests and the production runs here.
@@ -237,11 +240,16 @@ transfer what Vercel's edge transfers; the Vercel build is unchanged. Measured l
 | `/games`        | 92          | 2.7 s | 0   | 0 ms  | 100           | 100            | 100 |
 | `/games/[slug]` | 89          | 3.2 s | 0   | 10 ms | 100           | 100            | 100 |
 
-Running the gate surfaced one real defect: `<NuxtImg>` renders an inline
+Running the gates surfaced two real defects. First, `<NuxtImg>` renders an inline
 `onerror="this.setAttribute('data-error', 1)"` on every server-rendered image, and the page's CSP
 blocked it — a CSP violation in the console for every image that failed to load, which would have
 cost best practices in production whenever RAWG lost a cover. The page policy now allows exactly
 that handler body (`'unsafe-hashes'` plus its sha256); any other inline handler is still blocked.
+
+Second, axe flagged `landmark-unique` (moderate) on every page: the header and the footer each held
+a navigation landmark named "Мова", indistinguishable in a screen reader's landmark list. The
+footer's is now "Мова сайту (внизу сторінки)" / "Site language (footer)", which leaves no axe
+finding of any impact on the visited pages.
 
 ## Fonts, measured
 
