@@ -87,9 +87,11 @@ through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
   recorded. A visitor whose browser sends Do Not Track or Global Privacy
   Control is not measured at all: the script is never requested.
 - **How it loads:** `app/plugins/speed-insights.client.ts` imports the
-  Speed Insights runtime after hydration, when the browser is idle, from its
-  own chunk, so the first-load JavaScript of every page is unchanged. The
-  script (`/_vercel/speed-insights/script.js`) and its reports
+  Speed Insights SDK after hydration, when the browser is idle, from its own
+  chunk that is never preloaded or prefetched. The first-load JavaScript of
+  `/games` grew by the loader alone (0.3 KB gzipped); the SDK (1 KB gzipped)
+  is downloaded only by visitors who are measured. The script
+  (`/_vercel/speed-insights/script.js`) and its reports
   (`/_vercel/speed-insights/vitals`) are same-origin, so the existing
   Content-Security-Policy covers both.
 - **Where the numbers are:** the project's **Speed Insights** tab in the
