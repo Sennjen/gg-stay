@@ -13,7 +13,7 @@ import { gzipSync } from 'node:zlib'
  * `docs/perf/README.md` ("JavaScript budget for /games, measured"); client assets are byte-identical
  * between the node-server and the Vercel preset, so a node build measures the deployed bundle.
  *
- *   QUALITY_BASE_URL=http://127.0.0.1:3000 pnpm check:bundle-budget
+ *   QUALITY_BASE_URL=http://localhost:3000 pnpm check:bundle-budget
  */
 
 /**
@@ -104,7 +104,7 @@ export async function measureFirstLoadJs(html: string, publicDir: string): Promi
 const kib = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`
 
 async function main(): Promise<number> {
-  const base = process.env.QUALITY_BASE_URL ?? 'http://127.0.0.1:3000'
+  const base = process.env.QUALITY_BASE_URL ?? 'http://localhost:3000'
   const publicDir = process.env.BUNDLE_PUBLIC_DIR ?? '.output/public'
   const pageUrl = new URL('/games', base)
 
