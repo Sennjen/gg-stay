@@ -67,7 +67,8 @@ describe('gameJsonLd', () => {
       '@type': 'VideoGame',
       name: 'The Witcher 3: Wild Hunt',
       url: options.url,
-      image: 'https://media.rawg.io/media/resize/1280/-/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg',
+      image:
+        'https://media.rawg.io/media/resize/1280/-/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg',
       description: options.description,
       datePublished: '2015-05-18',
       genre: ['Action', 'RPG'],
