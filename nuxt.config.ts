@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import { STATIC_SECURITY_HEADERS } from './server/security/headers'
+import { speedInsightsDefault } from './app/utils/speedInsights'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-01',
@@ -9,6 +10,23 @@ export default defineNuxtConfig({
   modules: ['@nuxt/eslint', '@nuxt/fonts', '@nuxt/image', '@nuxtjs/i18n', '@pinia/nuxt'],
   css: ['~/assets/css/main.css'],
   vite: { plugins: [tailwindcss()] },
+  hooks: {
+    // The renderer prefetches every dynamic import of the entry on every page. The Speed Insights
+    // SDK is imported after hydration and only for visitors it may measure (see
+    // app/plugins/speed-insights.client.ts), so prefetching it would download it for everyone else
+    // too — on every deployment where it is off, and for visitors who sent Do Not Track. The key is
+    // matched by substring: if a Nuxt or bundler upgrade renames it, or the import moves out of the
+    // entry, this silently stops working, and the e2e test that fetches every script a page loads,
+    // preloads or prefetches (tests/e2e/ssr.test.ts) is the guard that fails.
+    'build:manifest'(manifest) {
+      for (const chunk of Object.values(manifest)) {
+        if (!chunk.isEntry) continue
+        chunk.dynamicImports = chunk.dynamicImports?.filter(
+          (source) => !source.includes('@vercel/speed-insights'),
+        )
+      }
+    },
+  },
   fonts: {
     // Weights and styles are declared to match what the app actually renders, because every
     // declared combination becomes an `@font-face` block in the render-blocking stylesheet even
@@ -61,6 +79,11 @@ export default defineNuxtConfig({
     // filters it takes away can be looked at in a browser. Read in the fixture-mode seed path
     // alone (`useGameIndex`) — it cannot affect a deployment that has real credentials.
     indexFixtureStale: process.env.INDEX_FIXTURE_STALE ?? '',
+    public: {
+      // Vercel Speed Insights: on for Vercel production builds only; `NUXT_PUBLIC_SPEED_INSIGHTS`
+      // (0 or 1) overrides it at runtime. See app/plugins/speed-insights.client.ts.
+      speedInsights: speedInsightsDefault(process.env),
+    },
   },
   routeRules: {
     // Static headers only. The Content-Security-Policy is deliberately NOT here: the Vercel preset

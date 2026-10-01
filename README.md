@@ -71,6 +71,52 @@ performance change lands, with the report and numbers recorded in
 first-load JavaScript for `/games` (131.1 KB gzipped, 117.5 KB brotli) against
 the 120 KB budget ADR-002 set, chunk by chunk, and what is left to move.
 
+## Field metrics
+
+Lighthouse measures one machine; the field numbers come from real visitors
+through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
+
+- **What is collected:** the Core Web Vitals of each page view — LCP, INP,
+  CLS, FCP and TTFB — grouped by route pattern (`/games/[slug]`, not each
+  game; `/en/…` separately; error pages and unknown addresses as `/404` or
+  `/error`), together with the page address and the coarse context Vercel
+  records with every report (device type, browser, country), as described in
+  Vercel's Speed Insights privacy documentation.
+- **What is not:** no cookies and no identifiers of any kind are set or sent
+  by this app. Query strings and fragments are removed from the reported
+  address before a report leaves the browser (the report request itself, like
+  any same-origin request, still carries the full page address in its
+  `Referer` header). A visitor whose browser sends Do Not Track or Global
+  Privacy Control is not measured at all: the script is never requested.
+- **How it loads:** `app/plugins/speed-insights.client.ts` imports the
+  Speed Insights SDK after hydration, when the browser is idle, from its own
+  chunk that is never preloaded or prefetched. The first-load JavaScript of
+  `/games` grew by the loader alone (0.4 KB gzipped); the SDK (1 KB gzipped)
+  is downloaded only by visitors who are measured. A visitor who leaves
+  before the page first goes idle is never measured, so the numbers lean
+  slightly towards longer visits. The script
+  (`/_vercel/speed-insights/script.js`) and its reports
+  (`/_vercel/speed-insights/vitals`) are same-origin, so the existing
+  Content-Security-Policy covers both.
+- **Where the numbers are:** the project's **Speed Insights** tab in the
+  Vercel dashboard (p75 per route, per device, over time). They are not
+  published from this repository.
+- **When it is on:** by default in Vercel production builds only
+  (`VERCEL_ENV=production` at build time; Speed Insights is enabled for the
+  project). Preview deployments are left out so they never mix into the
+  production numbers; local and CI builds load nothing; fixture mode is never
+  measured, whether it is set at build time or at runtime.
+  `NUXT_PUBLIC_SPEED_INSIGHTS=0` turns it off at runtime and `=1` forces it
+  on (except in fixture mode).
+- **Checking a deployment:** the page source carries `speedInsights:"1"` in
+  its `__NUXT__` config, and after the page settles a
+  `<script src="/_vercel/speed-insights/script.js">` sits in `<head>`. The
+  value is decided when the deployment is built: promoting a preview to
+  production, or rolling back to one, keeps the preview's off — set
+  `NUXT_PUBLIC_SPEED_INSIGHTS=1` for such a deployment, or redeploy. A project
+  that does not expose Vercel's system environment variables to the build
+  never turns it on by itself either.
+
 ## Development
 
 ```bash

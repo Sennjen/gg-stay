@@ -639,4 +639,36 @@ describe('server-side rendering', async () => {
       }
     },
   )
+
+  it('leaves Speed Insights out of the server HTML, and off in a build that is not Vercel production', async () => {
+    // The loader is client-only and injects its script after hydration, so no page's HTML ever
+    // names it; and this production build is not a Vercel production build, so the client is
+    // told it is off and never requests a script only a Vercel deployment serves.
+    for (const path of ['/', '/en', '/games', '/games/the-witcher-3-wild-hunt']) {
+      const html = await $fetch<string>(path)
+      expect(html).not.toContain('speed-insights')
+      expect(html).not.toContain('va.vercel-scripts.com')
+      expect(html).toMatch(/speedInsights:\s*""/)
+    }
+  })
+
+  it('keeps the Speed Insights SDK out of every script a page loads, preloads or prefetches', async () => {
+    // The SDK is a dynamic import made after hydration, for opted-in visitors only. Nuxt would
+    // otherwise prefetch every dynamic import of the entry on every page, for every visitor.
+    for (const path of ['/', '/games', '/games/the-witcher-3-wild-hunt']) {
+      const html = await $fetch<string>(path)
+      const scripts = new Set([
+        ...[...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)].map((match) => match[1]!),
+        ...[...html.matchAll(/<link[^>]*rel="(?:modulepreload|prefetch|preload)"[^>]*>/g)]
+          .map((match) => match[0].match(/href="([^"]+\.js)"/)?.[1])
+          .filter((href): href is string => Boolean(href)),
+      ])
+      expect(scripts.size).toBeGreaterThan(0)
+      for (const src of scripts) {
+        expect(await $fetch<string>(src, { responseType: 'text' })).not.toContain(
+          'speed-insights/script.js',
+        )
+      }
+    }
+  })
 })
