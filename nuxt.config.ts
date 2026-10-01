@@ -73,11 +73,6 @@ export default defineNuxtConfig({
   },
   typescript: { strict: true },
   runtimeConfig: {
-    public: {
-      // Pages say `noindex` in their own robots meta too on a preview (`robotsFor`), so the page and
-      // the header never disagree.
-      previewDeployment,
-    },
     rawgApiKey: process.env.RAWG_API_KEY ?? '',
     rawgFixtures: process.env.RAWG_FIXTURES ?? '',
     // The price and localisation index. Server-side only, and deliberately not under `public`:
@@ -99,6 +94,9 @@ export default defineNuxtConfig({
       // Vercel Speed Insights: on for Vercel production builds only; `NUXT_PUBLIC_SPEED_INSIGHTS`
       // (0 or 1) overrides it at runtime. See app/plugins/speed-insights.client.ts.
       speedInsights: speedInsightsDefault(process.env),
+      // Pages say `noindex` in their own robots meta too on a preview (`robotsFor`), so the page and
+      // the header never disagree.
+      previewDeployment,
     },
   },
   routeRules: {
