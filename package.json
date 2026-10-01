@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:unit": "vitest run --project unit --project nuxt",
     "check:vercel-headers": "node scripts/check-vercel-headers.mjs",
+    "check:bundle-budget": "tsx scripts/check-bundle-budget.ts",
     "smoke:index": "tsx scripts/index/smoke.ts",
     "index:refresh": "tsx scripts/index/run.ts"
   },
