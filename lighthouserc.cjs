@@ -26,6 +26,7 @@ module.exports = {
         chromeFlags: '--no-sandbox',
         blockedUrlPatterns: [
           '*://media.rawg.io/*',
+          '*://api.rawg.io/*',
           '*://*.steamstatic.com/*',
           '*://*.akamaihd.net/*',
         ],
