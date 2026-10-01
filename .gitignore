@@ -8,6 +8,11 @@ node_modules
 dist
 .vercel
 
+# quality gate reports (Lighthouse CI, Playwright)
+.lighthouseci
+playwright-report
+test-results
+
 # environment
 .env
 .env.*
