@@ -14,8 +14,12 @@ describe('ReadonlyFilterChips', () => {
         label: 'Фільтр каталогу',
       },
     })
+    // The label is on screen, not only announced: a row of chips with no caption is a row whose
+    // meaning a visitor would have to guess.
     const list = wrapper.get('ul')
-    expect(list.attributes('aria-label')).toBe('Фільтр каталогу')
+    const label = wrapper.get(`#${list.attributes('aria-labelledby')}`)
+    expect(label.text()).toBe('Фільтр каталогу')
+    expect(label.classes()).not.toContain('sr-only')
     expect(wrapper.findAll('li').map((chip) => plain(chip.text()))).toEqual([
       'Рольові',
       'Nintendo Switch',
@@ -46,5 +50,6 @@ describe('ReadonlyFilterChips', () => {
       props: { filter: {}, genres: [], label: 'Фільтр' },
     })
     expect(wrapper.find('ul').exists()).toBe(false)
+    expect(wrapper.text()).toBe('')
   })
 })

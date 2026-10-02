@@ -304,15 +304,18 @@ useSeoMeta({
 
         <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <ReadonlyFilterChips
+            data-test="ask-filter"
             :filter="answer.filter"
             :genres="genres"
             :label="t('ask.filterLabel')"
           />
+          <!-- A plain underlined link, not a chip: next to the chips it must not read as one more
+               filter value. -->
           <NuxtLink
             v-if="catalogLink"
             :to="catalogLink"
             data-test="ask-catalog-link"
-            class="rounded-chip border border-line px-3 py-1 text-sm text-fg underline-offset-4 transition-colors duration-150 ease-out hover:border-fg-2 hover:underline focus-visible:outline-2"
+            class="text-sm text-fg underline underline-offset-4 hover:text-fg-2 focus-visible:outline-2"
           >
             {{ t('ask.openInCatalog') }}
           </NuxtLink>

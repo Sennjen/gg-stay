@@ -122,7 +122,8 @@ describe('the ask page, answered from the URL', () => {
     expect(results.get('[data-test="ask-interpretation"]').text()).toContain(
       'Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
     )
-    const chips = results.get('ul[aria-label="Зрозумілий фільтр"]')
+    const chips = results.get('[data-test="ask-filter"] ul')
+    expect(plain(results.get('[data-test="ask-filter"]').text())).toMatch(/^Зрозумілий фільтр:/)
     expect(chips.findAll('li').map((chip) => plain(chip.text()))).toEqual([
       'Nintendo Switch',
       'Локальний кооператив',

@@ -287,7 +287,7 @@
     "privacy": "Your question is read by Anthropic's Claude language model. We don't store questions together with IP addresses.",
     "results": "Results",
     "interpretation": "How we read it:",
-    "filterLabel": "Understood filter",
+    "filterLabel": "Understood filter:",
     "openInCatalog": "Open in the catalog",
     "picked": "Picked {count} game | Picked {count} games",
     "found": "Found {count} game | Found {count} games",
