@@ -16,6 +16,11 @@ import {
 /** The longest question the endpoint accepts, in characters after trimming. */
 export const ASK_MAX_LENGTH = 200
 
+/** The longest interpretation the endpoint sends, in characters; the page holds it to that. */
+export const ASK_INTERPRETATION_MAX = 200
+/** The longest reason the endpoint sends (100) with room to spare; the page holds it to that. */
+export const ASK_REASON_MAX = 120
+
 /** Exactly what a catalog card renders, so the answer's cards go through `GameCard` unchanged. */
 export type AskCard = GamesQuery['games']['items'][number]
 
@@ -106,8 +111,10 @@ export function askCatalogQuery(catalogUrl: string, filter: CatalogFilter): Reco
   return serializeFilterState({ filter, sort: DEFAULT_SORT, page: 1 })
 }
 
-function stringOrNull(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
+/** Trimmed text, at most `max` characters (counted in code points), or null when there is none. */
+function textOrNull(value: unknown, max: number): string | null {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text ? Array.from(text).slice(0, max).join('') : null
 }
 
 /**
@@ -130,14 +137,14 @@ export function normaliseAskAnswer(raw: unknown): AskAnswer | null {
   const items = (raw.items as unknown[]).flatMap((item): AskItem[] => {
     if (!isRecord(item)) return []
     const card = toCard(item.card)
-    return card ? [{ card, reason: stringOrNull(item.reason) }] : []
+    return card ? [{ card, reason: textOrNull(item.reason, ASK_REASON_MAX) }] : []
   })
   const ignoredFilters = Array.isArray(raw.ignoredFilters)
     ? (raw.ignoredFilters as unknown[]).filter((name): name is string => typeof name === 'string')
     : []
   return {
     mode: raw.mode,
-    interpretation: stringOrNull(raw.interpretation),
+    interpretation: textOrNull(raw.interpretation, ASK_INTERPRETATION_MAX),
     filter,
     catalogUrl: typeof raw.catalogUrl === 'string' ? raw.catalogUrl : '',
     items,

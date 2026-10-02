@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ASK_INTERPRETATION_MAX,
   ASK_MAX_LENGTH,
+  ASK_REASON_MAX,
   askCatalogQuery,
   askIgnoredSort,
   normaliseAskAnswer,
@@ -113,6 +115,16 @@ describe('askIgnoredSort', () => {
 })
 
 describe('normaliseAskAnswer', () => {
+  it('caps the model-written text at the lengths the endpoint promises', () => {
+    const answer = normaliseAskAnswer({
+      ...STRUCTURED_ANSWER,
+      interpretation: 'і'.repeat(500),
+      items: [{ ...STRUCTURED_ANSWER.items[0], reason: 'р'.repeat(500) }],
+    })
+    expect(answer?.interpretation).toHaveLength(ASK_INTERPRETATION_MAX)
+    expect(answer?.items[0]!.reason).toHaveLength(ASK_REASON_MAX)
+  })
+
   it('carries the filters the answer could not apply, and none when it does not say', () => {
     expect(
       normaliseAskAnswer({ ...STRUCTURED_ANSWER, ignoredFilters: ['priceMaxUah', 7, 'sort'] })

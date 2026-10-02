@@ -325,7 +325,7 @@ useSeoMeta({
         </p>
         <p v-else-if="answer.interpretation" data-test="ask-interpretation" class="mt-4 text-fg">
           <span class="text-fg-2">{{ t('ask.interpretation') }}</span>
-          {{ ' ' }}<span class="text-lg">{{ answer.interpretation }}</span>
+          {{ ' ' }}<span class="text-lg break-words">{{ answer.interpretation }}</span>
         </p>
 
         <div
@@ -395,7 +395,7 @@ useSeoMeta({
                 :eager="index === 0"
                 :priority="index === 0"
               />
-              <p v-if="item.reason" data-test="ask-reason" class="px-1 text-sm text-fg">
+              <p v-if="item.reason" data-test="ask-reason" class="px-1 text-sm break-words text-fg">
                 <span class="text-fg-2">{{ t('ask.reason') }}</span> {{ item.reason }}
               </p>
             </li>
