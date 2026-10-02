@@ -161,7 +161,7 @@ describe('the ask page, answered from the URL', () => {
   it('in fallback, says calmly that the AI part did not run and shows the plain search', async () => {
     const wrapper = await renderAsk(askUrl(FALLBACK_QUERY))
     const note = wrapper.get('[data-test="ask-fallback-note"]')
-    expect(note.text()).toBe('ІІ-розбір зараз недоступний — показуємо звичайний пошук')
+    expect(note.text()).toBe('ШІ-розбір зараз недоступний — показуємо звичайний пошук')
     expect(note.attributes('role')).toBeUndefined()
     expect(wrapper.find('[data-test="ask-interpretation"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(2)
@@ -177,7 +177,7 @@ describe('the ask page, answered from the URL', () => {
     expect(href.pathname).toBe('/games')
     expect(Object.fromEntries(href.searchParams)).toEqual({ search: FALLBACK_QUERY })
     expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe(
-      'ІІ-розбір зараз недоступний — показуємо звичайний пошук. Знайшли 2 гри',
+      'ШІ-розбір зараз недоступний — показуємо звичайний пошук. Знайшли 2 гри',
     )
   })
 

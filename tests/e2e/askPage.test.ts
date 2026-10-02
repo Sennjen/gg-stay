@@ -145,7 +145,7 @@ describe('the ask page on the server', async () => {
 
   it('renders the fallback note and the rate-limit wait on the server too', async () => {
     expect(text((await page(askUrl(FALLBACK_QUERY))).body)).toContain(
-      'ІІ-розбір зараз недоступний — показуємо звичайний пошук',
+      'ШІ-розбір зараз недоступний — показуємо звичайний пошук',
     )
     // The seconds come from the stub's Retry-After header, read on the server.
     const limited = await page(askUrl(RATE_LIMITED_QUERY))

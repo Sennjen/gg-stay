@@ -422,7 +422,7 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   subgrid, so the cards of a row share one height and their reasons start on one line. The covers
   use `ASK_CARD_IMAGE_SIZES`.
 - **States.** Loading: a skeleton of the interpretation, the chips and three cards, the section
-  `aria-busy`. Fallback: a calm `surface-1` note, no colour and no alert role — "ІІ-розбір зараз
+  `aria-busy`. Fallback: a calm `surface-1` note, no colour and no alert role — "ШІ-розбір зараз
   недоступний — показуємо звичайний пошук" — above the plain search's cards. Empty: a dashed panel
   that suggests rephrasing or opening the filter in the catalog. Rate limited: "спробуйте ще раз за
   N секунд" from `Retry-After` (read on the server and carried in the payload, never computed from
