@@ -331,6 +331,8 @@ useSeoMeta({
           <span class="text-fg-2">{{ t('ask.interpretation') }}</span>
           {{ ' ' }}<span class="text-lg break-words">{{ answer.interpretation }}</span>
         </p>
+        <!-- The catalog's own note, text only: an answer carries no price-run time to age. -->
+        <CatalogIndexNote v-if="answer.indexedOnly" class="mt-2" now="" />
 
         <div
           v-if="catalogLink"

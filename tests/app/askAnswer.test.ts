@@ -129,6 +129,11 @@ describe('normaliseAskAnswer', () => {
     expect(normaliseAskAnswer({ ...STRUCTURED_ANSWER, indexStale: true })?.indexStale).toBe(true)
     expect(normaliseAskAnswer({ ...STRUCTURED_ANSWER, indexStale: 'yes' })?.indexStale).toBe(false)
     expect(normaliseAskAnswer(STRUCTURED_ANSWER)?.indexStale).toBe(false)
+    expect(normaliseAskAnswer(STRUCTURED_ANSWER)?.indexedOnly).toBe(true)
+    expect(normaliseAskAnswer({ ...STRUCTURED_ANSWER, indexedOnly: 'yes' })?.indexedOnly).toBe(
+      false,
+    )
+    expect(normaliseAskAnswer(FALLBACK_ANSWER)?.indexedOnly).toBe(false)
   })
 
   it('carries the filters the answer could not apply, and none when it does not say', () => {

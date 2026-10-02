@@ -150,6 +150,9 @@ describe('the ask page on the server', async () => {
       'Чому підходить: Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
     )
     expect((body.match(/data-test="ask-reason"/g) ?? []).length).toBe(3)
+    // Answered from the index, so the page says what that covers, as the catalog does.
+    expect(body).toContain('data-test="index-note"')
+    expect(text(body)).toMatch(/Пошук серед 3\s000 найпопулярніших ігор/)
     expect(decode(body)).toContain('href="/games?ukrainianLocalisation=ANY"')
     // The field shows the question, and nothing is left in a loading state for hydration to fix.
     expect(decode(/<textarea[^>]*>([^<]*)<\/textarea>/.exec(body)?.[1] ?? '')).toBe(HORROR)

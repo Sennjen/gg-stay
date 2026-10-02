@@ -18,7 +18,7 @@ export const ASK_MAX_LENGTH = 200
 
 /** The longest interpretation the endpoint sends, in characters; the page holds it to that. */
 export const ASK_INTERPRETATION_MAX = 200
-/** The longest reason the endpoint sends (100) with room to spare; the page holds it to that. */
+/** The longest reason the endpoint sends (80) with room to spare; the page holds it to that. */
 export const ASK_REASON_MAX = 120
 
 /** Exactly what a catalog card renders, so the answer's cards go through `GameCard` unchanged. */
@@ -49,6 +49,12 @@ export interface AskAnswer {
    * filter is among `ignoredFilters`. `false` when no page answered.
    */
   indexStale: boolean
+  /**
+   * The cards came from the price index alone — its most popular games and every Ukrainian
+   * studio's — not from the whole catalog (`GamePage.indexedOnly`); the page says so with the
+   * catalog's own note. `false` when no page answered.
+   */
+  indexedOnly: boolean
   tookMs: number
 }
 
@@ -155,6 +161,7 @@ export function normaliseAskAnswer(raw: unknown): AskAnswer | null {
     items,
     ignoredFilters,
     indexStale: raw.indexStale === true,
+    indexedOnly: raw.indexedOnly === true,
     tookMs: typeof raw.tookMs === 'number' ? raw.tookMs : 0,
   }
 }
