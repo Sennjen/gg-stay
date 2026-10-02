@@ -126,6 +126,9 @@ async function submit(text: string = draft.value) {
   emptyQuestion.value = false
   draft.value = question
   focusResultsWhenReady.value = true
+  // A question sent from the form is asked again even if this tab has its answer; only history
+  // navigation renders from memory.
+  ask.forget(question)
   if (question === urlQuery.value) {
     await ask.refresh()
     return

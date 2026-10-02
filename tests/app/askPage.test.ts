@@ -7,6 +7,7 @@ import { nextTick } from 'vue'
 import { readBody, setResponseHeaders, setResponseStatus, type H3Event } from 'h3'
 import { clearNuxtData } from '#app'
 import AskPage from '~/pages/ask.vue'
+import { forgetAskAnswers } from '~/composables/useAsk'
 import { askStubResponse } from '~~/tests/fixtures/askPage/stub'
 import {
   BROKEN_QUERY,
@@ -70,6 +71,7 @@ afterEach(() => {
   for (const wrapper of mounted.splice(0)) wrapper.unmount()
   requests.length = 0
   indexStale = false
+  forgetAskAnswers()
   clearNuxtData()
 })
 
@@ -428,5 +430,55 @@ describe('the ask page, asked from the form', () => {
       release()
       registerEndpoint('/api/ask', { method: 'POST', handler: stub })
     }
+  })
+})
+
+describe('the ask page, going back and forward', () => {
+  const titles = (wrapper: Awaited<ReturnType<typeof renderAsk>>) =>
+    wrapper.findAll('[data-test="card-title"]').map((title) => title.text())
+
+  it('renders an answer it already has on Back and Forward, without asking again', async () => {
+    const wrapper = await renderAsk('/ask')
+    await wrapper.get('textarea').setValue(STRUCTURED_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(titles(wrapper)).toContain('Overcooked! 2'))
+    await wrapper.get('textarea').setValue(FALLBACK_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(titles(wrapper)).toContain('Hades'))
+    expect(requests).toHaveLength(2)
+
+    useRouter().back()
+    await settle(() => expect(titles(wrapper)).toContain('Overcooked! 2'))
+    expect(currentQuery()).toBe(STRUCTURED_QUERY)
+    // Rendered straight from memory: no skeleton on the way.
+    expect(wrapper.find('[data-test="ask-loading"]').exists()).toBe(false)
+
+    useRouter().forward()
+    await settle(() => expect(titles(wrapper)).toContain('Hades'))
+    expect(requests).toHaveLength(2)
+  })
+
+  it('still asks when a question is sent again from the form', async () => {
+    const wrapper = await renderAsk('/ask')
+    for (const question of [STRUCTURED_QUERY, FALLBACK_QUERY, STRUCTURED_QUERY]) {
+      await wrapper.get('textarea').setValue(question)
+      await wrapper.get('form').trigger('submit')
+      await settle(() => expect(currentQuery()).toBe(question))
+    }
+    await settle(() => expect(requests).toHaveLength(3))
+    expect(titles(wrapper)).toContain('Overcooked! 2')
+  })
+
+  it('keeps a failed answer out of memory, so going back to it asks again', async () => {
+    const wrapper = await renderAsk('/ask')
+    await wrapper.get('textarea').setValue(BROKEN_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(wrapper.find('[data-test="ask-error"]').exists()).toBe(true))
+    await wrapper.get('textarea').setValue(STRUCTURED_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(titles(wrapper)).toContain('Overcooked! 2'))
+
+    useRouter().back()
+    await settle(() => expect(requests).toHaveLength(3))
   })
 })

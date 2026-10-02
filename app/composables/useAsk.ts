@@ -60,6 +60,31 @@ function readFailure(data: unknown): AskFailure {
 }
 
 /**
+ * Answers this tab has already received, by question and locale, so Back and Forward render the
+ * page a visitor saw instead of asking again: every ask costs one of the visitor's ten questions a
+ * minute, and a fallback answer is never cached by the endpoint, so going back to one would run
+ * the failed model attempt once more. Browser only — on the server a module-level map would be
+ * shared by every visitor — held in memory for the life of the tab, and bounded. Failures are not
+ * kept: going back to one asks again. A question sent from the form always asks (`forget`).
+ */
+const remembered = new Map<string, AskAnswer>()
+const REMEMBERED_LIMIT = 30
+
+function remember(key: string, answer: AskAnswer) {
+  if (!import.meta.client) return
+  remembered.delete(key)
+  remembered.set(key, answer)
+  if (remembered.size > REMEMBERED_LIMIT) remembered.delete(remembered.keys().next().value!)
+}
+
+/** Clears the tab's remembered answers (tests start from an empty tab). */
+export function forgetAskAnswers() {
+  remembered.clear()
+}
+
+const askKey = (locale: string, query: string) => `ask:${locale}:${query}`
+
+/**
  * The typed client for `POST /api/ask` `{ q, locale }`. The question is a ref (the page passes the
  * `q` from its URL), and the request runs through `useAsyncData`, so a URL with `q` is answered
  * in the server render and a shared link opens on its results. An empty question sends nothing;
@@ -80,8 +105,10 @@ export async function useAskAnswer(question: MaybeRefOrGetter<string>) {
   const query = computed(() => normaliseAskQuery(toValue(question)))
   const requestFetch = useRequestFetch()
 
+  const key = computed(() => askKey(locale.value, query.value))
+
   const { data, error, status, refresh } = await useAsyncData(
-    () => `ask:${locale.value}:${query.value}`,
+    key,
     async (): Promise<AskAnswer | null> => {
       const q = query.value
       if (!q) return null
@@ -93,9 +120,21 @@ export async function useAskAnswer(question: MaybeRefOrGetter<string>) {
       }
       const answer = normaliseAskAnswer(raw)
       if (!answer) throw askError({ kind: 'failed', retryAfterSeconds: null })
+      remember(askKey(locale.value, q), answer)
       return answer
     },
+    {
+      // The server render's answer when hydrating; in the browser, an answer this tab already
+      // has. "Send again" (`refresh()`) always asks.
+      getCachedData(cacheKey, nuxtApp, context) {
+        if (context.cause === 'refresh:manual') return undefined
+        if (nuxtApp.isHydrating) return nuxtApp.payload.data[cacheKey]
+        return remembered.get(cacheKey)
+      },
+    },
   )
+  // The answer the server rendered is one this tab has, too.
+  if (import.meta.client && data.value) remember(key.value, data.value)
 
   const failure = computed<AskFailure | null>(() =>
     error.value ? readFailure(error.value.data) : null,
@@ -107,5 +146,9 @@ export async function useAskAnswer(question: MaybeRefOrGetter<string>) {
     failure,
     status,
     refresh: () => refresh(),
+    /** Drops a question's remembered answer, so the next time it is shown it is asked again. */
+    forget: (text: string) => {
+      remembered.delete(askKey(locale.value, normaliseAskQuery(text)))
+    },
   }
 }
