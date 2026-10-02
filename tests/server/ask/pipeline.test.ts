@@ -309,6 +309,7 @@ describe('the ask pipeline — structured answers', () => {
     })
     const outcome = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
     expect(outcome.answer.ignoredFilters).toEqual([])
+    expect(outcome.answer.indexStale).toBe(false)
     expect(outcome.degraded).toBe(false)
     expect(outcome.rerankFailure).toBeNull()
   })
@@ -328,7 +329,34 @@ describe('the ask pipeline — structured answers', () => {
     // What was understood stays the filter; what the catalog could not apply is named beside it.
     expect(outcome.answer.filter).toEqual({ gameModes: ['LOCAL_COOP'], priceMaxUah: 500 })
     expect(outcome.answer.ignoredFilters).toEqual(['priceMaxUah'])
+    expect(outcome.answer.indexStale).toBe(true)
     expect(outcome.degraded).toBe(true)
+  })
+
+  it('reports a stale index on a fallback whose plain search it answered', async () => {
+    const stale = await publishTestIndex(COOP, {
+      updatedAt: '2026-09-01T06:30:00.000Z',
+      pricesUpdatedAt: '2026-09-01T06:00:00.000Z',
+    })
+    const context = await contextWith(COOP, { index: stale })
+    const { provider } = scripted({ parse: () => failed('unavailable') })
+    const { answer } = await runAsk({ q: 'portal', locale: 'uk' }, { context, provider })
+    expect(answer.mode).toBe('fallback')
+    expect(answer.indexStale).toBe(true)
+  })
+
+  it('reports indexStale as false when no page answered, since it is then unknown', async () => {
+    const stale = await publishTestIndex(COOP, {
+      updatedAt: '2026-09-01T06:30:00.000Z',
+      pricesUpdatedAt: '2026-09-01T06:00:00.000Z',
+    })
+    const rawg: RawgFetch = async () => {
+      throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
+    }
+    const context = await contextWith(COOP, { index: stale, rawg })
+    const { provider } = scripted({ parse: () => failed('unavailable') })
+    const { answer } = await runAsk({ q: 'portal', locale: 'uk' }, { context, provider })
+    expect(answer).toMatchObject({ mode: 'fallback', items: [], indexStale: false })
   })
 
   it('falls back to the retrieval order without reasons when fewer than three ranked ids survive', async () => {
@@ -648,6 +676,7 @@ describe('the ask pipeline — fallback', () => {
         filter: { search: RAW },
         items: [],
         ignoredFilters: [],
+        indexStale: false,
       })
     })
 
@@ -753,6 +782,7 @@ describe('the ask pipeline — the answer shape', () => {
       'catalogUrl',
       'filter',
       'ignoredFilters',
+      'indexStale',
       'interpretation',
       'items',
       'mode',

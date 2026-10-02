@@ -33,6 +33,7 @@ describe('POST /api/ask in fixture mode', async () => {
       filter: { gameModes: ['LOCAL_COOP'], platforms: [7], priceMaxUah: 500 },
       catalogUrl: '/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500',
       ignoredFilters: [],
+      indexStale: false,
     })
     expect(Array.isArray(answer.items)).toBe(true)
     expect(typeof answer.tookMs).toBe('number')

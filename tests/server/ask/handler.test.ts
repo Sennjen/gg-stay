@@ -188,6 +188,7 @@ describe('POST /api/ask — answers', () => {
       filter: { ukrainianLocalisation: 'ANY' },
       catalogUrl: '/games?ukrainianLocalisation=ANY',
       ignoredFilters: [],
+      indexStale: false,
       items: [
         { card: { id: '13537' }, reason: 'Гнітюча атмосфера Сіті 17, українські субтитри' },
         { card: { id: '41494' } },
@@ -223,6 +224,7 @@ describe('POST /api/ask — answers', () => {
       catalogUrl: expect.stringMatching(/^\/en\/games\?search=/),
       items: [],
       ignoredFilters: [],
+      indexStale: false,
     })
   })
 })
@@ -444,5 +446,15 @@ describe('POST /api/ask — degraded answers', () => {
     const { deps, logs } = await harness({ provider: unanswered })
     await ask(deps, { q: QUERY, locale: 'uk' })
     expect(logs[0]).toMatchObject({ failure: 'timeout', costUsd: 'unknown' })
+  })
+})
+
+describe('POST /api/ask — the cached entry', () => {
+  it('keeps indexStale with the answer, so a cache hit reports it too', async () => {
+    const { deps } = await harness()
+    const first = (await ask(deps, { q: QUERY, locale: 'uk' })).body as Record<string, unknown>
+    const second = (await ask(deps, { q: QUERY, locale: 'uk' })).body as Record<string, unknown>
+    expect(first.indexStale).toBe(false)
+    expect(second).toHaveProperty('indexStale', false)
   })
 })

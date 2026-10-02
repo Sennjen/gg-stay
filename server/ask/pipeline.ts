@@ -91,6 +91,13 @@ export interface AskAnswer {
    * of the page they came from, with the same names (and `sort`). Empty when everything applied.
    */
   ignoredFilters: string[]
+  /**
+   * The catalog page the cards came from reported stale prices (`GamePage.indexStale`), so the
+   * cards carry no price and the price filters are among `ignoredFilters`. `false` when no page
+   * answered — a query with nothing to look for, or a fallback whose search did not answer — since
+   * it is then unknown; a fallback whose search answered reports that page's own value.
+   */
+  indexStale: boolean
   tookMs: number
 }
 
@@ -252,7 +259,7 @@ async function structured(
   // list of popular games would be an answer to a question nobody asked.
   if (isEmpty(understood)) {
     return {
-      answer: { ...base, items: [], ignoredFilters: [] },
+      answer: { ...base, items: [], ignoredFilters: [], indexStale: false },
       rerankFailure: null,
       degraded: false,
     }
@@ -271,7 +278,7 @@ async function structured(
     (await indexState(context)).meta === null ||
     ignoredFilters.length > 0
   const answered = (items: AskItem[], rerankFailure: AskFailure | null): StructuredResult => ({
-    answer: { ...base, items, ignoredFilters },
+    answer: { ...base, items, ignoredFilters, indexStale: retrieved.indexStale },
     rerankFailure,
     degraded: indexDegraded || rerankFailure !== null,
   })
@@ -506,7 +513,15 @@ async function fallback(
       pageSize: FALLBACK_SIZE,
     })
     const items = page.items.slice(0, FALLBACK_SIZE).map((card) => ({ card, reason: null }))
-    return { answer: { ...answer, items, ignoredFilters: page.ignoredFilters }, ok: true }
+    return {
+      answer: {
+        ...answer,
+        items,
+        ignoredFilters: page.ignoredFilters,
+        indexStale: page.indexStale,
+      },
+      ok: true,
+    }
   } catch {
     return { answer, ok: false }
   }
@@ -523,5 +538,6 @@ export function emptyFallback(request: AskRequest): Omit<AskAnswer, 'tookMs'> {
     catalogUrl: catalogUrl(filter, DEFAULT_SORT, request.locale),
     items: [],
     ignoredFilters: [],
+    indexStale: false,
   }
 }
