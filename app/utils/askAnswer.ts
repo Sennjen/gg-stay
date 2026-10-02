@@ -104,32 +104,15 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+/**
+ * A card as the endpoint sends it: the server's `GameCard`, a superset of what `GameCard.vue`
+ * renders, so it is passed through untouched. Only an item with no card at all is dropped.
+ */
 function toCard(value: unknown): AskCard | null {
   if (!isRecord(value)) return null
   const { id, slug, name } = value
   if (typeof id !== 'string' || typeof slug !== 'string' || typeof name !== 'string') return null
-  const cover = isRecord(value.cover) && typeof value.cover.url === 'string' ? value.cover : null
-  return {
-    id,
-    slug,
-    name,
-    released: stringOrNull(value.released),
-    metacritic: typeof value.metacritic === 'number' ? value.metacritic : null,
-    cover: cover ? { url: cover.url as string } : null,
-    screenshots: Array.isArray(value.screenshots)
-      ? (value.screenshots as unknown[]).flatMap((shot) =>
-          isRecord(shot) && typeof shot.url === 'string' ? [{ url: shot.url }] : [],
-        )
-      : [],
-    platformFamilies: Array.isArray(value.platformFamilies)
-      ? (value.platformFamilies as AskCard['platformFamilies'])
-      : [],
-    price: isRecord(value.price) ? (value.price as AskCard['price']) : null,
-    localisation: isRecord(value.localisation)
-      ? (value.localisation as AskCard['localisation'])
-      : null,
-    madeInUkraine: value.madeInUkraine === true,
-  }
+  return value as unknown as AskCard
 }
 
 /** The answer, checked and normalised; null when it is not an answer at all. */

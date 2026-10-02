@@ -5,7 +5,7 @@ import { nextTick } from 'vue'
 import { readBody, setResponseHeaders, setResponseStatus, type H3Event } from 'h3'
 import { clearNuxtData } from '#app'
 import AskPage from '~/pages/ask.vue'
-import { askStubResponse } from '~~/tests/fixtures/ask/stub'
+import { askStubResponse } from '~~/tests/fixtures/askPage/stub'
 import {
   BROKEN_QUERY,
   EMPTY_QUERY,
@@ -13,7 +13,7 @@ import {
   RATE_LIMITED_QUERY,
   STRUCTURED_ANSWER,
   STRUCTURED_QUERY,
-} from '~~/tests/fixtures/ask/answers'
+} from '~~/tests/fixtures/askPage/answers'
 
 /**
  * The ask page against a recorded stand-in for `POST /api/ask` (`tests/fixtures/ask/stub.ts`):
@@ -213,9 +213,9 @@ describe('the ask page, answered from the URL', () => {
     expect(requests).toHaveLength(2)
   })
 
-  it('refuses a question over the limit without sending it', async () => {
+  it('explains a question the endpoint refused as too long', async () => {
     const wrapper = await renderAsk(askUrl('а'.repeat(201)))
-    expect(requests).toEqual([])
+    expect(requests).toHaveLength(1)
     expect(plain(wrapper.get('[data-test="ask-error"]').text())).toContain(
       'Запит задовгий: щонайбільше 200 символів. Скоротіть його й спробуйте ще раз.',
     )

@@ -1,5 +1,4 @@
 import {
-  ASK_MAX_LENGTH,
   normaliseAskAnswer,
   normaliseAskQuery,
   parseRetryAfter,
@@ -63,22 +62,28 @@ function readFailure(data: unknown): AskFailure {
 /**
  * The typed client for `POST /api/ask` `{ q, locale }`. The question is a ref (the page passes the
  * `q` from its URL), and the request runs through `useAsyncData`, so a URL with `q` is answered
- * in the server render and a shared link opens on its results. An empty question sends nothing,
- * and one over the endpoint's limit is refused here rather than sent to be refused.
+ * in the server render and a shared link opens on its results. An empty question sends nothing;
+ * any other is sent as it is, because the endpoint owns the rules for a valid one (its 400 costs
+ * the visitor nothing).
+ *
+ * The call goes through `useRequestFetch()`: in the server render it forwards the visitor's request
+ * headers, `x-forwarded-for` among them, so the endpoint's per-address rate limit counts this
+ * visitor. A bare `$fetch` there would make an internal call with no address, and every server
+ * render would share one bucket. In the browser it is plain `$fetch`.
  */
 export async function useAsk(question: MaybeRefOrGetter<string>) {
   const { locale } = useI18n()
   const query = computed(() => normaliseAskQuery(toValue(question)))
+  const requestFetch = useRequestFetch()
 
   const { data, error, status, refresh } = await useAsyncData(
     () => `ask:${locale.value}:${query.value}`,
     async (): Promise<AskAnswer | null> => {
       const q = query.value
       if (!q) return null
-      if (q.length > ASK_MAX_LENGTH) throw askError({ kind: 'invalid', retryAfterSeconds: null })
       let raw: unknown
       try {
-        raw = await $fetch('/api/ask', { method: 'POST', body: { q, locale: locale.value } })
+        raw = await requestFetch('/api/ask', { method: 'POST', body: { q, locale: locale.value } })
       } catch (cause) {
         throw askError(classify(cause))
       }

@@ -3,14 +3,14 @@ import { mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
 import { readBody, setResponseHeaders, setResponseStatus, type H3Event } from 'h3'
-import { askStubResponse } from '~~/tests/fixtures/ask/stub'
+import { askStubResponse } from '~~/tests/fixtures/askPage/stub'
 import {
   BROKEN_QUERY,
   FALLBACK_QUERY,
   RATE_LIMITED_QUERY,
   RETRY_AFTER_SECONDS,
   STRUCTURED_QUERY,
-} from '~~/tests/fixtures/ask/answers'
+} from '~~/tests/fixtures/askPage/answers'
 
 /** Every body the stub received, in order. */
 const requests: unknown[] = []
@@ -92,10 +92,11 @@ describe('useAsk', () => {
     expect(state.failure).toEqual({ kind: 'failed', retryAfterSeconds: null })
   })
 
-  it('reports a question the endpoint refuses as invalid', async () => {
+  it('reports a question the endpoint refuses (400) as invalid', async () => {
     const state = await ask('x'.repeat(201))
-    // Never sent: the page knows the limit, and a request it knows will fail is not worth making.
-    expect(requests).toEqual([])
+    // Sent as it is: the endpoint owns the rules for a valid question, and a refusal costs it
+    // nothing (invalid requests are not charged to the visitor's rate limit).
+    expect(requests).toHaveLength(1)
     expect(state.failure).toEqual({ kind: 'invalid', retryAfterSeconds: null })
   })
 

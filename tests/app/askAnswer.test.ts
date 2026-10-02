@@ -7,7 +7,7 @@ import {
   parseRetryAfter,
   toCatalogFilter,
 } from '~/utils/askAnswer'
-import { FALLBACK_ANSWER, STRUCTURED_ANSWER } from '~~/tests/fixtures/ask/answers'
+import { FALLBACK_ANSWER, STRUCTURED_ANSWER } from '~~/tests/fixtures/askPage/answers'
 
 describe('normaliseAskQuery', () => {
   it('reads the first string of a route value and trims it', () => {
@@ -117,27 +117,11 @@ describe('normaliseAskAnswer', () => {
     expect(answer?.items.every((item) => item.reason === null)).toBe(true)
   })
 
-  it('fills the card fields a card reads, so a lean card cannot break the grid', () => {
-    const answer = normaliseAskAnswer({
-      ...STRUCTURED_ANSWER,
-      items: [{ card: { id: '9', slug: 'nine', name: 'Nine' }, reason: '' }],
-    })
-    expect(answer?.items[0]).toEqual({
-      card: {
-        id: '9',
-        slug: 'nine',
-        name: 'Nine',
-        released: null,
-        metacritic: null,
-        cover: null,
-        screenshots: [],
-        platformFamilies: [],
-        price: null,
-        localisation: null,
-        madeInUkraine: false,
-      },
-      reason: null,
-    })
+  it('passes the card through as the endpoint sends it, and an empty reason as none', () => {
+    const card = { ...STRUCTURED_ANSWER.items[1].card, rating: 4.4, genres: [], platforms: [] }
+    const answer = normaliseAskAnswer({ ...STRUCTURED_ANSWER, items: [{ card, reason: '' }] })
+    expect(answer?.items[0]).toEqual({ card, reason: null })
+    expect(answer?.items[0]!.card).toBe(card)
   })
 
   it('drops items that are not cards, and rejects an answer that is not one', () => {
