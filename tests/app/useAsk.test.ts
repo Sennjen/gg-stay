@@ -32,12 +32,12 @@ const mounted: { unmount: () => void }[] = []
 
 const Host = defineComponent({
   async setup() {
-    return await useAsk(question)
+    return await useAskAnswer(question)
   },
   template: '<span />',
 })
 
-type HostState = Awaited<ReturnType<typeof useAsk>>
+type HostState = Awaited<ReturnType<typeof useAskAnswer>>
 
 async function ask(text: string) {
   question.value = text
@@ -56,7 +56,7 @@ afterEach(() => {
   question.value = ''
 })
 
-describe('useAsk', () => {
+describe('useAskAnswer', () => {
   it('sends nothing for an empty question', async () => {
     const state = await ask('   ')
     expect(requests).toEqual([])

@@ -21,7 +21,7 @@ const localePath = useLocalePath()
 const urlQuery = computed(() => normaliseAskQuery(route.query.q))
 
 const [ask, taxonomies] = await Promise.all([
-  useAsk(urlQuery),
+  useAskAnswer(urlQuery),
   useGql(CatalogTaxonomiesDocument, {}),
 ])
 const { answer, failure, status } = ask

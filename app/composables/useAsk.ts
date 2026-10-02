@@ -66,12 +66,16 @@ function readFailure(data: unknown): AskFailure {
  * any other is sent as it is, because the endpoint owns the rules for a valid one (its 400 costs
  * the visitor nothing).
  *
+ * Named `useAskAnswer` rather than after its file: the server's own `useAsk()` (the endpoint's
+ * dependencies, `server/utils/ask.ts`) is an auto-import too, and one name for both made the
+ * server's type check resolve the endpoint's call to this composable.
+ *
  * The call goes through `useRequestFetch()`: in the server render it forwards the visitor's request
  * headers, `x-forwarded-for` among them, so the endpoint's per-address rate limit counts this
  * visitor. A bare `$fetch` there would make an internal call with no address, and every server
  * render would share one bucket. In the browser it is plain `$fetch`.
  */
-export async function useAsk(question: MaybeRefOrGetter<string>) {
+export async function useAskAnswer(question: MaybeRefOrGetter<string>) {
   const { locale } = useI18n()
   const query = computed(() => normaliseAskQuery(toValue(question)))
   const requestFetch = useRequestFetch()
