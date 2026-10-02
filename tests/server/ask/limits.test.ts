@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDailyCeiling, createRateLimiter } from '../../../server/ask/limits'
+import { createDailyCeiling, createRateLimiter, dailyCallLimit } from '../../../server/ask/limits'
 
 function clock(start = Date.parse('2026-10-02T10:00:00.000Z')) {
   let at = start
@@ -83,5 +83,21 @@ describe('the daily ceiling of model calls', () => {
   it('treats a ceiling of zero as "no model calls at all"', () => {
     const ceiling = createDailyCeiling({ limit: 0, now: clock().now })
     expect(ceiling.reserve(1)).toBe(false)
+  })
+})
+
+describe('the configured ceiling', () => {
+  it.each([
+    ['', 500],
+    [undefined, 500],
+    ['250', 250],
+    [250, 250],
+    [0, 0],
+    ['0', 0],
+    ['-5', 500],
+    ['lots', 500],
+    [12.7, 12],
+  ])('reads %j as %i', (raw, expected) => {
+    expect(dailyCallLimit(raw)).toBe(expected)
   })
 })

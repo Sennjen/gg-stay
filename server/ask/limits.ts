@@ -11,6 +11,16 @@ export const MAX_TRACKED_ADDRESSES = 10_000
 /** Model calls one instance may make per UTC day, unless `ASK_DAILY_LLM_CALLS` says otherwise. */
 export const DEFAULT_DAILY_LLM_CALLS = 500
 
+/**
+ * The configured ceiling, read from `ASK_DAILY_LLM_CALLS`. Env overrides arrive through destr, so
+ * it may be a number or a string; anything that is not a whole, non-negative number is the default.
+ */
+export function dailyCallLimit(raw: unknown): number {
+  if (raw === '' || raw === null || raw === undefined) return DEFAULT_DAILY_LLM_CALLS
+  const limit = Number(raw)
+  return Number.isFinite(limit) && limit >= 0 ? Math.floor(limit) : DEFAULT_DAILY_LLM_CALLS
+}
+
 export type RateDecision = { ok: true } | { ok: false; retryAfterSeconds: number }
 
 export interface RateLimiter {

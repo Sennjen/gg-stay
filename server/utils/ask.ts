@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createAnthropicProvider } from '../ask/anthropicProvider'
 import type { AskHandlerDeps, CachedAsk } from '../ask/handler'
-import { createDailyCeiling, createRateLimiter, DEFAULT_DAILY_LLM_CALLS } from '../ask/limits'
+import { createDailyCeiling, createRateLimiter, dailyCallLimit } from '../ask/limits'
 import { createRecordedProvider, type RecordedAnswers } from '../ask/recordedProvider'
 import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
 
@@ -21,13 +21,6 @@ let instance: AskHandlerDeps | undefined
 
 // unstorage reads `:` in a key as a namespace separator, and the cache key carries the query.
 const hashKey = (key: string) => createHash('sha256').update(key).digest('hex')
-
-/** Env overrides arrive through destr, so the ceiling may be a number or a string. */
-export function dailyCallLimit(raw: unknown): number {
-  if (raw === '' || raw === null || raw === undefined) return DEFAULT_DAILY_LLM_CALLS
-  const limit = Number(raw)
-  return Number.isFinite(limit) && limit >= 0 ? Math.floor(limit) : DEFAULT_DAILY_LLM_CALLS
-}
 
 export function useAsk(): AskHandlerDeps {
   if (instance) return instance
