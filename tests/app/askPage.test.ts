@@ -25,7 +25,7 @@ import {
 } from '~~/tests/fixtures/askPage/answers'
 
 /**
- * The ask page against a recorded stand-in for `POST /api/ask` (`tests/fixtures/ask/stub.ts`):
+ * The ask page against a recorded stand-in for `POST /api/ask` (`tests/fixtures/askPage/stub.ts`):
  * every state the page can be in, reached the way a visitor reaches it — from a URL with `q`
  * (which is also what the server renders) or from the form.
  */
@@ -110,6 +110,12 @@ describe('the ask page, idle', () => {
     const wrapper = await renderAsk('/ask')
     await wrapper.get('textarea').setValue('щось темне')
     expect(plain(wrapper.get('[data-test="ask-counter"]').text())).toBe('10 із 200 символів')
+  })
+
+  it('names its search landmark by the field label', async () => {
+    const wrapper = await renderAsk('/ask')
+    const form = wrapper.get('form[role="search"]')
+    expect(wrapper.get(`#${form.attributes('aria-labelledby')}`).text()).toBe('Яку гру шукаєте?')
   })
 
   it('asks for a few words instead of sending an empty question', async () => {
@@ -347,7 +353,7 @@ describe('the ask page, text written by the model', () => {
 /** The route the app's router is on: the page navigates it, so this is where `q` lands. */
 const currentQuery = () => useRouter().currentRoute.value.query.q
 
-/** Waits until the page has asked `count` questions in all and the answer has rendered. */
+/** Waits until `check` holds, then lets the page settle. */
 async function settle(check: () => void) {
   await vi.waitFor(check, { timeout: 2000, interval: 20 })
   await flushPromises()

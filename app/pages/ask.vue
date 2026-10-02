@@ -176,8 +176,16 @@ useSeoMeta({
       <h1 class="font-display-heading text-2xl text-fg sm:text-3xl">{{ t('ask.title') }}</h1>
       <p class="mt-2 text-fg-2">{{ t('ask.lead') }}</p>
 
-      <form role="search" class="mt-6" novalidate @submit.prevent="submit()">
-        <label :for="fieldId" class="block text-sm font-medium text-fg">{{ t('ask.label') }}</label>
+      <form
+        role="search"
+        :aria-labelledby="`${fieldId}-label`"
+        class="mt-6"
+        novalidate
+        @submit.prevent="submit()"
+      >
+        <label :id="`${fieldId}-label`" :for="fieldId" class="block text-sm font-medium text-fg">{{
+          t('ask.label')
+        }}</label>
         <textarea
           :id="fieldId"
           ref="fieldRef"
