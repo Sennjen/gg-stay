@@ -5,7 +5,7 @@ import {
   type AgeRatingValue,
   type GameModeValue,
 } from '#shared/catalog'
-import type { CatalogFilter } from '~/utils/filterUrl'
+import { INDEX_FILTER_FIELDS, type CatalogFilter } from '~/utils/filterUrl'
 
 /**
  * The words for every active filter, in one place: the chip row renders them as removable chips,
@@ -236,4 +236,26 @@ export function filterLabels(filter: CatalogFilter, context: FilterLabelContext)
   }
 
   return list.map((entry) => ({ ...entry, prose: entry.prose ?? entry.label }))
+}
+
+/**
+ * Why the catalog could not apply a filter, in words a visitor can act on — the sentence beside a
+ * struck-through chip, on the catalog and on the ask page alike.
+ *
+ * The server does not say why — `ignoredFilters` is a bare list of field names — so the reason is
+ * read off the only two things that produce one. An **index** filter is in the list because the
+ * index could not serve it, and `indexStale` tells a stale price run from a silent store.
+ * Anything else in the list is a filter only RAWG can apply, which lost the page to the index.
+ * Deriving the first case from `INDEX_FILTER_FIELDS` rather than naming the second case's fields
+ * here means a field added to the URL layer cannot quietly fall into the wrong explanation.
+ */
+export function ignoredFilterReason(
+  field: string,
+  indexStale: boolean,
+  t: FilterLabelContext['t'],
+): string {
+  if ((INDEX_FILTER_FIELDS as readonly string[]).includes(field)) {
+    return indexStale ? t('chips.ignoredStalePrices') : t('chips.ignoredIndexDown')
+  }
+  return t('chips.ignoredWithPriceFilter')
 }
