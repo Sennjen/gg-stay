@@ -8,6 +8,7 @@ import {
 } from './prompts'
 import {
   NO_USAGE,
+  REQUEST_TIMEOUT_MS,
   type AskFailure,
   type LlmCallOptions,
   type LlmProvider,
@@ -32,8 +33,8 @@ import { AskParseSchema, AskRerankSchema, readParse, readRerank } from './schema
 export const ASK_MODEL = 'claude-haiku-4-5'
 export const PARSE_MAX_TOKENS = 500
 export const RERANK_MAX_TOKENS = 900
-export const REQUEST_TIMEOUT_MS = 8_000
 export const MAX_RETRIES = 1
+export { REQUEST_TIMEOUT_MS }
 
 /** Haiku 4.5 list prices, in US dollars per million tokens. */
 export const PRICE_PER_MILLION_TOKENS = { input: 1, output: 5 } as const

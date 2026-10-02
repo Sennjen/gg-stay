@@ -64,6 +64,9 @@ export interface LlmProvider {
   ): Promise<LlmResult<AskRerank>>
 }
 
+/** How long one model call may take, at most, whichever provider makes it. */
+export const REQUEST_TIMEOUT_MS = 8_000
+
 export const NO_USAGE: LlmUsage = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
 
 export function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
