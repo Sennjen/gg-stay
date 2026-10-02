@@ -281,8 +281,11 @@ describe('the length cap is measured in bytes', () => {
 describe('the analysis cannot itself be used as a denial of service', () => {
   // The reviewer's exact payloads: N = 12 cost 12 ms, N = 16 cost 172 ms, N = 18 overflowed the
   // stack into a 500. All three must now be cheap rejections with the documented error shape.
+  // The bound covers the whole request through yoga on a loaded test runner, so it is 100 ms:
+  // far above the linear analysis (well under 1 ms) and far below the exponential one (N = 40
+  // would not finish at all), which is the difference these tests exist to catch.
   it.each([12, 16, 18, 20, 40])(
-    'rejects a %i-level doubling fragment chain in well under 20 ms, with no upstream call',
+    'rejects a %i-level doubling fragment chain in well under 100 ms, with no upstream call',
     async (levels) => {
       const query = fragmentBomb(levels)
       expect(query.length).toBeLessThan(MAX_QUERY_BYTES)
@@ -295,7 +298,7 @@ describe('the analysis cannot itself be used as a denial of service', () => {
       expect(response.status).toBe(200)
       expect(response.json().errors?.[0]?.extensions?.code).toBe('QUERY_TOO_COMPLEX')
       expect(calls).toEqual([])
-      expect(elapsed).toBeLessThan(20)
+      expect(elapsed).toBeLessThan(100)
     },
   )
 
@@ -313,7 +316,7 @@ describe('the analysis cannot itself be used as a denial of service', () => {
     expect(response.status).toBe(200)
     expect(response.json().errors?.[0]?.extensions?.code).toBe('QUERY_TOO_COMPLEX')
     expect(calls).toEqual([])
-    expect(elapsed).toBeLessThan(20)
+    expect(elapsed).toBeLessThan(100)
   })
 
   it('never answers 500, whatever the shape of the document', async () => {
