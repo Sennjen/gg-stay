@@ -284,7 +284,7 @@
       "horror": "atmospheric horror in Ukrainian",
       "hades": "something like Hades, but shorter"
     },
-    "privacy": "Your question is read by Anthropic's Claude language model. We don't store questions together with IP addresses.",
+    "privacy": "Your question is sent to Anthropic to be read by a language model. We don't store questions together with IP addresses.",
     "results": "Results",
     "interpretation": "How we read it:",
     "filterLabel": "Understood filter:",
