@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readParse, readRerank, type AskParse } from '../../../server/ask/schemas'
-import { catalogUrl, plainReason, sanitiseParse } from '../../../server/ask/sanitise'
+import { catalogUrl, modelLine, plainReason, sanitiseParse } from '../../../server/ask/sanitise'
 import recorded from '../../fixtures/ask/recorded.json' with { type: 'json' }
 
 /**
@@ -313,5 +313,27 @@ describe('plainReason', () => {
       expect(plainReason(reason)).toBe(reason)
       expect(reason.length).toBeLessThanOrEqual(80)
     }
+  })
+})
+
+describe('modelLine', () => {
+  it('cuts an over-long line at the last word that fits and marks the cut', () => {
+    const line =
+      'Постапокаліптичний світ Метро з українською озвучкою, атмосферний хорор про виживання'
+    const cut = modelLine(line, 80)
+    expect(cut).toBe('Постапокаліптичний світ Метро з українською озвучкою, атмосферний хорор про…')
+    expect(cut!.length).toBeLessThanOrEqual(80)
+  })
+
+  it('drops a trailing comma or dash before the mark', () => {
+    expect(modelLine('один два три, чотири пʼять', 16)).toBe('один два три…')
+  })
+
+  it('leaves a line that fits untouched', () => {
+    expect(modelLine('Хаос на кухні для двох', 80)).toBe('Хаос на кухні для двох')
+  })
+
+  it('cuts a single over-long word hard, still marked', () => {
+    expect(modelLine('а'.repeat(100), 10)).toBe(`${'а'.repeat(9)}…`)
   })
 })
