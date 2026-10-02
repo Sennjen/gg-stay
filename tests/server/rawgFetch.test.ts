@@ -133,6 +133,18 @@ describe('createRawgFetch', () => {
     expect(fetchJson).toHaveBeenCalledTimes(2)
   })
 
+  it('makes a single, shorter attempt when the caller asks for one', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const fetchJson = vi.fn().mockRejectedValue(timeoutError())
+    const { deps } = makeDeps({ fetchJson })
+    await expect(
+      createRawgFetch(deps)('games', { search: 'x' }, { timeoutMs: 4_000, maxAttempts: 1 }),
+    ).rejects.toMatchObject({ kind: 'TIMEOUT' })
+    expect(fetchJson).toHaveBeenCalledTimes(1)
+    expect(timeout).toHaveBeenCalledWith(4_000)
+    timeout.mockRestore()
+  })
+
   it('does not retry on 429', async () => {
     const fetchJson = vi.fn().mockResolvedValue({ status: 429, body: null })
     const { deps } = makeDeps({ fetchJson })

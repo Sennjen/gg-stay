@@ -46,6 +46,13 @@ export interface UpstreamConfig<TRequest> {
   ttlFor: (request: TRequest) => number
   /** Narrows a payload before it is cached and returned; identity when omitted. */
   project?: (value: unknown) => unknown
+  /** A tighter timeout or fewer attempts for one request than the upstream's defaults. */
+  limitsFor?: (request: TRequest) => UpstreamLimits | undefined
+}
+
+export interface UpstreamLimits {
+  timeoutMs?: number
+  maxAttempts?: number
 }
 
 /**
@@ -76,11 +83,11 @@ export function createUpstreamFetch<TRequest>(
     if (slot > now) await runtime.sleep(slot - now)
   }
 
-  async function attempt(url: string, now: number): Promise<unknown> {
+  async function attempt(url: string, now: number, timeoutMs: number): Promise<unknown> {
     await throttle(now)
     let response: { status: number; body: unknown }
     try {
-      response = await runtime.fetchJson(url, AbortSignal.timeout(config.timeoutMs))
+      response = await runtime.fetchJson(url, AbortSignal.timeout(timeoutMs))
     } catch (error) {
       throw new UpstreamError(config.source, isTimeout(error) ? 'TIMEOUT' : 'ERROR')
     }
@@ -98,9 +105,15 @@ export function createUpstreamFetch<TRequest>(
     return error.kind === 'ERROR' && (error.status === undefined || error.status >= 500)
   }
 
-  async function fetchWithRetry(url: string, now: number): Promise<unknown> {
+  async function fetchWithRetry(
+    url: string,
+    now: number,
+    limits: UpstreamLimits | undefined,
+  ): Promise<unknown> {
+    const timeoutMs = limits?.timeoutMs ?? config.timeoutMs
+    const maxAttempts = limits?.maxAttempts ?? config.maxAttempts
     let lastError: unknown
-    for (let i = 0; i < config.maxAttempts; i++) {
+    for (let i = 0; i < maxAttempts; i++) {
       // The first attempt reuses the `now` captured at the top of the logical call (below) so that
       // concurrent calls each reserve their throttle slot against a shared reference point. A retry
       // attempt, however, happens strictly after real time has passed (the failed fetch, its
@@ -109,7 +122,7 @@ export function createUpstreamFetch<TRequest>(
       // down retries and dragging real throughput under the target rate.
       const attemptNow = i === 0 ? now : runtime.now()
       try {
-        return await attempt(url, attemptNow)
+        return await attempt(url, attemptNow, timeoutMs)
       } catch (error) {
         lastError = error
         if (!isRetryable(error)) break
@@ -139,7 +152,7 @@ export function createUpstreamFetch<TRequest>(
     if (cached && cached.expiresAt > now) return cached.value
 
     try {
-      const body = await fetchWithRetry(config.buildUrl(request), now)
+      const body = await fetchWithRetry(config.buildUrl(request), now, config.limitsFor?.(request))
       const value = project(body)
       if (isJsonObject(body)) {
         await runtime.cache.set(key, { value, expiresAt: now + config.ttlFor(request) * 1000 })
