@@ -115,3 +115,14 @@ export const MARKUP_ANSWER = {
   interpretation: '<b>жирно</b><script>alert("ask")</script>',
   items: [{ ...STRUCTURED_ANSWER.items[0], reason: '<img src=x onerror=alert(1)>' }],
 } as const
+
+/**
+ * Only a price filter was declined, beside filters the index never owns: the answer alone cannot
+ * tell stale prices from an index that did not answer.
+ */
+export const PRICE_ONLY_QUERY = 'кооператив на Switch до 500 грн, ціни застарілі'
+
+export const PRICE_ONLY_ANSWER = {
+  ...STRUCTURED_ANSWER,
+  ignoredFilters: ['priceMaxUah'],
+} as const

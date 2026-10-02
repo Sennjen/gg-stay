@@ -13,6 +13,7 @@ import {
   EMPTY_QUERY,
   FALLBACK_QUERY,
   MARKUP_QUERY,
+  PRICE_ONLY_QUERY,
   RATE_LIMITED_QUERY,
   STALE_QUERY,
   STRUCTURED_ANSWER,
@@ -38,9 +39,16 @@ async function stub(event: H3Event) {
 }
 
 registerEndpoint('/api/ask', { method: 'POST', handler: stub })
+/** What the catalog reports about the price index, as the page's freshness probe reads it. */
+let indexStale = false
+
 registerEndpoint('/api/graphql', {
   method: 'POST',
-  handler: () => ({ data: { genres: [{ id: '5', slug: 'rpg', name: 'Рольові' }] } }),
+  handler: async (event) => {
+    const body = (await readBody(event)) as { query: string }
+    if (body.query.includes('AskIndexFreshness')) return { data: { games: { indexStale } } }
+    return { data: { genres: [{ id: '5', slug: 'rpg', name: 'Рольові' }] } }
+  },
 })
 
 const mounted: { unmount: () => void }[] = []
@@ -59,6 +67,7 @@ const plain = (text: string) => text.replace(/\s+/g, ' ').trim()
 afterEach(() => {
   for (const wrapper of mounted.splice(0)) wrapper.unmount()
   requests.length = 0
+  indexStale = false
   clearNuxtData()
 })
 
@@ -229,15 +238,19 @@ describe('the ask page, answered from the URL', () => {
 
 describe('the ask page, answers the catalog could not fully apply', () => {
   it("strikes the declined filters through with the catalog's reason, and names a declined sort", async () => {
+    indexStale = true
     const wrapper = await renderAsk(askUrl(STALE_QUERY))
     const filter = wrapper.get('[data-test="ask-filter"]')
     const struck = filter.findAll('[data-test="ignored-chip"]')
     expect(struck).toHaveLength(1)
     expect(plain(struck[0]!.get('s').text())).toBe('до 300 ₴')
-    // Localisation was applied beside the declined price, so the index answered on stale prices.
     expect(struck[0]!.text()).toContain('не застосовано: ціни тимчасово не оновлюються')
     expect(plain(wrapper.get('[data-test="ask-sort-ignored"]').text())).toBe(
       '«Спочатку дешевші» не застосовано',
+    )
+    // The catalog's banner says what stale prices mean, as it does above the catalog's grid.
+    expect(wrapper.get('[data-test="stale-banner"]').text()).toContain(
+      'Ціни тимчасово не оновлюються',
     )
     // The link still opens the whole understood filter: the catalog strikes the same chips there.
     expect(wrapper.get('[data-test="ask-catalog-link"]').attributes('href')).toBe(
@@ -245,8 +258,27 @@ describe('the ask page, answers the catalog could not fully apply', () => {
     )
   })
 
-  it('marks nothing when everything was applied', async () => {
+  it('reads the freshness from the catalog, not from the answer, when only a price was declined', async () => {
+    indexStale = true
+    const stale = await renderAsk(askUrl(PRICE_ONLY_QUERY))
+    expect(stale.get('[data-test="ignored-chip"]').text()).toContain(
+      'не застосовано: ціни тимчасово не оновлюються',
+    )
+    stale.unmount()
+    clearNuxtData()
+
+    indexStale = false
+    const silent = await renderAsk(askUrl(PRICE_ONLY_QUERY))
+    expect(silent.get('[data-test="ignored-chip"]').text()).toContain(
+      'не застосовано: дані про ціни зараз недоступні',
+    )
+    expect(silent.find('[data-test="stale-banner"]').exists()).toBe(false)
+  })
+
+  it('marks nothing, and raises no banner, when everything was applied', async () => {
+    indexStale = true
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    expect(wrapper.find('[data-test="stale-banner"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="ignored-chip"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="ask-sort-ignored"]').exists()).toBe(false)
   })

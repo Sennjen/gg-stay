@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   ASK_MAX_LENGTH,
   askCatalogQuery,
-  askIndexStale,
   askIgnoredSort,
   normaliseAskAnswer,
   normaliseAskQuery,
@@ -96,32 +95,6 @@ describe('askCatalogQuery', () => {
     expect(askCatalogQuery('javascript:alert(1)', { genres: ['rpg'] })).toEqual({ genres: 'rpg' })
     expect(askCatalogQuery('/games/hades', { search: 'hades' })).toEqual({ search: 'hades' })
     expect(askCatalogQuery('', {})).toEqual({})
-  })
-})
-
-describe('askIndexStale', () => {
-  // The answer does not say how fresh the index is; the catalog's own rules do. Stale prices drop
-  // the price filters (and a price sort) while the index still serves localisation and origin; an
-  // index that did not answer drops every index filter.
-  it('reads stale prices off a price filter declined beside an index filter that was applied', () => {
-    expect(
-      askIndexStale({ priceMaxUah: 300, ukrainianLocalisation: 'TEXT' }, ['priceMaxUah']),
-    ).toBe(true)
-    expect(askIndexStale({ free: true, madeInUkraine: true }, ['free', 'sort'])).toBe(true)
-  })
-
-  it('reads an index that did not answer off a declined localisation or origin filter', () => {
-    expect(
-      askIndexStale({ priceMaxUah: 300, ukrainianLocalisation: 'TEXT' }, [
-        'priceMaxUah',
-        'ukrainianLocalisation',
-      ]),
-    ).toBe(false)
-  })
-
-  it('claims nothing it cannot tell: a declined price filter alone is not proof of stale prices', () => {
-    expect(askIndexStale({ priceMaxUah: 300 }, ['priceMaxUah'])).toBe(false)
-    expect(askIndexStale({ genres: ['rpg'] }, [])).toBe(false)
   })
 })
 

@@ -146,31 +146,6 @@ export function normaliseAskAnswer(raw: unknown): AskAnswer | null {
   }
 }
 
-/** The index filters that go with the prices when they turn stale (the catalog's price filters). */
-const PRICE_FIELDS: readonly string[] = ['priceMaxUah', 'free', 'onSaleMinPercent']
-/** The index filters that keep working on stale prices: they read no price. */
-const FACET_FIELDS: readonly string[] = ['ukrainianLocalisation', 'madeInUkraine']
-
-/**
- * Whether the answer was served from an index whose prices are stale — the catalog's `indexStale`,
- * which `/api/ask` does not send, read off the catalog's own rules instead. Stale prices drop the
- * price filters while the index still applies localisation and origin; an index that did not
- * answer drops every index filter. So it is "stale" only when a price filter was declined and a
- * localisation or origin filter in the same answer was applied. A declined price filter with
- * nothing beside it fits both cases, and is reported as not stale: the catalog's wording for an
- * index it could not read ("price data is unavailable right now") is true in either case, the stale
- * one would not be.
- */
-export function askIndexStale(filter: CatalogFilter, ignored: readonly string[]): boolean {
-  const declinedPrice =
-    PRICE_FIELDS.some((field) => ignored.includes(field)) || ignored.includes('sort')
-  const appliedFacet = FACET_FIELDS.some(
-    (field) => filter[field as keyof CatalogFilter] !== undefined && !ignored.includes(field),
-  )
-  const declinedFacet = FACET_FIELDS.some((field) => ignored.includes(field))
-  return declinedPrice && appliedFacet && !declinedFacet
-}
-
 /** The sort the answer's catalog URL asked for and the catalog could not apply, or null. */
 export function askIgnoredSort(
   catalogUrl: string,

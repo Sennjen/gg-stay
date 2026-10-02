@@ -1,0 +1,9 @@
+# How fresh the price index is, and nothing else. A page past the end (page 0) fetches no games but
+# still reports what the index is doing (see `catalogPage`), so this costs one read of the index's
+# metadata. The ask page reads it to explain a filter its answer could not apply in the catalog's
+# own words: `/api/ask` reports which filters were declined, not whether the prices were stale.
+query AskIndexFreshness {
+  games(page: 0, pageSize: 1) {
+    indexStale
+  }
+}

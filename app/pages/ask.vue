@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { CatalogTaxonomiesDocument } from '~/graphql/__generated__/operations'
+import {
+  AskIndexFreshnessDocument,
+  CatalogTaxonomiesDocument,
+} from '~/graphql/__generated__/operations'
 import {
   ASK_MAX_LENGTH,
   askCatalogQuery,
   askIgnoredSort,
-  askIndexStale,
   normaliseAskQuery,
 } from '~/utils/askAnswer'
 import { ASK_CARD_IMAGE_SIZES } from '~/utils/rawgImage'
@@ -26,9 +28,10 @@ const localePath = useLocalePath()
 // when the URL changes (an example, the back button).
 const urlQuery = computed(() => normaliseAskQuery(route.query.q))
 
-const [ask, taxonomies] = await Promise.all([
+const [ask, taxonomies, freshness] = await Promise.all([
   useAskAnswer(urlQuery),
   useGql(CatalogTaxonomiesDocument, {}),
+  useGql(AskIndexFreshnessDocument, {}),
 ])
 const { answer, failure, status } = ask
 const genres = computed(() => taxonomies.data.value?.genres ?? [])
@@ -56,11 +59,14 @@ const catalogLink = computed(() =>
     : null,
 )
 // What the catalog could not apply, marked as the catalog marks it: struck-through chips with the
-// reason beside them, and the declined sort named in the catalog's words. The answer does not say
-// whether the prices were stale; `askIndexStale` reads it off which filters were declined.
+// reason beside them, the declined sort named in the catalog's words, and the catalog's stale
+// banner when stale prices are why. The answer names the declined filters but not whether the
+// prices were stale, so that comes from the catalog itself (`AskIndexFreshness`).
 const ignoredFilters = computed<readonly string[]>(() => answer.value?.ignoredFilters ?? [])
-const indexStale = computed(() =>
-  answer.value ? askIndexStale(answer.value.filter, ignoredFilters.value) : false,
+const indexStale = computed(() => freshness.data.value?.games.indexStale ?? false)
+const PRICE_FIELDS: readonly string[] = ['priceMaxUah', 'free', 'onSaleMinPercent', 'sort']
+const showStaleBanner = computed(
+  () => indexStale.value && ignoredFilters.value.some((field) => PRICE_FIELDS.includes(field)),
 )
 const ignoredSort = computed(() =>
   answer.value ? askIgnoredSort(answer.value.catalogUrl, ignoredFilters.value) : null,
@@ -306,6 +312,7 @@ useSeoMeta({
       </div>
 
       <template v-else-if="answer">
+        <CatalogStaleBanner v-if="showStaleBanner" class="mt-4" />
         <p
           v-if="isFallback"
           data-test="ask-fallback-note"
