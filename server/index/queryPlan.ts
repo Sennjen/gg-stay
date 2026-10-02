@@ -14,6 +14,7 @@ import {
   playtimeFacetKey,
   rangeKey,
   storeFacetKey,
+  tagFacetKey,
 } from './keys'
 
 /**
@@ -63,6 +64,11 @@ export function planQuery(version: number, query: IndexQuery): QueryPlan {
     facetGroups.push(query.gameModes.map((mode) => gameModeFacetKey(version, mode)))
   if (query.ageRating?.length)
     facetGroups.push(query.ageRating.map((rating) => ageRatingFacetKey(version, rating)))
+  if (query.tags?.length) {
+    const keys = query.tags.map((tag) => tagFacetKey(version, tag))
+    if (query.tagMatch === 'all') facetGroups.push(...keys.map((key) => [key]))
+    else facetGroups.push(keys)
+  }
   if (query.playtime) facetGroups.push([playtimeFacetKey(version, query.playtime)])
   if (query.madeInUkraine) facetGroups.push([madeInUkraineFacetKey(version)])
   // `free: false` is not "paid only": it is the absence of the filter, as everywhere else in the

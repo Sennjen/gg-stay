@@ -1,3 +1,4 @@
+import { isMoodTag } from '../../shared/moodTags'
 import type { JobDeps } from './deps'
 import type { IndexedGame } from '../../server/index/document'
 import {
@@ -156,6 +157,21 @@ export function indexTags(tags: readonly RawgTag[] | null | undefined): string[]
     .map((tag) => tag.slug)
 }
 
+/**
+ * The mood and sub-genre tags (`shared/moodTags.ts`) among a game's English tags, every one of
+ * them and in RAWG's order. `indexTags` keeps only the rarest few for the similarity ranking, which
+ * drops exactly the broad tags a visitor asks for by name — "horror", "atmospheric" — so these are
+ * kept beside them, uncut, for `/api/ask`'s tag facets.
+ */
+export function moodTagsFrom(tags: readonly RawgTag[] | null | undefined): string[] {
+  const kept: string[] = []
+  for (const tag of tags ?? []) {
+    if (tag.language !== undefined && tag.language !== 'eng') continue
+    if (tag.slug && isMoodTag(tag.slug) && !kept.includes(tag.slug)) kept.push(tag.slug)
+  }
+  return kept
+}
+
 function taxonomySlugs(list: { slug?: string }[] | null | undefined): string[] {
   return (list ?? []).flatMap((item) => (item.slug ? [item.slug] : []))
 }
@@ -181,6 +197,7 @@ export function toIndexedGame(raw: RawgGameListItem): IndexedGame | null {
     ),
     genres: taxonomySlugs(raw.genres),
     tags: indexTags(raw.tags),
+    moodTags: moodTagsFrom(raw.tags),
     stores: (raw.stores ?? []).flatMap((entry) => {
       const slug = storeSlugFromId(entry.store?.id)
       return slug ? [slug] : []

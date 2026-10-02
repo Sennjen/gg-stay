@@ -118,6 +118,20 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           expect(await ids({ madeInUkraine: true })).toEqual([39, 38])
         })
 
+        it('filters by mood tag, any of them by default', async () => {
+          expect(await ids({ tags: ['horror'] })).toEqual([1, 2, 4])
+          expect(await ids({ tags: ['horror', 'atmospheric'] })).toEqual([1, 2, 3, 4])
+          expect(await ids({ tags: ['horror'], genres: ['indie'] })).toEqual([2])
+        })
+
+        it('filters by every mood tag when asked to', async () => {
+          expect(await ids({ tags: ['horror', 'atmospheric'], tagMatch: 'all' })).toEqual([1])
+        })
+
+        it('has no facet for a tag that is not a mood tag', async () => {
+          expect(await ids({ tags: ['chernobyl'] })).toEqual([])
+        })
+
         it('returns an empty page for a facet value nothing carries', async () => {
           const result = await adapter.index.search({ genres: ['nonexistent'] })
           expect(result).toEqual({ ids: [], total: 0, games: [] })

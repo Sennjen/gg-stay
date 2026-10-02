@@ -48,6 +48,14 @@ export interface IndexedGame {
    * job mapped tags have none.
    */
   tags?: string[]
+  /**
+   * The mood and sub-genre tags (`shared/moodTags.ts`) RAWG gives the game, all of them — unlike
+   * `tags`, which keeps only the rarest few for the similarity ranking and so drops the broad ones
+   * ("horror", "atmospheric") a visitor actually asks for. `/api/ask` filters on these through the
+   * `f:tag:*` facets. Optional: documents published before the job mapped them have none, and the
+   * facet then falls back to the mood tags among `tags`.
+   */
+  moodTags?: string[]
   stores: string[]
   gameModes: GameModeValue[]
   ageRating: AgeRatingValue | null

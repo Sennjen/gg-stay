@@ -55,10 +55,19 @@ function priced(uah: number, regular: number, discountPercent: number): Partial<
 
 export const FIXTURE_GAMES: IndexedGame[] = [
   // Facets: genres, platforms, stores.
-  game(1, 'Alpha Quest'),
-  game(2, 'Beta Run', { genres: ['indie'], platforms: [7] }),
-  game(3, 'Gamma Ray', { genres: ['action', 'indie'], platforms: [4, 7] }),
-  game(4, 'Delta Force', { genres: ['strategy'], platforms: [18] }),
+  // Mood tags: the facet reads `moodTags` and the mood tags among `tags`, and nothing else.
+  game(1, 'Alpha Quest', { moodTags: ['atmospheric', 'horror'] }),
+  game(2, 'Beta Run', { genres: ['indie'], platforms: [7], moodTags: ['horror'] }),
+  game(3, 'Gamma Ray', {
+    genres: ['action', 'indie'],
+    platforms: [4, 7],
+    moodTags: ['atmospheric'],
+  }),
+  game(4, 'Delta Force', {
+    genres: ['strategy'],
+    platforms: [18],
+    tags: ['chernobyl', 'horror'],
+  }),
   game(5, 'Epsilon Edge', { genres: ['indie'], stores: ['gog'] }),
   game(6, 'Zeta Zone', { platforms: [7], stores: ['epic-games', 'steam'] }),
 

@@ -4,6 +4,7 @@ import type {
   GameSortValue,
   PlaytimeValue,
 } from '../../shared/catalog'
+import { isMoodTag } from '../../shared/moodTags'
 import type { IndexRangeField, IndexedGame } from './document'
 import { playtimeBucketOf } from './document'
 
@@ -50,6 +51,16 @@ export function genreFacetKey(version: number, genre: string): string {
 
 export function platformFacetKey(version: number, platformId: number): string {
   return `${versionPrefix(version)}f:platform:${platformId}`
+}
+
+/** One mood tag (`shared/moodTags.ts`); no other tag has a facet. */
+export function tagFacetKey(version: number, tag: string): string {
+  return `${versionPrefix(version)}f:tag:${tag}`
+}
+
+/** The mood tags a game is filed under: its `moodTags` and the mood tags among its `tags`. */
+export function moodTagsOf(game: Pick<IndexedGame, 'tags' | 'moodTags'>): string[] {
+  return [...new Set([...(game.moodTags ?? []), ...(game.tags ?? [])])].filter(isMoodTag).sort()
 }
 
 export function storeFacetKey(version: number, store: string): string {
@@ -116,6 +127,7 @@ export function facetKeysOf(version: number, game: IndexedGame): string[] {
     ...game.platforms.map((platform) => platformFacetKey(version, platform)),
     ...game.stores.map((store) => storeFacetKey(version, store)),
     ...game.gameModes.map((mode) => gameModeFacetKey(version, mode)),
+    ...moodTagsOf(game).map((tag) => tagFacetKey(version, tag)),
   ]
   if (game.ageRating) keys.push(ageRatingFacetKey(version, game.ageRating))
 

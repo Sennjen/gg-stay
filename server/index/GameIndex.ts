@@ -67,6 +67,12 @@ export interface IndexQuery {
   onSaleMinPercent?: number
   ukrainianLocalisation?: LocalisationFilter
   madeInUkraine?: boolean
+  /**
+   * Mood tags (`shared/moodTags.ts`): any of them by default, every one of them with
+   * `tagMatch: 'all'`. A tag outside the list has no facet and matches nothing.
+   */
+  tags?: string[]
+  tagMatch?: 'any' | 'all'
   sort?: GameSortValue
   page?: number
   pageSize?: number
