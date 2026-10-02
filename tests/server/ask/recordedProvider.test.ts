@@ -26,7 +26,7 @@ describe('the recorded provider', () => {
     expect(result).toMatchObject({
       ok: true,
       value: { gameModes: ['LOCAL_COOP'], platforms: ['NINTENDO'], priceMaxUah: 500 },
-      usage: { calls: 1, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      usage: { calls: 1, inputTokens: 0, outputTokens: 0, costUsd: 0, unpricedCalls: 0 },
     })
   })
 
@@ -43,7 +43,7 @@ describe('the recorded provider', () => {
     expect(await provider.parse('щось як Hades, але коротше', 'uk', { genres: [] })).toEqual({
       ok: false,
       failure: 'unrecorded',
-      usage: { calls: 1, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      usage: { calls: 1, inputTokens: 0, outputTokens: 0, costUsd: 0, unpricedCalls: 0 },
     })
     expect(await provider.rerank('щось як Hades, але коротше', [], 'uk')).toMatchObject({
       ok: false,

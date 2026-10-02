@@ -1,11 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { describe, expect, it } from 'vitest'
-import {
-  ASK_MODEL,
-  createAnthropicProvider,
-  PARSE_MAX_TOKENS,
-  RERANK_MAX_TOKENS,
-} from '../../../server/ask/anthropicProvider'
+import { createAnthropicProvider } from '../../../server/ask/anthropicProvider'
 import type { CandidateCard } from '../../../server/ask/prompts'
 
 /**
@@ -114,15 +109,13 @@ describe('the Anthropic provider', () => {
     expect(result).toEqual({
       ok: true,
       value: PARSE_ANSWER,
-      usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015 },
+      usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015, unpricedCalls: 0 },
     })
     expect(requests).toHaveLength(1)
     const body = requests[0]!.body
     expect(requests[0]!.url).toMatch(/\/v1\/messages$/)
-    expect(body.model).toBe(ASK_MODEL)
-    expect(ASK_MODEL).toBe('claude-haiku-4-5')
-    expect(body.max_tokens).toBe(PARSE_MAX_TOKENS)
-    expect(PARSE_MAX_TOKENS).toBe(500)
+    expect(body.model).toBe('claude-haiku-4-5')
+    expect(body.max_tokens).toBe(500)
     expect(body.temperature).toBe(0)
     expect(body).not.toHaveProperty('thinking')
     expect(body.system).toContain('action, indie')
@@ -140,8 +133,7 @@ describe('the Anthropic provider', () => {
 
     expect(result).toMatchObject({ ok: true, value: answer })
     const body = requests[0]!.body
-    expect(body.max_tokens).toBe(RERANK_MAX_TOKENS)
-    expect(RERANK_MAX_TOKENS).toBe(900)
+    expect(body.max_tokens).toBe(1_600)
     expect(body.temperature).toBe(0)
     expect(JSON.stringify(body.messages)).toContain('3328 | The Witcher 3: Wild Hunt')
   })
@@ -154,7 +146,7 @@ describe('the Anthropic provider', () => {
     expect(result).toEqual({
       ok: false,
       failure: 'refusal',
-      usage: { calls: 1, inputTokens: 800, outputTokens: 2, costUsd: 0.00081 },
+      usage: { calls: 1, inputTokens: 800, outputTokens: 2, costUsd: 0.00081, unpricedCalls: 0 },
     })
   })
 
@@ -164,12 +156,48 @@ describe('the Anthropic provider', () => {
     expect(result).toMatchObject({ ok: false, failure: 'max_tokens' })
   })
 
-  it('reports truncated JSON as a schema failure', async () => {
+  it('reports truncated JSON as max_tokens, with the tokens it cost', async () => {
     const { client } = clientReplying(() =>
-      message('{"platforms": ["NINT', { stop_reason: 'max_tokens' }),
+      message('{"platforms": ["NINT', {
+        stop_reason: 'max_tokens',
+        usage: { input_tokens: 2_000, output_tokens: 500 },
+      }),
     )
     const result = await createAnthropicProvider({ client }).parse(QUERY, 'uk', { genres: [] })
-    expect(result).toMatchObject({ ok: false, failure: 'schema' })
+    expect(result).toEqual({
+      ok: false,
+      failure: 'max_tokens',
+      usage: { calls: 1, inputTokens: 2_000, outputTokens: 500, costUsd: 0.0045, unpricedCalls: 0 },
+    })
+  })
+
+  it('reports a refusal that left partial text as a refusal, with the tokens it cost', async () => {
+    const { client } = clientReplying(() => message('{"items": [', { stop_reason: 'refusal' }))
+    const result = await createAnthropicProvider({ client }).rerank(QUERY, [CANDIDATE], 'uk')
+    expect(result).toMatchObject({ ok: false, failure: 'refusal', usage: { inputTokens: 1_000 } })
+  })
+
+  it('reports text that is not JSON as a schema failure, with the tokens it cost', async () => {
+    const { client } = clientReplying(() => message('Sorry, I cannot do that.'))
+    const result = await createAnthropicProvider({ client }).parse(QUERY, 'uk', { genres: [] })
+    expect(result).toMatchObject({
+      ok: false,
+      failure: 'schema',
+      usage: { inputTokens: 1_000, outputTokens: 100, unpricedCalls: 0 },
+    })
+  })
+
+  it('reads an over-long reason leniently instead of failing the rerank', async () => {
+    const answer = { items: [{ id: '3328', reason: 'д'.repeat(300) }] }
+    const { client } = clientReplying(() => message(JSON.stringify(answer)))
+    const result = await createAnthropicProvider({ client }).rerank(QUERY, [CANDIDATE], 'uk')
+    expect(result).toMatchObject({ ok: true, value: answer })
+  })
+
+  it('tells the model the 100-character reason limit through the schema', async () => {
+    const { client, requests } = clientReplying(() => message(JSON.stringify({ items: [] })))
+    await createAnthropicProvider({ client }).rerank(QUERY, [CANDIDATE], 'uk')
+    expect(JSON.stringify(requests[0]!.body.output_config)).toContain('maxLength: 100')
   })
 
   it('reports a missing parsed output as a schema failure', async () => {
@@ -178,7 +206,7 @@ describe('the Anthropic provider', () => {
     expect(result).toEqual({
       ok: false,
       failure: 'schema',
-      usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015 },
+      usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015, unpricedCalls: 0 },
     })
   })
 
@@ -188,13 +216,13 @@ describe('the Anthropic provider', () => {
     expect(result).toMatchObject({ ok: false, failure: 'schema' })
   })
 
-  it('reports a 429 as rate limited after the one retry the design allows', async () => {
+  it('reports a 429 as rate limited after the one retry the design allows, cost unknown', async () => {
     const { client, requests } = clientReplying(() => apiError(429, 'rate_limit_error'))
     const result = await createAnthropicProvider({ client }).parse(QUERY, 'uk', { genres: [] })
     expect(result).toEqual({
       ok: false,
       failure: 'rate_limited',
-      usage: { calls: 1, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      usage: { calls: 1, inputTokens: 0, outputTokens: 0, costUsd: 0, unpricedCalls: 1 },
     })
     expect(requests).toHaveLength(2)
   })
@@ -219,14 +247,15 @@ describe('the Anthropic provider', () => {
     expect(result).toMatchObject({ ok: false, failure: 'api' })
   })
 
-  it('reports a request past its timeout as a timeout', async () => {
+  it('reports a request past its timeout as a timeout, after exactly one retry', async () => {
     const { client, requests } = clientReplying(hang)
     const result = await createAnthropicProvider({ client }).parse(QUERY, 'uk', {
       genres: [],
       timeoutMs: 20,
     })
-    expect(result).toMatchObject({ ok: false, failure: 'timeout' })
-    expect(requests.length).toBeGreaterThanOrEqual(1)
+    // A client-side timeout may still be billed by the API, so its cost is unknown, not zero.
+    expect(result).toMatchObject({ ok: false, failure: 'timeout', usage: { unpricedCalls: 1 } })
+    expect(requests).toHaveLength(2)
   })
 
   it('reports a request the pipeline aborted as a timeout, without retrying it', async () => {
@@ -246,7 +275,7 @@ describe('the Anthropic provider', () => {
     expect(await provider.parse(QUERY, 'uk', { genres: [] })).toMatchObject({
       ok: false,
       failure: 'unavailable',
-      usage: { calls: 0 },
+      usage: { calls: 0, unpricedCalls: 0 },
     })
   })
 })

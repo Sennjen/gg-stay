@@ -20,19 +20,25 @@ import { AskParseSchema, AskRerankSchema, readParse, readRerank } from './schema
 /**
  * The production provider: Claude Haiku 4.5 through the official SDK, with structured outputs.
  *
- * `messages.parse` sends the zod schema as `output_config.format`, so the model is constrained to
- * the shape, and parses the answer against it; `readParse`/`readRerank` then read it a second time
- * with the server's own lenient rules. No thinking: Haiku 4.5 would need a budget for it, and the
- * latency is not worth it for a filter. Temperature 0, so the same query keeps the same reading.
+ * The zod schema goes to the API as `output_config.format` (`zodOutputFormat`), so the model is
+ * constrained to the shape. The answer is read with `messages.create` rather than
+ * `messages.parse`: `parse` validates inside the SDK and throws on an answer cut off mid-JSON or a
+ * reason one character too long — before the stop reason or the token usage can be read, so a
+ * billed call would be reported as free and as the wrong failure. Here the stop reason and the
+ * usage are read first, and the text is then parsed as JSON and read with the server's own
+ * lenient rules (`readParse`/`readRerank`), which drop or cut what they do not accept instead of
+ * failing. No thinking: Haiku 4.5 would need a budget for it, and the latency is not worth it for
+ * a filter. Temperature 0, so the same query keeps the same reading.
  *
- * Every failure comes back typed (see `AskFailure`), never thrown. One caveat of `messages.parse`:
- * when an answer is cut off mid-JSON the SDK throws while parsing it, before the stop reason can
- * be read, so a truncated answer that had any text reports `schema`, not `max_tokens`.
+ * Every failure comes back typed (see `AskFailure`), never thrown, with the tokens it cost when the
+ * API reported them; a call it never answered (a timeout, an error status) is counted as unpriced.
+ * A client-side timeout may still be answered and billed by the API, and the one retry the client
+ * allows may then bill a second time — the worst case of one counted call is two billed ones.
  */
 
 export const ASK_MODEL = 'claude-haiku-4-5'
 export const PARSE_MAX_TOKENS = 500
-export const RERANK_MAX_TOKENS = 900
+export const RERANK_MAX_TOKENS = 1_600
 export const MAX_RETRIES = 1
 export { REQUEST_TIMEOUT_MS }
 
@@ -54,6 +60,7 @@ function usageOf(usage: { input_tokens: number; output_tokens: number }): LlmUsa
   const outputTokens = usage.output_tokens
   return {
     calls: 1,
+    unpricedCalls: 0,
     inputTokens,
     outputTokens,
     costUsd:
@@ -63,17 +70,25 @@ function usageOf(usage: { input_tokens: number; output_tokens: number }): LlmUsa
   }
 }
 
-const ATTEMPTED: LlmUsage = { ...NO_USAGE, calls: 1 }
+const UNANSWERED: LlmUsage = { ...NO_USAGE, calls: 1, unpricedCalls: 1 }
 
 /** Most specific first: every class below extends `APIError`, which extends `AnthropicError`. */
 function failureOf(error: unknown): AskFailure {
   if (error instanceof Anthropic.APIUserAbortError) return 'timeout'
   if (error instanceof Anthropic.APIConnectionTimeoutError) return 'timeout'
   if (error instanceof Anthropic.RateLimitError) return 'rate_limited'
-  if (error instanceof Anthropic.APIError) return 'api'
-  // What remains is the SDK's own parsing of the answer: not JSON, or not the schema's shape.
-  if (error instanceof Anthropic.AnthropicError) return 'schema'
   return 'api'
+}
+
+/** The answer's first text block as JSON; `null` when there is none or it is not JSON. */
+function jsonOf(content: readonly Anthropic.ContentBlock[]): unknown {
+  const text = content.find((block) => block.type === 'text')?.text
+  if (text === undefined) return null
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return null
+  }
 }
 
 export function createAnthropicProvider(options: AnthropicProviderOptions): LlmProvider {
@@ -95,7 +110,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): LlmP
   ): Promise<LlmResult<T>> {
     if (!client) return { ok: false, failure: 'unavailable', usage: NO_USAGE }
     try {
-      const response = await client.messages.parse(
+      const response = await client.messages.create(
         {
           model: ASK_MODEL,
           max_tokens: request.maxTokens,
@@ -113,12 +128,11 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): LlmP
       const usage = usageOf(response.usage)
       if (response.stop_reason === 'refusal') return { ok: false, failure: 'refusal', usage }
       if (response.stop_reason === 'max_tokens') return { ok: false, failure: 'max_tokens', usage }
-      if (response.parsed_output === null) return { ok: false, failure: 'schema', usage }
-      const value = read(response.parsed_output)
+      const value = read(jsonOf(response.content))
       if (value === null) return { ok: false, failure: 'schema', usage }
       return { ok: true, value, usage }
     } catch (error) {
-      return { ok: false, failure: failureOf(error), usage: ATTEMPTED }
+      return { ok: false, failure: failureOf(error), usage: UNANSWERED }
     }
   }
 

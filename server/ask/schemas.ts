@@ -55,8 +55,16 @@ export const AskParseSchema = z.object({
 })
 export type AskParse = z.infer<typeof AskParseSchema>
 
+/** The longest reason the model is asked for; the server cuts anything longer to this. */
+export const MAX_REASON_LENGTH = 100
+
+/**
+ * The reason's length is the one limit stated in a model-facing schema. The SDK cannot send it to
+ * the model as a constraint and moves it into the field's description, which is where it is meant
+ * to be read; the adapter reads the answer with `readRerank`, which never fails on it.
+ */
 export const AskRerankSchema = z.object({
-  items: z.array(z.object({ id: z.string(), reason: z.string() })),
+  items: z.array(z.object({ id: z.string(), reason: z.string().max(MAX_REASON_LENGTH) })),
 })
 export type AskRerank = z.infer<typeof AskRerankSchema>
 

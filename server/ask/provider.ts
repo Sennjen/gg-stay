@@ -35,7 +35,14 @@ export interface LlmUsage {
   calls: number
   inputTokens: number
   outputTokens: number
+  /** What the calls with a reported usage cost. */
   costUsd: number
+  /**
+   * Calls whose usage the API never reported — a timeout, a dropped connection, an error status —
+   * so their cost is unknown rather than zero: a request the client gave up on may still have been
+   * answered, and billed, by the API.
+   */
+  unpricedCalls: number
 }
 
 export type LlmResult<T> =
@@ -67,7 +74,13 @@ export interface LlmProvider {
 /** How long one model call may take, at most, whichever provider makes it. */
 export const REQUEST_TIMEOUT_MS = 8_000
 
-export const NO_USAGE: LlmUsage = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
+export const NO_USAGE: LlmUsage = {
+  calls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  costUsd: 0,
+  unpricedCalls: 0,
+}
 
 export function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
   return {
@@ -76,5 +89,6 @@ export function addUsage(left: LlmUsage, right: LlmUsage): LlmUsage {
     outputTokens: left.outputTokens + right.outputTokens,
     // Rounded to a millionth of a dollar, so a sum of float costs prints as the cost it is.
     costUsd: Math.round((left.costUsd + right.costUsd) * 1e6) / 1e6,
+    unpricedCalls: left.unpricedCalls + right.unpricedCalls,
   }
 }
