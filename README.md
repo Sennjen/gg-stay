@@ -149,17 +149,30 @@ Switch до 500 грн" — into the catalog filter it means and a short ranked 
 with one reason per game, using Claude Haiku 4.5 through the official
 Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
 query to a filter (re-validated against the live taxonomy, then run through
-the same resolvers as `/games`), one orders up to 40 candidates. The answer is
+the same resolvers as `/games`) plus up to three mood tags, one orders the 24
+most relevant candidates and says why each fits. The answer is
 `{ mode, interpretation, filter, catalogUrl, items: [{ card, reason }],
-ignoredFilters, indexStale, tookMs }`: `ignoredFilters` and `indexStale` are
-those of the catalog page the cards came from, as `/games` reports them
-(`indexStale` is `false` when no page answered).
+ignoredFilters, indexStale, matchedTags, tookMs }`: `ignoredFilters` and
+`indexStale` are those of the catalog page the cards came from, as `/games`
+reports them (`indexStale` is `false` when no page answered).
+
+- **Mood tags:** words the catalog has no filter for — "горор", "рогалик",
+  "затишна" — become RAWG tags from a fixed list of 48 (`shared/moodTags.ts`).
+  The refresh job stores every one of them a game has (`moodTags`) and files
+  the game under an index facet per tag (`f:tag:{slug}`); the ask retrieval
+  prefers games with every tag, then the most defining one. The catalog link
+  stays tag-free, and the answer names the tags it also matched on in
+  `matchedTags`. Documents published before the job mapped them have none, so
+  until the next full refresh run a tag query falls back to the filter alone.
+- **Reasons** say something about the game itself — setting, mechanics, tone,
+  length — never the filter back: a reason with a price, a platform name or a
+  schema code is dropped.
 
 - **Privacy:** the query text is sent to Anthropic to be answered. The
   application does not store it with the visitor's IP address: the address is
   used only for the per-address limits, in memory, and the application log
-  records counts, latency, tokens, cost and mode — never the address and never
-  the query. Answers are cached in memory by query text, locale and index
+  records counts, latency per step, tokens, cost and mode — never the address
+  and never the query. Answers are cached in memory by query text, locale and index
   version, with no visitor data. A shared `/ask?q=…` link carries the query in
   its URL, and the hosting platform's own request logs record URLs together
   with addresses, as they do for every page.
