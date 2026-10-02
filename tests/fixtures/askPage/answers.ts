@@ -97,6 +97,7 @@ export const STALE_ANSWER = {
   filter: { priceMaxUah: 300, ukrainianLocalisation: 'TEXT' },
   catalogUrl: '/games?priceMaxUah=300&ukrainianLocalisation=TEXT&sort=PRICE_ASC',
   ignoredFilters: ['priceMaxUah', 'sort'],
+  indexStale: true,
 } as const
 
 /** A structured answer whose rerank failed: the retrieval order, every reason null. */
@@ -117,14 +118,23 @@ export const MARKUP_ANSWER = {
 } as const
 
 /**
- * Only a price filter was declined, beside filters the index never owns: the answer alone cannot
- * tell stale prices from an index that did not answer.
+ * Only a price filter was declined, beside filters the index never owns: which filters were
+ * declined cannot tell stale prices from an index that did not answer, so the answer says.
  */
 export const PRICE_ONLY_QUERY = 'кооператив на Switch до 500 грн, ціни застарілі'
 
 export const PRICE_ONLY_ANSWER = {
   ...STRUCTURED_ANSWER,
   ignoredFilters: ['priceMaxUah'],
+  indexStale: true,
+} as const
+
+/** The same declined price, from an index that did not answer (prices not stale). */
+export const PRICE_ONLY_SILENT_QUERY = 'кооператив на Switch до 500 грн, індекс мовчить'
+
+export const PRICE_ONLY_SILENT_ANSWER = {
+  ...PRICE_ONLY_ANSWER,
+  indexStale: false,
 } as const
 
 /** A "like X" answer: ranked cards, but nothing the catalog's URL can express. */

@@ -1,8 +1,5 @@
 <script setup lang="ts">
-import {
-  AskIndexFreshnessDocument,
-  CatalogTaxonomiesDocument,
-} from '~/graphql/__generated__/operations'
+import { CatalogTaxonomiesDocument } from '~/graphql/__generated__/operations'
 import {
   ASK_MAX_LENGTH,
   askCatalogQuery,
@@ -28,10 +25,9 @@ const localePath = useLocalePath()
 // when the URL changes (an example, the back button).
 const urlQuery = computed(() => normaliseAskQuery(route.query.q))
 
-const [ask, taxonomies, freshness] = await Promise.all([
+const [ask, taxonomies] = await Promise.all([
   useAskAnswer(urlQuery),
   useGql(CatalogTaxonomiesDocument, {}),
-  useGql(AskIndexFreshnessDocument, {}),
 ])
 const { answer, failure, status } = ask
 const genres = computed(() => taxonomies.data.value?.genres ?? [])
@@ -60,10 +56,10 @@ const catalogLink = computed(() => {
 })
 // What the catalog could not apply, marked as the catalog marks it: struck-through chips with the
 // reason beside them, the declined sort named in the catalog's words, and the catalog's stale
-// banner when stale prices are why. The answer names the declined filters but not whether the
-// prices were stale, so that comes from the catalog itself (`AskIndexFreshness`).
+// banner when stale prices are why. Both come from the answer, from the same catalog page its cards
+// came from, so the reason given always matches the filters declined.
 const ignoredFilters = computed<readonly string[]>(() => answer.value?.ignoredFilters ?? [])
-const indexStale = computed(() => freshness.data.value?.games.indexStale ?? false)
+const indexStale = computed(() => answer.value?.indexStale ?? false)
 const PRICE_FIELDS: readonly string[] = ['priceMaxUah', 'free', 'onSaleMinPercent', 'sort']
 const showStaleBanner = computed(
   () => indexStale.value && ignoredFilters.value.some((field) => PRICE_FIELDS.includes(field)),

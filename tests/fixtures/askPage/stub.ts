@@ -12,6 +12,8 @@ import {
   NOTHING_QUERY,
   PRICE_ONLY_ANSWER,
   PRICE_ONLY_QUERY,
+  PRICE_ONLY_SILENT_ANSWER,
+  PRICE_ONLY_SILENT_QUERY,
   RATE_LIMITED_QUERY,
   RETRY_AFTER_SECONDS,
   STALE_ANSWER,
@@ -53,6 +55,7 @@ export function askStubResponse(body: unknown): StubResponse {
   if (query === EMPTY_QUERY) return { status: 200, body: EMPTY_ANSWER }
   if (query === FALLBACK_QUERY) return { status: 200, body: FALLBACK_ANSWER }
   if (query === PRICE_ONLY_QUERY) return { status: 200, body: PRICE_ONLY_ANSWER }
+  if (query === PRICE_ONLY_SILENT_QUERY) return { status: 200, body: PRICE_ONLY_SILENT_ANSWER }
   if (query === LIKE_QUERY) return { status: 200, body: LIKE_ANSWER }
   if (query === NOTHING_QUERY) return { status: 200, body: NOTHING_ANSWER }
   if (query === STALE_QUERY) return { status: 200, body: STALE_ANSWER }

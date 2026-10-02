@@ -125,6 +125,12 @@ describe('normaliseAskAnswer', () => {
     expect(answer?.items[0]!.reason).toHaveLength(ASK_REASON_MAX)
   })
 
+  it('carries whether the prices were stale, and false when it does not say', () => {
+    expect(normaliseAskAnswer({ ...STRUCTURED_ANSWER, indexStale: true })?.indexStale).toBe(true)
+    expect(normaliseAskAnswer({ ...STRUCTURED_ANSWER, indexStale: 'yes' })?.indexStale).toBe(false)
+    expect(normaliseAskAnswer(STRUCTURED_ANSWER)?.indexStale).toBe(false)
+  })
+
   it('carries the filters the answer could not apply, and none when it does not say', () => {
     expect(
       normaliseAskAnswer({ ...STRUCTURED_ANSWER, ignoredFilters: ['priceMaxUah', 7, 'sort'] })

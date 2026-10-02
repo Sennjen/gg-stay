@@ -44,6 +44,11 @@ export interface AskAnswer {
    * apply to these cards — `GamePage.ignoredFilters`, with the same names.
    */
   ignoredFilters: string[]
+  /**
+   * The catalog page the cards came from had stale prices (`GamePage.indexStale`): why a price
+   * filter is among `ignoredFilters`. `false` when no page answered.
+   */
+  indexStale: boolean
   tookMs: number
 }
 
@@ -149,6 +154,7 @@ export function normaliseAskAnswer(raw: unknown): AskAnswer | null {
     catalogUrl: typeof raw.catalogUrl === 'string' ? raw.catalogUrl : '',
     items,
     ignoredFilters,
+    indexStale: raw.indexStale === true,
     tookMs: typeof raw.tookMs === 'number' ? raw.tookMs : 0,
   }
 }

@@ -135,7 +135,6 @@ describe('every shipped document passes the limits', () => {
   // zero cases and the suite would stay green.
   it('finds every generated document', () => {
     expect(documents.map(([name]) => name).sort()).toEqual([
-      'AskIndexFreshnessDocument',
       'CatalogTaxonomiesDocument',
       'DevelopersDocument',
       'GameDocument',

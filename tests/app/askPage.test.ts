@@ -17,6 +17,7 @@ import {
   MARKUP_QUERY,
   NOTHING_QUERY,
   PRICE_ONLY_QUERY,
+  PRICE_ONLY_SILENT_QUERY,
   RATE_LIMITED_QUERY,
   STALE_QUERY,
   STRUCTURED_ANSWER,
@@ -42,14 +43,14 @@ async function stub(event: H3Event) {
 }
 
 registerEndpoint('/api/ask', { method: 'POST', handler: stub })
-/** What the catalog reports about the price index, as the page's freshness probe reads it. */
-let indexStale = false
+/** Every GraphQL document the page sent, so a test can tell which ones a render needs. */
+const graphql: string[] = []
 
 registerEndpoint('/api/graphql', {
   method: 'POST',
   handler: async (event) => {
     const body = (await readBody(event)) as { query: string }
-    if (body.query.includes('AskIndexFreshness')) return { data: { games: { indexStale } } }
+    graphql.push(body.query)
     return { data: { genres: [{ id: '5', slug: 'rpg', name: 'Рольові' }] } }
   },
 })
@@ -70,7 +71,7 @@ const plain = (text: string) => text.replace(/\s+/g, ' ').trim()
 afterEach(() => {
   for (const wrapper of mounted.splice(0)) wrapper.unmount()
   requests.length = 0
-  indexStale = false
+  graphql.length = 0
   forgetAskAnswers()
   clearNuxtData()
 })
@@ -248,7 +249,6 @@ describe('the ask page, answered from the URL', () => {
 
 describe('the ask page, answers the catalog could not fully apply', () => {
   it("strikes the declined filters through with the catalog's reason, and names a declined sort", async () => {
-    indexStale = true
     const wrapper = await renderAsk(askUrl(STALE_QUERY))
     const filter = wrapper.get('[data-test="ask-filter"]')
     const struck = filter.findAll('[data-test="ignored-chip"]')
@@ -268,17 +268,16 @@ describe('the ask page, answers the catalog could not fully apply', () => {
     )
   })
 
-  it('reads the freshness from the catalog, not from the answer, when only a price was declined', async () => {
-    indexStale = true
+  it("takes the reason from the answer's indexStale when only a price was declined", async () => {
     const stale = await renderAsk(askUrl(PRICE_ONLY_QUERY))
     expect(stale.get('[data-test="ignored-chip"]').text()).toContain(
       'не застосовано: ціни тимчасово не оновлюються',
     )
-    stale.unmount()
-    clearNuxtData()
+    expect(stale.find('[data-test="stale-banner"]').exists()).toBe(true)
+    // One request per render: the answer carries the freshness, no catalog query asks for it.
+    expect(graphql.some((query) => query.includes('indexStale'))).toBe(false)
 
-    indexStale = false
-    const silent = await renderAsk(askUrl(PRICE_ONLY_QUERY))
+    const silent = await renderAsk(askUrl(PRICE_ONLY_SILENT_QUERY))
     expect(silent.get('[data-test="ignored-chip"]').text()).toContain(
       'не застосовано: дані про ціни зараз недоступні',
     )
@@ -286,7 +285,6 @@ describe('the ask page, answers the catalog could not fully apply', () => {
   })
 
   it('marks nothing, and raises no banner, when everything was applied', async () => {
-    indexStale = true
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
     expect(wrapper.find('[data-test="stale-banner"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="ignored-chip"]').exists()).toBe(false)

@@ -9,9 +9,9 @@ process.env.INDEX_FIXTURE_STALE = '1'
 /**
  * The ask page when the index's prices have gone stale, against the real endpoint: the answer
  * declines the price filter it understood, and the page says so in the catalog's words — the
- * struck-through chip with its reason, and the catalog's stale banner. The answer alone cannot
- * tell stale prices from a silent index here (no other index filter was asked for); the page's
- * freshness read from the catalog can.
+ * struck-through chip with its reason, and the catalog's stale banner. Which filters were declined
+ * cannot tell stale prices from a silent index here (no other index filter was asked for); the
+ * answer's own `indexStale` does.
  */
 
 const COOP = 'кооператив для двох на Switch до 500 грн'
@@ -37,14 +37,6 @@ describe('the ask page on stale prices', async () => {
       INDEX_FIXTURE_STALE: '1',
       NUXT_INDEX_FIXTURE_STALE: '1',
     },
-  })
-
-  it('reports the index freshness alone for a page past the end', async () => {
-    const response = await $fetch<{ data: { games: { indexStale: boolean } } }>('/api/graphql', {
-      method: 'POST',
-      body: { query: '{ games(page: 0, pageSize: 1) { indexStale } }' },
-    })
-    expect(response.data.games.indexStale).toBe(true)
   })
 
   it('strikes the declined price through with the stale reason, under the stale banner', async () => {
