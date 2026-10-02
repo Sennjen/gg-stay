@@ -383,7 +383,7 @@ describe('SEO: what a crawler reads', async () => {
       ])
     })
 
-    it('lists the landing and the catalog in both locales', async () => {
+    it('lists the landing, the catalog and the ask page in both locales', async () => {
       const response = await fetch('/sitemaps/static.xml')
       expect(response.headers.get('cache-control')).toBe('public, max-age=21600, s-maxage=21600')
       const root = parseXml(await response.text())
@@ -392,6 +392,8 @@ describe('SEO: what a crawler reads', async () => {
         `${SITE}/en`,
         `${SITE}/games`,
         `${SITE}/en/games`,
+        `${SITE}/ask`,
+        `${SITE}/en/ask`,
       ])
     })
 

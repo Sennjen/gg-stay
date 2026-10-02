@@ -45,7 +45,7 @@ export function sitemapIndexResponse(siteUrl: string, source: SitemapSource): Te
   return xml(sitemapIndex(siteUrl, files), source.complete)
 }
 
-/** The landing and the catalog, in both locales. Needs the publication date and nothing else. */
+/** The landing, the catalog and the ask page, in both locales. Needs the publication date alone. */
 export function staticSitemapResponse(siteUrl: string, meta: SitemapMeta): TextResponse {
   const lastmod = meta.updatedAt ?? undefined
   return xml(

@@ -4,9 +4,9 @@ import type { IndexedSlug } from '../index/GameIndex'
  * The sitemap and robots.txt as pure strings; the routes in `server/routes/` only gather the data
  * and set the headers.
  *
- * Shape: `/sitemap.xml` is a sitemap index naming `/sitemaps/static.xml` (the landing and the
- * catalog) and `/sitemaps/games-<n>.xml` (the game pages the published index holds). Every page is
- * listed once per locale, and every entry carries the full set of `xhtml:link` alternates — the
+ * Shape: `/sitemap.xml` is a sitemap index naming `/sitemaps/static.xml` (the landing, the
+ * catalog and the ask page) and `/sitemaps/games-<n>.xml` (the game pages the published index
+ * holds). Every page is listed once per locale, and every entry carries the full set of `xhtml:link` alternates — the
  * same uk/en pair and x-default the page's own head links to — so a crawler that reads only the
  * sitemap still sees the two languages as one page.
  */
@@ -29,8 +29,11 @@ const DEFAULT_LOCALE = SITEMAP_LOCALES[0]
 /** Each game is one URL per locale, so a file holds this many games. */
 export const GAMES_PER_SITEMAP = Math.floor(URLS_PER_SITEMAP / SITEMAP_LOCALES.length)
 
-/** The pages listed in the static sitemap, unprefixed. */
-export const STATIC_PATHS = ['/', '/games'] as const
+/**
+ * The pages listed in the static sitemap, unprefixed. `/ask` is the empty ask page only: an answered
+ * question (`/ask?q=…`) is `noindex` and never listed.
+ */
+export const STATIC_PATHS = ['/', '/games', '/ask'] as const
 
 export interface SitemapPage {
   /** The path in the default locale, e.g. `/games/portal-2`. */
