@@ -39,24 +39,23 @@ function mockGamesEndpoint(names: string[]) {
 }
 
 /**
- * Types into the box and waits for the dropdown to settle. The debounce is driven by fake timers,
- * but the fetch that follows it now awaits a dynamic import (`printDocument` loads the graphql
- * printer on demand), which takes an unpredictable number of microtask turns the first time it
- * runs in a worker — so this polls rather than guessing a fixed number of flushes.
- */
-/**
- * Types into the box and waits for the suggestion request to settle. The debounce is driven by
- * fake timers, but the fetch that follows it awaits a dynamic import (`printDocument` loads the
- * graphql printer on demand), which takes an unpredictable number of microtask turns the first
- * time it runs in a worker — so this waits for the composable to leave its `loading` state rather
- * than guessing a fixed number of flushes.
+ * Waits for the suggestion request to settle, once the debounce that gates it has fired. Nothing
+ * past that point (the dynamic import of the graphql printer, the fetch) runs on the component's
+ * own timers, but `vi.advanceTimersByTimeAsync(0)` only fires timers already due on the FAKE
+ * clock: anything on that path that schedules a real delay would stay frozen, which is what made
+ * these tests fail under load. So the wait switches to real timers and polls on wall-clock time —
+ * the same fix the plurals test needed — and returns to fake timers before it hands back.
  */
 async function settleSuggestions(wrapper: VueWrapper) {
   const status = () => (wrapper.vm as unknown as { status: string }).status
-  for (let turn = 0; turn < 50 && status() === 'loading'; turn++) {
-    await vi.advanceTimersByTimeAsync(0)
+  vi.useRealTimers()
+  const deadline = Date.now() + 5000
+  while (status() === 'loading' && Date.now() < deadline) {
     await flushPromises()
+    await new Promise((resolve) => setTimeout(resolve, 5))
   }
+  // Back to the fake clock, so a test can drive the next debounce itself.
+  vi.useFakeTimers()
 }
 
 async function typeAndSettle(wrapper: VueWrapper, value: string) {
