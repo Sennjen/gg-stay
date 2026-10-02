@@ -421,6 +421,16 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   under it, "Чому підходить:" in `fg-2` before the reason in `fg`. Each item spans two rows of a
   subgrid, so the cards of a row share one height and their reasons start on one line. The covers
   use `ASK_CARD_IMAGE_SIZES`.
+  A card the endpoint sent without a reason (its rerank failed) has no reason line at all, not an
+  empty one. The interpretation and the reasons are model-written and rendered by text
+  interpolation only.
+- **Filters the catalog could not apply.** The answer's `ignoredFilters` strike the matching chips
+  through with the catalog's reason beside them in words (`ignoredFilterReason`, shared with
+  `ActiveFilterChips`), a declined sort is named as the catalog names it ("«Спочатку дешевші» не
+  застосовано"), and when stale prices are the reason the catalog's `CatalogStaleBanner` sits above
+  the answer. The answer does not say whether the prices were stale — a declined price filter fits
+  a silent index too — so the page reads it from the catalog itself (`AskIndexFreshness`, a games
+  page past the end, which costs one read of the index metadata).
 - **States.** Loading: a skeleton of the interpretation, the chips and three cards, the section
   `aria-busy`. Fallback: a calm `surface-1` note, no colour and no alert role — "ШІ-розбір зараз
   недоступний — показуємо звичайний пошук" — above the plain search's cards. Empty: a dashed panel
