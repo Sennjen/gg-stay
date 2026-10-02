@@ -85,6 +85,9 @@ export type AskLogLine =
       calls: number
       inputTokens: number
       outputTokens: number
+      /** The parse's and the rerank's own output tokens; `null` for a call that was not made. */
+      parseOutputTokens: number | null
+      rerankOutputTokens: number | null
       /** `'unknown'` when a call was never answered, so its cost was never reported. */
       costUsd: number | 'unknown'
       items: number
@@ -175,7 +178,9 @@ export async function handleAsk(
   const deadline = started + TOTAL_BUDGET_MS
   const answered = (
     answer: Omit<AskAnswer, 'tookMs'>,
-    details: Partial<Pick<AskOutcome, 'rerankFailure' | 'search' | 'degraded' | 'timings'>> & {
+    details: Partial<
+      Pick<AskOutcome, 'rerankFailure' | 'search' | 'degraded' | 'timings' | 'outputTokens'>
+    > & {
       cache: 'hit' | 'miss'
       failure: AskFallbackReason | null
       usage: LlmUsage
@@ -195,6 +200,8 @@ export async function handleAsk(
       calls: details.usage.calls,
       inputTokens: details.usage.inputTokens,
       outputTokens: details.usage.outputTokens,
+      parseOutputTokens: details.outputTokens?.parse ?? null,
+      rerankOutputTokens: details.outputTokens?.rerank ?? null,
       costUsd: details.usage.unpricedCalls > 0 ? 'unknown' : details.usage.costUsd,
       items: answer.items.length,
       ms: { ...timings, ...details.timings },
