@@ -39,6 +39,15 @@ describe('EmptyState', () => {
     expect(without.find('button').exists()).toBe(false)
     expect(without.text()).toContain('Нічого не знайдено')
   })
+
+  it('offers to describe the game in words instead, on the ask page', async () => {
+    const wrapper = await mountSuspended(EmptyState, { props: { activeCount: 1 } })
+    const link = wrapper.get('a[href="/ask"]')
+    expect(link.text()).toBe('Опишіть словами')
+    expect(link.element.parentElement!.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+      'Не знаєте, які фільтри обрати? Опишіть словами',
+    )
+  })
 })
 
 describe('ErrorState', () => {
