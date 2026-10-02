@@ -12,7 +12,9 @@ import {
   BROKEN_QUERY,
   EMPTY_QUERY,
   FALLBACK_QUERY,
+  LIKE_QUERY,
   MARKUP_QUERY,
+  NOTHING_QUERY,
   PRICE_ONLY_QUERY,
   RATE_LIMITED_QUERY,
   STALE_QUERY,
@@ -294,6 +296,32 @@ describe('the ask page, answers the catalog could not fully apply', () => {
       expect(item.element.children[0]!.getAttribute('data-test')).toBe('game-card')
     }
     expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрали 3 гри')
+  })
+})
+
+describe('the ask page, answers with nothing the catalog can filter by', () => {
+  it('offers no catalog link and no empty filter row for a "like X" answer', async () => {
+    const wrapper = await renderAsk(askUrl(LIKE_QUERY))
+    expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(3)
+    // The link would open the whole catalog, which shows none of these games.
+    expect(wrapper.find('[data-test="ask-catalog-link"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="ask-filter-row"]').exists()).toBe(false)
+  })
+
+  it('does not send the visitor to a filter that does not exist when nothing matched', async () => {
+    const wrapper = await renderAsk(askUrl(NOTHING_QUERY))
+    const empty = wrapper.get('[data-test="ask-empty"]')
+    expect(empty.findAll('p').map((line) => plain(line.text()))).toEqual([
+      'Нічого не підібрали',
+      'Спробуйте описати інакше — конкретніше або менш суворо.',
+    ])
+    expect(wrapper.find('[data-test="ask-catalog-link"]').exists()).toBe(false)
+  })
+
+  it('keeps the link, and the hint that points to it, when there is a filter to open', async () => {
+    const wrapper = await renderAsk(askUrl(EMPTY_QUERY))
+    expect(wrapper.get('[data-test="ask-empty"]').text()).toContain('відкрийте фільтр у каталозі')
+    expect(wrapper.find('[data-test="ask-catalog-link"]').exists()).toBe(true)
   })
 })
 

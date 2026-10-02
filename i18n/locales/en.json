@@ -297,6 +297,7 @@
     "loading": "Finding games…",
     "emptyTitle": "Nothing matched",
     "emptyHint": "Try describing it differently or less strictly — or open the filter in the catalog and adjust it by hand.",
+    "emptyHintNoFilter": "Try describing it differently — more specifically, or less strictly.",
     "errorFailed": "Couldn't find games just now. Please try again.",
     "errorRateLimited": "Too many questions in a row. Try again in {count} second. | Too many questions in a row. Try again in {count} seconds.",
     "errorRateLimitedMinute": "Too many questions in a row. Try again in a minute.",

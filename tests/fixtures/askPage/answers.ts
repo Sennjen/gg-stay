@@ -126,3 +126,24 @@ export const PRICE_ONLY_ANSWER = {
   ...STRUCTURED_ANSWER,
   ignoredFilters: ['priceMaxUah'],
 } as const
+
+/** A "like X" answer: ranked cards, but nothing the catalog's URL can express. */
+export const LIKE_QUERY = 'щось як The Witcher 3'
+
+export const LIKE_ANSWER = {
+  ...STRUCTURED_ANSWER,
+  interpretation: 'Ігри, схожі на The Witcher 3: Wild Hunt',
+  filter: {},
+  catalogUrl: '/games',
+} as const
+
+/** Nothing to look for: structured, no filter, no cards. */
+export const NOTHING_QUERY = 'привіт'
+
+export const NOTHING_ANSWER = {
+  ...STRUCTURED_ANSWER,
+  interpretation: null,
+  filter: {},
+  catalogUrl: '/games',
+  items: [],
+} as const

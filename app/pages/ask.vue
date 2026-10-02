@@ -50,14 +50,14 @@ const view = computed<View>(() => {
   return answer.value.items.length ? 'results' : 'empty'
 })
 const isFallback = computed(() => answer.value?.mode === 'fallback')
-const catalogLink = computed(() =>
-  answer.value
-    ? {
-        path: localePath('/games'),
-        query: askCatalogQuery(answer.value.catalogUrl, answer.value.filter),
-      }
-    : null,
-)
+// The link is offered only when it would narrow the catalog. A "like X" answer, or one where
+// nothing was understood, has no filter the catalog's URL can carry, and the link would open the
+// whole catalog — which shows none of these games — under a label promising the understood filter.
+const catalogLink = computed(() => {
+  if (!answer.value) return null
+  const query = askCatalogQuery(answer.value.catalogUrl, answer.value.filter)
+  return Object.keys(query).length ? { path: localePath('/games'), query } : null
+})
 // What the catalog could not apply, marked as the catalog marks it: struck-through chips with the
 // reason beside them, the declined sort named in the catalog's words, and the catalog's stale
 // banner when stale prices are why. The answer names the declined filters but not whether the
@@ -325,7 +325,11 @@ useSeoMeta({
           {{ ' ' }}<span class="text-lg">{{ answer.interpretation }}</span>
         </p>
 
-        <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div
+          v-if="catalogLink"
+          data-test="ask-filter-row"
+          class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2"
+        >
           <ReadonlyFilterChips
             data-test="ask-filter"
             :filter="answer.filter"
@@ -340,7 +344,6 @@ useSeoMeta({
           <!-- A plain underlined link, not a chip: next to the chips it must not read as one more
                filter value. -->
           <NuxtLink
-            v-if="catalogLink"
             :to="catalogLink"
             data-test="ask-catalog-link"
             class="text-sm text-fg underline underline-offset-4 hover:text-fg-2 focus-visible:outline-2"
@@ -355,7 +358,9 @@ useSeoMeta({
           class="mt-6 rounded-card border border-dashed border-line p-8 text-center"
         >
           <p class="font-semibold text-fg">{{ t('ask.emptyTitle') }}</p>
-          <p class="mt-2 text-fg-2">{{ t('ask.emptyHint') }}</p>
+          <p class="mt-2 text-fg-2">
+            {{ catalogLink ? t('ask.emptyHint') : t('ask.emptyHintNoFilter') }}
+          </p>
         </div>
 
         <template v-else>
