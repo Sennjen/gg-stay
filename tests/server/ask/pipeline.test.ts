@@ -6,11 +6,12 @@ import {
   FALLBACK_RESERVE_MS,
   FALLBACK_SIZE,
   GENRES_TIMEOUT_MS,
-  MAX_CANDIDATES,
+  MAX_RERANKED,
+  RERANK_MARGIN_MS,
   runAsk,
   TOTAL_BUDGET_MS,
 } from '../../../server/ask/pipeline'
-import type { CandidateCard } from '../../../server/ask/prompts'
+import { RAWG_GENRES, type CandidateCard } from '../../../server/ask/prompts'
 import {
   NO_USAGE,
   type AskFailure,
@@ -222,7 +223,7 @@ describe('the ask pipeline — structured answers', () => {
     expect(answer.catalogUrl).toBe('/en/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500')
   })
 
-  it('gives the parse the live genre slugs and the rerank compact cards from the index', async () => {
+  it("gives the parse RAWG's genre list and the rerank compact cards from the index", async () => {
     const context = await contextWith(COOP)
     const { provider, calls } = scripted({
       parse: parsing({ gameModes: ['LOCAL_COOP'], platforms: ['NINTENDO'], priceMaxUah: 500 }),
@@ -230,9 +231,7 @@ describe('the ask pipeline — structured answers', () => {
     })
     await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
 
-    expect(calls.parse[0]!.genres).toEqual(
-      expect.arrayContaining(['action', 'indie', 'role-playing-games-rpg']),
-    )
+    expect(calls.parse[0]!.genres).toEqual(RAWG_GENRES)
     const overcooked = calls.rerank[0]!.find((card) => card.id === '9102')
     expect(overcooked).toEqual({
       id: '9102',
@@ -246,7 +245,7 @@ describe('the ask pipeline — structured answers', () => {
     expect(calls.rerank[0]!.map((card) => card.id).sort()).toEqual(['9101', '9102', '9104'])
   })
 
-  it('retrieves at most the candidate ceiling and keeps at most twelve ranked items', async () => {
+  it('shows the rerank the 24 most relevant candidates and keeps at most twelve', async () => {
     const many = Array.from({ length: 60 }, (_, index) => doc(100 + index, `Game ${index}`))
     const context = await contextWith(many)
     const { provider, calls } = scripted({
@@ -254,8 +253,8 @@ describe('the ask pipeline — structured answers', () => {
       rerank: (candidates) => ranking(candidates.map((card) => card.id))(),
     })
     const { answer } = await runAsk({ q: 'under 1000', locale: 'uk' }, { context, provider })
-    expect(calls.rerank[0]).toHaveLength(MAX_CANDIDATES)
-    expect(MAX_CANDIDATES).toBe(40)
+    expect(calls.rerank[0]).toHaveLength(MAX_RERANKED)
+    expect(calls.rerank[0]!.map((card) => card.id).slice(0, 3)).toEqual(['100', '101', '102'])
     expect(answer.items).toHaveLength(12)
   })
 
@@ -434,20 +433,51 @@ describe('the ask pipeline — structured answers', () => {
     expect(calls.rerank).toHaveLength(0)
   })
 
-  it('still answers when the genre taxonomy cannot be read, with no genre filter', async () => {
+  it("checks the genres against RAWG's list when the live taxonomy cannot be read", async () => {
     const rawg: RawgFetch = async (path, params) => {
       if (path === 'genres') throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
       return fixtureRawg(path, params)
     }
     const context = await contextWith(COOP, { rawg })
     const { provider, calls } = scripted({
-      parse: parsing({ genres: ['indie'], gameModes: ['LOCAL_COOP'], platforms: ['NINTENDO'] }),
+      parse: parsing({
+        genres: ['indie', 'not-a-genre'],
+        gameModes: ['LOCAL_COOP'],
+        platforms: ['NINTENDO'],
+      }),
       rerank: ranking(['9101', '9102', '9104']),
     })
     const { answer } = await runAsk({ q: 'indie co-op', locale: 'uk' }, { context, provider })
-    expect(calls.parse[0]!.genres).toEqual([])
+    expect(calls.parse[0]!.genres).toEqual(RAWG_GENRES)
     expect(answer.mode).toBe('structured')
-    expect(answer.filter).toEqual({ gameModes: ['LOCAL_COOP'], platforms: [7] })
+    expect(answer.filter).toEqual({ genres: ['indie'], gameModes: ['LOCAL_COOP'], platforms: [7] })
+  })
+
+  it('checks the genres against the live taxonomy when it is read', async () => {
+    const context = await contextWith(COOP)
+    const { provider } = scripted({
+      // `adventure` is one of RAWG's genres, but not one the fixture taxonomy lists.
+      parse: parsing({ genres: ['adventure', 'indie'], priceMaxUah: 500 }),
+    })
+    const { answer } = await runAsk({ q: 'indie', locale: 'uk' }, { context, provider })
+    expect(answer.filter.genres).toEqual(['indie'])
+  })
+
+  it('reports how long each step took', async () => {
+    const context = await contextWith(COOP)
+    const { provider } = scripted({
+      parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 500 }),
+      rerank: ranking(['9101', '9102', '9104']),
+    })
+    const { timings } = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+    expect(Object.keys(timings).sort()).toEqual([
+      'describe',
+      'genres',
+      'parse',
+      'rerank',
+      'retrieve',
+    ])
+    for (const ms of Object.values(timings)) expect(ms).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -800,16 +830,53 @@ describe('the ask pipeline — fallback', () => {
       expect(outcome.failure).toBe('timeout')
     })
 
-    it('gives up on a slow genre list after a second and a half and parses without it', async () => {
+    it('starts the parse at once, beside a slow genre list, and waits for the list at most 1.5 s', async () => {
       const rawg: RawgFetch = (path, params) =>
         path === 'genres' ? new Promise<never>(() => {}) : fixtureRawg(path, params)
       const context = await contextWith(COOP, { rawg })
       const { provider, calls } = scripted({ parse: parsing({ priceMaxUah: 500 }) })
-      const running = runAsk({ q: 'cheap', locale: 'uk' }, { context, provider })
+      const started = Date.now()
+      let settled = false
+      const running = runAsk({ q: 'cheap', locale: 'uk' }, { context, provider }).finally(() => {
+        settled = true
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls.parse).toHaveLength(1)
+      expect(settled).toBe(false)
       await vi.advanceTimersByTimeAsync(GENRES_TIMEOUT_MS)
       const outcome = await running
-      expect(calls.parse[0]!.genres).toEqual([])
+      expect(Date.now() - started).toBe(GENRES_TIMEOUT_MS)
       expect(outcome.answer.mode).toBe('structured')
+      expect(outcome.timings.genres).toBe(GENRES_TIMEOUT_MS)
+    })
+
+    it('keeps a structured answer, without reasons, when the rerank runs out of time', async () => {
+      const context = await contextWith(COOP)
+      const { provider: base } = scripted({
+        parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 2_000 }),
+      })
+      const provider: LlmProvider = {
+        ...base,
+        rerank: (_q, _c, _l, options) =>
+          new Promise((resolve) => {
+            options?.signal?.addEventListener('abort', () => resolve(failed('timeout')))
+          }),
+      }
+      const started = Date.now()
+      const running = runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS - RERANK_MARGIN_MS)
+      const outcome = await running
+      expect(Date.now() - started).toBe(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS - RERANK_MARGIN_MS)
+      expect(outcome.failure).toBeNull()
+      expect(outcome.rerankFailure).toBe('timeout')
+      expect(outcome.answer.mode).toBe('structured')
+      expect(outcome.answer.items.map((item) => item.reason)).toEqual([
+        null,
+        null,
+        null,
+        null,
+        null,
+      ])
     })
   })
 

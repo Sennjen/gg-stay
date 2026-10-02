@@ -11,6 +11,8 @@ import {
   type AskFallbackReason,
   type AskOutcome,
   type AskRequest,
+  type AskStep,
+  type AskTimings,
 } from './pipeline'
 import { NO_USAGE, type AskFailure, type LlmProvider, type LlmUsage } from './provider'
 import { ASK_LOCALES } from './schemas'
@@ -41,7 +43,7 @@ export const RESPONSE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 export const DEGRADED_CACHE_TTL_MS = 10 * 60 * 1000
 /** A structured answer costs at most two model calls: the parse and the rerank. */
 export const CALLS_PER_ANSWER = 2
-const CACHE_KEY_VERSION = 'ask-v4'
+const CACHE_KEY_VERSION = 'ask-v5'
 
 const AskBody = z.object({
   q: z
@@ -51,9 +53,15 @@ const AskBody = z.object({
   locale: z.enum(ASK_LOCALES),
 })
 
-/** What the cache holds per question; `expiresAt` makes it a `boundedCache` entry as it is. */
+/**
+ * What the cache holds per question; `expiresAt` makes it a `boundedCache` entry as it is. The
+ * key is the normalised query and the locale; the index version the answer was built on is kept
+ * inside, and an entry from another version is a miss — so the key can be looked up before the
+ * index state has been read, and a publication still invalidates every entry by itself.
+ */
 export interface CachedAsk {
   expiresAt: number
+  version: number | null
   answer: Omit<AskAnswer, 'tookMs'>
 }
 
@@ -80,6 +88,8 @@ export type AskLogLine =
       /** `'unknown'` when a call was never answered, so its cost was never reported. */
       costUsd: number | 'unknown'
       items: number
+      /** How long each step took, in ms (`AskStep`). */
+      ms: AskTimings
     }
 
 export interface AskHandlerDeps {
@@ -165,7 +175,7 @@ export async function handleAsk(
   const deadline = started + TOTAL_BUDGET_MS
   const answered = (
     answer: Omit<AskAnswer, 'tookMs'>,
-    details: Partial<Pick<AskOutcome, 'rerankFailure' | 'search' | 'degraded'>> & {
+    details: Partial<Pick<AskOutcome, 'rerankFailure' | 'search' | 'degraded' | 'timings'>> & {
       cache: 'hit' | 'miss'
       failure: AskFallbackReason | null
       usage: LlmUsage
@@ -187,13 +197,22 @@ export async function handleAsk(
       outputTokens: details.usage.outputTokens,
       costUsd: details.usage.unpricedCalls > 0 ? 'unknown' : details.usage.costUsd,
       items: answer.items.length,
+      ms: { ...timings, ...details.timings },
     })
     return { status: 200, headers: NO_STORE, body: { ...answer, tookMs } }
   }
 
+  const timings: AskTimings = {}
+  const timed = <T>(step: AskStep, work: Promise<T>): Promise<T> => {
+    const from = deps.now()
+    return work.finally(() => {
+      timings[step] = Math.max(0, deps.now() - from)
+    })
+  }
+
   let context: GraphQLContext
   try {
-    context = await deps.context()
+    context = await timed('context', deps.context())
   } catch {
     return answered(emptyFallback(ask), {
       cache: 'miss',
@@ -203,10 +222,16 @@ export async function handleAsk(
     })
   }
 
-  const version = (await indexState(context)).version
-  const key = `${CACHE_KEY_VERSION}:${ask.locale}:${version ?? 'none'}:${normaliseQuery(ask.q)}`
-  const cached = await deps.cache.get(key).catch(() => null)
-  if (cached && cached.expiresAt > deps.now()) {
+  // The index state is read from here on, beside everything else: the pipeline's parse does not
+  // wait for it, and only a cache hit — to check the version it was stored under — or a cache
+  // write needs it here. The pipeline reads the same promise (`indexState` keeps one per request).
+  const state = timed('indexState', indexState(context))
+  const key = `${CACHE_KEY_VERSION}:${ask.locale}:${normaliseQuery(ask.q)}`
+  const cached = await timed(
+    'cache',
+    deps.cache.get(key).catch(() => null),
+  )
+  if (cached && cached.expiresAt > deps.now() && cached.version === (await state).version) {
     return answered(cached.answer, { cache: 'hit', failure: null, usage: NO_USAGE })
   }
 
@@ -225,7 +250,10 @@ export async function handleAsk(
   // not stick to a question. A degraded one is kept briefly, a sound one for a day.
   if (answer.mode === 'structured') {
     const ttl = outcome.degraded ? DEGRADED_CACHE_TTL_MS : RESPONSE_CACHE_TTL_MS
-    await deps.cache.set(key, { expiresAt: deps.now() + ttl, answer }).catch(() => undefined)
+    const { version } = await state
+    await deps.cache
+      .set(key, { expiresAt: deps.now() + ttl, version, answer })
+      .catch(() => undefined)
   }
   return answered(answer, { ...outcome, cache: 'miss' })
 }

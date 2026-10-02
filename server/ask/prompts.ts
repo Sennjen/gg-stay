@@ -34,6 +34,33 @@ function cell(text: string): string {
 
 const list = (values: readonly string[]) => values.join(', ')
 
+/**
+ * RAWG's genre slugs, which the parse prompt lists. RAWG's genre taxonomy is small and has not
+ * changed in years, so the prompt does not wait for it to be read: the parse starts at once, and
+ * its answer is checked against the live list, read in the meantime.
+ */
+export const RAWG_GENRES = [
+  'action',
+  'adventure',
+  'arcade',
+  'board-games',
+  'card',
+  'casual',
+  'educational',
+  'family',
+  'fighting',
+  'indie',
+  'massively-multiplayer',
+  'platformer',
+  'puzzle',
+  'racing',
+  'role-playing-games-rpg',
+  'shooter',
+  'simulation',
+  'sports',
+  'strategy',
+] as const
+
 const PARSE_EXAMPLES = [
   {
     query: 'кооператив для двох на Switch до 500 грн',
