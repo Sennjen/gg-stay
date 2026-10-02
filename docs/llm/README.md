@@ -76,8 +76,8 @@ The scorer, the report and the runner's pacing have unit tests on recorded answe
 
 ## Results
 
-To be filled from the first run.
+Claude Haiku 4.5 (`claude-haiku-4-5`), 30 cases, run against production.
 
-| Date | Structured rate | Field accuracy | Tag accuracy | Reasons coverage | p50 / p95 (tookMs) | Cost |
-| ---- | --------------- | -------------- | ------------ | ---------------- | ------------------ | ---- |
-| —    | —               | —              | —            | —                | —                  | —    |
+| Date                             | Structured rate | Field accuracy | Tag accuracy | Reasons coverage | p50 / p95 (tookMs) | Cost    |
+| -------------------------------- | --------------- | -------------- | ------------ | ---------------- | ------------------ | ------- |
+| [2026-10-02](eval-2026-10-02.md) | 90 % (27/30)    | 95 % (104/110) | 100 % (5/5)  | 78 % (145/185)   | 7.3 / 15.0 s       | ≈ $0.17 |
