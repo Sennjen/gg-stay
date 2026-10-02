@@ -57,6 +57,11 @@ export interface LlmCallOptions {
   timeoutMs?: number
 }
 
+export interface RerankOptions extends LlmCallOptions {
+  /** The parse's one-sentence reading of the query, so the reasons answer what was meant. */
+  interpretation?: string | null
+}
+
 export interface ParseOptions extends LlmCallOptions {
   /** The live taxonomy's genre slugs, which the parse prompt lists. */
   genres: readonly string[]
@@ -69,7 +74,7 @@ export interface LlmProvider {
     query: string,
     candidates: readonly CandidateCard[],
     locale: AskLocale,
-    options?: LlmCallOptions,
+    options?: RerankOptions,
   ): Promise<LlmResult<AskRerank>>
 }
 

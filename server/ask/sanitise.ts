@@ -1,4 +1,10 @@
 import {
+  AGE_RATINGS,
+  GAME_MODES,
+  LOCALISATIONS,
+  PLATFORM_FAMILIES,
+  PLAYTIMES,
+  UI_SORTS,
   MAX_PRICE_UAH,
   MAX_SEARCH_LENGTH,
   METACRITIC_STEPS,
@@ -82,6 +88,35 @@ const URL_LIKE = /\b(?:https?:\/\/|www\.)\S*/gi
  */
 export function modelLine(value: string | null, max: number): string | null {
   return oneLine(value?.replace(URL_LIKE, ' ') ?? null, max)
+}
+
+/** Every code the parse schema knows: none of them belongs in a sentence a visitor reads. */
+const ENUM_CODES: ReadonlySet<string> = new Set([
+  ...GAME_MODES,
+  ...AGE_RATINGS,
+  ...PLAYTIMES,
+  ...LOCALISATIONS,
+  ...PLATFORM_FAMILIES,
+  ...UI_SORTS,
+])
+/** Anything spelled like a code: capitals joined by underscores. */
+const SNAKE_CODE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/
+/** A sum of money, in either order: "25 грн", "499 ₴", "UAH 300", "₴99". */
+const PRICE = /\d[\d\s.,]*\s*(?:₴|грн|гривн|гривен|гривень|uah|hryvni|hryvnia)|(?:₴|uah)\s*\d/i
+/** Platform and store names; the filter has already guaranteed the platform. */
+const PLATFORM_NAME = /\b(?:Nintendo|Switch|PlayStation|PS[3-5]|Xbox|Steam|iOS|Android)\b/
+
+/**
+ * A reason worth showing, or `null`. A reason that only echoes the request — a price, a platform,
+ * a code from the parse schema — tells the visitor nothing they did not type; the prompt forbids
+ * it, and this is what holds when the model does it anyway.
+ */
+export function plainReason(reason: string | null): string | null {
+  if (!reason) return null
+  const tokens = reason.split(/[^A-Za-z0-9_]+/)
+  if (tokens.some((token) => ENUM_CODES.has(token))) return null
+  if (SNAKE_CODE.test(reason) || PRICE.test(reason) || PLATFORM_NAME.test(reason)) return null
+  return reason
 }
 
 function whole(value: number | null): number | null {

@@ -190,7 +190,10 @@ describe('POST /api/ask — answers', () => {
       ignoredFilters: [],
       indexStale: false,
       items: [
-        { card: { id: '13537' }, reason: 'Гнітюча атмосфера Сіті 17, українські субтитри' },
+        {
+          card: { id: '13537' },
+          reason: 'Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
+        },
         { card: { id: '41494' } },
         { card: { id: '3328' } },
       ],

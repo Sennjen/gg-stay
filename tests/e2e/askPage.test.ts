@@ -146,7 +146,9 @@ describe('the ask page on the server', async () => {
     )
     expect(text(body)).toContain('Зрозумілий фільтр: Українська: будь-яка')
     expect(text(body)).toContain('Підібрали 3 гри')
-    expect(text(body)).toContain('Чому підходить: Гнітюча атмосфера Сіті 17, українські субтитри')
+    expect(text(body)).toContain(
+      'Чому підходить: Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
+    )
     expect((body.match(/data-test="ask-reason"/g) ?? []).length).toBe(3)
     expect(decode(body)).toContain('href="/games?ukrainianLocalisation=ANY"')
     // The field shows the question, and nothing is left in a loading state for hydration to fix.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readParse, readRerank, type AskParse } from '../../../server/ask/schemas'
-import { catalogUrl, sanitiseParse } from '../../../server/ask/sanitise'
+import { catalogUrl, plainReason, sanitiseParse } from '../../../server/ask/sanitise'
+import recorded from '../../fixtures/ask/recorded.json' with { type: 'json' }
 
 /**
  * What the server does with whatever a model returned: the lenient reader drops values it does
@@ -273,5 +274,44 @@ describe('catalogUrl', () => {
 
   it('is the bare catalog for an empty filter', () => {
     expect(catalogUrl({}, 'POPULARITY_DESC', 'en')).toBe('/en/games')
+  })
+})
+
+describe('plainReason', () => {
+  it.each([
+    'Кооператив для двох, LOCAL_COOP, 25 грн, Switch',
+    'Only 499 ₴ right now',
+    'Коштує 120 гривень',
+    'Costs UAH 300 on sale',
+    'Rated PEGI18 for its gore',
+    'Fits the ONLINE_COOP filter',
+    'A SOME_CODE slipped in',
+    'Runs great on PC',
+    'One of the best games on Nintendo Switch',
+    'Повна українська озвучка на PlayStation',
+  ])('rejects a reason that echoes the filter: %s', (reason) => {
+    expect(plainReason(reason)).toBeNull()
+  })
+
+  it.each([
+    'Хаос на кухні, де без злагодженої команди все горить',
+    'A lighthouse, a storm and a keeper slowly losing his mind',
+    'A steampunk city of 100 floors to climb',
+    'Неквапливі головоломки з порталами під дотепні коментарі GLaDOS',
+  ])('keeps a reason about the game itself: %s', (reason) => {
+    expect(plainReason(reason)).toBe(reason)
+  })
+
+  it('passes every reason the recorded answers give, each within 100 characters', () => {
+    const reasons = (
+      recorded as { answers: { rerank?: { items: { reason: string }[] } }[] }
+    ).answers
+      .flatMap((answer) => answer.rerank?.items ?? [])
+      .map((item) => item.reason)
+    expect(reasons.length).toBeGreaterThanOrEqual(15)
+    for (const reason of reasons) {
+      expect(plainReason(reason)).toBe(reason)
+      expect(reason.length).toBeLessThanOrEqual(100)
+    }
   })
 })

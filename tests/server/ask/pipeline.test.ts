@@ -202,7 +202,7 @@ describe('the ask pipeline — structured answers', () => {
     expect(answer.catalogUrl).toBe('/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500')
     // The recorded rerank names a fourth id that is not a candidate; it is discarded.
     expect(ids(answer)).toEqual(['9102', '9101', '9104'])
-    expect(answer.items[0]!.reason).toBe('Хаотичний кооператив на кухні для двох на одному екрані')
+    expect(answer.items[0]!.reason).toBe('Хаос на кухні, де без злагодженої команди все горить')
     expect(answer.items[0]!.card).toMatchObject({
       name: 'Overcooked 2',
       price: { bestUah: 389 },
@@ -241,10 +241,6 @@ describe('the ask pipeline — structured answers', () => {
       genres: ['indie'],
       tags: ['cooking', 'party'],
       modes: ['LOCAL_COOP', 'ONLINE_COOP'],
-      priceUah: 389,
-      discountPercent: 0,
-      free: false,
-      ukrainian: 'text',
       hours: 10,
     })
     expect(calls.rerank[0]!.map((card) => card.id).sort()).toEqual(['9101', '9102', '9104'])
@@ -279,6 +275,27 @@ describe('the ask pipeline — structured answers', () => {
     const { answer } = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
     expect(answer.items[0]!.reason).toHaveLength(100)
     expect(answer.items[1]!.reason).toBeNull()
+  })
+
+  it('drops a reason that only echoes the filter back, and keeps the game', async () => {
+    const context = await contextWith(COOP)
+    const { provider } = scripted({
+      parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 500 }),
+      rerank: () =>
+        ok({
+          items: [
+            { id: '9102', reason: 'Кооператив для двох, LOCAL_COOP, 25 грн, Switch' },
+            { id: '9101', reason: 'Дві плетені істоти, зв’язані ниткою' },
+            { id: '9104', reason: 'Лише 199 ₴' },
+          ],
+        }),
+    })
+    const { answer } = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+    expect(answer.items.map((item) => [item.card.id, item.reason])).toEqual([
+      ['9102', null],
+      ['9101', 'Дві плетені істоти, зв’язані ниткою'],
+      ['9104', null],
+    ])
   })
 
   it('takes links out of the model text it shows', async () => {

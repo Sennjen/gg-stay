@@ -153,7 +153,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): LlmP
       call(
         {
           system: RERANK_SYSTEM_PROMPT,
-          user: rerankUserMessage(query, candidates, locale),
+          user: rerankUserMessage(query, candidates, locale, rerankOptions?.interpretation),
           maxTokens: RERANK_MAX_TOKENS,
         },
         RERANK_FORMAT,

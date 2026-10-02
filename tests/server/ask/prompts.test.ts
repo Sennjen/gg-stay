@@ -26,10 +26,6 @@ const WITCHER: CandidateCard = {
   genres: ['action', 'role-playing-games-rpg'],
   tags: ['open-world', 'story-rich'],
   modes: ['SINGLE'],
-  priceUah: 675,
-  discountPercent: 50,
-  free: false,
-  ukrainian: 'audio',
   hours: 43,
 }
 
@@ -87,10 +83,13 @@ describe('the parse prompt', () => {
 })
 
 describe('the rerank prompt', () => {
-  it('formats a candidate as one compact line', () => {
+  it('formats a candidate as one compact line, in words, with no code and no price', () => {
     expect(formatCandidate(WITCHER)).toBe(
-      '3328 | The Witcher 3: Wild Hunt | 2015 | action, role-playing-games-rpg | open-world, story-rich | SINGLE | 675 UAH (-50%) | Ukrainian audio | 43 h',
+      '3328 | The Witcher 3: Wild Hunt | 2015 | action, rpg | open world, story rich | single-player | about 43 h',
     )
+    const coop = formatCandidate({ ...WITCHER, modes: ['LOCAL_COOP', 'ONLINE_COOP'] })
+    expect(coop).toContain('| co-op on one screen, online co-op |')
+    expect(coop).not.toMatch(/[A-Z]{2,}_[A-Z]/)
   })
 
   it('marks what a candidate does not have', () => {
@@ -103,15 +102,9 @@ describe('the rerank prompt', () => {
         genres: [],
         tags: [],
         modes: [],
-        priceUah: null,
-        discountPercent: 0,
-        ukrainian: null,
         hours: null,
       }),
-    ).toBe('1 | Bad name with lines | ? | - | - | - | price unknown | no Ukrainian | ? h')
-    expect(formatCandidate({ ...WITCHER, free: true, priceUah: 0, ukrainian: 'text' })).toContain(
-      '| free | Ukrainian text |',
-    )
+    ).toBe('1 | Bad name with lines | ? | - | - | - | ? h')
   })
 
   it('keeps a price bound written with angle brackets', () => {
@@ -138,6 +131,16 @@ describe('the rerank prompt', () => {
     expect(message).toContain('<query>rpg</query>')
     expect(message).toContain('3328 | The Witcher 3')
     expect(message).toContain('4200 | Portal 2')
+    expect(message).not.toContain('Understood as')
+    expect(rerankUserMessage('rpg', [WITCHER], 'en', 'Story-driven RPGs')).toContain(
+      'Understood as: Story-driven RPGs',
+    )
+  })
+
+  it('asks for reasons about the game, not the filter', () => {
+    expect(RERANK_SYSTEM_PROMPT).toContain('something specific about that game for this request')
+    expect(RERANK_SYSTEM_PROMPT).toContain('no prices or currencies')
+    expect(RERANK_SYSTEM_PROMPT).toContain('never a code')
   })
 
   it('is deterministic text with the limits the answer is held to', () => {

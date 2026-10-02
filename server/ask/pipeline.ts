@@ -29,7 +29,7 @@ import {
   type LlmResult,
   type LlmUsage,
 } from './provider'
-import { catalogUrl, modelLine, sanitiseParse, type UnderstoodQuery } from './sanitise'
+import { catalogUrl, modelLine, plainReason, sanitiseParse, type UnderstoodQuery } from './sanitise'
 import { MAX_REASON_LENGTH, type AskLocale } from './schemas'
 
 /**
@@ -70,8 +70,8 @@ export const TOTAL_BUDGET_MS = 12_000
 export const FALLBACK_RESERVE_MS = 3_000
 /** The genre list may take this long; past it the parse runs without genres. */
 export const GENRES_TIMEOUT_MS = 1_500
-/** Tags per candidate card: enough to describe a game, few enough to keep forty cards short. */
-const CARD_TAGS = 6
+/** Tags per candidate card: enough to describe a game, few enough to keep the cards short. */
+const CARD_TAGS = 8
 
 export interface AskRequest {
   q: string
@@ -303,7 +303,11 @@ async function structured(
 
   const cards = await candidateCards(context, candidates)
   const ranking = await spend((timeoutMs) =>
-    provider.rerank(request.q, cards, request.locale, { signal, timeoutMs }),
+    provider.rerank(request.q, cards, request.locale, {
+      signal,
+      timeoutMs,
+      interpretation: understood.interpretation,
+    }),
   )
   // A failed or cut-off ranking is no reason to drop a filter that was understood correctly: the
   // candidates are served in the catalog's own order, without reasons.
@@ -548,25 +552,25 @@ async function candidateCards(
   }
   return candidates.map((card) => {
     const document = documents.get(Number(card.id))
-    const localisation = card.localisation
     return {
       id: card.id,
       name: card.name,
       year: card.released ? Number(card.released.slice(0, 4)) || null : null,
       genres: document?.genres ?? card.genres.map((genre) => genre.slug),
-      tags: (document?.tags ?? []).slice(0, CARD_TAGS),
+      // The mood tags first — they are what a reason is made of — then the rarest-tags list.
+      tags: [...new Set([...(document?.moodTags ?? []), ...(document?.tags ?? [])])].slice(
+        0,
+        CARD_TAGS,
+      ),
       modes: document?.gameModes ?? [],
-      priceUah: card.price?.bestUah ?? null,
-      discountPercent: card.price?.discountPercent ?? 0,
-      free: card.price?.isFree ?? false,
-      ukrainian: localisation?.audio ? 'audio' : localisation?.text ? 'text' : null,
       hours: card.playtime ?? null,
     }
   })
 }
 
+/** A reason as shown, or `null` when it only echoes the filter back (`plainReason`). */
 function reasonOf(reason: string): string | null {
-  return modelLine(reason, MAX_REASON_LENGTH)
+  return plainReason(modelLine(reason, MAX_REASON_LENGTH))
 }
 
 /** The ranked ids that are candidates, each once, in the model's order. */
