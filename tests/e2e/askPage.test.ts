@@ -1,23 +1,26 @@
 import { createHash } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup } from '@nuxt/test-utils/e2e'
-import {
-  FALLBACK_QUERY,
-  HOSTILE_QUERY,
-  RATE_LIMITED_QUERY,
-  STRUCTURED_QUERY,
-} from '../fixtures/ask/answers'
 
-// Build-time default and runtime override, so the server under test never calls RAWG.
+// Build-time default and runtime override, so the server under test never calls RAWG — and, in
+// fixture mode, `/api/ask` answers from its recorded provider rather than a model.
 process.env.RAWG_FIXTURES = '1'
 
 /**
- * The ask page as a server renders it, against the recorded stand-in for `POST /api/ask`
- * (`tests/fixtures/ask/stubHandler.ts`, mounted for this build only): a URL with `q` is answered
- * in the HTML itself, so a shared link opens on its results; it is kept out of the index while the
- * page without a question is not; and the model's words reach the page as text.
+ * The ask page as a server renders it, against the real `POST /api/ask` in fixture mode
+ * (`tests/fixtures/ask/recorded.json`): a URL with `q` is answered in the HTML itself, so a shared
+ * link opens on its results; it is kept out of the index while the page without a question is
+ * not; the server render forwards the visitor's address, so the endpoint's rate limit counts the
+ * visitor and not the server; and text that came from the URL reaches the page as text.
  */
+
+/** Recorded: structured, three ranked cards with reasons. */
+const HORROR = 'атмосферний горор українською'
+/** Recorded: structured with the acceptance filter, and no cards in the seeded index. */
+const COOP = 'кооператив для двох на Switch до 500 грн'
+const COOP_EN = 'co-op for two on Switch under 500 UAH'
+/** Not recorded: the endpoint falls back to a plain search. */
+const UNKNOWN = 'щось як Hades, але коротше'
 
 const SITE = 'http://localhost:3000'
 const INDEXABLE = 'index, follow, max-image-preview:large'
@@ -34,8 +37,17 @@ function decode(value: string): string {
     .replace(/&amp;/g, '&')
 }
 
-async function page(path: string) {
-  const response = await fetch(path, { headers: { accept: 'text/html' } })
+/**
+ * A fresh visitor address per request unless one is given: the endpoint allows ten questions a
+ * minute per address, and this suite asks more than that.
+ */
+let visitor = 0
+const nextAddress = () => `198.51.100.${++visitor}`
+
+async function page(path: string, address: string = nextAddress()) {
+  const response = await fetch(path, {
+    headers: { accept: 'text/html', 'x-forwarded-for': address },
+  })
   const html = await response.text()
   const head = html.slice(0, html.indexOf('</head>'))
   const meta = (name: string) =>
@@ -98,15 +110,6 @@ describe('the ask page on the server', async () => {
     server: true,
     browser: false,
     env: { RAWG_FIXTURES: '1', NUXT_RAWG_FIXTURES: '1' },
-    nuxtConfig: {
-      serverHandlers: [
-        {
-          route: '/api/ask',
-          method: 'post',
-          handler: fileURLToPath(new URL('../fixtures/ask/stubHandler.ts', import.meta.url)),
-        },
-      ],
-    },
   })
 
   it('serves the page without a question as an indexable page with a form', async () => {
@@ -125,59 +128,93 @@ describe('the ask page on the server', async () => {
   })
 
   it('answers a question from the URL in the HTML itself, out of the index', async () => {
-    const { response, body, ...head } = await page(askUrl(STRUCTURED_QUERY))
+    const { response, body, ...head } = await page(askUrl(HORROR))
     expect(response.status).toBe(200)
     expect(head.robots).toBe(NOT_INDEXABLE)
     // The canonical is the page without the question.
     expect(head.canonical).toBe(`${SITE}/ask`)
-    expect(head.title).toBe(`«${STRUCTURED_QUERY}» — підбір ігор — GG Stay`)
+    expect(head.title).toBe(`«${HORROR}» — підбір ігор — GG Stay`)
 
-    expect(text(body)).toContain('Кооперативні ігри для двох на Nintendo Switch до 500 ₴')
-    expect(text(body)).toContain('Чому підходить: Хаотична кухня на двох за одним екраном')
-    expect(text(body)).toContain('Підібрали 3 гри')
-    expect(decode(body)).toContain('href="/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500"')
-    // The field shows the question, and nothing is left in a loading state for hydration to fix.
-    expect(decode(/<textarea[^>]*>([^<]*)<\/textarea>/.exec(body)?.[1] ?? '')).toBe(
-      STRUCTURED_QUERY,
+    expect(text(body)).toContain(
+      'Як ми зрозуміли запит: Атмосферні горори з українською локалізацією',
     )
+    expect(text(body)).toContain('Зрозумілий фільтр: Українська: будь-яка')
+    expect(text(body)).toContain('Підібрали 3 гри')
+    expect(text(body)).toContain('Чому підходить: Гнітюча атмосфера Сіті 17, українські субтитри')
+    expect((body.match(/data-test="ask-reason"/g) ?? []).length).toBe(3)
+    expect(decode(body)).toContain('href="/games?ukrainianLocalisation=ANY"')
+    // The field shows the question, and nothing is left in a loading state for hydration to fix.
+    expect(decode(/<textarea[^>]*>([^<]*)<\/textarea>/.exec(body)?.[1] ?? '')).toBe(HORROR)
     expect(body).not.toContain('aria-busy')
   })
 
-  it('renders the fallback note and the rate-limit wait on the server too', async () => {
-    expect(text((await page(askUrl(FALLBACK_QUERY))).body)).toContain(
-      'ШІ-розбір зараз недоступний — показуємо звичайний пошук',
+  it('shows what it understood and the empty state when the catalog has nothing for it', async () => {
+    const { body } = await page(askUrl(COOP))
+    expect(text(body)).toContain(
+      'Як ми зрозуміли запит: Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
     )
-    // The seconds come from the stub's Retry-After header, read on the server.
-    const limited = await page(askUrl(RATE_LIMITED_QUERY))
-    expect(limited.response.status).toBe(200)
-    expect(text(limited.body)).toContain('Спробуйте ще раз за 42 секунди.')
+    expect(text(body)).toContain('Нічого не підібрали')
+    expect(body).not.toContain('data-test="ask-item"')
+    expect(decode(body)).toContain('href="/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500"')
   })
 
-  it('asks in English on the English page', async () => {
-    const { html, body } = await page(askUrl(STRUCTURED_QUERY, '/en'))
+  it('says calmly that the AI part did not run for a question it cannot read', async () => {
+    const { body } = await page(askUrl(UNKNOWN))
+    expect(text(body)).toContain('ШІ-розбір зараз недоступний — показуємо звичайний пошук')
+    expect(text(body)).toContain(`Звичайний пошук: «${UNKNOWN}»`)
+    expect(body).not.toContain('data-test="ask-interpretation"')
+    expect(body).not.toContain('data-test="ask-reason"')
+  })
+
+  it('explains a question the endpoint refused as too long', async () => {
+    const { response, body } = await page(askUrl('а'.repeat(201)))
+    expect(response.status).toBe(200)
+    expect(text(body)).toContain('Запит задовгий: щонайбільше 200 символів.')
+    expect(body).toContain('role="alert"')
+  })
+
+  it('asks in English on the English page, and links the English catalog', async () => {
+    const { html, body } = await page(askUrl(COOP_EN, '/en'))
     expect(html).toMatch(/<html[^>]*lang="en-US"/)
-    expect(text(body)).toContain('How we read it:')
-    expect(text(body)).toContain('Open in the catalog')
-    expect(decode(body)).toContain('href="/en/games?platforms=7')
+    expect(text(body)).toContain('How we read it: Co-op games for two on Nintendo')
+    expect(text(body)).toContain('Nothing matched')
+    expect(decode(body)).toContain(
+      'href="/en/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500"',
+    )
+  })
+
+  it("forwards the visitor's address, so the rate limit counts visitors, not server renders", async () => {
+    // The endpoint allows a burst of ten per address. Eleven renders from one visitor: the last is
+    // refused — and says when to try again, from the endpoint's Retry-After.
+    const busy = '203.0.113.10'
+    for (let render = 0; render < 10; render += 1) {
+      expect(text((await page(askUrl(UNKNOWN), busy)).body)).toContain('ШІ-розбір')
+    }
+    expect(text((await page(askUrl(UNKNOWN), busy)).body)).toMatch(
+      /Забагато запитів поспіль\. Спробуйте ще раз за \d+ секунд/,
+    )
+    // Another visitor is unaffected. Without the forwarded header both would be one address.
+    expect(text((await page(askUrl(UNKNOWN), '203.0.113.11')).body)).toContain('ШІ-розбір')
   })
 
   it('puts no block element inside a paragraph, in any state', async () => {
     for (const path of [
       '/ask',
-      askUrl(STRUCTURED_QUERY),
-      askUrl(FALLBACK_QUERY),
-      askUrl(RATE_LIMITED_QUERY),
-      askUrl('гра про бджолярство на Dreamcast'),
+      askUrl(HORROR),
+      askUrl(COOP),
+      askUrl(UNKNOWN),
+      askUrl('а'.repeat(201)),
     ]) {
       expect(blocksInsideParagraphs((await page(path)).body), path).toEqual([])
     }
   })
 
-  it('shows markup in the model text as text, and runs no script it did not hash', async () => {
-    const { response, html, body } = await page(askUrl(HOSTILE_QUERY))
+  it('shows markup typed into the question as text, and runs no script it did not hash', async () => {
+    const hostile = '</p><script>alert("ask")</script><img src=x onerror=alert(1)>'
+    const { response, html, body } = await page(askUrl(hostile))
     expect(body).not.toContain('<script>alert')
     expect(body).not.toContain('<img src=x')
-    expect(text(body)).toContain('</p><script>alert("ask")</script>')
+    expect(text(body)).toContain(`«${hostile}»`)
 
     const csp = response.headers.get('content-security-policy')!
     const scriptSrc = csp.split('; ').find((directive) => directive.startsWith('script-src'))!

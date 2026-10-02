@@ -87,12 +87,3 @@ export const RETRY_AFTER_SECONDS = 42
 
 /** A query the stub answers with a `500`. */
 export const BROKEN_QUERY = 'зламаний запит'
-
-/** A query whose answer carries markup in its model-written text, which must reach the page as text. */
-export const HOSTILE_QUERY = 'розмітка у відповіді'
-
-export const HOSTILE_ANSWER = {
-  ...STRUCTURED_ANSWER,
-  interpretation: '</p><script>alert("ask")</script>',
-  items: [{ ...STRUCTURED_ANSWER.items[0], reason: '<img src=x onerror=alert(1)>' }],
-} as const
