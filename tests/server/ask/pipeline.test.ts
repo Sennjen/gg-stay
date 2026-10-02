@@ -1,8 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
 import type { GameIndex } from '../../../server/index/GameIndex'
 import type { GraphQLContext } from '../../../server/graphql/context'
-import { FALLBACK_SIZE, MAX_CANDIDATES, runAsk } from '../../../server/ask/pipeline'
+import {
+  FALLBACK_RESERVE_MS,
+  FALLBACK_SIZE,
+  GENRES_TIMEOUT_MS,
+  MAX_CANDIDATES,
+  runAsk,
+  TOTAL_BUDGET_MS,
+} from '../../../server/ask/pipeline'
 import type { CandidateCard } from '../../../server/ask/prompts'
 import {
   NO_USAGE,
@@ -137,7 +144,7 @@ const PARSE: AskParse = {
 const ok = <T>(value: T): LlmResult<T> => ({
   ok: true,
   value,
-  usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015 },
+  usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015, unpricedCalls: 0 },
 })
 const failed = <T>(failure: AskFailure): LlmResult<T> => ({
   ok: false,
@@ -269,8 +276,59 @@ describe('the ask pipeline — structured answers', () => {
         }),
     })
     const { answer } = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
-    expect(answer.items[0]!.reason).toHaveLength(120)
+    expect(answer.items[0]!.reason).toHaveLength(100)
     expect(answer.items[1]!.reason).toBeNull()
+  })
+
+  it('takes links out of the model text it shows', async () => {
+    const context = await contextWith(COOP)
+    const { provider } = scripted({
+      parse: parsing({
+        priceMaxUah: 500,
+        interpretation: 'Official notice: verify your account at https://evil.example/login now',
+      }),
+      rerank: () =>
+        ok({
+          items: [
+            { id: '9101', reason: 'Free key at www.evil.example today' },
+            { id: '9102', reason: 'Fits' },
+            { id: '9104', reason: 'Fits too' },
+          ],
+        }),
+    })
+    const { answer } = await runAsk({ q: 'cheap', locale: 'en' }, { context, provider })
+    expect(answer.interpretation).toBe('Official notice: verify your account at now')
+    expect(answer.items[0]!.reason).toBe('Free key at today')
+  })
+
+  it('reports a fully applied, fresh answer as neither ignoring nor degraded', async () => {
+    const context = await contextWith(COOP)
+    const { provider } = scripted({
+      parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 500 }),
+      rerank: ranking(['9101', '9102', '9104']),
+    })
+    const outcome = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+    expect(outcome.answer.ignoredFilters).toEqual([])
+    expect(outcome.degraded).toBe(false)
+    expect(outcome.rerankFailure).toBeNull()
+  })
+
+  it('reports the filters a stale index could not apply, and marks the answer degraded', async () => {
+    const stale = await publishTestIndex(COOP, {
+      updatedAt: '2026-09-01T06:30:00.000Z',
+      pricesUpdatedAt: '2026-09-01T06:00:00.000Z',
+    })
+    const context = await contextWith(COOP, { index: stale })
+    const { provider } = scripted({
+      parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 500 }),
+      rerank: (candidates) => ranking(candidates.map((card) => card.id))(),
+    })
+    const outcome = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+    expect(outcome.answer.mode).toBe('structured')
+    // What was understood stays the filter; what the catalog could not apply is named beside it.
+    expect(outcome.answer.filter).toEqual({ gameModes: ['LOCAL_COOP'], priceMaxUah: 500 })
+    expect(outcome.answer.ignoredFilters).toEqual(['priceMaxUah'])
+    expect(outcome.degraded).toBe(true)
   })
 
   it('falls back to the retrieval order without reasons when fewer than three ranked ids survive', async () => {
@@ -400,6 +458,20 @@ describe('the ask pipeline — "like X"', () => {
     expect(calls.rerank[0]!.map((card) => card.id)).toEqual(['501', '502', '503'])
   })
 
+  it.each([
+    ['an empty stored list', []],
+    ['a stored list of games this version no longer holds', [998, 999]],
+  ])("falls back to the named game's genres for %s", async (_label, similar) => {
+    const documents = LIKE_HADES.map((game) => (game.id === 500 ? { ...game, similar } : game))
+    const context = await contextWith(documents)
+    const { provider, calls } = scripted({
+      parse: parsing({ similarTo: 'Hades' }),
+      rerank: (candidates) => ranking(candidates.map((card) => card.id))(),
+    })
+    await runAsk({ q: 'like Hades', locale: 'en' }, { context, provider })
+    expect(calls.rerank[0]!.map((card) => card.id)).toEqual(['501', '502', '503'])
+  })
+
   it('retrieves by the rest of the filter when the named game is not in the index', async () => {
     const context = await contextWith(LIKE_HADES)
     const { provider, calls } = scripted({
@@ -461,16 +533,25 @@ describe('the ask pipeline — fallback', () => {
     expect(calls.rerank).toHaveLength(0)
   })
 
-  it('falls back when the rerank fails, keeping the cost of both calls', async () => {
-    const { provider } = scripted({
-      parse: parsing({ gameModes: ['LOCAL_COOP'] }),
-      rerank: () => failed('refusal'),
-    })
-    const outcome = await fallbackFor(provider)
-    expect(outcome.failure).toBe('refusal')
-    expectFallback(outcome.answer)
-    expect(outcome.usage.calls).toBe(2)
-  })
+  it.each<AskFailure>(['max_tokens', 'refusal', 'schema', 'timeout', 'api'])(
+    'keeps a structured answer in retrieval order, without reasons, when the rerank fails with %s',
+    async (failure) => {
+      const context = await contextWith(COOP)
+      const { provider } = scripted({
+        parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 2_000 }),
+        rerank: () => failed(failure),
+      })
+      const outcome = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+      expect(outcome.failure).toBeNull()
+      expect(outcome.rerankFailure).toBe(failure)
+      expect(outcome.degraded).toBe(true)
+      expect(outcome.answer.mode).toBe('structured')
+      expect(outcome.answer.filter).toEqual({ gameModes: ['LOCAL_COOP'], priceMaxUah: 2_000 })
+      expect(ids(outcome.answer)).toEqual(['9101', '9102', '9103', '9104', '9105'])
+      expect(outcome.answer.items.every((item) => item.reason === null)).toBe(true)
+      expect(outcome.usage.calls).toBe(2)
+    },
+  )
 
   it('falls back when retrieval fails', async () => {
     const { provider } = scripted({ parse: parsing({ genres: ['action'] }) })
@@ -496,26 +577,109 @@ describe('the ask pipeline — fallback', () => {
     expectFallback(outcome.answer)
   })
 
-  it('falls back when the whole request outlives its budget, and aborts the model call', async () => {
-    let aborted = false
-    const provider: LlmProvider = {
-      name: 'hanging',
-      parse: (_query, _locale, options) =>
+  describe('the request deadline', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** A model call that only ends when it is aborted. */
+    const hangingParse =
+      (onAbort: () => void): LlmProvider['parse'] =>
+      (_q, _l, options) =>
         new Promise((resolve) => {
           options.signal?.addEventListener('abort', () => {
-            aborted = true
+            onAbort()
             resolve(failed('timeout'))
           })
+        })
+
+    it('gives the structured attempt until three seconds before the deadline, then searches', async () => {
+      let aborted = false
+      const provider: LlmProvider = {
+        name: 'hanging',
+        parse: hangingParse(() => {
+          aborted = true
         }),
-      rerank: async () => ok({ items: [] }),
-    }
-    const context = await contextWith(COOP)
-    const started = Date.now()
-    const outcome = await runAsk({ q: RAW, locale: 'uk' }, { context, provider, budgetMs: 30 })
-    expect(Date.now() - started).toBeLessThan(2_000)
-    expect(outcome.failure).toBe('timeout')
-    expect(aborted).toBe(true)
-    expectFallback(outcome.answer)
+        rerank: async () => ok({ items: [] }),
+      }
+      const context = await contextWith(COOP)
+      const started = Date.now()
+      const running = runAsk({ q: RAW, locale: 'uk' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS)
+      const outcome = await running
+      expect(Date.now() - started).toBe(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS)
+      expect(aborted).toBe(true)
+      expect(outcome.failure).toBe('timeout')
+      expect(outcome.search).toBe('ok')
+      expectFallback(outcome.answer)
+      expect(outcome.answer.items.length).toBeGreaterThan(0)
+    })
+
+    it('answers within twelve seconds when everything upstream hangs — the worst case', async () => {
+      const never = new Promise<never>(() => {})
+      const rawg: RawgFetch = () => never
+      const provider: LlmProvider = {
+        name: 'hanging',
+        // Ignores its signal entirely: the deadline must not depend on the provider's manners.
+        parse: () => never,
+        rerank: () => never,
+      }
+      const context = await contextWith(COOP, { rawg })
+      const started = Date.now()
+      let settled = false
+      const running = runAsk({ q: RAW, locale: 'uk' }, { context, provider }).finally(() => {
+        settled = true
+      })
+
+      await vi.advanceTimersByTimeAsync(TOTAL_BUDGET_MS - 1)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      const outcome = await running
+
+      expect(Date.now() - started).toBe(TOTAL_BUDGET_MS)
+      expect(outcome.failure).toBe('timeout')
+      expect(outcome.search).toBe('timeout')
+      expect(outcome.answer).toMatchObject({
+        mode: 'fallback',
+        interpretation: null,
+        filter: { search: RAW },
+        items: [],
+        ignoredFilters: [],
+      })
+    })
+
+    it('counts the time spent before the pipeline started against the same deadline', async () => {
+      const provider: LlmProvider = {
+        name: 'hanging',
+        parse: hangingParse(() => {}),
+        rerank: async () => ok({ items: [] }),
+      }
+      const context = await contextWith(COOP)
+      const started = Date.now()
+      const running = runAsk(
+        { q: RAW, locale: 'uk' },
+        { context, provider, deadline: started + 5_000 },
+      )
+      await vi.advanceTimersByTimeAsync(2_000)
+      const outcome = await running
+      expect(Date.now() - started).toBe(2_000)
+      expect(outcome.failure).toBe('timeout')
+    })
+
+    it('gives up on a slow genre list after a second and a half and parses without it', async () => {
+      const rawg: RawgFetch = (path, params) =>
+        path === 'genres' ? new Promise<never>(() => {}) : fixtureRawg(path, params)
+      const context = await contextWith(COOP, { rawg })
+      const { provider, calls } = scripted({ parse: parsing({ priceMaxUah: 500 }) })
+      const running = runAsk({ q: 'cheap', locale: 'uk' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(GENRES_TIMEOUT_MS)
+      const outcome = await running
+      expect(calls.parse[0]!.genres).toEqual([])
+      expect(outcome.answer.mode).toBe('structured')
+    })
   })
 
   it('answers an empty fallback when even the plain search fails — never an error', async () => {
@@ -555,6 +719,11 @@ describe('the ask pipeline — fallback', () => {
     expect(outcome.failure).toBeNull()
     expect(outcome.answer.mode).toBe('structured')
     expect(ids(outcome.answer)).toEqual(['3328', '4200', '654', '999001'])
+    // The price ceiling and the mode were understood, but RAWG could not apply the price: the
+    // answer says so, and is not the kind to keep for a day.
+    expect(outcome.answer.filter).toEqual({ gameModes: ['LOCAL_COOP'], priceMaxUah: 500 })
+    expect(outcome.answer.ignoredFilters).toEqual(['priceMaxUah'])
+    expect(outcome.degraded).toBe(true)
     expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
   })
@@ -583,6 +752,7 @@ describe('the ask pipeline — the answer shape', () => {
     expect(Object.keys(answer).sort()).toEqual([
       'catalogUrl',
       'filter',
+      'ignoredFilters',
       'interpretation',
       'items',
       'mode',

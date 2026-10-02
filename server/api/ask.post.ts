@@ -1,4 +1,5 @@
-import { handleAsk } from '../ask/handler'
+import { clientAddressKey } from '../ask/clientIp'
+import { handleAsk, MAX_BODY_BYTES } from '../ask/handler'
 import { API_CONTENT_SECURITY_POLICY, CSP_HEADER } from '../security/headers'
 
 /**
@@ -6,15 +7,23 @@ import { API_CONTENT_SECURITY_POLICY, CSP_HEADER } from '../security/headers'
  * in `server/ask/handler.ts`; the answer is never a 5xx (see `server/ask/pipeline.ts`).
  */
 export default defineEventHandler(async (event) => {
-  // A body that is not JSON is the handler's 400, not h3's.
-  const body: unknown = await readBody(event).catch(() => null)
+  const contentLength = getRequestHeader(event, 'content-length')
+  // A body the client declares larger than any question is not read at all; the handler answers
+  // it with a 400. A body that is not JSON is the handler's 400 as well, not h3's.
+  const body: unknown =
+    Number(contentLength ?? 0) > MAX_BODY_BYTES ? null : await readBody(event).catch(() => null)
   const response = await handleAsk(
     {
       body,
-      // Used for the per-address limit only, and never logged. On Vercel the platform sets
-      // `x-forwarded-for` itself, so a client cannot choose its own bucket.
-      ip: getRequestIP(event, { xForwardedFor: true }) ?? 'unknown',
+      // Used for the limits only, and never logged. Forwarding headers are trusted on Vercel alone,
+      // where the platform sets them; anywhere else only the socket's address counts.
+      ip: clientAddressKey({
+        header: (name) => getRequestHeader(event, name),
+        socketAddress: event.node.req.socket?.remoteAddress,
+        onVercel: Boolean(process.env.VERCEL),
+      }),
       contentType: getRequestHeader(event, 'content-type'),
+      contentLength,
     },
     useAsk(),
   )

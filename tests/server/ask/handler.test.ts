@@ -6,9 +6,14 @@ import {
   type AskHandlerDeps,
   type AskLogLine,
   type CachedAsk,
+  DEGRADED_CACHE_TTL_MS,
 } from '../../../server/ask/handler'
-import { createDailyCeiling, createRateLimiter } from '../../../server/ask/limits'
-import type { LlmProvider } from '../../../server/ask/provider'
+import {
+  createDailyAllowance,
+  createDailyCeiling,
+  createRateLimiter,
+} from '../../../server/ask/limits'
+import { NO_USAGE, type LlmProvider } from '../../../server/ask/provider'
 import { createRecordedProvider, type RecordedAnswers } from '../../../server/ask/recordedProvider'
 import { createAnthropicProvider } from '../../../server/ask/anthropicProvider'
 import recorded from '../../fixtures/ask/recorded.json' with { type: 'json' }
@@ -72,6 +77,7 @@ async function harness(
   const store = new Map<string, unknown>()
   const deps: AskHandlerDeps = {
     limiter: createRateLimiter({ now }),
+    allowance: createDailyAllowance({ now }),
     ceiling: createDailyCeiling({ limit: options.ceiling ?? 500, now }),
     cache: {
       get: async (key) => (store.get(key) as CachedAsk | undefined) ?? null,
@@ -110,8 +116,13 @@ async function harness(
 }
 
 const json = 'application/json'
-const ask = (deps: AskHandlerDeps, body: unknown, ip = IP, contentType = json) =>
-  handleAsk({ body, ip, contentType }, deps)
+const ask = (
+  deps: AskHandlerDeps,
+  body: unknown,
+  ip = IP,
+  contentType = json,
+  contentLength: string | undefined = undefined,
+) => handleAsk({ body, ip, contentType, contentLength }, deps)
 
 describe('POST /api/ask — validation', () => {
   it.each([
@@ -137,6 +148,14 @@ describe('POST /api/ask — validation', () => {
     const { deps } = await harness()
     const response = await ask(deps, { q: QUERY, locale: 'uk' }, IP, 'text/plain')
     expect(response.status).toBe(400)
+  })
+
+  it('refuses a body larger than any question, without charging the client', async () => {
+    const { deps, calls } = await harness()
+    const response = await ask(deps, { q: QUERY, locale: 'uk' }, IP, json, '5000')
+    expect(response.status).toBe(400)
+    expect(calls.parse).toBe(0)
+    expect((await ask(deps, { q: QUERY, locale: 'uk' }, IP, json, '80')).status).toBe(200)
   })
 
   it('accepts a JSON content type with parameters', async () => {
@@ -168,6 +187,7 @@ describe('POST /api/ask — answers', () => {
       interpretation: 'Атмосферні горори з українською локалізацією',
       filter: { ukrainianLocalisation: 'ANY' },
       catalogUrl: '/games?ukrainianLocalisation=ANY',
+      ignoredFilters: [],
       items: [
         { card: { id: '13537' }, reason: 'Гнітюча атмосфера Сіті 17, українські субтитри' },
         { card: { id: '41494' } },
@@ -202,6 +222,7 @@ describe('POST /api/ask — answers', () => {
       filter: { search: QUERY },
       catalogUrl: expect.stringMatching(/^\/en\/games\?search=/),
       items: [],
+      ignoredFilters: [],
     })
   })
 })
@@ -322,6 +343,9 @@ describe('POST /api/ask — logging', () => {
       cache: 'miss',
       provider: 'recorded',
       failure: null,
+      rerankFailure: null,
+      search: null,
+      degraded: false,
       tookMs: expect.any(Number),
       calls: 2,
       inputTokens: 0,
@@ -329,11 +353,96 @@ describe('POST /api/ask — logging', () => {
       costUsd: 0,
       items: 3,
     })
-    expect(logs[1]).toMatchObject({ status: 200, mode: 'fallback', failure: 'unrecorded' })
+    expect(logs[1]).toMatchObject({
+      status: 200,
+      mode: 'fallback',
+      failure: 'unrecorded',
+      search: 'ok',
+    })
     expect(logs.at(-1)).toEqual({ status: 429 })
     const text = JSON.stringify(logs)
     expect(text).not.toContain(IP)
     expect(text).not.toContain('горор')
     expect(text).not.toContain('unknown query')
+  })
+})
+
+describe('POST /api/ask — the per-address daily allowance', () => {
+  it('answers forty questions a day from the model, then the fallback, without calling it', async () => {
+    const { deps, calls, time, logs } = await harness()
+    for (let question = 0; question < 40; question += 1) {
+      await ask(deps, { q: `unknown ${question}`, locale: 'uk' })
+      time.advance(6_000)
+    }
+    expect(calls.parse).toBe(40)
+    const past = await ask(deps, { q: QUERY, locale: 'uk' })
+    expect(past.body).toMatchObject({ mode: 'fallback' })
+    expect(logs.at(-1)).toMatchObject({ failure: 'quota', calls: 0 })
+    expect(calls.parse).toBe(40)
+    // Another client is untouched, and the next UTC day starts again.
+    expect((await ask(deps, { q: QUERY, locale: 'uk' }, '198.51.100.1')).body).toMatchObject({
+      mode: 'structured',
+    })
+    time.advance(24 * 60 * 60 * 1000)
+    expect(
+      (await ask(deps, { q: 'something like The Witcher 3', locale: 'en' })).body,
+    ).toMatchObject({ mode: 'structured' })
+  })
+
+  it('does not count answers served from the cache', async () => {
+    const { deps, calls, time } = await harness()
+    for (let question = 0; question < 45; question += 1) {
+      expect((await ask(deps, { q: QUERY, locale: 'uk' })).body).toMatchObject({
+        mode: 'structured',
+      })
+      time.advance(6_000)
+    }
+    expect(calls.parse).toBe(1)
+  })
+
+  it('does not reserve the instance ceiling for a client past its allowance', async () => {
+    const { deps, time } = await harness({ ceiling: 4 })
+    deps.allowance = createDailyAllowance({ now: () => Date.now(), perDay: 0 })
+    await ask(deps, { q: QUERY, locale: 'uk' })
+    time.advance(6_000)
+    expect(deps.ceiling.remaining()).toBe(4)
+  })
+})
+
+describe('POST /api/ask — degraded answers', () => {
+  const NO_RERANK: RecordedAnswers = {
+    answers: [{ query: 'ukrainian games', parse: { ukrainianLocalisation: 'ANY' } }],
+  }
+
+  it('keeps an answer whose ranking failed for ten minutes, not a day', async () => {
+    const { deps, calls, time, logs } = await harness({
+      provider: createRecordedProvider(async () => NO_RERANK),
+    })
+    const first = await ask(deps, { q: 'ukrainian games', locale: 'en' })
+    expect(first.body).toMatchObject({ mode: 'structured' })
+    expect(logs[0]).toMatchObject({ rerankFailure: 'unrecorded', degraded: true })
+
+    time.advance(DEGRADED_CACHE_TTL_MS - 1)
+    await ask(deps, { q: 'ukrainian games', locale: 'en' })
+    expect(calls.parse).toBe(1)
+
+    time.advance(2)
+    await ask(deps, { q: 'ukrainian games', locale: 'en' })
+    expect(calls.parse).toBe(2)
+  })
+
+  it('logs the cost of a call the API never answered as unknown, not zero', async () => {
+    const unanswered: LlmProvider = {
+      name: 'unanswered',
+      parse: async () => ({
+        ok: false,
+        failure: 'timeout',
+        usage: { calls: 1, inputTokens: 0, outputTokens: 0, costUsd: 0, unpricedCalls: 1 },
+      }),
+      rerank: async () => ({ ok: true, value: { items: [] }, usage: NO_USAGE }),
+    }
+    const { deps, logs } = await harness({ provider: unanswered })
+    await ask(deps, { q: QUERY, locale: 'uk' })
+    expect(logs[0]).toMatchObject({ failure: 'timeout', costUsd: 'unknown' })
   })
 })

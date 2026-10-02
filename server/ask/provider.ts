@@ -15,6 +15,8 @@ export type AskFailure =
   | 'unavailable'
   /** The per-instance daily ceiling of model calls is spent; no request was made. */
   | 'ceiling'
+  /** This client's daily allowance of model-backed answers is spent; no request was made. */
+  | 'quota'
   /** The model declined (`stop_reason: "refusal"`). */
   | 'refusal'
   /** The answer hit `max_tokens` before it was complete. */

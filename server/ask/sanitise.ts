@@ -64,6 +64,18 @@ function oneLine(value: string | null, max: number): string | null {
   return text ? text : null
 }
 
+const URL_LIKE = /\b(?:https?:\/\/|www\.)\S*/gi
+
+/**
+ * Free text from the model — the interpretation and the reasons — as one plain line: whitespace
+ * collapsed, cut to `max`, and without anything that looks like a link. The text is shown on
+ * shareable pages and cached, and a query can steer it; a link is the one thing in it that could
+ * send a visitor somewhere.
+ */
+export function modelLine(value: string | null, max: number): string | null {
+  return oneLine(value?.replace(URL_LIKE, ' ') ?? null, max)
+}
+
 function whole(value: number | null): number | null {
   return value === null || !Number.isFinite(value) ? null : Math.round(value)
 }
@@ -151,7 +163,7 @@ export function sanitiseParse(parse: AskParse, taxonomy: Taxonomy): UnderstoodQu
     filter: canonical.filter,
     sort: canonical.sort,
     similarTo,
-    interpretation: oneLine(parse.interpretation, MAX_INTERPRETATION_LENGTH),
+    interpretation: modelLine(parse.interpretation, MAX_INTERPRETATION_LENGTH),
   }
 }
 

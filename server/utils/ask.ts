@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto'
 import { createAnthropicProvider } from '../ask/anthropicProvider'
 import type { AskHandlerDeps, CachedAsk } from '../ask/handler'
-import { createDailyCeiling, createRateLimiter, dailyCallLimit } from '../ask/limits'
+import {
+  createDailyAllowance,
+  createDailyCeiling,
+  createRateLimiter,
+  dailyCallLimit,
+} from '../ask/limits'
 import { createRecordedProvider, type RecordedAnswers } from '../ask/recordedProvider'
 import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
 
@@ -37,6 +42,7 @@ export function useAsk(): AskHandlerDeps {
 
   instance = {
     limiter: createRateLimiter({ now }),
+    allowance: createDailyAllowance({ now }),
     ceiling: createDailyCeiling({ limit: dailyCallLimit(config.askDailyLlmCalls), now }),
     cache: { get: cache.get, set: cache.set },
     context: createGraphQLContext,
