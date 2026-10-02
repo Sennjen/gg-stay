@@ -169,7 +169,7 @@ test('ask at 375 px → a recorded question → a long one that falls back → B
   // search chip — which must wrap inside the 375 px column, not push the page sideways.
   const long =
     'хочу атмосферну гру з гарним сюжетом про подорож у часі для двох гравців на дивані ввечері'
-  await page.getByLabel('Яку гру шукаєте?').fill(long)
+  await page.getByRole('textbox', { name: 'Яку гру шукаєте?' }).fill(long)
   await page.getByRole('button', { name: 'Підібрати ігри' }).click()
   await expect(page.locator('[data-test="ask-fallback-note"]')).toBeVisible()
   expect(await pageWidth()).toBeLessThanOrEqual(375)
