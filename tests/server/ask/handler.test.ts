@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
 import type { GraphQLContext } from '../../../server/graphql/context'
 import {
@@ -7,7 +7,10 @@ import {
   type AskLogLine,
   type CachedAsk,
   DEGRADED_CACHE_TTL_MS,
+  RESPONSE_CACHE_TTL_MS,
 } from '../../../server/ask/handler'
+import { RAWG_HEDGE_MS } from '../../../server/graphql/resolvers/games'
+import type { RawgFetch } from '../../../server/rawg/rawgFetch'
 import {
   createDailyAllowance,
   createDailyCeiling,
@@ -463,6 +466,65 @@ describe('POST /api/ask — degraded answers', () => {
     const { deps, logs } = await harness({ provider: unanswered })
     await ask(deps, { q: QUERY, locale: 'uk' })
     expect(logs[0]).toMatchObject({ failure: 'timeout', costUsd: 'unknown' })
+  })
+})
+
+describe('POST /api/ask — a title search RAWG is slow on', () => {
+  // The fixture index names two games after the title, too few to rerank; RAWG's fixture page is
+  // ranked by the recording. Either way nothing but the retrieval decides whether it is degraded.
+  const TITLE: RecordedAnswers = {
+    answers: [
+      {
+        query: 'metro games',
+        parse: { searchText: 'metro', interpretation: 'Metro' },
+        rerank: {
+          items: [
+            { id: '3328', reason: 'A vast, morally grey fantasy road trip' },
+            { id: '4200', reason: 'Clever portal puzzles with a dry, funny robot' },
+            { id: '654', reason: 'A quiet farm life that fills whole evenings' },
+          ],
+        },
+      },
+    ],
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  async function cachedFor(rawg: RawgFetch, advanceMs: number) {
+    const { deps } = await harness({ provider: createRecordedProvider(async () => TITLE) })
+    const writes: { at: number; entry: CachedAsk }[] = []
+    const set = deps.cache.set
+    deps.cache.set = async (key, entry) => {
+      writes.push({ at: deps.now(), entry })
+      await set(key, entry)
+    }
+    const context = await deps.context()
+    deps.context = async () => ({ ...context, rawg })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const answering = ask(deps, { q: 'metro games', locale: 'en' })
+    await vi.advanceTimersByTimeAsync(advanceMs)
+    const response = await answering
+    expect(response.body).toMatchObject({ mode: 'structured' })
+    expect(writes).toHaveLength(1)
+    return { ttl: writes[0]!.entry.expiresAt - writes[0]!.at, body: response.body }
+  }
+
+  it('keeps the index’s stand-in answer for ten minutes, not a day', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const neverAnswers: RawgFetch = (path, params) =>
+      path === 'games' ? new Promise<never>(() => {}) : fixtureRawg(path, params)
+    const { ttl, body } = await cachedFor(neverAnswers, RAWG_HEDGE_MS)
+    expect(body).toMatchObject({ indexedOnly: true, ignoredFilters: [] })
+    expect(ttl).toBe(DEGRADED_CACHE_TTL_MS)
+  })
+
+  it('keeps RAWG’s own answer for a day', async () => {
+    const { ttl, body } = await cachedFor(fixtureRawg, 0)
+    expect(body).toMatchObject({ indexedOnly: false })
+    expect(ttl).toBe(RESPONSE_CACHE_TTL_MS)
   })
 })
 

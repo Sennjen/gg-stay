@@ -576,6 +576,7 @@ describe('the ask pipeline — index-first retrieval', () => {
     })
     afterEach(() => {
       vi.useRealTimers()
+      vi.restoreAllMocks()
     })
 
     it('gives a title search four seconds, then answers the rest from the index', async () => {
@@ -602,7 +603,7 @@ describe('the ask pipeline — index-first retrieval', () => {
     })
 
     it('takes the catalog’s index answer for a title the index holds, once RAWG is slow', async () => {
-      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      vi.spyOn(console, 'info').mockImplementation(() => {})
       const { rawg, asked } = slowRawg()
       const context = await contextWith(CATALOG, { rawg })
       const { provider } = scripted({
@@ -621,7 +622,9 @@ describe('the ask pipeline — index-first retrieval', () => {
         indexedOnly: true,
       })
       expect(ids(outcome.answer)).toEqual(['807'])
-      info.mockRestore()
+      // Sound, but timing-dependent: RAWG's own answer is on its way into the RAWG cache, so this
+      // one must not be kept as long as an answer RAWG gave.
+      expect(outcome.degraded).toBe(true)
     })
 
     it('asks RAWG, within its four seconds, only when the index cannot answer', async () => {

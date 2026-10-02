@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GameIndex } from '../../server/index/GameIndex'
 import { degradeOnFailure, unavailableGameIndex, withDeadline } from '../../server/index/index'
 import { RAWG_HEDGE_MS } from '../../server/graphql/resolvers/games'
+import { UpstreamError } from '../../server/upstream/errors'
 import type { ResolverCache } from '../../server/graphql/context'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import { createSteamPriceFetch } from '../../server/steam/steamPriceFetch'
@@ -766,13 +767,21 @@ describe('a RAWG page RAWG is slow to answer', () => {
         await new Promise((resolve) => setTimeout(resolve, RAWG_SLOW_MS))
         throw new Error('RAWG went away')
       }
-      const answer = runQuery({ index, rawg }, GAMES, PLAIN_FILTER)
+      const waitUntil = vi.fn<(work: Promise<unknown>) => void>()
+      const withHook = runQuery({ index, rawg, waitUntil }, GAMES, PLAIN_FILTER)
+      const withoutHook = runQuery({ index, rawg }, GAMES, PLAIN_FILTER)
       await vi.advanceTimersByTimeAsync(RAWG_HEDGE_MS)
-      const { data, errors } = await answer
-      expect(errors).toBeUndefined()
-      expect(data!.games.indexedOnly).toBe(true)
+      for (const { data, errors } of await Promise.all([withHook, withoutHook])) {
+        expect(errors).toBeUndefined()
+        expect(data!.games.indexedOnly).toBe(true)
+      }
 
+      // What the platform is handed resolves even though RAWG rejected: a platform `waitUntil`
+      // that does not catch must never be given a rejection.
+      expect(waitUntil).toHaveBeenCalledTimes(1)
+      const handedOver = waitUntil.mock.calls[0]![0]
       await vi.advanceTimersByTimeAsync(RAWG_SLOW_MS)
+      await expect(handedOver).resolves.toBeUndefined()
       // An unhandled rejection is reported on a later turn of the event loop than the one it
       // happened on, so a real macrotask has to pass before its absence means anything.
       await new Promise((resolve) => setImmediate(resolve))
@@ -780,6 +789,61 @@ describe('a RAWG page RAWG is slow to answer', () => {
     } finally {
       process.off('unhandledRejection', unhandled)
     }
+  })
+
+  it('passes a RAWG failure within the budget on as before, without asking the index', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const rawg: RawgFetch = async () => {
+      await new Promise((resolve) => setTimeout(resolve, RAWG_HEDGE_MS - 1))
+      throw new UpstreamError('RAWG', 'ERROR', 503)
+    }
+    const waitUntil = vi.fn()
+    const answer = runQuery({ index, rawg, waitUntil }, GAMES, PLAIN_FILTER)
+    await vi.advanceTimersByTimeAsync(RAWG_HEDGE_MS)
+    const { data, errors } = await answer
+
+    expect(data?.games ?? null).toBeNull()
+    expect(errors).toHaveLength(1)
+    expect(index.calls.search).toHaveLength(0)
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('takes RAWG’s answer when it lands while the index page is still being read', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const documents = await publishTestIndex(ALL_DOCUMENTS)
+    const INDEX_SEARCH_MS = 1_000
+    const RAWG_MS = RAWG_HEDGE_MS + 100
+    const slowSearch = countCalls(
+      overriding(documents, {
+        search: async (query) => {
+          await new Promise((resolve) => setTimeout(resolve, INDEX_SEARCH_MS))
+          return documents.search(query)
+        },
+      }),
+    )
+    const rawg = rawgTaking(RAWG_MS)
+    const waitUntil = vi.fn()
+    let answered = false
+    const answer = runQuery({ index: slowSearch, rawg, waitUntil }, GAMES, PLAIN_FILTER)
+    void answer.then(() => (answered = true))
+
+    await vi.advanceTimersByTimeAsync(RAWG_MS)
+    // The page is out when RAWG lands, not when the index search would have finished.
+    expect(answered).toBe(true)
+    const { data, errors } = await answer
+    expect(errors).toBeUndefined()
+    expect(data!.games.indexedOnly).toBe(false)
+    expect(data!.games.items).toHaveLength(4)
+    // The index was asked once the budget was spent; RAWG was still asked only once.
+    expect(slowSearch.calls.search).toHaveLength(1)
+    expect(rawg.paths).toEqual(['games'])
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+
+    // The losing index read finishes on its own, quietly.
+    await vi.advanceTimersByTimeAsync(INDEX_SEARCH_MS)
   })
 
   it('keeps waiting for RAWG when the filter names something the index has no facet for', async () => {

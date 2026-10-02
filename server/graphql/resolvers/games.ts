@@ -266,7 +266,11 @@ async function rawgPage(
  * - the index page fails, or comes back empty. Empty is usually a page deeper than the games the
  *   index holds, where RAWG is the only one with something to show; a failure is warned about once
  *   like every other index failure, and the RAWG page then renders without prices, as it would
- *   after any failed index read.
+ *   after any failed index read;
+ * - RAWG answers while the index page is still being read. The budget only decides when the index
+ *   is asked, not that RAWG's answer is no longer wanted: a RAWG page that lands first is the
+ *   better page, and it is the same request, so nothing is fetched twice. A RAWG *failure* in that
+ *   window is not a reason to drop the index; the page waits for whichever is left.
  *
  * The answer is `indexPage`'s own, so it reads exactly like an index-served page: `indexedOnly`,
  * which shows the catalog's "searching the most popular games" note, and no prices when they are
@@ -283,6 +287,11 @@ async function rawgPage(
  * handed over already settled, so a rejection nobody is waiting for any more can never surface as
  * an unhandled one.
  *
+ * Each page is decided on its own, so one catalog can be paged from two sources: page 1 answered
+ * by the index (its order, its total) and page 2 by RAWG a moment later (RAWG's order and total),
+ * which can repeat or skip a game and move the pager's total — the note on the index-served page
+ * is what tells the visitor which one they are looking at.
+ *
  * One `console.info` line per overtaken page: the runtime logs are how this is seen in production.
  */
 async function indexPageIfRawgIsSlow(
@@ -295,18 +304,17 @@ async function indexPageIfRawgIsSlow(
   if (rawgOnlyFiltersUsed(input.filter).length > 0 || indexFailed(context)) return null
   if (!(await outlasts(fetching, RAWG_HEDGE_MS))) return null
 
-  const state = await pending
-  // Checked again: the state read itself may be what failed while RAWG was still out.
-  if (state.meta === null || indexFailed(context)) return null
-
-  let page: GamePage
-  try {
-    page = await indexPage(context, input, state, ignoredFilters)
-  } catch (error) {
-    warnIndexOnce(context, 'a slow RAWG page could not be answered from the index', error)
-    return null
-  }
-  if (page.items.length === 0) return null
+  // A RAWG failure never wins the race: it leaves the index to answer, and the caller sees it only
+  // if the index declines too. The index side never rejects, and is left to finish when it loses.
+  const rawgAnswered = fetching.then(
+    (): typeof RAWG_FIRST => RAWG_FIRST,
+    () => new Promise<never>(() => {}),
+  )
+  const page = await Promise.race([
+    indexStandIn(context, input, pending, ignoredFilters),
+    rawgAnswered,
+  ])
+  if (page === RAWG_FIRST || page === null) return null
 
   const settled = fetching.then(
     () => undefined,
@@ -315,6 +323,30 @@ async function indexPageIfRawgIsSlow(
   context.waitUntil?.(settled)
   console.info(`[catalog] RAWG slower than ${RAWG_HEDGE_MS} ms, answered from the index`)
   return page
+}
+
+const RAWG_FIRST = Symbol('RAWG answered first')
+
+/**
+ * The index page standing in for a slow RAWG page, or `null` when the index has nothing to stand
+ * in with. Never rejects: a failure is warned about once and declines, like every index read.
+ */
+async function indexStandIn(
+  context: GraphQLContext,
+  input: PageInput,
+  pending: IndexState | Promise<IndexState>,
+  ignoredFilters: string[],
+): Promise<GamePage | null> {
+  const state = await pending
+  // Checked again: the state read itself may be what failed while RAWG was still out.
+  if (state.meta === null || indexFailed(context)) return null
+  try {
+    const page = await indexPage(context, input, state, ignoredFilters)
+    return page.items.length > 0 ? page : null
+  } catch (error) {
+    warnIndexOnce(context, 'a slow RAWG page could not be answered from the index', error)
+    return null
+  }
 }
 
 /**
