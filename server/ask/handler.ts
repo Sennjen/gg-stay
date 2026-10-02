@@ -46,7 +46,7 @@ export interface CachedAsk {
 }
 
 export interface AskCache {
-  get: <T>(key: string) => Promise<T | null>
+  get: (key: string) => Promise<CachedAsk | null>
   set: (key: string, value: CachedAsk) => Promise<void>
 }
 
@@ -161,7 +161,7 @@ export async function handleAsk(
 
   const version = (await indexState(context)).version
   const key = `${CACHE_KEY_VERSION}:${ask.locale}:${version ?? 'none'}:${normaliseQuery(ask.q)}`
-  const cached = await deps.cache.get<CachedAsk>(key).catch(() => null)
+  const cached = await deps.cache.get(key).catch(() => null)
   if (cached && cached.expiresAt > deps.now()) {
     return answered(cached.answer, { cache: 'hit', failure: null, usage: NO_USAGE })
   }

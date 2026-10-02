@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
 import type { GraphQLContext } from '../../../server/graphql/context'
-import { handleAsk, type AskHandlerDeps, type AskLogLine } from '../../../server/ask/handler'
+import {
+  handleAsk,
+  type AskHandlerDeps,
+  type AskLogLine,
+  type CachedAsk,
+} from '../../../server/ask/handler'
 import { createDailyCeiling, createRateLimiter } from '../../../server/ask/limits'
 import type { LlmProvider } from '../../../server/ask/provider'
 import { createRecordedProvider, type RecordedAnswers } from '../../../server/ask/recordedProvider'
@@ -69,7 +74,7 @@ async function harness(
     limiter: createRateLimiter({ now }),
     ceiling: createDailyCeiling({ limit: options.ceiling ?? 500, now }),
     cache: {
-      get: async <T>(key: string) => (store.get(key) as T | undefined) ?? null,
+      get: async (key) => (store.get(key) as CachedAsk | undefined) ?? null,
       set: async (key, value) => {
         store.set(key, value)
       },
