@@ -30,25 +30,46 @@ const labelId = useId()
 
 const chips = computed(() => filterLabels(props.filter, { t, formatUah, genres: props.genres }))
 
+/**
+ * A chip whose value is free text — the search, which in fallback is the whole question, up to 100
+ * characters. It wraps and is clamped to two lines, where a value chip stays on one: a nowrap chip
+ * that long pushes a 375 px page sideways.
+ */
+function isText(chip: FilterLabel): boolean {
+  return chip.field === 'search'
+}
+
 function isIgnored(chip: FilterLabel): boolean {
   return props.ignored?.includes(chip.field) ?? false
 }
 </script>
 
 <template>
-  <div v-if="chips.length" class="flex flex-wrap items-center gap-2">
+  <div v-if="chips.length" class="flex min-w-0 max-w-full flex-wrap items-center gap-2">
     <span :id="labelId" class="text-sm text-fg-2">{{ label }}</span>
     <!-- Its own flex row rather than `display: contents`, which some browsers answer by dropping
          the list's role along with its box. -->
-    <ul :aria-labelledby="labelId" class="flex flex-wrap items-center gap-2">
+    <ul :aria-labelledby="labelId" class="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       <li
         v-for="chip in chips"
         :key="chip.key"
         :data-test="isIgnored(chip) ? 'ignored-chip' : undefined"
-        class="inline-flex items-center gap-1 rounded-chip border border-line bg-surface-1 px-3 py-1 text-sm text-fg"
+        class="inline-flex min-w-0 max-w-full items-center gap-1 border border-line bg-surface-1 px-3 py-1 text-sm text-fg"
+        :class="isText(chip) ? 'rounded-card' : 'rounded-chip'"
       >
+        <!-- Clamped, not cut: the whole text stays in the DOM, so assistive technology reads all
+             of it, and the title shows it to a pointer. -->
         <component
           :is="isIgnored(chip) ? 's' : 'span'"
+          v-if="isText(chip)"
+          data-test="chip-text"
+          :title="chip.label"
+          class="line-clamp-2 min-w-0 [overflow-wrap:anywhere]"
+          >{{ chip.label }}</component
+        >
+        <component
+          :is="isIgnored(chip) ? 's' : 'span'"
+          v-else
           class="inline-flex shrink-0 items-center whitespace-nowrap"
         >
           <i18n-t v-if="chip.yearPart" :keypath="chip.yearPart.keypath" tag="span">

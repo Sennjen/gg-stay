@@ -93,3 +93,40 @@ describe('ReadonlyFilterChips, for filters the answer could not apply', () => {
     )
   })
 })
+
+describe('ReadonlyFilterChips, for a whole question as the search', () => {
+  // In fallback the whole question becomes the search chip: up to 100 characters that must wrap
+  // inside a 375 px column rather than push the page sideways.
+  const question =
+    'хочу атмосферну гру з гарним сюжетом про подорож у часі для двох гравців на дивані ввечері'
+
+  it('lets the chip wrap, clamped to two lines, with the whole question still its name', async () => {
+    const wrapper = await mountSuspended(ReadonlyFilterChips, {
+      props: { filter: { search: question }, genres: [], label: 'Звичайний пошук:' },
+    })
+    const chip = wrapper.get('li')
+    const label = chip.get('[data-test="chip-text"]')
+    expect(label.classes()).toEqual(expect.arrayContaining(['line-clamp-2', 'min-w-0']))
+    expect(chip.classes()).toEqual(expect.arrayContaining(['max-w-full', 'min-w-0']))
+    // Nothing between the list and the text forbids a line break.
+    for (
+      let node: Element | null = label.element;
+      node && node.tagName !== 'UL';
+      node = node.parentElement
+    ) {
+      expect(node.className).not.toContain('whitespace-nowrap')
+      expect(node.className).not.toContain('shrink-0')
+    }
+    // The clamp hides lines, not text: the full question is in the DOM and in the title.
+    expect(label.text()).toBe(`«${question}»`)
+    expect(label.attributes('title')).toBe(`«${question}»`)
+  })
+
+  it('keeps the short value chips on one line', async () => {
+    const wrapper = await mountSuspended(ReadonlyFilterChips, {
+      props: { filter: { priceMaxUah: 500 }, genres: [], label: 'Фільтр' },
+    })
+    expect(wrapper.get('li > *').classes()).toContain('whitespace-nowrap')
+    expect(wrapper.find('[data-test="chip-text"]').exists()).toBe(false)
+  })
+})
