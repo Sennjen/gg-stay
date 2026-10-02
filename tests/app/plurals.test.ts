@@ -4,10 +4,11 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, nextTick, ref, type WritableComputedRef } from 'vue'
-import { readBody } from 'h3'
+import { readBody, setResponseHeader, setResponseStatus } from 'h3'
 import FilterDrawer from '~/components/FilterDrawer.vue'
 import GameScoreboard from '~/components/GameScoreboard.vue'
 import HeaderSearch from '~/components/HeaderSearch.vue'
+import AskPage from '~/pages/ask.vue'
 import { useFiltersStore } from '~/stores/filters'
 
 /**
@@ -51,6 +52,24 @@ const EXPECTED = {
       5: 'updated 5 hours ago',
       21: 'updated 21 hours ago',
     },
+  },
+  askPicked: {
+    uk: {
+      1: 'Підібрали 1 гру',
+      2: 'Підібрали 2 гри',
+      5: 'Підібрали 5 ігор',
+      21: 'Підібрали 21 гру',
+    },
+    en: { 1: 'Picked 1 game', 2: 'Picked 2 games', 5: 'Picked 5 games', 21: 'Picked 21 games' },
+  },
+  askRetry: {
+    uk: {
+      1: 'за 1 секунду',
+      2: 'за 2 секунди',
+      5: 'за 5 секунд',
+      21: 'за 21 секунду',
+    },
+    en: { 1: 'in 1 second', 2: 'in 2 seconds', 5: 'in 5 seconds', 21: 'in 21 seconds' },
   },
 } as const
 
@@ -247,5 +266,49 @@ describe('plural forms at the call sites', () => {
         wrapper.unmount()
       },
     )
+
+    it.each(COUNTS)('the ask page result count reads correctly for %i', async (count) => {
+      await switchLocale(locale)
+      registerEndpoint('/api/ask', {
+        method: 'POST',
+        handler: () => ({
+          mode: 'structured',
+          interpretation: 'Games',
+          filter: {},
+          catalogUrl: '/games',
+          items: Array.from({ length: count }, (_, index) => ({
+            card: { id: String(index), slug: `game-${index}`, name: `Game ${index}` },
+            reason: null,
+          })),
+          tookMs: 1,
+        }),
+      })
+      const prefix = locale === 'uk' ? '' : '/en'
+      const wrapper = await mountSuspended(AskPage, { route: `${prefix}/ask?q=picked-${count}` })
+      await flushPromises()
+      const text = (selector: string) => wrapper.get(selector).text().replace(/\s+/g, ' ')
+      expect(text('[data-test="ask-count"]')).toBe(EXPECTED.askPicked[locale][count])
+      expect(text('[data-test="ask-live"]')).toBe(EXPECTED.askPicked[locale][count])
+      wrapper.unmount()
+    })
+
+    it.each(COUNTS)('the ask page rate-limit wait reads correctly for %i', async (count) => {
+      await switchLocale(locale)
+      registerEndpoint('/api/ask', {
+        method: 'POST',
+        handler: (event) => {
+          setResponseStatus(event, 429)
+          setResponseHeader(event, 'Retry-After', String(count))
+          return { error: 'RATE_LIMITED' }
+        },
+      })
+      const prefix = locale === 'uk' ? '' : '/en'
+      const wrapper = await mountSuspended(AskPage, { route: `${prefix}/ask?q=wait-${count}` })
+      await flushPromises()
+      expect(wrapper.get('[data-test="ask-error"]').text().replace(/\s+/g, ' ')).toContain(
+        EXPECTED.askRetry[locale][count],
+      )
+      wrapper.unmount()
+    })
   })
 })

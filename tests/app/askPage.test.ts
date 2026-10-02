@@ -1,0 +1,307 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
+import { flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { readBody, setResponseHeaders, setResponseStatus, type H3Event } from 'h3'
+import { clearNuxtData } from '#app'
+import AskPage from '~/pages/ask.vue'
+import { askStubResponse } from '~~/tests/fixtures/ask/stub'
+import {
+  BROKEN_QUERY,
+  EMPTY_QUERY,
+  FALLBACK_QUERY,
+  RATE_LIMITED_QUERY,
+  STRUCTURED_ANSWER,
+  STRUCTURED_QUERY,
+} from '~~/tests/fixtures/ask/answers'
+
+/**
+ * The ask page against a recorded stand-in for `POST /api/ask` (`tests/fixtures/ask/stub.ts`):
+ * every state the page can be in, reached the way a visitor reaches it — from a URL with `q`
+ * (which is also what the server renders) or from the form.
+ */
+
+const requests: unknown[] = []
+
+async function stub(event: H3Event) {
+  const body = await readBody(event)
+  requests.push(body)
+  const response = askStubResponse(body)
+  setResponseStatus(event, response.status)
+  if (response.headers) setResponseHeaders(event, response.headers)
+  return response.body
+}
+
+registerEndpoint('/api/ask', { method: 'POST', handler: stub })
+registerEndpoint('/api/graphql', {
+  method: 'POST',
+  handler: () => ({ data: { genres: [{ id: '5', slug: 'rpg', name: 'Рольові' }] } }),
+})
+
+const mounted: { unmount: () => void }[] = []
+
+async function renderAsk(route: string) {
+  const wrapper = await mountSuspended(AskPage, { route, attachTo: document.body })
+  mounted.push(wrapper)
+  await flushPromises()
+  await nextTick()
+  return wrapper
+}
+
+const askUrl = (query: string) => `/ask?q=${encodeURIComponent(query)}`
+const plain = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+afterEach(() => {
+  for (const wrapper of mounted.splice(0)) wrapper.unmount()
+  requests.length = 0
+  clearNuxtData()
+})
+
+describe('the ask page, idle', () => {
+  it('has a heading, a labelled text field with a limit and a counter, and a submit button', async () => {
+    const wrapper = await renderAsk('/ask')
+    expect(wrapper.get('h1').text()).toBe('Опишіть гру словами')
+
+    const field = wrapper.get('textarea')
+    const label = wrapper.get(`label[for="${field.attributes('id')}"]`)
+    expect(label.text()).toBe('Яку гру шукаєте?')
+    expect(field.attributes('maxlength')).toBe('200')
+    const counter = wrapper.get(`#${field.attributes('aria-describedby')!.split(' ')[0]}`)
+    expect(plain(counter.text())).toBe('0 із 200 символів')
+
+    expect(wrapper.get('button[type="submit"]').text()).toBe('Підібрати ігри')
+  })
+
+  it('offers the three example questions as buttons', async () => {
+    const wrapper = await renderAsk('/ask')
+    const examples = wrapper.get('[data-test="ask-examples"]')
+    expect(examples.findAll('button').map((button) => button.text())).toEqual([
+      'кооператив для двох на Switch до 500 грн',
+      'атмосферний горор українською',
+      'щось як Hades, але коротше',
+    ])
+  })
+
+  it('sends nothing and shows no results until there is a question', async () => {
+    const wrapper = await renderAsk('/ask')
+    expect(requests).toEqual([])
+    expect(wrapper.find('[data-test="ask-results"]').exists()).toBe(false)
+  })
+
+  it('counts the characters as they are typed', async () => {
+    const wrapper = await renderAsk('/ask')
+    await wrapper.get('textarea').setValue('щось темне')
+    expect(plain(wrapper.get('[data-test="ask-counter"]').text())).toBe('10 із 200 символів')
+  })
+
+  it('asks for a few words instead of sending an empty question', async () => {
+    const wrapper = await renderAsk('/ask')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(requests).toEqual([])
+    const field = wrapper.get('textarea')
+    expect(field.attributes('aria-invalid')).toBe('true')
+    const message = wrapper.get('[data-test="ask-empty-question"]')
+    expect(message.text()).toBe('Напишіть кілька слів про гру, яку шукаєте.')
+    expect(field.attributes('aria-describedby')).toContain(message.attributes('id'))
+    expect(document.activeElement).toBe(field.element)
+  })
+})
+
+describe('the ask page, answered from the URL', () => {
+  it('fills the field with the question and asks for it in the page locale', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe(STRUCTURED_QUERY)
+    expect(requests).toEqual([{ q: STRUCTURED_QUERY, locale: 'uk' }])
+  })
+
+  it('shows the interpretation, the understood filter and a link to it in the catalog', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    const results = wrapper.get('[data-test="ask-results"]')
+    expect(results.get('h2').text()).toBe('Результати')
+    expect(results.get('[data-test="ask-interpretation"]').text()).toContain(
+      'Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
+    )
+    const chips = results.get('ul[aria-label="Зрозумілий фільтр"]')
+    expect(chips.findAll('li').map((chip) => plain(chip.text()))).toEqual([
+      'Nintendo Switch',
+      'Локальний кооператив',
+      'до 500 ₴',
+    ])
+    const link = results.get('[data-test="ask-catalog-link"]')
+    expect(link.text()).toBe('Відкрити в каталозі')
+    expect(link.attributes('href')).toBe('/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500')
+    expect(results.find('[data-test="ask-fallback-note"]').exists()).toBe(false)
+  })
+
+  it('lists the cards in order, each with the reason it fits under it', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    const items = wrapper.findAll('[data-test="ask-item"]')
+    expect(items.map((item) => item.get('[data-test="card-title"]').text())).toEqual([
+      'Overcooked! 2',
+      'It Takes Two',
+      'Stardew Valley',
+    ])
+    expect(items.map((item) => plain(item.get('[data-test="ask-reason"]').text()))).toEqual(
+      STRUCTURED_ANSWER.items.map((item) => `Чому підходить: ${item.reason}`),
+    )
+    // Under the results' own h2.
+    expect(items[0]!.get('[data-test="card-title"]').element.tagName).toBe('H3')
+  })
+
+  it('says how many games it picked, visibly and in a live region', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрали 3 гри')
+    const live = wrapper.get('[data-test="ask-live"]')
+    expect(live.attributes('role')).toBe('status')
+    expect(plain(live.text())).toBe('Підібрали 3 гри')
+  })
+
+  it('in fallback, says calmly that the AI part did not run and shows the plain search', async () => {
+    const wrapper = await renderAsk(askUrl(FALLBACK_QUERY))
+    const note = wrapper.get('[data-test="ask-fallback-note"]')
+    expect(note.text()).toBe('ІІ-розбір зараз недоступний — показуємо звичайний пошук')
+    expect(note.attributes('role')).toBeUndefined()
+    expect(wrapper.find('[data-test="ask-interpretation"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(2)
+    expect(wrapper.find('[data-test="ask-reason"]').exists()).toBe(false)
+    const href = new URL(
+      wrapper.get('[data-test="ask-catalog-link"]').attributes('href')!,
+      'http://site.test',
+    )
+    expect(href.pathname).toBe('/games')
+    expect(Object.fromEntries(href.searchParams)).toEqual({ search: FALLBACK_QUERY })
+    expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe(
+      'ІІ-розбір зараз недоступний — показуємо звичайний пошук. Знайшли 2 гри',
+    )
+  })
+
+  it('when nothing matched, says so and still offers the filter in the catalog', async () => {
+    const wrapper = await renderAsk(askUrl(EMPTY_QUERY))
+    const empty = wrapper.get('[data-test="ask-empty"]')
+    expect(empty.text()).toContain('Нічого не підібрали')
+    expect(empty.text()).toContain('Спробуйте описати інакше')
+    expect(wrapper.find('[data-test="ask-item"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="ask-catalog-link"]').attributes('href')).toMatch(
+      /^\/games\?search=/,
+    )
+    expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe('Нічого не підібрали')
+  })
+
+  it('when rate limited, explains when to try again', async () => {
+    const wrapper = await renderAsk(askUrl(RATE_LIMITED_QUERY))
+    const alert = wrapper.get('[data-test="ask-error"]')
+    expect(alert.attributes('role')).toBe('alert')
+    expect(plain(alert.text())).toContain(
+      'Забагато запитів поспіль. Спробуйте ще раз за 42 секунди.',
+    )
+    expect(wrapper.find('[data-test="ask-item"]').exists()).toBe(false)
+  })
+
+  it('when the answer failed, offers to try again, and trying again asks again', async () => {
+    const wrapper = await renderAsk(askUrl(BROKEN_QUERY))
+    const alert = wrapper.get('[data-test="ask-error"]')
+    expect(plain(alert.text())).toContain('Не вдалося підібрати ігри. Спробуйте ще раз.')
+    expect(requests).toHaveLength(1)
+    await alert.get('button').trigger('click')
+    await flushPromises()
+    expect(requests).toHaveLength(2)
+  })
+
+  it('refuses a question over the limit without sending it', async () => {
+    const wrapper = await renderAsk(askUrl('а'.repeat(201)))
+    expect(requests).toEqual([])
+    expect(plain(wrapper.get('[data-test="ask-error"]').text())).toContain(
+      'Запит задовгий: щонайбільше 200 символів. Скоротіть його й спробуйте ще раз.',
+    )
+  })
+})
+
+/** The route the app's router is on: the page navigates it, so this is where `q` lands. */
+const currentQuery = () => useRouter().currentRoute.value.query.q
+
+/** Waits until the page has asked `count` questions in all and the answer has rendered. */
+async function settle(check: () => void) {
+  await vi.waitFor(check, { timeout: 2000, interval: 20 })
+  await flushPromises()
+  await nextTick()
+}
+
+describe('the ask page, asked from the form', () => {
+  it('puts the trimmed question in the URL, answers it and moves focus to the results', async () => {
+    const wrapper = await renderAsk('/ask')
+    await wrapper.get('textarea').setValue(`  ${STRUCTURED_QUERY} `)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(3))
+
+    expect(currentQuery()).toBe(STRUCTURED_QUERY)
+    expect(requests).toEqual([{ q: STRUCTURED_QUERY, locale: 'uk' }])
+    await settle(() => expect(document.activeElement?.tagName).toBe('H2'))
+    expect(document.activeElement?.textContent?.trim()).toBe('Результати')
+  })
+
+  it('asks an example question with one press', async () => {
+    const wrapper = await renderAsk('/ask')
+    const example = wrapper.get('[data-test="ask-examples"]').findAll('button')[2]!
+    await example.trigger('click')
+    await settle(() => expect(wrapper.find('[data-test="ask-fallback-note"]').exists()).toBe(true))
+
+    expect(currentQuery()).toBe(FALLBACK_QUERY)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe(FALLBACK_QUERY)
+  })
+
+  it('sends on Enter, and leaves Shift+Enter to break the line', async () => {
+    const wrapper = await renderAsk('/ask')
+    const field = wrapper.get('textarea')
+    await field.setValue(STRUCTURED_QUERY)
+    await field.trigger('keydown', { key: 'Enter', shiftKey: true })
+    await flushPromises()
+    expect(requests).toEqual([])
+
+    await field.trigger('keydown', { key: 'Enter' })
+    await settle(() => expect(requests).toHaveLength(1))
+  })
+
+  it('asks the same question again when it is sent again', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    expect(requests).toHaveLength(1)
+    // A first load from a link moves no focus: the visitor did not just ask anything.
+    expect(document.activeElement?.tagName).not.toBe('H2')
+
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(requests).toHaveLength(2))
+    await settle(() => expect(document.activeElement?.tagName).toBe('H2'))
+  })
+
+  it('shows a busy skeleton while the answer is on its way', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    registerEndpoint('/api/ask', {
+      method: 'POST',
+      handler: async (event) => {
+        await gate
+        return stub(event)
+      },
+    })
+    try {
+      const wrapper = await renderAsk('/ask')
+      await wrapper.get('textarea').setValue(STRUCTURED_QUERY)
+      await wrapper.get('form').trigger('submit')
+      await settle(() => expect(wrapper.find('[data-test="ask-loading"]').exists()).toBe(true))
+
+      const results = wrapper.get('[data-test="ask-results"]')
+      expect(results.attributes('aria-busy')).toBe('true')
+      expect(results.findAll('[data-test="skeleton"]')).toHaveLength(3)
+      expect(wrapper.get('[data-test="ask-live"]').text()).toBe('Підбираємо ігри…')
+
+      release()
+      await settle(() => expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(3))
+      expect(wrapper.get('[data-test="ask-results"]').attributes('aria-busy')).toBeUndefined()
+    } finally {
+      release()
+      registerEndpoint('/api/ask', { method: 'POST', handler: stub })
+    }
+  })
+})

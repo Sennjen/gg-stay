@@ -81,6 +81,14 @@ export function catalogRobots(state: { filtered: boolean; sorted: boolean; page:
 }
 
 /**
+ * The ask page with no question is a page worth a search result; every `/ask?q=…` is one
+ * visitor's question and its model-made answer — shareable, but not a page for an index.
+ */
+export function askRobots(query: string): string {
+  return query ? NOT_INDEXABLE : INDEXABLE
+}
+
+/**
  * The robots rule a page sends: its own, except on a preview deployment, where every page is kept
  * out of the index — the same rule the `X-Robots-Tag` header carries there (`nuxt.config.ts`).
  */
