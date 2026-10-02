@@ -35,6 +35,7 @@
     "@pinia/nuxt": "^1.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@upstash/redis": "^1.38.4",
+    "@vercel/functions": "^3.9.9",
     "@vercel/speed-insights": "^2.0.0",
     "graphql": "^17.0.2",
     "graphql-yoga": "^5.24.0",

@@ -4,6 +4,7 @@ import type { GraphQLContext } from '../graphql/context'
 import {
   cachedIndexPage,
   INDEX_SORTS,
+  indexFacetFiltersUsed,
   indexFailed,
   indexState,
   priceFiltersUsed,
@@ -442,7 +443,8 @@ async function prepare(
     retrieved.indexStale ||
     indexFailed(context) ||
     (await indexState(context)).meta === null ||
-    ignoredFilters.length > 0
+    ignoredFilters.length > 0 ||
+    retrieved.hedged === true
   const answered = (items: AskItem[], rerankFailure: AskFailure | null): StructuredResult => ({
     answer: {
       ...base,
@@ -541,6 +543,13 @@ interface Retrieved {
   indexedOnly: boolean
   /** The mood tags the candidates were matched on; empty when no tag shaped them. */
   matchedTags: string[]
+  /**
+   * The index stood in for RAWG because RAWG was slower than the catalog's `RAWG_HEDGE_MS`. A sound
+   * answer, but one that depends on timing: the overtaken RAWG response is on its way into the RAWG
+   * cache, so the same question asked again soon may get RAWG's own. It counts as degraded, so it
+   * is cached briefly rather than for a day.
+   */
+  hedged?: boolean
 }
 
 async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
@@ -582,6 +591,7 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
     indexStale: filtered.indexStale || similar.stale,
     indexedOnly: filtered.indexedOnly,
     matchedTags: filtered.matchedTags,
+    hedged: filtered.hedged,
   }
 }
 
@@ -599,6 +609,11 @@ function needsRawg(understood: UnderstoodQuery): boolean {
  * the one thing the index cannot do as well. It has `ASK_RAWG_BUDGET_MS`, not the catalog's two
  * five-second attempts; when that runs out, or RAWG fails, the index answers what it can and the
  * fields it could not apply are named in `ignoredFilters`.
+ *
+ * A page `catalogPage` reports as `indexedOnly` although nothing in the query needs the index — no
+ * price filter, no price sort, no localisation or made-in-Ukraine facet — can only be the
+ * catalog's hedge: RAWG was slower than `RAWG_HEDGE_MS` and the index answered instead. That is
+ * marked `hedged`, so the answer is cached as a degraded one.
  */
 async function byRawg(
   context: GraphQLContext,
@@ -615,12 +630,16 @@ async function byRawg(
     ASK_RAWG_BUDGET_MS,
   ).catch((): typeof EXPIRED => EXPIRED)
   if (page !== EXPIRED) {
+    const needsIndex =
+      priceFiltersUsed(understood.filter, understood.sort).length > 0 ||
+      indexFacetFiltersUsed(understood.filter).length > 0
     return {
       candidates: page.items,
       ignoredFilters: page.ignoredFilters,
       indexStale: page.indexStale,
       indexedOnly: page.indexedOnly,
       matchedTags: [],
+      hedged: page.indexedOnly && !needsIndex,
     }
   }
   if (!indexToo) throw new Error('Neither RAWG nor the index answered')

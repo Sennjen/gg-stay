@@ -37,7 +37,7 @@ export const MAX_BODY_BYTES = 4_096
 export const RESPONSE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 /**
  * How long a degraded answer is kept — one the index answered stale or not at all, with an
- * ignored filter, or without its ranking. Long enough to absorb a burst of the same question,
+ * ignored filter, in RAWG's place because RAWG was slow, or without its ranking. Long enough to absorb a burst of the same question,
  * short enough that the answer improves once the index or the model does.
  */
 export const DEGRADED_CACHE_TTL_MS = 10 * 60 * 1000
