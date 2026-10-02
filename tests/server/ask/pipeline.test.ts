@@ -7,7 +7,8 @@ import {
   FALLBACK_SIZE,
   GENRES_TIMEOUT_MS,
   MAX_RERANKED,
-  RERANK_MARGIN_MS,
+  RERANK_BUDGET_MS,
+  RERANK_END_MARGIN_MS,
   runAsk,
   TOTAL_BUDGET_MS,
 } from '../../../server/ask/pipeline'
@@ -272,7 +273,7 @@ describe('the ask pipeline — structured answers', () => {
         }),
     })
     const { answer } = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
-    expect(answer.items[0]!.reason).toHaveLength(100)
+    expect(answer.items[0]!.reason).toHaveLength(80)
     expect(answer.items[1]!.reason).toBeNull()
   })
 
@@ -850,23 +851,61 @@ describe('the ask pipeline — fallback', () => {
       expect(outcome.timings.genres).toBe(GENRES_TIMEOUT_MS)
     })
 
-    it('keeps a structured answer, without reasons, when the rerank runs out of time', async () => {
-      const context = await contextWith(COOP)
-      const { provider: base } = scripted({
-        parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 2_000 }),
-      })
+    /** A scripted provider whose calls take `parseMs` and `rerankMs` of fake time. */
+    function slow(parseMs: number, rerankMs: number | 'hang') {
+      const seen = { rerankTimeoutMs: 0, rerankAbortedAt: 0 }
+      const started = Date.now()
       const provider: LlmProvider = {
-        ...base,
+        name: 'slow',
+        parse: () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () => resolve(ok({ ...PARSE, gameModes: ['LOCAL_COOP'], priceMaxUah: 2_000 })),
+              parseMs,
+            ),
+          ),
         rerank: (_q, _c, _l, options) =>
           new Promise((resolve) => {
-            options?.signal?.addEventListener('abort', () => resolve(failed('timeout')))
+            seen.rerankTimeoutMs = options?.timeoutMs ?? 0
+            options?.signal?.addEventListener('abort', () => {
+              seen.rerankAbortedAt = Date.now() - started
+              resolve(failed('timeout'))
+            })
+            if (rerankMs !== 'hang') {
+              setTimeout(() => resolve(ranking(['9102', '9101', '9104'])()), rerankMs)
+            }
           }),
       }
+      return { provider, seen }
+    }
+
+    it('gives the rerank seven seconds after a slow parse, so its reasons survive', async () => {
+      // The live case: a 6.6 s parse used to leave the rerank 1.7 s of a fixed deadline.
+      const context = await contextWith(COOP)
+      const { provider, seen } = slow(6_600, 5_800)
       const started = Date.now()
       const running = runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
-      await vi.advanceTimersByTimeAsync(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS - RERANK_MARGIN_MS)
+      await vi.advanceTimersByTimeAsync(6_600 + 5_800)
       const outcome = await running
-      expect(Date.now() - started).toBe(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS - RERANK_MARGIN_MS)
+      expect(Date.now() - started).toBe(6_600 + 5_800)
+      expect(seen.rerankTimeoutMs).toBe(RERANK_BUDGET_MS)
+      expect(outcome.rerankFailure).toBeNull()
+      expect(outcome.answer.mode).toBe('structured')
+      expect(outcome.answer.items.map((item) => item.reason)).toEqual([
+        'Підходить: 9102',
+        'Підходить: 9101',
+        'Підходить: 9104',
+      ])
+      expect(outcome.timings).toMatchObject({ parse: 6_600, rerank: 5_800 })
+    })
+
+    it('stops a rerank seven seconds after the parse ended, keeping the answer structured', async () => {
+      const context = await contextWith(COOP)
+      const { provider, seen } = slow(6_600, 'hang')
+      const running = runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(6_600 + RERANK_BUDGET_MS)
+      const outcome = await running
+      expect(seen.rerankAbortedAt).toBe(6_600 + RERANK_BUDGET_MS)
       expect(outcome.failure).toBeNull()
       expect(outcome.rerankFailure).toBe('timeout')
       expect(outcome.answer.mode).toBe('structured')
@@ -877,6 +916,74 @@ describe('the ask pipeline — fallback', () => {
         null,
         null,
       ])
+    })
+
+    it('never lets the rerank run past a second before the request deadline', async () => {
+      const context = await contextWith(COOP)
+      const { provider, seen } = slow(9_000, 'hang')
+      const started = Date.now()
+      const running = runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(TOTAL_BUDGET_MS - RERANK_END_MARGIN_MS)
+      const outcome = await running
+      expect(Date.now() - started).toBe(TOTAL_BUDGET_MS - RERANK_END_MARGIN_MS)
+      expect(seen.rerankTimeoutMs).toBe(TOTAL_BUDGET_MS - RERANK_END_MARGIN_MS - 9_000)
+      expect(outcome.answer.mode).toBe('structured')
+      expect(outcome.rerankFailure).toBe('timeout')
+    })
+
+    it('keeps the answer structured when the provider ignores the rerank abort', async () => {
+      const context = await contextWith(COOP)
+      const { provider: base } = scripted({
+        parse: parsing({ gameModes: ['LOCAL_COOP'], priceMaxUah: 2_000 }),
+      })
+      const provider: LlmProvider = { ...base, rerank: () => new Promise<never>(() => {}) }
+      const running = runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(RERANK_BUDGET_MS)
+      const outcome = await running
+      expect(outcome.answer.mode).toBe('structured')
+      expect(outcome.rerankFailure).toBe('timeout')
+    })
+
+    it('falls back with three seconds left when the parse is too slow for the rerank at all', async () => {
+      const context = await contextWith(COOP)
+      const { provider } = slow(20_000, 'hang')
+      const started = Date.now()
+      const running = runAsk({ q: RAW, locale: 'uk' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS)
+      const outcome = await running
+      expect(Date.now() - started).toBe(TOTAL_BUDGET_MS - FALLBACK_RESERVE_MS)
+      expect(outcome.failure).toBe('timeout')
+      expect(outcome.search).toBe('ok')
+      expect(outcome.outputTokens).toEqual({ parse: null, rerank: null })
+    })
+
+    it('counts the output tokens of each call apart', async () => {
+      const context = await contextWith(COOP)
+      const { provider } = scripted({
+        parse: () => ({
+          ...ok({ ...PARSE, gameModes: ['LOCAL_COOP'], priceMaxUah: 2_000 }),
+          usage: {
+            calls: 1,
+            inputTokens: 2_100,
+            outputTokens: 140,
+            costUsd: 0.0028,
+            unpricedCalls: 0,
+          },
+        }),
+        rerank: () => ({
+          ...ranking(['9102', '9101', '9104'])(),
+          usage: {
+            calls: 1,
+            inputTokens: 1_800,
+            outputTokens: 470,
+            costUsd: 0.00415,
+            unpricedCalls: 0,
+          },
+        }),
+      })
+      const outcome = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
+      expect(outcome.outputTokens).toEqual({ parse: 140, rerank: 470 })
+      expect(outcome.usage.outputTokens).toBe(610)
     })
   })
 

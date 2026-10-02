@@ -356,6 +356,8 @@ describe('POST /api/ask — logging', () => {
       calls: 2,
       inputTokens: 0,
       outputTokens: 0,
+      parseOutputTokens: 0,
+      rerankOutputTokens: 0,
       costUsd: 0,
       items: 3,
       ms: {
@@ -497,5 +499,66 @@ describe('POST /api/ask — the cold path', () => {
     await vi.waitFor(() => expect(calls.parse).toBe(1))
     release()
     expect((await answering).body).toMatchObject({ mode: 'structured' })
+  })
+})
+
+describe('POST /api/ask — output tokens per call', () => {
+  it('logs the parse and the rerank output tokens apart, and null for a call not made', async () => {
+    const counted: LlmProvider = {
+      name: 'counted',
+      parse: async () => ({
+        ok: true,
+        value: {
+          platforms: [],
+          genres: [],
+          tags: [],
+          gameModes: [],
+          ageRating: [],
+          playtime: null,
+          yearFrom: null,
+          yearTo: null,
+          metacriticMin: null,
+          ratingMin: null,
+          priceMaxUah: null,
+          free: null,
+          onSaleMinPercent: null,
+          ukrainianLocalisation: 'ANY',
+          madeInUkraine: null,
+          sort: null,
+          searchText: null,
+          similarTo: null,
+          interpretation: 'Ігри українською',
+        },
+        usage: {
+          calls: 1,
+          inputTokens: 2_100,
+          outputTokens: 140,
+          costUsd: 0.0028,
+          unpricedCalls: 0,
+        },
+      }),
+      rerank: async () => ({
+        ok: true,
+        value: { items: [] },
+        usage: {
+          calls: 1,
+          inputTokens: 1_800,
+          outputTokens: 470,
+          costUsd: 0.00415,
+          unpricedCalls: 0,
+        },
+      }),
+    }
+    const { deps, logs } = await harness({ provider: counted })
+    await ask(deps, { q: 'ігри українською', locale: 'uk' })
+    expect(logs[0]).toMatchObject({
+      outputTokens: 610,
+      parseOutputTokens: 140,
+      rerankOutputTokens: 470,
+    })
+
+    const { deps: unknownDeps, logs: unknownLogs } = await harness()
+    await ask(unknownDeps, { q: 'nobody recorded this', locale: 'uk' })
+    expect(unknownLogs[0]).toMatchObject({ parseOutputTokens: 0, rerankOutputTokens: null })
   })
 })

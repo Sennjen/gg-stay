@@ -302,7 +302,7 @@ describe('plainReason', () => {
     expect(plainReason(reason)).toBe(reason)
   })
 
-  it('passes every reason the recorded answers give, each within 100 characters', () => {
+  it('passes every reason the recorded answers give, each within 80 characters', () => {
     const reasons = (
       recorded as { answers: { rerank?: { items: { reason: string }[] } }[] }
     ).answers
@@ -311,7 +311,7 @@ describe('plainReason', () => {
     expect(reasons.length).toBeGreaterThanOrEqual(15)
     for (const reason of reasons) {
       expect(plainReason(reason)).toBe(reason)
-      expect(reason.length).toBeLessThanOrEqual(100)
+      expect(reason.length).toBeLessThanOrEqual(80)
     }
   })
 })

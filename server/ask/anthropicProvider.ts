@@ -38,7 +38,11 @@ import { AskParseSchema, AskRerankSchema, readParse, readRerank } from './schema
 
 export const ASK_MODEL = 'claude-haiku-4-5'
 export const PARSE_MAX_TOKENS = 500
-export const RERANK_MAX_TOKENS = 1_600
+/**
+ * Eight reasons of at most 80 characters, in Cyrillic, are about 400–500 tokens; the rest is
+ * headroom. Fewer output tokens are the one real lever on the rerank's latency.
+ */
+export const RERANK_MAX_TOKENS = 1_200
 export const MAX_RETRIES = 1
 export { REQUEST_TIMEOUT_MS }
 

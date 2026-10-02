@@ -134,7 +134,7 @@ describe('the Anthropic provider', () => {
 
     expect(result).toMatchObject({ ok: true, value: answer })
     const body = requests[0]!.body
-    expect(body.max_tokens).toBe(1_600)
+    expect(body.max_tokens).toBe(1_200)
     expect(body.temperature).toBe(0)
     expect(JSON.stringify(body.messages)).toContain('3328 | The Witcher 3: Wild Hunt')
   })
@@ -195,10 +195,10 @@ describe('the Anthropic provider', () => {
     expect(result).toMatchObject({ ok: true, value: answer })
   })
 
-  it('tells the model the 100-character reason limit through the schema', async () => {
+  it('tells the model the 80-character reason limit through the schema', async () => {
     const { client, requests } = clientReplying(() => message(JSON.stringify({ items: [] })))
     await createAnthropicProvider({ client }).rerank(QUERY, [CANDIDATE], 'uk')
-    expect(JSON.stringify(requests[0]!.body.output_config)).toContain('maxLength: 100')
+    expect(JSON.stringify(requests[0]!.body.output_config)).toContain('maxLength: 80')
     expect(JSON.stringify(requests[0]!.body.output_config)).toContain('maxItems: 8')
   })
 

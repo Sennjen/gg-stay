@@ -179,8 +179,9 @@ reports them (`indexStale` is `false` when no page answered).
 - **Limits:** 10 questions per address per minute and 40 model-backed answers
   per address per UTC day (cached answers are free); a per-instance daily
   ceiling of model calls (`ASK_DAILY_LLM_CALLS`, default 500); queries up to
-  200 characters; 500/1 600 output tokens, an 8 s timeout and one retry per
-  call; one 12 s deadline per request, fallback search included. The hard cap
+  200 characters; 500/1 200 output tokens, an 8 s timeout and one retry per
+  call; one 15 s deadline per request, fallback search included, with the
+  rerank given 7 s from the end of the parse (never past 14 s). The hard cap
   on spend is the account's prepaid credit balance, which does not reload by
   itself.
 - **Fallback:** without `ANTHROPIC_API_KEY`, past a limit, once the credits

@@ -30,7 +30,7 @@ import {
   type LlmUsage,
 } from './provider'
 import { catalogUrl, modelLine, plainReason, sanitiseParse, type UnderstoodQuery } from './sanitise'
-import { MAX_ANSWERS, MAX_REASON_LENGTH, type AskLocale } from './schemas'
+import { MAX_ANSWERS, MAX_REASON_LENGTH, type AskLocale, type AskRerank } from './schemas'
 
 /**
  * `POST /api/ask` below HTTP: parse → sanitise → retrieve → rerank → answer.
@@ -53,11 +53,14 @@ import { MAX_ANSWERS, MAX_REASON_LENGTH, type AskLocale } from './schemas'
  * Every index read goes through the request's `GraphQLContext`, so the index's own guards — the
  * deadline, the circuit, the once-per-request failure — apply here exactly as on a catalog page.
  *
- * **One deadline covers the whole request** (`TOTAL_BUDGET_MS` from when it arrived). The
- * structured attempt must finish `FALLBACK_RESERVE_MS` before it, so the fallback — the raw query
- * as a plain catalog search — always has at least that long; a failure, refusal or timeout of the
- * parse, or a failed retrieval, turns into that fallback, and a fallback search that outlives the
- * deadline too is answered with no cards. Nothing here throws.
+ * **One deadline covers the whole request** (`TOTAL_BUDGET_MS` from when it arrived). The parse,
+ * the retrieval and the candidate cards must be done `FALLBACK_RESERVE_MS` before it, so the
+ * fallback — the raw query as a plain catalog search — has at least that long when they fail; a
+ * failure, refusal or timeout of the parse, or a failed retrieval, turns into that fallback, and a
+ * fallback search that outlives the deadline too is answered with no cards. The rerank then runs
+ * on its own deadline, `RERANK_BUDGET_MS` from the end of the parse and never later than
+ * `RERANK_END_MARGIN_MS` before the request's; whatever happens to it, the answer stays
+ * structured. Nothing here throws.
  */
 
 export const MAX_CANDIDATES = 40
@@ -66,9 +69,16 @@ export const MAX_ITEMS = MAX_ANSWERS
 export const FALLBACK_SIZE = MAX_ANSWERS
 /** Fewer surviving ranked ids than this, and the retrieval order is used instead. */
 export const MIN_RANKED = 3
-/** The whole request, from its arrival to the answer, fallback search included. */
-export const TOTAL_BUDGET_MS = 12_000
-/** The least the fallback search is given; the structured attempt ends this long before the deadline. */
+/**
+ * The whole request, from its arrival to the answer, fallback search included. Half the platform's
+ * 30 s function limit.
+ */
+export const TOTAL_BUDGET_MS = 15_000
+/**
+ * The least the fallback search is given: the parse, the retrieval and the cards must be done this
+ * long before the deadline. It only matters when the attempt fails before the rerank — a rerank
+ * that fails leaves a structured answer, with no search to run.
+ */
 export const FALLBACK_RESERVE_MS = 3_000
 /** The genre list may take this long; past it the parse runs without genres. */
 export const GENRES_TIMEOUT_MS = 1_500
@@ -78,10 +88,12 @@ export const GENRES_TIMEOUT_MS = 1_500
  */
 export const MAX_RERANKED = 24
 /**
- * The rerank must answer this long before the structured attempt ends, so its own deadline — not
- * the attempt's — decides, and a late ranking costs the reasons, not the whole answer.
+ * How long the rerank may run, counted from the end of the parse — not from the request — so a
+ * slow parse does not take the rerank's time. Eight reasons take about 5–6 s to write.
  */
-export const RERANK_MARGIN_MS = 300
+export const RERANK_BUDGET_MS = 7_000
+/** The rerank never runs past this long before the request's deadline. */
+export const RERANK_END_MARGIN_MS = 1_000
 /** Tags per candidate card: enough to describe a game, few enough to keep the cards short. */
 const CARD_TAGS = 8
 
@@ -143,6 +155,8 @@ export interface AskOutcome {
   degraded: boolean
   /** How long each step took, in ms — only the steps that ran. */
   timings: AskTimings
+  /** The output tokens of each model call, `null` for a call that was not made. */
+  outputTokens: { parse: number | null; rerank: number | null }
 }
 
 /**
@@ -212,9 +226,10 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
   const now = deps.now ?? (() => Date.now())
   const started = now()
   const deadline = deps.deadline ?? started + TOTAL_BUDGET_MS
-  const structuredDeadline = deadline - FALLBACK_RESERVE_MS
+  const prepareDeadline = deadline - FALLBACK_RESERVE_MS
   const controller = new AbortController()
   const timings: AskTimings = {}
+  const outputTokens: AskOutcome['outputTokens'] = { parse: null, rerank: null }
   let usage = NO_USAGE
 
   /** `work`, with how long it took recorded under `step` however it ends. */
@@ -228,9 +243,11 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
   /**
    * One model call that must be answered by `callDeadline`: its own timeout is what is left until
    * then (at most `REQUEST_TIMEOUT_MS`), and it is aborted at that moment — which also stops the
-   * client's one retry — or when the whole attempt is. Its cost is recorded whatever the outcome.
+   * client's one retry — or when the whole attempt is. Its cost is recorded whatever the outcome,
+   * and its output tokens under its own step.
    */
   async function spend<T>(
+    step: 'parse' | 'rerank',
     callDeadline: number,
     call: (signal: AbortSignal, timeoutMs: number) => Promise<LlmResult<T>>,
   ): Promise<LlmResult<T>> {
@@ -242,6 +259,7 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
     try {
       const result = await call(own.signal, Math.min(REQUEST_TIMEOUT_MS, remaining))
       usage = addUsage(usage, result.usage)
+      outputTokens[step] = (outputTokens[step] ?? 0) + result.usage.outputTokens
       return result
     } finally {
       clearTimeout(timer)
@@ -251,29 +269,39 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
 
   const finish = (
     answer: Answered,
-    rest: Omit<AskOutcome, 'answer' | 'usage' | 'timings'>,
+    rest: Omit<AskOutcome, 'answer' | 'usage' | 'timings' | 'outputTokens'>,
   ): AskOutcome => ({
     answer: { ...answer, tookMs: Math.max(0, now() - started) },
     usage,
     timings,
+    outputTokens,
     ...rest,
   })
 
   let failure: AskFallbackReason
   try {
-    const result = await within(
-      structured(request, deps.context, deps.provider, {
-        spend,
-        timed,
-        parseDeadline: structuredDeadline,
-        rerankDeadline: structuredDeadline - RERANK_MARGIN_MS,
-      }),
-      structuredDeadline - now(),
+    const prepared = await within(
+      prepare(request, deps.context, deps.provider, { spend, timed, now, prepareDeadline }),
+      prepareDeadline - now(),
       () => controller.abort(),
     )
-    if (result === EXPIRED) {
+    if (prepared === EXPIRED) {
       failure = 'timeout'
     } else {
+      const result =
+        'answer' in prepared
+          ? prepared
+          : await rank(request, deps.provider, prepared, {
+              spend,
+              timed,
+              // Relative to when the parse ended, so a slow parse does not eat the rerank's time;
+              // never past a second before the request's deadline.
+              rerankDeadline: Math.min(
+                prepared.parseEnd + RERANK_BUDGET_MS,
+                deadline - RERANK_END_MARGIN_MS,
+              ),
+              now,
+            })
       return finish(result.answer, {
         failure: null,
         rerankFailure: result.rerankFailure,
@@ -305,22 +333,40 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
   })
 }
 
-interface StructuredTools {
-  spend: <T>(
-    callDeadline: number,
-    call: (signal: AbortSignal, timeoutMs: number) => Promise<LlmResult<T>>,
-  ) => Promise<LlmResult<T>>
+type Spend = <T>(
+  step: 'parse' | 'rerank',
+  callDeadline: number,
+  call: (signal: AbortSignal, timeoutMs: number) => Promise<LlmResult<T>>,
+) => Promise<LlmResult<T>>
+
+interface PrepareTools {
+  spend: Spend
   timed: <T>(step: AskStep, work: Promise<T>) => Promise<T>
-  parseDeadline: number
-  rerankDeadline: number
+  now: () => number
+  prepareDeadline: number
 }
 
-async function structured(
+/** Everything the rerank needs, once the parse, the retrieval and the cards are done. */
+interface Prepared {
+  parseEnd: number
+  understood: UnderstoodQuery
+  shown: GameCard[]
+  candidates: GameCard[]
+  cards: CandidateCard[]
+  answered: (items: AskItem[], rerankFailure: AskFailure | null) => StructuredResult
+}
+
+/**
+ * The part of the structured attempt that has to leave the fallback its time: the parse, the
+ * retrieval and the candidate cards, all before `prepareDeadline`. It answers by itself when there
+ * is nothing to rank; otherwise it hands the rerank what it needs.
+ */
+async function prepare(
   request: AskRequest,
   context: GraphQLContext,
   provider: LlmProvider,
-  tools: StructuredTools,
-): Promise<StructuredResult> {
+  tools: PrepareTools,
+): Promise<StructuredResult | Prepared> {
   const { spend, timed } = tools
   // The parse starts at once, with RAWG's genre list as the prompt names it. The live taxonomy —
   // which the answer is checked against — and the index state are read beside it, not before it.
@@ -328,10 +374,11 @@ async function structured(
   indexState(context).catch(() => undefined)
   const parsed = await timed(
     'parse',
-    spend(tools.parseDeadline, (signal, timeoutMs) =>
+    spend('parse', tools.prepareDeadline, (signal, timeoutMs) =>
       provider.parse(request.q, request.locale, { genres: RAWG_GENRES, signal, timeoutMs }),
     ),
   )
+  const parseEnd = tools.now()
   if (!parsed.ok) throw new Fallback(parsed.failure)
   const live = await liveGenres
   const understood = sanitiseParse(parsed.value, { genres: live.length ? live : RAWG_GENRES })
@@ -380,18 +427,47 @@ async function structured(
 
   const shown = candidates.slice(0, MAX_RERANKED)
   const cards = await timed('describe', candidateCards(context, shown))
-  const ranking = await timed(
-    'rerank',
-    spend(tools.rerankDeadline, (signal, timeoutMs) =>
-      provider.rerank(request.q, cards, request.locale, {
-        signal,
-        timeoutMs,
-        interpretation: understood.interpretation,
-      }),
-    ),
-  )
-  // A failed, cut-off or late ranking is no reason to drop a filter that was understood
-  // correctly: the candidates are served in the catalog's own order, without reasons.
+  return { parseEnd, understood, shown, candidates, cards, answered }
+}
+
+interface RankTools {
+  spend: Spend
+  timed: <T>(step: AskStep, work: Promise<T>) => Promise<T>
+  now: () => number
+  rerankDeadline: number
+}
+
+/**
+ * The rerank, on its own deadline. Whatever happens to it — a failure, a cut-off answer, its
+ * deadline, even a provider that throws or ignores its abort — the answer stays structured: the
+ * candidates are served in the catalog's own order, without reasons. It never falls back.
+ */
+async function rank(
+  request: AskRequest,
+  provider: LlmProvider,
+  prepared: Prepared,
+  tools: RankTools,
+): Promise<StructuredResult> {
+  const { candidates, shown, answered } = prepared
+  let ranking: LlmResult<AskRerank> | typeof EXPIRED
+  try {
+    ranking = await within(
+      tools.timed(
+        'rerank',
+        tools.spend('rerank', tools.rerankDeadline, (signal, timeoutMs) =>
+          provider.rerank(request.q, prepared.cards, request.locale, {
+            signal,
+            timeoutMs,
+            interpretation: prepared.understood.interpretation,
+          }),
+        ),
+      ),
+      tools.rerankDeadline - tools.now(),
+    )
+  } catch {
+    return answered(inRetrievalOrder(candidates), 'api')
+  }
+  if (ranking === EXPIRED) return answered(inRetrievalOrder(candidates), 'timeout')
   if (!ranking.ok) return answered(inRetrievalOrder(candidates), ranking.failure)
   const ranked = rankedItems(shown, ranking.value.items)
   return answered(ranked.length >= MIN_RANKED ? ranked : inRetrievalOrder(candidates), null)
