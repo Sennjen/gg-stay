@@ -123,6 +123,7 @@ async function contextWith(
 const PARSE: AskParse = {
   platforms: [],
   genres: [],
+  tags: [],
   gameModes: [],
   ageRating: [],
   playtime: null,
@@ -430,6 +431,90 @@ describe('the ask pipeline — structured answers', () => {
     expect(calls.parse[0]!.genres).toEqual([])
     expect(answer.mode).toBe('structured')
     expect(answer.filter).toEqual({ gameModes: ['LOCAL_COOP'], platforms: [7] })
+  })
+})
+
+describe('the ask pipeline — mood tags', () => {
+  const uk = { text: true, audio: false, source: 'steam' }
+  const HORROR: IndexedGame[] = [
+    // The most popular of them all is an atmospheric shooter, not a horror game.
+    doc(701, 'Zone Shooter', { popularity: 9_000, moodTags: ['atmospheric'], localisation: uk }),
+    doc(702, 'Dark Corridors', {
+      popularity: 5_000,
+      moodTags: ['horror', 'atmospheric'],
+      localisation: uk,
+    }),
+    doc(703, 'Hollow Manor', {
+      popularity: 4_000,
+      moodTags: ['atmospheric', 'psychological-horror', 'horror'],
+      localisation: uk,
+    }),
+    doc(704, 'Night Shift', { popularity: 3_000, moodTags: ['horror'], localisation: uk }),
+    doc(705, 'Silent Ward', { popularity: 2_000, tags: ['horror', 'hospital'], localisation: uk }),
+    // Horror, but not in Ukrainian: the localisation filter still applies.
+    doc(706, 'Untranslated Fear', { popularity: 8_000, moodTags: ['horror', 'atmospheric'] }),
+    doc(707, 'Cozy Farm', { popularity: 7_000, moodTags: ['relaxing'], localisation: uk }),
+  ]
+
+  it('answers "атмосферний горор українською" with horror games, every tag matched first', async () => {
+    const context = await contextWith(HORROR)
+    const candidates: string[][] = []
+    const recordedProvider = createRecordedProvider(async () => ANSWERS)
+    const provider: LlmProvider = {
+      ...recordedProvider,
+      parse: recordedProvider.parse,
+      rerank: async (query, cards, locale, options) => {
+        candidates.push(cards.map((card) => card.name))
+        return recordedProvider.rerank(query, cards, locale, options)
+      },
+    }
+    const { answer } = await runAsk(
+      { q: 'атмосферний горор українською', locale: 'uk' },
+      { context, provider },
+    )
+
+    expect(answer.mode).toBe('structured')
+    expect(answer.filter).toEqual({ ukrainianLocalisation: 'ANY' })
+    expect(answer.matchedTags).toEqual(['horror', 'atmospheric'])
+    expect(answer.catalogUrl).toBe('/games?ukrainianLocalisation=ANY')
+    expect(candidates[0]).toEqual(['Dark Corridors', 'Hollow Manor', 'Night Shift', 'Silent Ward'])
+    // The recorded ranking names games this index does not hold, so the retrieval order stands.
+    expect(answer.items.map((item) => item.card.name)).toEqual(candidates[0])
+  })
+
+  it('tops up with any tag, then with the catalog, when the tags alone find too few', async () => {
+    const context = await contextWith(HORROR)
+    const { provider, calls } = scripted({
+      parse: parsing({ tags: ['psychological-horror', 'relaxing'] }),
+    })
+    const { answer } = await runAsk({ q: 'strange mix', locale: 'en' }, { context, provider })
+    // Nothing carries both; the most defining tag finds one, any tag finds a second, and the
+    // catalog's own order fills the list behind them.
+    expect(calls.rerank[0]!.map((card) => card.id).slice(0, 2)).toEqual(['703', '707'])
+    expect(calls.rerank[0]!.length).toBeGreaterThan(2)
+    expect(answer.matchedTags).toEqual(['psychological-horror', 'relaxing'])
+  })
+
+  it('matches no tag, and says so, when the index cannot answer', async () => {
+    const base = await publishTestIndex(HORROR)
+    const failing = overriding(base, { search: () => Promise.reject(new Error('down')) })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const context = await contextWith(HORROR, { index: failing })
+    const { provider } = scripted({ parse: parsing({ tags: ['horror'] }) })
+    const { answer } = await runAsk({ q: 'horror', locale: 'en' }, { context, provider })
+    expect(answer.mode).toBe('structured')
+    expect(answer.matchedTags).toEqual([])
+    warn.mockRestore()
+  })
+
+  it('treats a query that only names a mood as something to look for', async () => {
+    const context = await contextWith(HORROR)
+    const { provider, calls } = scripted({ parse: parsing({ tags: ['relaxing'] }) })
+    const { answer } = await runAsk({ q: 'щось затишне', locale: 'uk' }, { context, provider })
+    expect(answer.filter).toEqual({})
+    expect(answer.catalogUrl).toBe('/games')
+    expect(answer.matchedTags).toEqual(['relaxing'])
+    expect(calls.rerank[0]?.[0]?.id ?? answer.items[0]!.card.id).toBe('707')
   })
 })
 
@@ -785,6 +870,7 @@ describe('the ask pipeline — the answer shape', () => {
       'indexStale',
       'interpretation',
       'items',
+      'matchedTags',
       'mode',
       'tookMs',
     ])

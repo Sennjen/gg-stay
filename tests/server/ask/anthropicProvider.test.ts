@@ -65,6 +65,7 @@ const hang: Reply = (_request, init) =>
 const PARSE_ANSWER = {
   platforms: ['NINTENDO'],
   genres: [],
+  tags: [],
   gameModes: ['LOCAL_COOP'],
   ageRating: [],
   playtime: null,

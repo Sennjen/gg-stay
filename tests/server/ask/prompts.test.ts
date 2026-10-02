@@ -15,6 +15,7 @@ import {
   type CandidateCard,
 } from '../../../server/ask/prompts'
 import { ASK_PLATFORM_FAMILIES } from '../../../server/ask/schemas'
+import { MOOD_TAGS } from '../../../shared/moodTags'
 
 const GENRES = ['strategy', 'action', 'indie', 'action', 'role-playing-games-rpg']
 
@@ -55,6 +56,11 @@ describe('the parse prompt', () => {
 
   it('says so when no genre list could be read', () => {
     expect(parseSystemPrompt([])).toContain('genres: always []')
+  })
+
+  it('offers every mood tag, and shows one in an example', () => {
+    for (const tag of MOOD_TAGS) expect(prompt).toContain(tag)
+    expect(prompt).toContain('"tags":["horror","atmospheric"]')
   })
 
   it('carries Ukrainian and English examples', () => {

@@ -3,15 +3,19 @@ import { DEFAULT_SORT, type CatalogFilter } from '../../shared/filterUrl'
 import type { GraphQLContext } from '../graphql/context'
 import {
   cachedIndexPage,
+  INDEX_SORTS,
   indexFailed,
   indexState,
+  priceFiltersUsed,
   toIndexQuery,
   warnIndexOnce,
+  withoutPriceFilters,
   withoutPrices,
 } from '../graphql/indexPath'
 import { catalogPage } from '../graphql/resolvers/games'
 import type { GameCard } from '../graphql/__generated__/resolvers-types'
 import type { IndexedGame } from '../index/document'
+import type { IndexQuery } from '../index/GameIndex'
 import { toGameCard } from '../index/toGraphql'
 import { mapTaxonomy } from '../rawg/mappers'
 import type { RawgList, RawgTaxonomy } from '../rawg/types'
@@ -98,6 +102,12 @@ export interface AskAnswer {
    * it is then unknown; a fallback whose search answered reports that page's own value.
    */
   indexStale: boolean
+  /**
+   * Mood tags the cards were also matched on ("horror", "roguelike"). The catalog has no tag
+   * filter, so they are not in `filter` or `catalogUrl`; the page can say "also matched on …".
+   * Empty when no tag shaped the cards.
+   */
+  matchedTags: string[]
   tookMs: number
 }
 
@@ -259,7 +269,7 @@ async function structured(
   // list of popular games would be an answer to a question nobody asked.
   if (isEmpty(understood)) {
     return {
-      answer: { ...base, items: [], ignoredFilters: [], indexStale: false },
+      answer: { ...base, items: [], ignoredFilters: [], indexStale: false, matchedTags: [] },
       rerankFailure: null,
       degraded: false,
     }
@@ -278,7 +288,13 @@ async function structured(
     (await indexState(context)).meta === null ||
     ignoredFilters.length > 0
   const answered = (items: AskItem[], rerankFailure: AskFailure | null): StructuredResult => ({
-    answer: { ...base, items, ignoredFilters, indexStale: retrieved.indexStale },
+    answer: {
+      ...base,
+      items,
+      ignoredFilters,
+      indexStale: retrieved.indexStale,
+      matchedTags: retrieved.matchedTags,
+    },
     rerankFailure,
     degraded: indexDegraded || rerankFailure !== null,
   })
@@ -299,6 +315,7 @@ async function structured(
 function isEmpty(understood: UnderstoodQuery): boolean {
   return (
     Object.keys(understood.filter).length === 0 &&
+    understood.tags.length === 0 &&
     understood.similarTo === null &&
     understood.sort === DEFAULT_SORT
   )
@@ -325,21 +342,17 @@ interface Retrieved {
   candidates: GameCard[]
   ignoredFilters: string[]
   indexStale: boolean
+  /** The mood tags the candidates were matched on; empty when no tag shaped them. */
+  matchedTags: string[]
 }
 
 async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
-  const hasFilter = Object.keys(understood.filter).length > 0 || understood.sort !== DEFAULT_SORT
+  const hasFilter =
+    Object.keys(understood.filter).length > 0 ||
+    understood.sort !== DEFAULT_SORT ||
+    understood.tags.length > 0
   const byFilter = (): Promise<Retrieved> =>
-    catalogPage(context, {
-      filter: understood.filter,
-      sort: understood.sort,
-      page: 1,
-      pageSize: MAX_CANDIDATES,
-    }).then((page) => ({
-      candidates: page.items,
-      ignoredFilters: page.ignoredFilters,
-      indexStale: page.indexStale,
-    }))
+    understood.tags.length > 0 ? byTags(context, understood) : byCatalog(context, understood)
 
   if (understood.similarTo === null) return byFilter()
 
@@ -354,6 +367,7 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
       candidates: similar.cards.slice(0, MAX_CANDIDATES),
       ignoredFilters: [],
       indexStale: similar.stale,
+      matchedTags: [],
     }
   }
 
@@ -368,7 +382,88 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
     ].slice(0, MAX_CANDIDATES),
     ignoredFilters: filtered.ignoredFilters,
     indexStale: filtered.indexStale || similar.stale,
+    matchedTags: filtered.matchedTags,
   }
+}
+
+/** The understood filter as the catalog would answer it: `catalogPage`, index or RAWG. */
+function byCatalog(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
+  return catalogPage(context, {
+    filter: understood.filter,
+    sort: understood.sort,
+    page: 1,
+    pageSize: MAX_CANDIDATES,
+  }).then((page) => ({
+    candidates: page.items,
+    ignoredFilters: page.ignoredFilters,
+    indexStale: page.indexStale,
+    matchedTags: [],
+  }))
+}
+
+/**
+ * The understood filter plus its mood tags, from the index's tag facets — the catalog has no tag
+ * filter, so `catalogPage` cannot be asked. Most relevant first: the games carrying every tag,
+ * then those carrying the most defining one (the parse lists it first), and only when that leaves
+ * fewer than `MIN_RANKED`, those carrying any of them. Fewer than that still, and the catalog's
+ * answer without the tags fills up the list behind them. A stale index drops the price filters
+ * and the price sorts and names them, exactly as `/games` does; an index that cannot answer leaves
+ * the catalog's answer alone, with no tag matched.
+ */
+async function byTags(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
+  const state = await indexState(context)
+  if (state.meta === null || indexFailed(context)) return byCatalog(context, understood)
+
+  const filter = state.stale ? (withoutPriceFilters(understood.filter) ?? {}) : understood.filter
+  const sort = state.stale && INDEX_SORTS.includes(understood.sort) ? DEFAULT_SORT : understood.sort
+  const ignoredFilters = state.stale ? priceFiltersUsed(understood.filter, understood.sort) : []
+  const base = toIndexQuery({
+    filter,
+    sort,
+    page: 1,
+    pageSize: MAX_CANDIDATES,
+    today: context.today,
+  })
+  const tags = understood.tags
+  const page = (query: IndexQuery) =>
+    cachedIndexPage(context, query, state.version).then((answer) => answer.items)
+
+  let groups: GameCard[][]
+  try {
+    groups = await Promise.all([
+      tags.length > 1 ? page({ ...base, tags, tagMatch: 'all' }) : Promise.resolve([]),
+      page({ ...base, tags: [tags[0]!] }),
+      tags.length > 1 ? page({ ...base, tags }) : Promise.resolve([]),
+    ])
+  } catch (error) {
+    warnIndexOnce(context, 'the mood tags of a query could not be read', error)
+    return byCatalog(context, understood)
+  }
+  const [every, defining, any] = groups as [GameCard[], GameCard[], GameCard[]]
+  let tagged = unique([...every, ...defining])
+  if (tagged.length < MIN_RANKED) tagged = unique([...tagged, ...any])
+  tagged = tagged.slice(0, MAX_CANDIDATES)
+  if (state.stale) tagged = withoutPrices(tagged)
+  const matched: Retrieved = {
+    candidates: tagged,
+    ignoredFilters,
+    indexStale: state.stale,
+    matchedTags: tagged.length > 0 ? [...tags] : [],
+  }
+  if (tagged.length >= MIN_RANKED) return matched
+
+  const catalog = await byCatalog(context, understood)
+  return {
+    candidates: unique([...tagged, ...catalog.candidates]).slice(0, MAX_CANDIDATES),
+    ignoredFilters: [...new Set([...ignoredFilters, ...catalog.ignoredFilters])],
+    indexStale: state.stale || catalog.indexStale,
+    matchedTags: matched.matchedTags,
+  }
+}
+
+function unique(cards: readonly GameCard[]): GameCard[] {
+  const seen = new Set<string>()
+  return cards.filter((card) => !seen.has(card.id) && Boolean(seen.add(card.id)))
 }
 
 /**
@@ -539,5 +634,6 @@ export function emptyFallback(request: AskRequest): Omit<AskAnswer, 'tookMs'> {
     items: [],
     ignoredFilters: [],
     indexStale: false,
+    matchedTags: [],
   }
 }

@@ -14,6 +14,7 @@ const GENRES = ['action', 'indie', 'puzzle', 'role-playing-games-rpg', 'shooter'
 const EMPTY: AskParse = {
   platforms: [],
   genres: [],
+  tags: [],
   gameModes: [],
   ageRating: [],
   playtime: null,
@@ -46,6 +47,7 @@ describe('readParse', () => {
       platforms: ['NINTENDO', 'DREAMCAST', 7],
       gameModes: ['LOCAL_COOP', 'COUCH'],
       ageRating: ['PEGI3', 'ESRB_E'],
+      tags: ['horror', 'scary', 'Horror'],
       playtime: 'FOREVER',
       ukrainianLocalisation: 'SUBTITLES',
       sort: 'RANDOM',
@@ -54,6 +56,7 @@ describe('readParse', () => {
       platforms: ['NINTENDO'],
       gameModes: ['LOCAL_COOP'],
       ageRating: ['PEGI3'],
+      tags: ['horror'],
       playtime: null,
       ukrainianLocalisation: null,
       sort: null,
@@ -196,6 +199,18 @@ describe('sanitiseParse', () => {
     const understood = sanitise({ searchText: 'Hades', similarTo: 'hades' })
     expect(understood.filter.search).toBeUndefined()
     expect(understood.similarTo).toBe('hades')
+  })
+
+  it('keeps up to three known mood tags, outside the filter and its link', () => {
+    const understood = sanitise({
+      tags: ['horror', 'atmospheric', 'horror', 'roguelike', 'cozy' as never, 'zombies'],
+      ukrainianLocalisation: 'ANY',
+    })
+    expect(understood.tags).toEqual(['horror', 'atmospheric', 'roguelike'])
+    expect(understood.filter).toEqual({ ukrainianLocalisation: 'ANY' })
+    expect(catalogUrl(understood.filter, understood.sort, 'uk')).toBe(
+      '/games?ukrainianLocalisation=ANY',
+    )
   })
 
   it('reports an empty interpretation as none', () => {

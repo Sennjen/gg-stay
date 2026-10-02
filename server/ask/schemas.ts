@@ -7,6 +7,7 @@ import {
   PLAYTIMES,
   UI_SORTS,
 } from '../../shared/catalog'
+import { MOOD_TAGS } from '../../shared/moodTags'
 
 /**
  * The two shapes a model answers `/api/ask` with, twice over.
@@ -36,6 +37,7 @@ export const ASK_PLATFORM_FAMILIES = PLATFORM_FAMILIES.filter(
 export const AskParseSchema = z.object({
   platforms: z.array(z.enum(ASK_PLATFORM_FAMILIES)),
   genres: z.array(z.string()),
+  tags: z.array(z.enum(MOOD_TAGS)),
   gameModes: z.array(z.enum(GAME_MODES)),
   ageRating: z.array(z.enum(AGE_RATINGS)),
   playtime: z.enum(PLAYTIMES).nullable(),
@@ -97,6 +99,7 @@ const stringValue = lenient((value) => (isString(value) ? value : null))
 const LenientParse = z.object({
   platforms: enumList(ASK_PLATFORM_FAMILIES),
   genres: stringList,
+  tags: enumList(MOOD_TAGS),
   gameModes: enumList(GAME_MODES),
   ageRating: enumList(AGE_RATINGS),
   playtime: enumValue(PLAYTIMES),

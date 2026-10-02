@@ -3,9 +3,14 @@
     {
       "query": "кооператив для двох на Switch до 500 грн",
       "parse": {
-        "platforms": ["NINTENDO"],
+        "platforms": [
+          "NINTENDO"
+        ],
         "genres": [],
-        "gameModes": ["LOCAL_COOP"],
+        "tags": [],
+        "gameModes": [
+          "LOCAL_COOP"
+        ],
         "ageRating": [],
         "playtime": null,
         "yearFrom": null,
@@ -24,19 +29,36 @@
       },
       "rerank": {
         "items": [
-          { "id": "9102", "reason": "Хаотичний кооператив на кухні для двох на одному екрані" },
-          { "id": "9101", "reason": "Платформер, який проходять лише вдвох, на Switch" },
-          { "id": "9104", "reason": "Спокійна ферма, де другий гравець приєднується локально" },
-          { "id": "777777", "reason": "Гра, якої немає серед кандидатів" }
+          {
+            "id": "9102",
+            "reason": "Хаотичний кооператив на кухні для двох на одному екрані"
+          },
+          {
+            "id": "9101",
+            "reason": "Платформер, який проходять лише вдвох, на Switch"
+          },
+          {
+            "id": "9104",
+            "reason": "Спокійна ферма, де другий гравець приєднується локально"
+          },
+          {
+            "id": "777777",
+            "reason": "Гра, якої немає серед кандидатів"
+          }
         ]
       }
     },
     {
       "query": "co-op for two on Switch under 500 UAH",
       "parse": {
-        "platforms": ["NINTENDO"],
+        "platforms": [
+          "NINTENDO"
+        ],
         "genres": [],
-        "gameModes": ["LOCAL_COOP"],
+        "tags": [],
+        "gameModes": [
+          "LOCAL_COOP"
+        ],
         "ageRating": [],
         "playtime": null,
         "yearFrom": null,
@@ -55,9 +77,18 @@
       },
       "rerank": {
         "items": [
-          { "id": "9102", "reason": "Chaotic kitchen co-op for two on one screen" },
-          { "id": "9101", "reason": "A platformer built for exactly two players" },
-          { "id": "9104", "reason": "A calm farm a second player can join locally" }
+          {
+            "id": "9102",
+            "reason": "Chaotic kitchen co-op for two on one screen"
+          },
+          {
+            "id": "9101",
+            "reason": "A platformer built for exactly two players"
+          },
+          {
+            "id": "9104",
+            "reason": "A calm farm a second player can join locally"
+          }
         ]
       }
     },
@@ -66,6 +97,10 @@
       "parse": {
         "platforms": [],
         "genres": [],
+        "tags": [
+          "horror",
+          "atmospheric"
+        ],
         "gameModes": [],
         "ageRating": [],
         "playtime": null,
@@ -85,9 +120,18 @@
       },
       "rerank": {
         "items": [
-          { "id": "13537", "reason": "Гнітюча атмосфера Сіті 17, українські субтитри" },
-          { "id": "41494", "reason": "Темне місто майбутнього, український інтерфейс і субтитри" },
-          { "id": "3328", "reason": "Похмурий світ із чудовиськами, повна українська озвучка" }
+          {
+            "id": "13537",
+            "reason": "Гнітюча атмосфера Сіті 17, українські субтитри"
+          },
+          {
+            "id": "41494",
+            "reason": "Темне місто майбутнього, український інтерфейс і субтитри"
+          },
+          {
+            "id": "3328",
+            "reason": "Похмурий світ із чудовиськами, повна українська озвучка"
+          }
         ]
       }
     },
@@ -96,6 +140,7 @@
       "parse": {
         "platforms": [],
         "genres": [],
+        "tags": [],
         "gameModes": [],
         "ageRating": [],
         "playtime": null,
@@ -115,9 +160,18 @@
       },
       "rerank": {
         "items": [
-          { "id": "16944", "reason": "The previous Witcher: the same world and the same hero" },
-          { "id": "41494", "reason": "A story-driven action RPG from the same studio" },
-          { "id": "17857", "reason": "An action RPG with a bleak, open world" }
+          {
+            "id": "16944",
+            "reason": "The previous Witcher: the same world and the same hero"
+          },
+          {
+            "id": "41494",
+            "reason": "A story-driven action RPG from the same studio"
+          },
+          {
+            "id": "17857",
+            "reason": "An action RPG with a bleak, open world"
+          }
         ]
       }
     }

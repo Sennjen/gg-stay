@@ -13,6 +13,7 @@ import {
   serializeFilterState,
   type CatalogFilter,
 } from '../../shared/filterUrl'
+import { isMoodTag, type MoodTag } from '../../shared/moodTags'
 import { platformFamiliesFromIds } from '../rawg/lookups'
 import type { AskLocale, AskParse } from './schemas'
 
@@ -30,6 +31,8 @@ import type { AskLocale, AskParse } from './schemas'
 const MAX_TITLE_LENGTH = MAX_SEARCH_LENGTH
 /** Longest interpretation line kept: one sentence. */
 export const MAX_INTERPRETATION_LENGTH = 200
+/** At most this many mood tags; the prompt asks for the most defining ones first. */
+export const MAX_TAGS = 3
 /** At most this many genres: a query naming more is describing, not filtering. */
 const MAX_GENRES = 5
 /** The rating threshold the catalog offers is "4 and up"; anything from 3.5 rounds to it. */
@@ -42,6 +45,11 @@ export interface UnderstoodQuery {
   sort: GameSortValue
   /** A game title for a "like X" query, to be resolved against the index. */
   similarTo: string | null
+  /**
+   * Mood and sub-genre tags (`shared/moodTags.ts`), most defining first. The catalog has no tag
+   * filter, so they shape the candidates but never the filter or its link.
+   */
+  tags: MoodTag[]
   /** One sentence in the query's language, or `null` when the model gave none. */
   interpretation: string | null
 }
@@ -163,6 +171,7 @@ export function sanitiseParse(parse: AskParse, taxonomy: Taxonomy): UnderstoodQu
     filter: canonical.filter,
     sort: canonical.sort,
     similarTo,
+    tags: [...new Set(parse.tags)].filter(isMoodTag).slice(0, MAX_TAGS),
     interpretation: modelLine(parse.interpretation, MAX_INTERPRETATION_LENGTH),
   }
 }
