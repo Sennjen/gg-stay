@@ -148,13 +148,17 @@ through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
 Switch до 500 грн" — into the catalog filter it means and a short ranked list
 with one reason per game, using Claude Haiku 4.5 through the official
 Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
-query to a filter (re-validated against the live taxonomy, then run through
-the same resolvers as `/games`) plus up to three mood tags, one picks up to 8
-of the 24 most relevant candidates and says why each fits. The answer is
-`{ mode, interpretation, filter, catalogUrl, items: [{ card, reason }],
-ignoredFilters, indexStale, matchedTags, tookMs }`: `ignoredFilters` and
-`indexStale` are those of the catalog page the cards came from, as `/games`
-reports them (`indexStale` is `false` when no page answered).
+query to a filter (re-validated against the live taxonomy) plus up to three
+mood tags, one picks up to 8 of the 24 most relevant candidates and says why
+each fits. The candidates come from the price and localisation index whenever
+it can express everything understood — almost always, in a fraction of a
+second; only a title search goes to RAWG, for at most 4 s and one attempt,
+after which the index answers the rest and names the dropped field. The answer
+is `{ mode, interpretation, filter, catalogUrl, items: [{ card, reason }],
+ignoredFilters, indexStale, indexedOnly, matchedTags, tookMs }`:
+`ignoredFilters`, `indexStale` and `indexedOnly` mean what they mean on a
+catalog page (`indexedOnly`: the cards are from the index's games alone), and
+are `false`/empty when no page answered.
 
 - **Mood tags:** words the catalog has no filter for — "горор", "рогалик",
   "затишна" — become RAWG tags from a fixed list of 48 (`shared/moodTags.ts`).
