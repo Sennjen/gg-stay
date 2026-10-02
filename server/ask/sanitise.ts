@@ -74,8 +74,15 @@ function platformIdsOf(families: readonly PlatformFamilyValue[]): number[] {
 }
 
 function oneLine(value: string | null, max: number): string | null {
-  const text = value?.replace(/\s+/g, ' ').trim().slice(0, max).trim()
-  return text ? text : null
+  const text = value?.replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  if (text.length <= max) return text
+  // Over the limit: end at the last whole word that fits with the ellipsis, so a visitor never
+  // reads half a word; only a single word longer than the limit is cut inside the word.
+  const room = text.slice(0, max - 1)
+  const lastSpace = room.lastIndexOf(' ')
+  const kept = (lastSpace > 0 ? room.slice(0, lastSpace) : room).replace(/[\s,;:–—-]+$/u, '')
+  return `${kept}…`
 }
 
 const URL_LIKE = /\b(?:https?:\/\/|www\.)\S*/gi
