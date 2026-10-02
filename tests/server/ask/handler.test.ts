@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
 import type { GraphQLContext } from '../../../server/graphql/context'
 import {
@@ -23,6 +23,7 @@ import {
   fixtureRawg,
   fixtureSteam,
   noSteamPrices,
+  overriding,
   publishTestIndex,
   TEST_INDEX_META,
   TEST_NOW,
@@ -190,7 +191,10 @@ describe('POST /api/ask — answers', () => {
       ignoredFilters: [],
       indexStale: false,
       items: [
-        { card: { id: '13537' }, reason: 'Гнітюча атмосфера Сіті 17, українські субтитри' },
+        {
+          card: { id: '13537' },
+          reason: 'Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
+        },
         { card: { id: '41494' } },
         { card: { id: '3328' } },
       ],
@@ -354,12 +358,23 @@ describe('POST /api/ask — logging', () => {
       outputTokens: 0,
       costUsd: 0,
       items: 3,
+      ms: {
+        context: expect.any(Number),
+        indexState: expect.any(Number),
+        cache: expect.any(Number),
+        genres: expect.any(Number),
+        parse: expect.any(Number),
+        retrieve: expect.any(Number),
+        describe: expect.any(Number),
+        rerank: expect.any(Number),
+      },
     })
     expect(logs[1]).toMatchObject({
       status: 200,
       mode: 'fallback',
       failure: 'unrecorded',
       search: 'ok',
+      ms: { parse: expect.any(Number), search: expect.any(Number) },
     })
     expect(logs.at(-1)).toEqual({ status: 429 })
     const text = JSON.stringify(logs)
@@ -456,5 +471,31 @@ describe('POST /api/ask — the cached entry', () => {
     const second = (await ask(deps, { q: QUERY, locale: 'uk' })).body as Record<string, unknown>
     expect(first.indexStale).toBe(false)
     expect(second).toHaveProperty('indexStale', false)
+  })
+})
+
+describe('POST /api/ask — the cold path', () => {
+  it('starts the parse while the index state is still being read', async () => {
+    const index = await publishTestIndex(GAMES)
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const slowMeta = overriding(index, { meta: () => gate.then(() => index.meta()) })
+    const { deps, calls } = await harness({
+      context: async () => ({
+        rawg: fixtureRawg,
+        steam: fixtureSteam,
+        today: TEST_TODAY,
+        now: TEST_NOW,
+        index: slowMeta,
+        steamPrices: noSteamPrices,
+        cache: createTestCache(),
+      }),
+    })
+    const answering = ask(deps, { q: QUERY, locale: 'uk' })
+    await vi.waitFor(() => expect(calls.parse).toBe(1))
+    release()
+    expect((await answering).body).toMatchObject({ mode: 'structured' })
   })
 })

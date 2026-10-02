@@ -5,6 +5,7 @@ import {
   collectCandidates,
   indexTags,
   isStoreTag,
+  moodTagsFrom,
   MAX_INDEXED_TAGS,
   MIN_TAG_GAMES_COUNT,
   previewOf,
@@ -57,6 +58,8 @@ describe('collectCandidates', () => {
       // `singleplayer` is already the game mode and `steam-achievements` describes the store;
       // `atmospheric` carries no language, as the hand-written fixture has it, and is kept.
       tags: ['atmospheric', 'story-rich'],
+      // Both are mood tags as well, kept for the ask facets whatever the cut above keeps.
+      moodTags: ['atmospheric', 'story-rich'],
       stores: ['steam', 'gog'],
       gameModes: ['SINGLE'],
       ageRating: 'PEGI18',
@@ -377,6 +380,20 @@ describe('indexTags', () => {
     expect(kept).toContain('survival-horror')
     expect(kept).not.toContain('horror')
     expect(kept).not.toContain('volga-river')
+  })
+
+  it('keeps every mood tag apart from the cut, the broad ones included', () => {
+    const metro = [
+      eng('atmospheric', 34_000),
+      eng('horror', 45_000),
+      eng('first-person', 30_000),
+      { id: 9, slug: 'uzhasy', name: 'Ужасы', language: 'rus' },
+      eng('survival-horror', 8_500),
+      eng('horror', 45_000),
+      eng('chernobyl', 700),
+    ]
+    expect(moodTagsFrom(metro)).toEqual(['atmospheric', 'horror', 'survival-horror'])
+    expect(moodTagsFrom(null)).toEqual([])
   })
 
   it('drops the long tail even when the game has few tags', () => {

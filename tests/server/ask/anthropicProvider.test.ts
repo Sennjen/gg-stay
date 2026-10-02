@@ -65,6 +65,7 @@ const hang: Reply = (_request, init) =>
 const PARSE_ANSWER = {
   platforms: ['NINTENDO'],
   genres: [],
+  tags: [],
   gameModes: ['LOCAL_COOP'],
   ageRating: [],
   playtime: null,
@@ -198,6 +199,7 @@ describe('the Anthropic provider', () => {
     const { client, requests } = clientReplying(() => message(JSON.stringify({ items: [] })))
     await createAnthropicProvider({ client }).rerank(QUERY, [CANDIDATE], 'uk')
     expect(JSON.stringify(requests[0]!.body.output_config)).toContain('maxLength: 100')
+    expect(JSON.stringify(requests[0]!.body.output_config)).toContain('maxItems: 8')
   })
 
   it('reports a missing parsed output as a schema failure', async () => {

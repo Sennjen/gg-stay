@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readParse, readRerank, type AskParse } from '../../../server/ask/schemas'
-import { catalogUrl, sanitiseParse } from '../../../server/ask/sanitise'
+import { catalogUrl, plainReason, sanitiseParse } from '../../../server/ask/sanitise'
+import recorded from '../../fixtures/ask/recorded.json' with { type: 'json' }
 
 /**
  * What the server does with whatever a model returned: the lenient reader drops values it does
@@ -14,6 +15,7 @@ const GENRES = ['action', 'indie', 'puzzle', 'role-playing-games-rpg', 'shooter'
 const EMPTY: AskParse = {
   platforms: [],
   genres: [],
+  tags: [],
   gameModes: [],
   ageRating: [],
   playtime: null,
@@ -46,6 +48,7 @@ describe('readParse', () => {
       platforms: ['NINTENDO', 'DREAMCAST', 7],
       gameModes: ['LOCAL_COOP', 'COUCH'],
       ageRating: ['PEGI3', 'ESRB_E'],
+      tags: ['horror', 'scary', 'Horror'],
       playtime: 'FOREVER',
       ukrainianLocalisation: 'SUBTITLES',
       sort: 'RANDOM',
@@ -54,6 +57,7 @@ describe('readParse', () => {
       platforms: ['NINTENDO'],
       gameModes: ['LOCAL_COOP'],
       ageRating: ['PEGI3'],
+      tags: ['horror'],
       playtime: null,
       ukrainianLocalisation: null,
       sort: null,
@@ -198,6 +202,18 @@ describe('sanitiseParse', () => {
     expect(understood.similarTo).toBe('hades')
   })
 
+  it('keeps up to three known mood tags, outside the filter and its link', () => {
+    const understood = sanitise({
+      tags: ['horror', 'atmospheric', 'horror', 'roguelike', 'cozy' as never, 'zombies'],
+      ukrainianLocalisation: 'ANY',
+    })
+    expect(understood.tags).toEqual(['horror', 'atmospheric', 'roguelike'])
+    expect(understood.filter).toEqual({ ukrainianLocalisation: 'ANY' })
+    expect(catalogUrl(understood.filter, understood.sort, 'uk')).toBe(
+      '/games?ukrainianLocalisation=ANY',
+    )
+  })
+
   it('reports an empty interpretation as none', () => {
     expect(sanitise({ interpretation: '   ' }).interpretation).toBeNull()
   })
@@ -258,5 +274,44 @@ describe('catalogUrl', () => {
 
   it('is the bare catalog for an empty filter', () => {
     expect(catalogUrl({}, 'POPULARITY_DESC', 'en')).toBe('/en/games')
+  })
+})
+
+describe('plainReason', () => {
+  it.each([
+    'Кооператив для двох, LOCAL_COOP, 25 грн, Switch',
+    'Only 499 ₴ right now',
+    'Коштує 120 гривень',
+    'Costs UAH 300 on sale',
+    'Rated PEGI18 for its gore',
+    'Fits the ONLINE_COOP filter',
+    'A SOME_CODE slipped in',
+    'Runs great on PC',
+    'One of the best games on Nintendo Switch',
+    'Повна українська озвучка на PlayStation',
+  ])('rejects a reason that echoes the filter: %s', (reason) => {
+    expect(plainReason(reason)).toBeNull()
+  })
+
+  it.each([
+    'Хаос на кухні, де без злагодженої команди все горить',
+    'A lighthouse, a storm and a keeper slowly losing his mind',
+    'A steampunk city of 100 floors to climb',
+    'Неквапливі головоломки з порталами під дотепні коментарі GLaDOS',
+  ])('keeps a reason about the game itself: %s', (reason) => {
+    expect(plainReason(reason)).toBe(reason)
+  })
+
+  it('passes every reason the recorded answers give, each within 100 characters', () => {
+    const reasons = (
+      recorded as { answers: { rerank?: { items: { reason: string }[] } }[] }
+    ).answers
+      .flatMap((answer) => answer.rerank?.items ?? [])
+      .map((item) => item.reason)
+    expect(reasons.length).toBeGreaterThanOrEqual(15)
+    for (const reason of reasons) {
+      expect(plainReason(reason)).toBe(reason)
+      expect(reason.length).toBeLessThanOrEqual(100)
+    }
   })
 })

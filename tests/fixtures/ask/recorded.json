@@ -3,9 +3,14 @@
     {
       "query": "кооператив для двох на Switch до 500 грн",
       "parse": {
-        "platforms": ["NINTENDO"],
+        "platforms": [
+          "NINTENDO"
+        ],
         "genres": [],
-        "gameModes": ["LOCAL_COOP"],
+        "tags": [],
+        "gameModes": [
+          "LOCAL_COOP"
+        ],
         "ageRating": [],
         "playtime": null,
         "yearFrom": null,
@@ -24,19 +29,36 @@
       },
       "rerank": {
         "items": [
-          { "id": "9102", "reason": "Хаотичний кооператив на кухні для двох на одному екрані" },
-          { "id": "9101", "reason": "Платформер, який проходять лише вдвох, на Switch" },
-          { "id": "9104", "reason": "Спокійна ферма, де другий гравець приєднується локально" },
-          { "id": "777777", "reason": "Гра, якої немає серед кандидатів" }
+          {
+            "id": "9102",
+            "reason": "Хаос на кухні, де без злагодженої команди все горить"
+          },
+          {
+            "id": "9101",
+            "reason": "Дві плетені істоти, зв'язані ниткою, розгадують головоломки разом"
+          },
+          {
+            "id": "9104",
+            "reason": "Спокійне господарство, де другий фермер завжди знайде роботу"
+          },
+          {
+            "id": "777777",
+            "reason": "Гра, якої немає серед кандидатів"
+          }
         ]
       }
     },
     {
       "query": "co-op for two on Switch under 500 UAH",
       "parse": {
-        "platforms": ["NINTENDO"],
+        "platforms": [
+          "NINTENDO"
+        ],
         "genres": [],
-        "gameModes": ["LOCAL_COOP"],
+        "tags": [],
+        "gameModes": [
+          "LOCAL_COOP"
+        ],
         "ageRating": [],
         "playtime": null,
         "yearFrom": null,
@@ -55,9 +77,18 @@
       },
       "rerank": {
         "items": [
-          { "id": "9102", "reason": "Chaotic kitchen co-op for two on one screen" },
-          { "id": "9101", "reason": "A platformer built for exactly two players" },
-          { "id": "9104", "reason": "A calm farm a second player can join locally" }
+          {
+            "id": "9102",
+            "reason": "Kitchen chaos where nothing works without a tight team"
+          },
+          {
+            "id": "9101",
+            "reason": "Two yarn creatures tied by one thread solve every puzzle together"
+          },
+          {
+            "id": "9104",
+            "reason": "A calm farm where a second farmer always finds something to do"
+          }
         ]
       }
     },
@@ -66,6 +97,10 @@
       "parse": {
         "platforms": [],
         "genres": [],
+        "tags": [
+          "horror",
+          "atmospheric"
+        ],
         "gameModes": [],
         "ageRating": [],
         "playtime": null,
@@ -85,9 +120,18 @@
       },
       "rerank": {
         "items": [
-          { "id": "13537", "reason": "Гнітюча атмосфера Сіті 17, українські субтитри" },
-          { "id": "41494", "reason": "Темне місто майбутнього, український інтерфейс і субтитри" },
-          { "id": "3328", "reason": "Похмурий світ із чудовиськами, повна українська озвучка" }
+          {
+            "id": "13537",
+            "reason": "Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею"
+          },
+          {
+            "id": "41494",
+            "reason": "Неонове місто, де кожен провулок ховає щось темне"
+          },
+          {
+            "id": "3328",
+            "reason": "Болота, прокляті маєтки й чудовиська, на яких полює відьмак"
+          }
         ]
       }
     },
@@ -96,6 +140,7 @@
       "parse": {
         "platforms": [],
         "genres": [],
+        "tags": [],
         "gameModes": [],
         "ageRating": [],
         "playtime": null,
@@ -115,9 +160,148 @@
       },
       "rerank": {
         "items": [
-          { "id": "16944", "reason": "The previous Witcher: the same world and the same hero" },
-          { "id": "41494", "reason": "A story-driven action RPG from the same studio" },
-          { "id": "17857", "reason": "An action RPG with a bleak, open world" }
+          {
+            "id": "16944",
+            "reason": "The previous chapter: Geralt's memory returns amid a war of kings"
+          },
+          {
+            "id": "41494",
+            "reason": "From the same studio: branching quests in a city that never sleeps"
+          },
+          {
+            "id": "17857",
+            "reason": "A bleak, irradiated Zone where every anomaly can kill"
+          }
+        ]
+      }
+    },
+    {
+      "query": "щось затишне на вечір",
+      "parse": {
+        "platforms": [],
+        "genres": [],
+        "tags": [
+          "relaxing",
+          "cute"
+        ],
+        "gameModes": [],
+        "ageRating": [],
+        "playtime": null,
+        "yearFrom": null,
+        "yearTo": null,
+        "metacriticMin": null,
+        "ratingMin": null,
+        "priceMaxUah": null,
+        "free": null,
+        "onSaleMinPercent": null,
+        "ukrainianLocalisation": null,
+        "madeInUkraine": null,
+        "sort": null,
+        "searchText": null,
+        "similarTo": null,
+        "interpretation": "Затишні, спокійні ігри на один вечір"
+      },
+      "rerank": {
+        "items": [
+          {
+            "id": "654",
+            "reason": "Грядки, риболовля й сусіди — ферма, де нікуди не треба поспішати"
+          },
+          {
+            "id": "4200",
+            "reason": "Неквапливі головоломки з порталами під дотепні коментарі GLaDOS"
+          },
+          {
+            "id": "3328",
+            "reason": "Можна годинами блукати виноградниками Туссента й грати в гвинт у корчмі"
+          }
+        ]
+      }
+    },
+    {
+      "query": "story-rich RPG with choices that matter",
+      "parse": {
+        "platforms": [],
+        "genres": [
+          "role-playing-games-rpg"
+        ],
+        "tags": [
+          "story-rich",
+          "choices-matter"
+        ],
+        "gameModes": [],
+        "ageRating": [],
+        "playtime": null,
+        "yearFrom": null,
+        "yearTo": null,
+        "metacriticMin": null,
+        "ratingMin": null,
+        "priceMaxUah": null,
+        "free": null,
+        "onSaleMinPercent": null,
+        "ukrainianLocalisation": null,
+        "madeInUkraine": null,
+        "sort": null,
+        "searchText": null,
+        "similarTo": null,
+        "interpretation": "Story-driven role-playing games where choices change the outcome"
+      },
+      "rerank": {
+        "items": [
+          {
+            "id": "3328",
+            "reason": "Every contract hides a moral knot, and whole villages remember what you chose"
+          },
+          {
+            "id": "654",
+            "reason": "Your pace, your friendships: small daily choices slowly reshape a whole town"
+          },
+          {
+            "id": "4200",
+            "reason": "Not an RPG, but its sharp writing and late twists reward players who love a story"
+          }
+        ]
+      }
+    },
+    {
+      "query": "головоломки на кілька вечорів",
+      "parse": {
+        "platforms": [],
+        "genres": [],
+        "tags": [
+          "puzzle"
+        ],
+        "gameModes": [],
+        "ageRating": [],
+        "playtime": null,
+        "yearFrom": null,
+        "yearTo": null,
+        "metacriticMin": null,
+        "ratingMin": null,
+        "priceMaxUah": null,
+        "free": null,
+        "onSaleMinPercent": null,
+        "ukrainianLocalisation": null,
+        "madeInUkraine": null,
+        "sort": null,
+        "searchText": null,
+        "similarTo": null,
+        "interpretation": "Ігри-головоломки, яких вистачить на кілька вечорів"
+      },
+      "rerank": {
+        "items": [
+          {
+            "id": "4200",
+            "reason": "Портали, фізика й кмітливість: кожна кімната — нова задачка на вечір"
+          },
+          {
+            "id": "654",
+            "reason": "Між сезонами розплутуєш, як найкраще засадити поле й устигнути до свята"
+          },
+          {
+            "id": "3328",
+            "reason": "Між боями — загадки ельфійських руїн і справжні детективні розслідування"
+          }
         ]
       }
     }

@@ -47,7 +47,9 @@ describe('POST /api/ask in fixture mode', async () => {
     }
     expect(answer.mode).toBe('structured')
     expect(answer.items.map((item) => item.card.id)).toEqual(['13537', '41494', '3328'])
-    expect(answer.items[0]!.reason).toBe('Гнітюча атмосфера Сіті 17, українські субтитри')
+    expect(answer.items[0]!.reason).toBe(
+      'Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
+    )
   })
 
   it('falls back to a plain search for a query nobody recorded', async () => {

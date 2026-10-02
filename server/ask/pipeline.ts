@@ -3,19 +3,23 @@ import { DEFAULT_SORT, type CatalogFilter } from '../../shared/filterUrl'
 import type { GraphQLContext } from '../graphql/context'
 import {
   cachedIndexPage,
+  INDEX_SORTS,
   indexFailed,
   indexState,
+  priceFiltersUsed,
   toIndexQuery,
   warnIndexOnce,
+  withoutPriceFilters,
   withoutPrices,
 } from '../graphql/indexPath'
 import { catalogPage } from '../graphql/resolvers/games'
 import type { GameCard } from '../graphql/__generated__/resolvers-types'
 import type { IndexedGame } from '../index/document'
+import type { IndexQuery } from '../index/GameIndex'
 import { toGameCard } from '../index/toGraphql'
 import { mapTaxonomy } from '../rawg/mappers'
 import type { RawgList, RawgTaxonomy } from '../rawg/types'
-import type { CandidateCard } from './prompts'
+import { RAWG_GENRES, type CandidateCard } from './prompts'
 import {
   addUsage,
   NO_USAGE,
@@ -25,14 +29,15 @@ import {
   type LlmResult,
   type LlmUsage,
 } from './provider'
-import { catalogUrl, modelLine, sanitiseParse, type UnderstoodQuery } from './sanitise'
-import { MAX_REASON_LENGTH, type AskLocale } from './schemas'
+import { catalogUrl, modelLine, plainReason, sanitiseParse, type UnderstoodQuery } from './sanitise'
+import { MAX_ANSWERS, MAX_REASON_LENGTH, type AskLocale } from './schemas'
 
 /**
  * `POST /api/ask` below HTTP: parse → sanitise → retrieve → rerank → answer.
  *
- * 1. **Parse.** The model reads the query against the live genre list; the sanitiser re-validates
- *    everything it said (`server/ask/sanitise.ts`).
+ * 1. **Parse.** The model reads the query against RAWG's genre list and the mood tags; the
+ *    sanitiser re-validates everything it said against the live taxonomy, read meanwhile
+ *    (`server/ask/sanitise.ts`).
  * 2. **Retrieve.** The understood filter goes through `catalogPage`, the function behind the
  *    `games` field, so the index path or the RAWG path answers exactly as it would for `/games`,
  *    with up to `MAX_CANDIDATES` games — and the filters that path could not apply are reported in
@@ -56,8 +61,9 @@ import { MAX_REASON_LENGTH, type AskLocale } from './schemas'
  */
 
 export const MAX_CANDIDATES = 40
-export const MAX_ITEMS = 12
-export const FALLBACK_SIZE = 12
+/** Ranked or not, an answer shows at most this many games (`MAX_ANSWERS`). */
+export const MAX_ITEMS = MAX_ANSWERS
+export const FALLBACK_SIZE = MAX_ANSWERS
 /** Fewer surviving ranked ids than this, and the retrieval order is used instead. */
 export const MIN_RANKED = 3
 /** The whole request, from its arrival to the answer, fallback search included. */
@@ -66,8 +72,18 @@ export const TOTAL_BUDGET_MS = 12_000
 export const FALLBACK_RESERVE_MS = 3_000
 /** The genre list may take this long; past it the parse runs without genres. */
 export const GENRES_TIMEOUT_MS = 1_500
-/** Tags per candidate card: enough to describe a game, few enough to keep forty cards short. */
-const CARD_TAGS = 6
+/**
+ * The most candidates the rerank is shown, most relevant first. Its time is mostly the reasons it
+ * writes, but every card is input to read, and twenty-four leave the eight answers a real choice.
+ */
+export const MAX_RERANKED = 24
+/**
+ * The rerank must answer this long before the structured attempt ends, so its own deadline — not
+ * the attempt's — decides, and a late ranking costs the reasons, not the whole answer.
+ */
+export const RERANK_MARGIN_MS = 300
+/** Tags per candidate card: enough to describe a game, few enough to keep the cards short. */
+const CARD_TAGS = 8
 
 export interface AskRequest {
   q: string
@@ -98,6 +114,12 @@ export interface AskAnswer {
    * it is then unknown; a fallback whose search answered reports that page's own value.
    */
   indexStale: boolean
+  /**
+   * Mood tags the cards were also matched on ("horror", "roguelike"). The catalog has no tag
+   * filter, so they are not in `filter` or `catalogUrl`; the page can say "also matched on …".
+   * Empty when no tag shaped the cards.
+   */
+  matchedTags: string[]
   tookMs: number
 }
 
@@ -119,7 +141,25 @@ export interface AskOutcome {
    * filter was ignored, or the ranking failed. The response cache keeps it briefly.
    */
   degraded: boolean
+  /** How long each step took, in ms — only the steps that ran. */
+  timings: AskTimings
 }
+
+/**
+ * The steps a request's time goes to, for the log line. The handler adds its own three
+ * (`context`, `indexState`, `cache`); `genres` and `indexState` run beside `parse`, not before it.
+ */
+export type AskStep =
+  | 'context'
+  | 'indexState'
+  | 'cache'
+  | 'genres'
+  | 'parse'
+  | 'retrieve'
+  | 'describe'
+  | 'rerank'
+  | 'search'
+export type AskTimings = Partial<Record<AskStep, number>>
 
 export interface AskPipelineDeps {
   context: GraphQLContext
@@ -174,28 +214,60 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
   const deadline = deps.deadline ?? started + TOTAL_BUDGET_MS
   const structuredDeadline = deadline - FALLBACK_RESERVE_MS
   const controller = new AbortController()
+  const timings: AskTimings = {}
   let usage = NO_USAGE
 
-  /** One model call with what is left of the structured budget, its cost recorded whatever the outcome. */
-  async function spend<T>(
-    call: (timeoutMs: number) => Promise<LlmResult<T>>,
-  ): Promise<LlmResult<T>> {
-    const timeoutMs = Math.max(1, Math.min(REQUEST_TIMEOUT_MS, structuredDeadline - now()))
-    const result = await call(timeoutMs)
-    usage = addUsage(usage, result.usage)
-    return result
+  /** `work`, with how long it took recorded under `step` however it ends. */
+  const timed = <T>(step: AskStep, work: Promise<T>): Promise<T> => {
+    const from = now()
+    return work.finally(() => {
+      timings[step] = Math.max(0, now() - from)
+    })
   }
 
-  const finish = (answer: Answered, rest: Omit<AskOutcome, 'answer' | 'usage'>): AskOutcome => ({
+  /**
+   * One model call that must be answered by `callDeadline`: its own timeout is what is left until
+   * then (at most `REQUEST_TIMEOUT_MS`), and it is aborted at that moment — which also stops the
+   * client's one retry — or when the whole attempt is. Its cost is recorded whatever the outcome.
+   */
+  async function spend<T>(
+    callDeadline: number,
+    call: (signal: AbortSignal, timeoutMs: number) => Promise<LlmResult<T>>,
+  ): Promise<LlmResult<T>> {
+    const remaining = Math.max(1, callDeadline - now())
+    const own = new AbortController()
+    const timer = setTimeout(() => own.abort(), remaining)
+    const abort = () => own.abort()
+    controller.signal.addEventListener('abort', abort)
+    try {
+      const result = await call(own.signal, Math.min(REQUEST_TIMEOUT_MS, remaining))
+      usage = addUsage(usage, result.usage)
+      return result
+    } finally {
+      clearTimeout(timer)
+      controller.signal.removeEventListener('abort', abort)
+    }
+  }
+
+  const finish = (
+    answer: Answered,
+    rest: Omit<AskOutcome, 'answer' | 'usage' | 'timings'>,
+  ): AskOutcome => ({
     answer: { ...answer, tookMs: Math.max(0, now() - started) },
     usage,
+    timings,
     ...rest,
   })
 
   let failure: AskFallbackReason
   try {
     const result = await within(
-      structured(request, deps.context, deps.provider, controller.signal, spend),
+      structured(request, deps.context, deps.provider, {
+        spend,
+        timed,
+        parseDeadline: structuredDeadline,
+        rerankDeadline: structuredDeadline - RERANK_MARGIN_MS,
+      }),
       structuredDeadline - now(),
       () => controller.abort(),
     )
@@ -214,7 +286,7 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
   }
 
   const searched = await within(
-    fallback(request, deps.context),
+    timed('search', fallback(request, deps.context)),
     Math.max(deadline - now(), FALLBACK_RESERVE_MS),
   )
   if (searched === EXPIRED) {
@@ -233,21 +305,36 @@ export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promis
   })
 }
 
-type Spend = <T>(call: (timeoutMs: number) => Promise<LlmResult<T>>) => Promise<LlmResult<T>>
+interface StructuredTools {
+  spend: <T>(
+    callDeadline: number,
+    call: (signal: AbortSignal, timeoutMs: number) => Promise<LlmResult<T>>,
+  ) => Promise<LlmResult<T>>
+  timed: <T>(step: AskStep, work: Promise<T>) => Promise<T>
+  parseDeadline: number
+  rerankDeadline: number
+}
 
 async function structured(
   request: AskRequest,
   context: GraphQLContext,
   provider: LlmProvider,
-  signal: AbortSignal,
-  spend: Spend,
+  tools: StructuredTools,
 ): Promise<StructuredResult> {
-  const genres = await genreSlugs(context)
-  const parsed = await spend((timeoutMs) =>
-    provider.parse(request.q, request.locale, { genres, signal, timeoutMs }),
+  const { spend, timed } = tools
+  // The parse starts at once, with RAWG's genre list as the prompt names it. The live taxonomy —
+  // which the answer is checked against — and the index state are read beside it, not before it.
+  const liveGenres = timed('genres', genreSlugs(context))
+  indexState(context).catch(() => undefined)
+  const parsed = await timed(
+    'parse',
+    spend(tools.parseDeadline, (signal, timeoutMs) =>
+      provider.parse(request.q, request.locale, { genres: RAWG_GENRES, signal, timeoutMs }),
+    ),
   )
   if (!parsed.ok) throw new Fallback(parsed.failure)
-  const understood = sanitiseParse(parsed.value, { genres })
+  const live = await liveGenres
+  const understood = sanitiseParse(parsed.value, { genres: live.length ? live : RAWG_GENRES })
   const base = {
     mode: 'structured' as const,
     interpretation: understood.interpretation,
@@ -259,7 +346,7 @@ async function structured(
   // list of popular games would be an answer to a question nobody asked.
   if (isEmpty(understood)) {
     return {
-      answer: { ...base, items: [], ignoredFilters: [], indexStale: false },
+      answer: { ...base, items: [], ignoredFilters: [], indexStale: false, matchedTags: [] },
       rerankFailure: null,
       degraded: false,
     }
@@ -267,7 +354,7 @@ async function structured(
 
   let retrieved: Retrieved
   try {
-    retrieved = await retrieve(context, understood)
+    retrieved = await timed('retrieve', retrieve(context, understood))
   } catch {
     throw new Fallback('retrieval')
   }
@@ -278,27 +365,42 @@ async function structured(
     (await indexState(context)).meta === null ||
     ignoredFilters.length > 0
   const answered = (items: AskItem[], rerankFailure: AskFailure | null): StructuredResult => ({
-    answer: { ...base, items, ignoredFilters, indexStale: retrieved.indexStale },
+    answer: {
+      ...base,
+      items,
+      ignoredFilters,
+      indexStale: retrieved.indexStale,
+      matchedTags: retrieved.matchedTags,
+    },
     rerankFailure,
     degraded: indexDegraded || rerankFailure !== null,
   })
 
   if (candidates.length < MIN_RANKED) return answered(inRetrievalOrder(candidates), null)
 
-  const cards = await candidateCards(context, candidates)
-  const ranking = await spend((timeoutMs) =>
-    provider.rerank(request.q, cards, request.locale, { signal, timeoutMs }),
+  const shown = candidates.slice(0, MAX_RERANKED)
+  const cards = await timed('describe', candidateCards(context, shown))
+  const ranking = await timed(
+    'rerank',
+    spend(tools.rerankDeadline, (signal, timeoutMs) =>
+      provider.rerank(request.q, cards, request.locale, {
+        signal,
+        timeoutMs,
+        interpretation: understood.interpretation,
+      }),
+    ),
   )
-  // A failed or cut-off ranking is no reason to drop a filter that was understood correctly: the
-  // candidates are served in the catalog's own order, without reasons.
+  // A failed, cut-off or late ranking is no reason to drop a filter that was understood
+  // correctly: the candidates are served in the catalog's own order, without reasons.
   if (!ranking.ok) return answered(inRetrievalOrder(candidates), ranking.failure)
-  const ranked = rankedItems(candidates, ranking.value.items)
+  const ranked = rankedItems(shown, ranking.value.items)
   return answered(ranked.length >= MIN_RANKED ? ranked : inRetrievalOrder(candidates), null)
 }
 
 function isEmpty(understood: UnderstoodQuery): boolean {
   return (
     Object.keys(understood.filter).length === 0 &&
+    understood.tags.length === 0 &&
     understood.similarTo === null &&
     understood.sort === DEFAULT_SORT
   )
@@ -306,7 +408,8 @@ function isEmpty(understood: UnderstoodQuery): boolean {
 
 /**
  * The live genre slugs, sorted; none when the taxonomy cannot be read within `GENRES_TIMEOUT_MS`
- * (it is normally a cache hit), so a slow upstream cannot spend the model's time.
+ * (it is normally a cache hit). Read beside the parse, whose genres are then checked against it —
+ * or against `RAWG_GENRES` when it could not be read.
  */
 async function genreSlugs(context: GraphQLContext): Promise<string[]> {
   try {
@@ -325,21 +428,17 @@ interface Retrieved {
   candidates: GameCard[]
   ignoredFilters: string[]
   indexStale: boolean
+  /** The mood tags the candidates were matched on; empty when no tag shaped them. */
+  matchedTags: string[]
 }
 
 async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
-  const hasFilter = Object.keys(understood.filter).length > 0 || understood.sort !== DEFAULT_SORT
+  const hasFilter =
+    Object.keys(understood.filter).length > 0 ||
+    understood.sort !== DEFAULT_SORT ||
+    understood.tags.length > 0
   const byFilter = (): Promise<Retrieved> =>
-    catalogPage(context, {
-      filter: understood.filter,
-      sort: understood.sort,
-      page: 1,
-      pageSize: MAX_CANDIDATES,
-    }).then((page) => ({
-      candidates: page.items,
-      ignoredFilters: page.ignoredFilters,
-      indexStale: page.indexStale,
-    }))
+    understood.tags.length > 0 ? byTags(context, understood) : byCatalog(context, understood)
 
   if (understood.similarTo === null) return byFilter()
 
@@ -354,6 +453,7 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
       candidates: similar.cards.slice(0, MAX_CANDIDATES),
       ignoredFilters: [],
       indexStale: similar.stale,
+      matchedTags: [],
     }
   }
 
@@ -368,7 +468,88 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
     ].slice(0, MAX_CANDIDATES),
     ignoredFilters: filtered.ignoredFilters,
     indexStale: filtered.indexStale || similar.stale,
+    matchedTags: filtered.matchedTags,
   }
+}
+
+/** The understood filter as the catalog would answer it: `catalogPage`, index or RAWG. */
+function byCatalog(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
+  return catalogPage(context, {
+    filter: understood.filter,
+    sort: understood.sort,
+    page: 1,
+    pageSize: MAX_CANDIDATES,
+  }).then((page) => ({
+    candidates: page.items,
+    ignoredFilters: page.ignoredFilters,
+    indexStale: page.indexStale,
+    matchedTags: [],
+  }))
+}
+
+/**
+ * The understood filter plus its mood tags, from the index's tag facets — the catalog has no tag
+ * filter, so `catalogPage` cannot be asked. Most relevant first: the games carrying every tag,
+ * then those carrying the most defining one (the parse lists it first), and only when that leaves
+ * fewer than `MIN_RANKED`, those carrying any of them. Fewer than that still, and the catalog's
+ * answer without the tags fills up the list behind them. A stale index drops the price filters
+ * and the price sorts and names them, exactly as `/games` does; an index that cannot answer leaves
+ * the catalog's answer alone, with no tag matched.
+ */
+async function byTags(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
+  const state = await indexState(context)
+  if (state.meta === null || indexFailed(context)) return byCatalog(context, understood)
+
+  const filter = state.stale ? (withoutPriceFilters(understood.filter) ?? {}) : understood.filter
+  const sort = state.stale && INDEX_SORTS.includes(understood.sort) ? DEFAULT_SORT : understood.sort
+  const ignoredFilters = state.stale ? priceFiltersUsed(understood.filter, understood.sort) : []
+  const base = toIndexQuery({
+    filter,
+    sort,
+    page: 1,
+    pageSize: MAX_CANDIDATES,
+    today: context.today,
+  })
+  const tags = understood.tags
+  const page = (query: IndexQuery) =>
+    cachedIndexPage(context, query, state.version).then((answer) => answer.items)
+
+  let groups: GameCard[][]
+  try {
+    groups = await Promise.all([
+      tags.length > 1 ? page({ ...base, tags, tagMatch: 'all' }) : Promise.resolve([]),
+      page({ ...base, tags: [tags[0]!] }),
+      tags.length > 1 ? page({ ...base, tags }) : Promise.resolve([]),
+    ])
+  } catch (error) {
+    warnIndexOnce(context, 'the mood tags of a query could not be read', error)
+    return byCatalog(context, understood)
+  }
+  const [every, defining, any] = groups as [GameCard[], GameCard[], GameCard[]]
+  let tagged = unique([...every, ...defining])
+  if (tagged.length < MIN_RANKED) tagged = unique([...tagged, ...any])
+  tagged = tagged.slice(0, MAX_CANDIDATES)
+  if (state.stale) tagged = withoutPrices(tagged)
+  const matched: Retrieved = {
+    candidates: tagged,
+    ignoredFilters,
+    indexStale: state.stale,
+    matchedTags: tagged.length > 0 ? [...tags] : [],
+  }
+  if (tagged.length >= MIN_RANKED) return matched
+
+  const catalog = await byCatalog(context, understood)
+  return {
+    candidates: unique([...tagged, ...catalog.candidates]).slice(0, MAX_CANDIDATES),
+    ignoredFilters: [...new Set([...ignoredFilters, ...catalog.ignoredFilters])],
+    indexStale: state.stale || catalog.indexStale,
+    matchedTags: matched.matchedTags,
+  }
+}
+
+function unique(cards: readonly GameCard[]): GameCard[] {
+  const seen = new Set<string>()
+  return cards.filter((card) => !seen.has(card.id) && Boolean(seen.add(card.id)))
 }
 
 /**
@@ -453,25 +634,25 @@ async function candidateCards(
   }
   return candidates.map((card) => {
     const document = documents.get(Number(card.id))
-    const localisation = card.localisation
     return {
       id: card.id,
       name: card.name,
       year: card.released ? Number(card.released.slice(0, 4)) || null : null,
       genres: document?.genres ?? card.genres.map((genre) => genre.slug),
-      tags: (document?.tags ?? []).slice(0, CARD_TAGS),
+      // The mood tags first — they are what a reason is made of — then the rarest-tags list.
+      tags: [...new Set([...(document?.moodTags ?? []), ...(document?.tags ?? [])])].slice(
+        0,
+        CARD_TAGS,
+      ),
       modes: document?.gameModes ?? [],
-      priceUah: card.price?.bestUah ?? null,
-      discountPercent: card.price?.discountPercent ?? 0,
-      free: card.price?.isFree ?? false,
-      ukrainian: localisation?.audio ? 'audio' : localisation?.text ? 'text' : null,
       hours: card.playtime ?? null,
     }
   })
 }
 
+/** A reason as shown, or `null` when it only echoes the filter back (`plainReason`). */
 function reasonOf(reason: string): string | null {
-  return modelLine(reason, MAX_REASON_LENGTH)
+  return plainReason(modelLine(reason, MAX_REASON_LENGTH))
 }
 
 /** The ranked ids that are candidates, each once, in the model's order. */
@@ -539,5 +720,6 @@ export function emptyFallback(request: AskRequest): Omit<AskAnswer, 'tookMs'> {
     items: [],
     ignoredFilters: [],
     indexStale: false,
+    matchedTags: [],
   }
 }
