@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   INDEXABLE,
   NOT_INDEXABLE,
+  askRobots,
   catalogRobots,
   metaDescription,
   robotsFor,
@@ -80,6 +81,16 @@ describe('metaDescription', () => {
   it('answers nothing for a missing or blank text', () => {
     expect(metaDescription(null)).toBe('')
     expect(metaDescription(' \n ')).toBe('')
+  })
+})
+
+describe('askRobots', () => {
+  it('lets the empty ask page be indexed', () => {
+    expect(askRobots('')).toBe(INDEXABLE)
+  })
+
+  it('keeps every answered question out of the index, links still followed', () => {
+    expect(askRobots('кооператив для двох')).toBe(NOT_INDEXABLE)
   })
 })
 

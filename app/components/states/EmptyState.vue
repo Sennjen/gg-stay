@@ -2,6 +2,7 @@
 defineProps<{ activeCount: number }>()
 defineEmits<{ clear: [] }>()
 const { t } = useI18n()
+const localePath = useLocalePath()
 </script>
 
 <template>
@@ -16,5 +17,14 @@ const { t } = useI18n()
     >
       {{ t('states.clearFilters') }}
     </button>
+    <!-- A way out that is not "remove a filter": the same search, described in words. -->
+    <p class="mt-6 text-sm text-fg-2">
+      {{ t('states.askHint') }}
+      <NuxtLink
+        :to="localePath('/ask')"
+        class="text-fg underline underline-offset-4 focus-visible:outline-2"
+        >{{ t('states.askLink') }}</NuxtLink
+      >
+    </p>
   </div>
 </template>

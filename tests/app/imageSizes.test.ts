@@ -7,6 +7,7 @@ import GameRow from '~/components/GameRow.vue'
 import HeroFeatured from '~/components/HeroFeatured.vue'
 import ScreenshotGallery from '~/components/ScreenshotGallery.vue'
 import ScreenshotGalleryLightbox from '~/components/ScreenshotGalleryLightbox.vue'
+import { ASK_CARD_IMAGE_SIZES } from '~/utils/rawgImage'
 
 /**
  * `@nuxt/image` accepts `breakpoint:value` pairs, not CSS media queries, and it fails silently on
@@ -144,6 +145,51 @@ describe('emitted image sizes', () => {
       { url: variant(640), descriptor: '840w' },
     ])
   })
+
+  it('ask page card asks for the full viewport on phones and its widest column above', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: { game, coverSizes: ASK_CARD_IMAGE_SIZES },
+    })
+    const cover = wrapper.findAll('img')[0]!
+
+    expect(cover.attributes('sizes')).toBe(
+      '(max-width: 639px) 100vw, (max-width: 1279px) 490px, 370px',
+    )
+    expectAscendingWidths(cover.attributes('srcset'))
+    expect(parseSrcset(cover.attributes('srcset'))).toEqual([
+      { url: variant(420), descriptor: '370w' },
+      { url: variant(420), descriptor: '420w' },
+      { url: variant(420), descriptor: '490w' },
+      { url: variant(640), descriptor: '740w' },
+      { url: variant(640), descriptor: '840w' },
+      { url: variant(1280), descriptor: '980w' },
+    ])
+  })
+
+  it.each([
+    // viewport, dpr, the CDN variant a browser resolves to, and why that is the right one
+    [375, 1, 420, 'one column on a phone: a ~343px slot'],
+    [375, 2, 640, 'the same phone at 2x needs ~686px'],
+    [800, 1, 420, 'two columns: the band claims its widest slot, 490px, which 420 covers'],
+    [1023, 2, 1280, 'two columns at 2x: ~975px, past what 640 covers'],
+    [1280, 1, 420, 'three columns in a capped container: a fixed ~363px slot'],
+    [1920, 2, 640, 'the container stops growing; 2x needs ~726px'],
+  ])(
+    'ask page card at %ipx DPR %i resolves to the %ipx CDN variant (%s)',
+    async (viewport, dpr, expected) => {
+      const wrapper = await mountSuspended(GameCard, {
+        props: { game, coverSizes: ASK_CARD_IMAGE_SIZES },
+      })
+      const cover = wrapper.findAll('img')[0]!
+      const chosen = resolveCandidate(
+        cover.attributes('sizes')!,
+        cover.attributes('srcset')!,
+        viewport,
+        dpr,
+      )
+      expect(chosen.url).toBe(variant(expected))
+    },
+  )
 
   it('landing row card asks for its fixed 280px slot, not the grid share', async () => {
     const wrapper = await mountSuspended(GameRow, { props: { title: 'Row', games: [game] } })

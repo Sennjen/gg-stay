@@ -125,6 +125,9 @@ export default defineNuxtConfig({
     screens: { sm: 420, md: 640, lg: 1280 },
   },
   nitro: {
+    // `/api/ask` holds one 12 s deadline and the `/ask` page can wait for it during a server render;
+    // pinning the function limit keeps a slow answer a fallback rather than a platform timeout.
+    vercel: { functions: { maxDuration: 30 } },
     // Vercel compresses at its edge; a node-server build serves `public/` itself and, without
     // this, sends every script and stylesheet uncompressed. The quality gates in CI (Lighthouse,
     // the bundle budget's server) run a node-server build, so it gets precompressed gzip and

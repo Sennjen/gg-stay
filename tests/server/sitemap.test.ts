@@ -253,7 +253,7 @@ describe('the sitemap responses', () => {
     expect(locs).toEqual([`${SITE}/sitemaps/static.xml`])
   })
 
-  it('lists the landing and the catalog in both locales, briefly cached if the date is missing', () => {
+  it('lists the landing, the catalog and the ask page in both locales, briefly cached if the date is missing', () => {
     const response = staticSitemapResponse(SITE, { updatedAt: 'T', complete: true })
     expect(response.headers).toEqual({ 'content-type': XML, 'cache-control': LONG })
     const urls = childrenNamed(parseXml(response.body), 'url')
@@ -262,8 +262,23 @@ describe('the sitemap responses', () => {
       `${SITE}/en`,
       `${SITE}/games`,
       `${SITE}/en/games`,
+      `${SITE}/ask`,
+      `${SITE}/en/ask`,
     ])
-    expect(urls.map((url) => childText(url, 'lastmod'))).toEqual(['T', 'T', 'T', 'T'])
+    expect(urls.map((url) => childText(url, 'lastmod'))).toEqual(['T', 'T', 'T', 'T', 'T', 'T'])
+    // The ask page is listed without a question: only the empty page is indexable.
+    for (const url of urls.slice(4)) {
+      expect(
+        childrenNamed(url, 'xhtml:link').map((link) => [
+          link.attributes.hreflang,
+          link.attributes.href,
+        ]),
+      ).toEqual([
+        ['uk', `${SITE}/ask`],
+        ['en', `${SITE}/en/ask`],
+        ['x-default', `${SITE}/ask`],
+      ])
+    }
     const degraded = staticSitemapResponse(SITE, { updatedAt: null, complete: false })
     expect(degraded.status).toBe(200)
     expect(degraded.headers['cache-control']).toBe(SHORT)

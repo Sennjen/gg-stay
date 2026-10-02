@@ -18,6 +18,15 @@ describe('AppHeader', () => {
     expect(wrapper.get('input[role="combobox"]').exists()).toBe(true)
   })
 
+  it('links the ask page from the primary navigation, beside the catalog', async () => {
+    const wrapper = await mountSuspended(AppHeader, { route: '/games' })
+    const nav = wrapper.get('nav[aria-label="Основна навігація"]')
+    expect(nav.findAll('a').map((link) => [link.text(), link.attributes('href')])).toEqual([
+      ['Каталог', '/games'],
+      ['Запитати', '/ask'],
+    ])
+  })
+
   it('gives the header bar a fixed height, shared via --header-h with sections that must run underneath it', async () => {
     const wrapper = await mountSuspended(AppHeader, { route: '/games' })
 

@@ -33,7 +33,8 @@
     "language": "Language",
     "languageFooter": "Site language (footer)",
     "skipToContent": "Skip to content",
-    "primary": "Primary navigation"
+    "primary": "Primary navigation",
+    "ask": "Ask"
   },
   "search": {
     "label": "Search games",
@@ -56,7 +57,9 @@
     "loading": "Loading…",
     "emptyTitle": "Nothing found",
     "emptyHint": "No games match these filters. Remove one or clear them all.",
-    "clearFilters": "Clear filters"
+    "clearFilters": "Clear filters",
+    "askHint": "Not sure which filters to pick?",
+    "askLink": "Describe it in words"
   },
   "errors": {
     "UPSTREAM_RATE_LIMITED": "Data source is busy, retrying…",
@@ -265,5 +268,39 @@
   },
   "rows": {
     "viewAll": "All games"
+  },
+  "ask": {
+    "title": "Describe a game in your own words",
+    "titleQuery": "“{query}” — game picks",
+    "description": "Describe the game you're after — genre, platform, price, who you play with — and GG Stay picks games from the catalog and says why each one fits.",
+    "lead": "Genre, platform, price, who you play with — write it the way you'd tell a friend. We'll pick games from the catalog and say why each one fits.",
+    "label": "What game are you looking for?",
+    "counter": "{count} of {max} characters",
+    "submit": "Find games",
+    "emptyQuestion": "Write a few words about the game you're looking for.",
+    "examplesLabel": "Or try an example:",
+    "examples": {
+      "coop": "co-op for two on Switch under 500 UAH",
+      "horror": "atmospheric horror in Ukrainian",
+      "hades": "something like Hades, but shorter"
+    },
+    "privacy": "Your question is sent to Anthropic to be read by a language model. We don't store questions together with IP addresses.",
+    "results": "Results",
+    "interpretation": "How we read it:",
+    "filterLabel": "Understood filter:",
+    "searchLabel": "Plain search:",
+    "openInCatalog": "Open in the catalog",
+    "picked": "Picked {count} game | Picked {count} games",
+    "found": "Found {count} game | Found {count} games",
+    "reason": "Why it fits:",
+    "fallbackNote": "AI matching isn't available right now — showing a plain search instead",
+    "loading": "Finding games…",
+    "emptyTitle": "Nothing matched",
+    "emptyHint": "Try describing it differently or less strictly — or open the filter in the catalog and adjust it by hand.",
+    "emptyHintNoFilter": "Try describing it differently — more specifically, or less strictly.",
+    "errorFailed": "Couldn't find games just now. Please try again.",
+    "errorRateLimited": "Too many questions in a row. Try again in {count} second. | Too many questions in a row. Try again in {count} seconds.",
+    "errorRateLimitedMinute": "Too many questions in a row. Try again in a minute.",
+    "errorInvalid": "That question is too long: {max} characters at most. Shorten it and try again."
   }
 }

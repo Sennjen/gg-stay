@@ -39,6 +39,17 @@ export const CARD_GRID_IMAGE_SIZES = 'sm:50vw md:380px lg:220px'
 /** Catalog list card: full width on phones, a fixed 220px cover from 640px up. */
 export const CARD_LIST_IMAGE_SIZES = 'sm:100vw md:220px'
 
+/**
+ * Ask page card: `grid-cols-1 sm:2 lg:3` (Tailwind 640/1024) inside `max-w-6xl` with `gap-x-4`, so
+ * the slot is the viewport minus the gutters below 640px, (w − 48) / 2 up to 1023px — widest,
+ * ~487px, at the top of that range — and at most ~363px from 1024px up. A card here is a column
+ * wide rather than a fifth of the page because the reason under it needs the width.
+ *
+ * `md:` covers 640–1279px, where the layout is two columns and then three, so it declares the
+ * widest slot it ever renders (`490px`, two columns at 1023px), as the catalog grid does.
+ */
+export const ASK_CARD_IMAGE_SIZES = 'sm:100vw md:490px lg:370px'
+
 /** Landing rows: cards are a fixed 280px wide in the horizontal scroller at every viewport. */
 export const CARD_ROW_IMAGE_SIZES = '280px'
 

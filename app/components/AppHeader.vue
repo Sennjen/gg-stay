@@ -47,12 +47,18 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
       </NuxtLink>
 
       <div class="flex flex-1 items-center justify-end gap-4">
-        <nav :aria-label="t('nav.primary')">
+        <nav :aria-label="t('nav.primary')" class="flex items-center gap-3 sm:gap-4">
           <NuxtLink
             :to="localePath('/games')"
             class="text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
           >
             {{ t('nav.catalog') }}
+          </NuxtLink>
+          <NuxtLink
+            :to="localePath('/ask')"
+            class="text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
+          >
+            {{ t('nav.ask') }}
           </NuxtLink>
         </nav>
         <HeaderSearch class="md:max-w-[360px] md:flex-none" />
