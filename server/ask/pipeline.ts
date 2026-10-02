@@ -30,7 +30,7 @@ import {
   type LlmUsage,
 } from './provider'
 import { catalogUrl, modelLine, plainReason, sanitiseParse, type UnderstoodQuery } from './sanitise'
-import { MAX_REASON_LENGTH, type AskLocale } from './schemas'
+import { MAX_ANSWERS, MAX_REASON_LENGTH, type AskLocale } from './schemas'
 
 /**
  * `POST /api/ask` below HTTP: parse → sanitise → retrieve → rerank → answer.
@@ -61,8 +61,9 @@ import { MAX_REASON_LENGTH, type AskLocale } from './schemas'
  */
 
 export const MAX_CANDIDATES = 40
-export const MAX_ITEMS = 12
-export const FALLBACK_SIZE = 12
+/** Ranked or not, an answer shows at most this many games (`MAX_ANSWERS`). */
+export const MAX_ITEMS = MAX_ANSWERS
+export const FALLBACK_SIZE = MAX_ANSWERS
 /** Fewer surviving ranked ids than this, and the retrieval order is used instead. */
 export const MIN_RANKED = 3
 /** The whole request, from its arrival to the answer, fallback search included. */
@@ -73,7 +74,7 @@ export const FALLBACK_RESERVE_MS = 3_000
 export const GENRES_TIMEOUT_MS = 1_500
 /**
  * The most candidates the rerank is shown, most relevant first. Its time is mostly the reasons it
- * writes, but every card is input to read, and twenty-four leave the twelve answers a real choice.
+ * writes, but every card is input to read, and twenty-four leave the eight answers a real choice.
  */
 export const MAX_RERANKED = 24
 /**

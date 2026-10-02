@@ -245,7 +245,7 @@ describe('the ask pipeline — structured answers', () => {
     expect(calls.rerank[0]!.map((card) => card.id).sort()).toEqual(['9101', '9102', '9104'])
   })
 
-  it('shows the rerank the 24 most relevant candidates and keeps at most twelve', async () => {
+  it('shows the rerank the 24 most relevant candidates and keeps at most eight', async () => {
     const many = Array.from({ length: 60 }, (_, index) => doc(100 + index, `Game ${index}`))
     const context = await contextWith(many)
     const { provider, calls } = scripted({
@@ -255,7 +255,7 @@ describe('the ask pipeline — structured answers', () => {
     const { answer } = await runAsk({ q: 'under 1000', locale: 'uk' }, { context, provider })
     expect(calls.rerank[0]).toHaveLength(MAX_RERANKED)
     expect(calls.rerank[0]!.map((card) => card.id).slice(0, 3)).toEqual(['100', '101', '102'])
-    expect(answer.items).toHaveLength(12)
+    expect(answer.items).toHaveLength(8)
   })
 
   it('truncates a long reason and treats an empty one as none', async () => {
@@ -896,6 +896,7 @@ describe('the ask pipeline — fallback', () => {
     const { answer } = await runAsk({ q: 'x'.repeat(200), locale: 'en' }, { context, provider })
     expect(answer.filter.search).toHaveLength(100)
     expect(answer.items.length).toBeLessThanOrEqual(FALLBACK_SIZE)
+    expect(FALLBACK_SIZE).toBe(8)
     expect(answer.catalogUrl.startsWith('/en/games?search=')).toBe(true)
   })
 

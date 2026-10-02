@@ -57,16 +57,22 @@ export const AskParseSchema = z.object({
 })
 export type AskParse = z.infer<typeof AskParseSchema>
 
+/** The most games one answer shows, ranked or not; the page shows this many cards. */
+export const MAX_ANSWERS = 8
+
 /** The longest reason the model is asked for; the server cuts anything longer to this. */
 export const MAX_REASON_LENGTH = 100
 
 /**
- * The reason's length is the one limit stated in a model-facing schema. The SDK cannot send it to
- * the model as a constraint and moves it into the field's description, which is where it is meant
- * to be read; the adapter reads the answer with `readRerank`, which never fails on it.
+ * The reason's length and the number of items are the only limits stated in a model-facing schema.
+ * The SDK cannot send them to the model as constraints and moves them into the descriptions, which
+ * is where they are meant to be read; the adapter reads the answer with `readRerank`, which never
+ * fails on them — the pipeline keeps the first `MAX_ANSWERS`.
  */
 export const AskRerankSchema = z.object({
-  items: z.array(z.object({ id: z.string(), reason: z.string().max(MAX_REASON_LENGTH) })),
+  items: z
+    .array(z.object({ id: z.string(), reason: z.string().max(MAX_REASON_LENGTH) }))
+    .max(MAX_ANSWERS),
 })
 export type AskRerank = z.infer<typeof AskRerankSchema>
 

@@ -149,8 +149,8 @@ Switch до 500 грн" — into the catalog filter it means and a short ranked 
 with one reason per game, using Claude Haiku 4.5 through the official
 Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
 query to a filter (re-validated against the live taxonomy, then run through
-the same resolvers as `/games`) plus up to three mood tags, one orders the 24
-most relevant candidates and says why each fits. The answer is
+the same resolvers as `/games`) plus up to three mood tags, one picks up to 8
+of the 24 most relevant candidates and says why each fits. The answer is
 `{ mode, interpretation, filter, catalogUrl, items: [{ card, reason }],
 ignoredFilters, indexStale, matchedTags, tookMs }`: `ignoredFilters` and
 `indexStale` are those of the catalog page the cards came from, as `/games`

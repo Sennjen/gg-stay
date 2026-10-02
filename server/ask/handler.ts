@@ -43,7 +43,7 @@ export const RESPONSE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 export const DEGRADED_CACHE_TTL_MS = 10 * 60 * 1000
 /** A structured answer costs at most two model calls: the parse and the rerank. */
 export const CALLS_PER_ANSWER = 2
-const CACHE_KEY_VERSION = 'ask-v5'
+const CACHE_KEY_VERSION = 'ask-v6'
 
 const AskBody = z.object({
   q: z
