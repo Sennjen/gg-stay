@@ -409,38 +409,48 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   characters, with a counter under it ("40 із 200 символів", numbers in `.font-numeric` through an
   `<i18n-t>` slot) that the field names in `aria-describedby`. Enter sends, Shift+Enter breaks the
   line. An empty question is answered with a sentence under the field and `aria-invalid`, never a
-  disabled button. The submit button is the page's one accent element. Three example questions
-  are `surface-1` chip buttons under a "Або спробуйте приклад:" caption and send at once. A
-  one-line note in `fg-2` says who reads the question and that it is not stored with an IP.
+  disabled button. The submit button is the form's one accent element (a retry button in a failure
+  state is the other accent on screen). The form is a `search` landmark named by its label. Three
+  example questions are `surface-1` chip buttons under a "Або спробуйте приклад:" caption and send
+  at once. A one-line note in `fg-2` says who reads the question and that it is not stored with an
+  IP.
 - **Answer.** Under an `h2` "Результати": the interpretation line ("Як ми зрозуміли запит:" in
   `fg-2`, the sentence in `fg`); the understood filter as `ReadonlyFilterChips` under a visible
   "Зрозумілий фільтр:" caption ("Звичайний пошук:" in fallback, where nothing was understood);
   "Відкрити в каталозі" as a plain underlined link — not a chip, so it does not read as one more
-  filter value — whose query is re-validated through the catalog's own URL layer; the count; then
-  the cards, one column on phones, two from 640 px, three from 1024 px. Each card has its reason
-  under it, "Чому підходить:" in `fg-2` before the reason in `fg`. Each item spans two rows of a
-  subgrid, so the cards of a row share one height and their reasons start on one line. The covers
-  use `ASK_CARD_IMAGE_SIZES`.
-  A card the endpoint sent without a reason (its rerank failed) has no reason line at all, not an
-  empty one. The interpretation and the reasons are model-written and rendered by text
-  interpolation only.
+  filter value — whose query is re-validated through the catalog's own URL layer, shown only when
+  that query is not empty (a "like X" answer or one with nothing understood has no filter to open,
+  and the whole catalog would show none of its games); the count; then the cards, one column on
+  phones, two from 640 px, three from 1024 px. Each card has its reason under it, "Чому підходить:"
+  in `fg-2` before the reason in `fg`. Each item spans two rows of a subgrid, so the cards of a row
+  share one height and their reasons start on one line. The covers use `ASK_CARD_IMAGE_SIZES`. A
+  card the endpoint sent without a reason (its rerank failed) has no reason line at all, not an
+  empty one. The interpretation and the reasons are model-written: rendered by text interpolation
+  only, held to 200 and 120 characters, and allowed to break inside a long word. The search chip —
+  in fallback, the whole question — wraps, clamped to two lines with the full text still in the DOM
+  and its `title` (`rounded-card` rather than `rounded-chip` once it can take two lines); value
+  chips stay on one line. Nothing on the page scrolls sideways at 375 px.
 - **Filters the catalog could not apply.** The answer's `ignoredFilters` strike the matching chips
   through with the catalog's reason beside them in words (`ignoredFilterReason`, shared with
   `ActiveFilterChips`), a declined sort is named as the catalog names it ("«Спочатку дешевші» не
   застосовано"), and when stale prices are the reason the catalog's `CatalogStaleBanner` sits above
-  the answer. The answer does not say whether the prices were stale — a declined price filter fits
-  a silent index too — so the page reads it from the catalog itself (`AskIndexFreshness`, a games
-  page past the end, which costs one read of the index metadata).
+  the answer. Whether the prices were stale comes from the answer's own `indexStale` (the catalog
+  page its cards came from), because a declined price filter alone fits a silent index too.
 - **States.** Loading: a skeleton of the interpretation, the chips and three cards, the section
   `aria-busy`. Fallback: a calm `surface-1` note, no colour and no alert role — "ШІ-розбір зараз
   недоступний — показуємо звичайний пошук" — above the plain search's cards. Empty: a dashed panel
-  that suggests rephrasing or opening the filter in the catalog. Rate limited: "спробуйте ще раз за
-  N секунд" from `Retry-After` (read on the server and carried in the payload, never computed from
-  a clock), or "за хвилину" without one. Failed: a sentence and a retry button. Both failures are
+  that suggests rephrasing, and opening the filter in the catalog only when there is one. Rate
+  limited: "спробуйте ще раз за N секунд" from `Retry-After` (read on the server and carried in the
+  payload, never computed from a clock), or "за хвилину" without one. Failed: a sentence and a retry
+  button. Too long (the endpoint's 400): "Запит задовгий…", with no retry. All three are
   `role="alert"`.
 - **Announcements and focus.** A `role="status"` region always says the current state ("Підбираємо
-  ігри…", "Підібрали 3 гри", the fallback note and count, "Нічого не підібрали"); it is derived
-  from the answer, so the server and the hydrated client agree. Focus moves to the results heading
-  when an answer the visitor just asked for lands; a page opened from a link moves no focus.
+  ігри…", "Підібрали 3 гри", the fallback note and count, "Нічого не підібрали"); it is derived from
+  the answer, so the server and the hydrated client agree. Focus moves to the results heading when
+  an answer the visitor just asked for lands; a page opened from a link moves no focus.
+- **Back and Forward.** Answers are remembered per tab, in memory and bounded, by locale and
+  question; history navigation renders them without a request or a skeleton (every ask costs one of
+  the visitor's ten a minute, and a fallback is never cached by the endpoint). A question sent from
+  the form, and "Спробувати ще раз", always ask; failures are not remembered.
 - **Ways in.** "Запитати" sits beside "Каталог" in the header's primary navigation, and the
   catalog's empty state ends with "Не знаєте, які фільтри обрати? Опишіть словами".
