@@ -151,20 +151,27 @@ Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
 query to a filter (re-validated against the live taxonomy, then run through
 the same resolvers as `/games`), one orders up to 40 candidates.
 
-- **Privacy:** the query text is sent to Anthropic to be answered. It is not
-  stored with the visitor's IP address: the address is used only for the
-  per-address rate limit, in memory, and the server log records counts,
-  latency, tokens, cost and mode — never the address and never the query.
-  Answers are cached in memory for 24 hours by query text, locale and index
-  version, with no visitor data.
-- **Limits:** 10 questions per address per minute; a per-instance daily
+- **Privacy:** the query text is sent to Anthropic to be answered. The
+  application does not store it with the visitor's IP address: the address is
+  used only for the per-address limits, in memory, and the application log
+  records counts, latency, tokens, cost and mode — never the address and never
+  the query. Answers are cached in memory by query text, locale and index
+  version, with no visitor data. A shared `/ask?q=…` link carries the query in
+  its URL, and the hosting platform's own request logs record URLs together
+  with addresses, as they do for every page.
+- **Limits:** 10 questions per address per minute and 40 model-backed answers
+  per address per UTC day (cached answers are free); a per-instance daily
   ceiling of model calls (`ASK_DAILY_LLM_CALLS`, default 500); queries up to
-  200 characters; 500/900 output tokens, an 8 s timeout and one retry per
-  call; a 12 s budget per question. The hard cap on spend is the monthly limit
-  set in the Anthropic Console.
-- **Fallback:** without `ANTHROPIC_API_KEY`, past the ceiling, or on any
-  error, refusal or timeout, the answer is `mode: "fallback"` — the raw query
-  as a plain catalog search — never an error page.
+  200 characters; 500/1 600 output tokens, an 8 s timeout and one retry per
+  call; one 12 s deadline per request, fallback search included. The hard cap
+  on spend is the account's prepaid credit balance, which does not reload by
+  itself.
+- **Fallback:** without `ANTHROPIC_API_KEY`, past a limit, once the credits
+  run out, or on any error, refusal or timeout of the parse, the answer is
+  `mode: "fallback"` — the raw query as a plain catalog search — never an
+  error page. A failed ranking keeps the understood filter and serves its
+  games in catalog order; filters the catalog could not apply are listed in
+  `ignoredFilters`.
 - **Fixture mode** (`RAWG_FIXTURES=1`) answers from recorded responses
   (`tests/fixtures/ask/recorded.json`) and never calls the API.
 
