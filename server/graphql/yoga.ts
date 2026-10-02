@@ -1,11 +1,5 @@
 import { parse } from 'graphql'
-import {
-  createGraphQLError,
-  createSchema,
-  createYoga,
-  type Plugin,
-  type YogaInitialContext,
-} from 'graphql-yoga'
+import { createGraphQLError, createSchema, createYoga, type Plugin } from 'graphql-yoga'
 import type { GraphQLContext } from './context'
 import {
   checkNestingDepth,
@@ -83,14 +77,7 @@ const queryLimitsPlugin: Plugin<GraphQLContext> = {
   },
 }
 
-/**
- * The yoga app the endpoint serves. `contextFactory` receives yoga's initial context, which carries
- * whatever the caller passed beside the request — the endpoint passes the request's `waitUntil`
- * there (see `server/api/graphql.ts`).
- */
-export function createYogaApp(
-  contextFactory: (initial: YogaInitialContext) => GraphQLContext | Promise<GraphQLContext>,
-) {
+export function createYogaApp(contextFactory: () => GraphQLContext | Promise<GraphQLContext>) {
   return createYoga({
     schema,
     graphqlEndpoint: '/api/graphql',
