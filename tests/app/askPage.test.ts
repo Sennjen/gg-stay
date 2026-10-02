@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { nextTick } from 'vue'
 import { readBody, setResponseHeaders, setResponseStatus, type H3Event } from 'h3'
 import { clearNuxtData } from '#app'
@@ -10,9 +12,12 @@ import {
   BROKEN_QUERY,
   EMPTY_QUERY,
   FALLBACK_QUERY,
+  MARKUP_QUERY,
   RATE_LIMITED_QUERY,
+  STALE_QUERY,
   STRUCTURED_ANSWER,
   STRUCTURED_QUERY,
+  UNRANKED_QUERY,
 } from '~~/tests/fixtures/askPage/answers'
 
 /**
@@ -219,6 +224,61 @@ describe('the ask page, answered from the URL', () => {
     expect(plain(wrapper.get('[data-test="ask-error"]').text())).toContain(
       'Запит задовгий: щонайбільше 200 символів. Скоротіть його й спробуйте ще раз.',
     )
+  })
+})
+
+describe('the ask page, answers the catalog could not fully apply', () => {
+  it("strikes the declined filters through with the catalog's reason, and names a declined sort", async () => {
+    const wrapper = await renderAsk(askUrl(STALE_QUERY))
+    const filter = wrapper.get('[data-test="ask-filter"]')
+    const struck = filter.findAll('[data-test="ignored-chip"]')
+    expect(struck).toHaveLength(1)
+    expect(plain(struck[0]!.get('s').text())).toBe('до 300 ₴')
+    // Localisation was applied beside the declined price, so the index answered on stale prices.
+    expect(struck[0]!.text()).toContain('не застосовано: ціни тимчасово не оновлюються')
+    expect(plain(wrapper.get('[data-test="ask-sort-ignored"]').text())).toBe(
+      '«Спочатку дешевші» не застосовано',
+    )
+    // The link still opens the whole understood filter: the catalog strikes the same chips there.
+    expect(wrapper.get('[data-test="ask-catalog-link"]').attributes('href')).toBe(
+      '/games?priceMaxUah=300&ukrainianLocalisation=TEXT&sort=PRICE_ASC',
+    )
+  })
+
+  it('marks nothing when everything was applied', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    expect(wrapper.find('[data-test="ignored-chip"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="ask-sort-ignored"]').exists()).toBe(false)
+  })
+
+  it('renders an unranked answer as cards alone: no reason lines, no empty elements', async () => {
+    const wrapper = await renderAsk(askUrl(UNRANKED_QUERY))
+    const items = wrapper.findAll('[data-test="ask-item"]')
+    expect(items).toHaveLength(3)
+    expect(wrapper.find('[data-test="ask-reason"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Чому підходить')
+    for (const item of items) {
+      expect(item.element.children).toHaveLength(1)
+      expect(item.element.children[0]!.getAttribute('data-test')).toBe('game-card')
+    }
+    expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрали 3 гри')
+  })
+})
+
+describe('the ask page, text written by the model', () => {
+  it('shows markup in the interpretation and the reasons as text, never as markup', async () => {
+    const wrapper = await renderAsk(askUrl(MARKUP_QUERY))
+    expect(wrapper.get('[data-test="ask-interpretation"]').text()).toContain(
+      '<b>жирно</b><script>alert("ask")</script>',
+    )
+    expect(wrapper.get('[data-test="ask-reason"]').text()).toContain('<img src=x onerror=alert(1)>')
+    const results = wrapper.get('[data-test="ask-results"]').element
+    expect(results.querySelector('b, script, img[src="x"]')).toBeNull()
+  })
+
+  it('renders them by text interpolation only: the page has no v-html', () => {
+    const source = readFileSync(resolve(process.cwd(), 'app/pages/ask.vue'), 'utf-8')
+    expect(source).not.toMatch(/v-html|innerHTML/)
   })
 })
 

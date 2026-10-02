@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   ASK_MAX_LENGTH,
   askCatalogQuery,
+  askIndexStale,
+  askIgnoredSort,
   normaliseAskAnswer,
   normaliseAskQuery,
   parseRetryAfter,
@@ -97,7 +99,55 @@ describe('askCatalogQuery', () => {
   })
 })
 
+describe('askIndexStale', () => {
+  // The answer does not say how fresh the index is; the catalog's own rules do. Stale prices drop
+  // the price filters (and a price sort) while the index still serves localisation and origin; an
+  // index that did not answer drops every index filter.
+  it('reads stale prices off a price filter declined beside an index filter that was applied', () => {
+    expect(
+      askIndexStale({ priceMaxUah: 300, ukrainianLocalisation: 'TEXT' }, ['priceMaxUah']),
+    ).toBe(true)
+    expect(askIndexStale({ free: true, madeInUkraine: true }, ['free', 'sort'])).toBe(true)
+  })
+
+  it('reads an index that did not answer off a declined localisation or origin filter', () => {
+    expect(
+      askIndexStale({ priceMaxUah: 300, ukrainianLocalisation: 'TEXT' }, [
+        'priceMaxUah',
+        'ukrainianLocalisation',
+      ]),
+    ).toBe(false)
+  })
+
+  it('claims nothing it cannot tell: a declined price filter alone is not proof of stale prices', () => {
+    expect(askIndexStale({ priceMaxUah: 300 }, ['priceMaxUah'])).toBe(false)
+    expect(askIndexStale({ genres: ['rpg'] }, [])).toBe(false)
+  })
+})
+
+describe('askIgnoredSort', () => {
+  it('names the sort of the catalog URL when the answer could not apply it', () => {
+    expect(askIgnoredSort('/games?priceMaxUah=300&sort=PRICE_ASC', ['priceMaxUah', 'sort'])).toBe(
+      'PRICE_ASC',
+    )
+  })
+
+  it('is null when the sort was applied, or the URL carries none', () => {
+    expect(askIgnoredSort('/games?sort=PRICE_ASC', [])).toBeNull()
+    expect(askIgnoredSort('/games?priceMaxUah=300', ['sort'])).toBeNull()
+    expect(askIgnoredSort('http://[', ['sort'])).toBeNull()
+  })
+})
+
 describe('normaliseAskAnswer', () => {
+  it('carries the filters the answer could not apply, and none when it does not say', () => {
+    expect(
+      normaliseAskAnswer({ ...STRUCTURED_ANSWER, ignoredFilters: ['priceMaxUah', 7, 'sort'] })
+        ?.ignoredFilters,
+    ).toEqual(['priceMaxUah', 'sort'])
+    expect(normaliseAskAnswer(STRUCTURED_ANSWER)?.ignoredFilters).toEqual([])
+  })
+
   it('accepts the structured answer as sent', () => {
     const answer = normaliseAskAnswer(STRUCTURED_ANSWER)
     expect(answer?.mode).toBe('structured')

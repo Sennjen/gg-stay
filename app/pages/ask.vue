@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { CatalogTaxonomiesDocument } from '~/graphql/__generated__/operations'
-import { ASK_MAX_LENGTH, askCatalogQuery, normaliseAskQuery } from '~/utils/askAnswer'
+import {
+  ASK_MAX_LENGTH,
+  askCatalogQuery,
+  askIgnoredSort,
+  askIndexStale,
+  normaliseAskQuery,
+} from '~/utils/askAnswer'
 import { ASK_CARD_IMAGE_SIZES } from '~/utils/rawgImage'
 import { OG_IMAGE, askRobots, trimDescription, withSiteName } from '~/utils/seo'
 
@@ -48,6 +54,16 @@ const catalogLink = computed(() =>
         query: askCatalogQuery(answer.value.catalogUrl, answer.value.filter),
       }
     : null,
+)
+// What the catalog could not apply, marked as the catalog marks it: struck-through chips with the
+// reason beside them, and the declined sort named in the catalog's words. The answer does not say
+// whether the prices were stale; `askIndexStale` reads it off which filters were declined.
+const ignoredFilters = computed<readonly string[]>(() => answer.value?.ignoredFilters ?? [])
+const indexStale = computed(() =>
+  answer.value ? askIndexStale(answer.value.filter, ignoredFilters.value) : false,
+)
+const ignoredSort = computed(() =>
+  answer.value ? askIgnoredSort(answer.value.catalogUrl, ignoredFilters.value) : null,
 )
 const itemCount = computed(() => answer.value?.items.length ?? 0)
 const countKey = computed(() => (isFallback.value ? 'ask.found' : 'ask.picked'))
@@ -308,7 +324,12 @@ useSeoMeta({
             :filter="answer.filter"
             :genres="genres"
             :label="isFallback ? t('ask.searchLabel') : t('ask.filterLabel')"
+            :ignored="ignoredFilters"
+            :index-stale="indexStale"
           />
+          <p v-if="ignoredSort" data-test="ask-sort-ignored" class="text-xs text-fg-2">
+            {{ t('catalog.sortIgnored', { name: t(`sorts.${ignoredSort}`) }) }}
+          </p>
           <!-- A plain underlined link, not a chip: next to the chips it must not read as one more
                filter value. -->
           <NuxtLink

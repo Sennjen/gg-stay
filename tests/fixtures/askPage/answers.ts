@@ -87,3 +87,31 @@ export const RETRY_AFTER_SECONDS = 42
 
 /** A query the stub answers with a `500`. */
 export const BROKEN_QUERY = 'зламаний запит'
+
+/** Stale prices: the price filter and the price sort were declined, localisation was applied. */
+export const STALE_QUERY = 'дешеві ігри українською'
+
+export const STALE_ANSWER = {
+  ...STRUCTURED_ANSWER,
+  interpretation: 'Ігри з українським текстом до 300 ₴, спочатку дешевші',
+  filter: { priceMaxUah: 300, ukrainianLocalisation: 'TEXT' },
+  catalogUrl: '/games?priceMaxUah=300&ukrainianLocalisation=TEXT&sort=PRICE_ASC',
+  ignoredFilters: ['priceMaxUah', 'sort'],
+} as const
+
+/** A structured answer whose rerank failed: the retrieval order, every reason null. */
+export const UNRANKED_QUERY = 'кооператив без пояснень'
+
+export const UNRANKED_ANSWER = {
+  ...STRUCTURED_ANSWER,
+  items: STRUCTURED_ANSWER.items.map((item) => ({ ...item, reason: null })),
+} as const
+
+/** Model-written text that carries markup, which must reach the page as text. */
+export const MARKUP_QUERY = 'розмітка у відповіді'
+
+export const MARKUP_ANSWER = {
+  ...STRUCTURED_ANSWER,
+  interpretation: '<b>жирно</b><script>alert("ask")</script>',
+  items: [{ ...STRUCTURED_ANSWER.items[0], reason: '<img src=x onerror=alert(1)>' }],
+} as const
