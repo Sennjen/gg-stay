@@ -6,9 +6,9 @@ import type { IndexedSlug } from '../index/GameIndex'
  *
  * Shape: `/sitemap.xml` is a sitemap index naming `/sitemaps/static.xml` (the landing, the
  * catalog and the ask page) and `/sitemaps/games-<n>.xml` (the game pages the published index
- * holds). Every page is listed once per locale, and every entry carries the full set of `xhtml:link` alternates — the
- * same uk/en pair and x-default the page's own head links to — so a crawler that reads only the
- * sitemap still sees the two languages as one page.
+ * holds). Every page is listed once per locale, and every entry carries the full set of
+ * `xhtml:link` alternates — the same uk/en pair and x-default the page's own head links to — so a
+ * crawler that reads only the sitemap still sees the two languages as one page.
  */
 
 /** The protocol's limit is 50 000; a smaller file is cheaper to build and to cache. */
