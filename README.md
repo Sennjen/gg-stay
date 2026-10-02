@@ -142,6 +142,43 @@ through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
   that does not expose Vercel's system environment variables to the build
   never turns it on by itself either.
 
+## Natural-language search
+
+`POST /api/ask` `{ q, locale }` turns a description — "кооператив для двох на
+Switch до 500 грн" — into the catalog filter it means and a short ranked list
+with one reason per game, using Claude Haiku 4.5 through the official
+Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
+query to a filter (re-validated against the live taxonomy, then run through
+the same resolvers as `/games`), one orders up to 40 candidates. The answer is
+`{ mode, interpretation, filter, catalogUrl, items: [{ card, reason }],
+ignoredFilters, indexStale, tookMs }`: `ignoredFilters` and `indexStale` are
+those of the catalog page the cards came from, as `/games` reports them
+(`indexStale` is `false` when no page answered).
+
+- **Privacy:** the query text is sent to Anthropic to be answered. The
+  application does not store it with the visitor's IP address: the address is
+  used only for the per-address limits, in memory, and the application log
+  records counts, latency, tokens, cost and mode — never the address and never
+  the query. Answers are cached in memory by query text, locale and index
+  version, with no visitor data. A shared `/ask?q=…` link carries the query in
+  its URL, and the hosting platform's own request logs record URLs together
+  with addresses, as they do for every page.
+- **Limits:** 10 questions per address per minute and 40 model-backed answers
+  per address per UTC day (cached answers are free); a per-instance daily
+  ceiling of model calls (`ASK_DAILY_LLM_CALLS`, default 500); queries up to
+  200 characters; 500/1 600 output tokens, an 8 s timeout and one retry per
+  call; one 12 s deadline per request, fallback search included. The hard cap
+  on spend is the account's prepaid credit balance, which does not reload by
+  itself.
+- **Fallback:** without `ANTHROPIC_API_KEY`, past a limit, once the credits
+  run out, or on any error, refusal or timeout of the parse, the answer is
+  `mode: "fallback"` — the raw query as a plain catalog search — never an
+  error page. A failed ranking keeps the understood filter and serves its
+  games in catalog order; filters the catalog could not apply are listed in
+  `ignoredFilters`.
+- **Fixture mode** (`RAWG_FIXTURES=1`) answers from recorded responses
+  (`tests/fixtures/ask/recorded.json`) and never calls the API.
+
 ## Development
 
 ```bash

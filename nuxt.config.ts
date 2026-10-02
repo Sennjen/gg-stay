@@ -90,6 +90,11 @@ export default defineNuxtConfig({
     // filters it takes away can be looked at in a browser. Read in the fixture-mode seed path
     // alone (`useGameIndex`) — it cannot affect a deployment that has real credentials.
     indexFixtureStale: process.env.INDEX_FIXTURE_STALE ?? '',
+    // Natural-language search (`/api/ask`). Server-side only, like every other key: without it
+    // every question is answered by the plain-search fallback. Fixture mode never uses it.
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
+    // Per-instance daily ceiling of model calls; empty means the default (500), 0 turns it off.
+    askDailyLlmCalls: process.env.ASK_DAILY_LLM_CALLS ?? '',
     public: {
       // Vercel Speed Insights: on for Vercel production builds only; `NUXT_PUBLIC_SPEED_INSIGHTS`
       // (0 or 1) overrides it at runtime. See app/plugins/speed-insights.client.ts.
@@ -146,6 +151,10 @@ export default defineNuxtConfig({
       {
         baseName: 'index-fixtures',
         dir: fileURLToPath(new URL('./tests/fixtures/index', import.meta.url)),
+      },
+      {
+        baseName: 'ask-fixtures',
+        dir: fileURLToPath(new URL('./tests/fixtures/ask', import.meta.url)),
       },
     ],
   },

@@ -55,71 +55,89 @@ interface PageInput {
 }
 
 export const games: QueryResolvers['games'] = (_parent, args, context) =>
-  withUpstreamErrors(async () => {
-    const page = args.page ?? 1
-    const pageSize = Math.min(Math.max(args.pageSize ?? 20, 1), MAX_PAGE_SIZE)
-    const sort = args.sort ?? 'POPULARITY_DESC'
-    const input: PageInput = { filter: args.filter, sort, page, pageSize }
-    const priceFilters = priceFiltersUsed(args.filter, sort)
-    const facetFilters = indexFacetFiltersUsed(args.filter)
+  withUpstreamErrors(() => catalogPage(context, args))
 
-    // Started, never awaited yet. On a page RAWG answers, the index enhances the result and must
-    // not be a step in front of the request it enhances: a store that is alive but slow would
-    // otherwise add its whole latency to the page before the RAWG fetch had even begun.
-    const pending = indexState(context)
+/** What a catalog page is asked for, as the `games` field takes it. */
+export interface CatalogPageArgs {
+  filter?: GameFilter | null
+  sort?: GameSort | null
+  page?: number | null
+  pageSize?: number | null
+}
 
-    // Nothing is fetched for a page past the end — but it still reports what the index is doing,
-    // so a banner does not flicker off when a visitor walks past it.
-    if (page < 1 || page > MAX_PAGE) {
-      return mapGamePage({ count: 0, next: null }, [], page, pageSize, freshnessOf(await pending))
-    }
+/**
+ * One catalog page, by whichever path `/games` would choose for it. The `games` field answers
+ * with it, and so does `/api/ask`, which retrieves its candidates exactly as the catalog would.
+ * Upstream errors are thrown as they are; the field turns them into GraphQL errors.
+ */
+export async function catalogPage(
+  context: GraphQLContext,
+  args: CatalogPageArgs,
+): Promise<GamePage> {
+  const page = args.page ?? 1
+  const pageSize = Math.min(Math.max(args.pageSize ?? 20, 1), MAX_PAGE_SIZE)
+  const sort = args.sort ?? 'POPULARITY_DESC'
+  const input: PageInput = { filter: args.filter, sort, page, pageSize }
+  const priceFilters = priceFiltersUsed(args.filter, sort)
+  const facetFilters = indexFacetFiltersUsed(args.filter)
 
-    if (priceFilters.length === 0 && facetFilters.length === 0) {
-      return rawgPage(context, input, pending, { attach: true, prices: 'unless-stale' })
-    }
+  // Started, never awaited yet. On a page RAWG answers, the index enhances the result and must
+  // not be a step in front of the request it enhances: a store that is alive but slow would
+  // otherwise add its whole latency to the page before the RAWG fetch had even begun.
+  const pending = indexState(context)
 
-    // Which path answers depends on how fresh the prices are, so from here the state is needed
-    // before anything else can start.
-    const state = await pending
+  // Nothing is fetched for a page past the end — but it still reports what the index is doing,
+  // so a banner does not flicker off when a visitor walks past it.
+  if (page < 1 || page > MAX_PAGE) {
+    return mapGamePage({ count: 0, next: null }, [], page, pageSize, freshnessOf(await pending))
+  }
 
-    // Stale prices drop the price filters and the price sort wherever they were set, and are
-    // named in `ignoredFilters`; what is left decides which path answers. A sort the index never
-    // owned is the visitor's and survives — only a price or discount order has to go.
-    const stripped: PageInput = state.stale
-      ? { ...input, filter: withoutPriceFilters(args.filter), sort: withoutIndexSort(sort) }
-      : input
-    const ignoredFilters = state.stale ? priceFilters : []
+  if (priceFilters.length === 0 && facetFilters.length === 0) {
+    return rawgPage(context, input, pending, { attach: true, prices: 'unless-stale' })
+  }
 
-    if (state.stale && facetFilters.length === 0) {
-      return rawgPage(
-        context,
-        stripped,
-        state,
-        // A language list does not go stale with the prices, so the attachment still runs.
-        { attach: true, prices: false, ignoredFilters },
-      )
-    }
+  // Which path answers depends on how fresh the prices are, so from here the state is needed
+  // before anything else can start.
+  const state = await pending
 
-    try {
-      return await indexPage(context, stripped, state, ignoredFilters)
-    } catch (error) {
-      warnIndexOnce(context, 'the catalog fell back to RAWG', error)
-      return rawgPage(
-        context,
-        { ...input, filter: withoutPriceFilters(args.filter), sort: withoutIndexSort(sort) },
-        // The freshness the index reported before it failed is still the truth about it; what
-        // this answer could not do is listed beside it.
-        state,
-        // The index just failed; asking it again for the documents of this page would only fail
-        // again, one round trip later.
-        {
-          attach: false,
-          prices: false,
-          ignoredFilters: [...priceFilters, ...facetFilters],
-        },
-      )
-    }
-  })
+  // Stale prices drop the price filters and the price sort wherever they were set, and are
+  // named in `ignoredFilters`; what is left decides which path answers. A sort the index never
+  // owned is the visitor's and survives — only a price or discount order has to go.
+  const stripped: PageInput = state.stale
+    ? { ...input, filter: withoutPriceFilters(args.filter), sort: withoutIndexSort(sort) }
+    : input
+  const ignoredFilters = state.stale ? priceFilters : []
+
+  if (state.stale && facetFilters.length === 0) {
+    return rawgPage(
+      context,
+      stripped,
+      state,
+      // A language list does not go stale with the prices, so the attachment still runs.
+      { attach: true, prices: false, ignoredFilters },
+    )
+  }
+
+  try {
+    return await indexPage(context, stripped, state, ignoredFilters)
+  } catch (error) {
+    warnIndexOnce(context, 'the catalog fell back to RAWG', error)
+    return rawgPage(
+      context,
+      { ...input, filter: withoutPriceFilters(args.filter), sort: withoutIndexSort(sort) },
+      // The freshness the index reported before it failed is still the truth about it; what
+      // this answer could not do is listed beside it.
+      state,
+      // The index just failed; asking it again for the documents of this page would only fail
+      // again, one round trip later.
+      {
+        attach: false,
+        prices: false,
+        ignoredFilters: [...priceFilters, ...facetFilters],
+      },
+    )
+  }
+}
 
 function freshnessOf(state: IndexState): GamePageIndexState {
   return { indexStale: state.stale, indexUpdatedAt: state.updatedAt }
