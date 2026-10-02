@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 import { expect, expectAccessible, test, waitForHydration } from './fixtures'
 
 /**
- * The four smoke flows of the quality gate, against the fixture-mode production build. The data is
+ * The smoke flows of the quality gate, against the fixture-mode production build. The data is
  * the recorded RAWG fixtures plus the in-memory index the fixture mode seeds: the plain catalog has
  * four games, a 1 000 ₴ ceiling widens it to the index's seven, and Ukrainian localisation narrows
  * those to three. Every flow also fails on a console error (see `fixtures.ts`).
@@ -143,4 +143,43 @@ test('the locale switch keeps the page, uk → en → uk', async ({ page }) => {
   await expect(page).toHaveURL(/\/en\/games\?ukrainianLocalisation=ANY$/)
   await expect(page.getByRole('heading', { level: 1, name: 'Game catalog' })).toBeVisible()
   await expectAccessible(page, 'catalog in English')
+})
+
+test('ask at 375 px → a recorded question → a long one that falls back → Back, not asked again', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  // Only the questions the browser itself sends; the first page render asks on the server.
+  const asked: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/ask') asked.push(request.postData() ?? '')
+  })
+  const pageWidth = () => page.evaluate(() => document.documentElement.scrollWidth)
+
+  await page.goto('/ask')
+  await waitForHydration(page)
+  await expectAccessible(page, 'ask page')
+
+  await page.getByRole('button', { name: 'атмосферний горор українською' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: 'Результати' })).toBeFocused()
+  await expect(page.getByText('Чому підходить:').first()).toBeVisible()
+  await expectAccessible(page, 'ask answer')
+
+  // Unrecorded in fixture mode, so the endpoint falls back and the whole question becomes the
+  // search chip — which must wrap inside the 375 px column, not push the page sideways.
+  const long =
+    'хочу атмосферну гру з гарним сюжетом про подорож у часі для двох гравців на дивані ввечері'
+  await page.getByLabel('Яку гру шукаєте?').fill(long)
+  await page.getByRole('button', { name: 'Підібрати ігри' }).click()
+  await expect(page.locator('[data-test="ask-fallback-note"]')).toBeVisible()
+  expect(await pageWidth()).toBeLessThanOrEqual(375)
+  await expectAccessible(page, 'ask fallback')
+  expect(asked).toHaveLength(2)
+
+  // Back renders the answer this tab already has: no new question, no skeleton.
+  await page.goBack()
+  await expect(page.getByText('Чому підходить:').first()).toBeVisible()
+  await page.goForward()
+  await expect(page.locator('[data-test="ask-fallback-note"]')).toBeVisible()
+  expect(asked).toHaveLength(2)
 })
