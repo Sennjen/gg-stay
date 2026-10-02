@@ -1,13 +1,18 @@
 /**
- * The two in-process limits in front of `/api/ask`. The hard cap on spend is the monthly limit
- * set in the Anthropic Console — the site cannot write to Redis, so there is no counter shared
- * between instances — and these keep one instance, and one visitor, well inside it.
+ * The in-process limits in front of `/api/ask`. The hard cap on spend is the account's prepaid
+ * credit balance, which does not reload by itself. The site cannot write to Redis, so there is no
+ * counter shared between instances; these keep one instance, and one visitor, well inside it.
  */
 
 /** Requests per address per minute, which is also the burst an address may spend at once. */
 export const REQUESTS_PER_MINUTE = 10
 /** Addresses remembered at once; the least recently seen one is forgotten past this. */
 export const MAX_TRACKED_ADDRESSES = 10_000
+/**
+ * Answers one address may get from the model per UTC day; cached answers do not count. Beside the
+ * instance's ceiling, so a single client cannot spend that ceiling for everyone else.
+ */
+export const MODEL_ANSWERS_PER_ADDRESS_PER_DAY = 40
 /** Model calls one instance may make per UTC day, unless `ASK_DAILY_LLM_CALLS` says otherwise. */
 export const DEFAULT_DAILY_LLM_CALLS = 500
 
@@ -104,5 +109,46 @@ export function createDailyCeiling(options: { limit: number; now: () => number }
       today()
       return Math.max(0, options.limit - used)
     },
+  }
+}
+
+export interface DailyAllowance {
+  available: (key: string) => boolean
+  use: (key: string) => void
+  size: () => number
+}
+
+/**
+ * A per-address count of model-backed answers, reset at midnight UTC, in the same bounded,
+ * least-recently-seen-first map as the rate limiter: a forgotten address starts the day again,
+ * which costs at most one more allowance, never unbounded memory.
+ */
+export function createDailyAllowance(options: {
+  now: () => number
+  perDay?: number
+  maxKeys?: number
+}): DailyAllowance {
+  const perDay = options.perDay ?? MODEL_ANSWERS_PER_ADDRESS_PER_DAY
+  const maxKeys = options.maxKeys ?? MAX_TRACKED_ADDRESSES
+  const counts = new Map<string, { day: string; used: number }>()
+  const today = () => new Date(options.now()).toISOString().slice(0, 10)
+
+  function usedToday(key: string): number {
+    const entry = counts.get(key)
+    return entry && entry.day === today() ? entry.used : 0
+  }
+
+  return {
+    available: (key) => usedToday(key) < perDay,
+    use(key) {
+      const used = usedToday(key) + 1
+      counts.delete(key)
+      counts.set(key, { day: today(), used })
+      if (counts.size > maxKeys) {
+        const oldest = counts.keys().next().value
+        if (oldest !== undefined) counts.delete(oldest)
+      }
+    },
+    size: () => counts.size,
   }
 }

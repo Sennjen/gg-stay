@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createDailyCeiling, createRateLimiter, dailyCallLimit } from '../../../server/ask/limits'
+import {
+  createDailyAllowance,
+  createDailyCeiling,
+  createRateLimiter,
+  dailyCallLimit,
+  MODEL_ANSWERS_PER_ADDRESS_PER_DAY,
+} from '../../../server/ask/limits'
 
 function clock(start = Date.parse('2026-10-02T10:00:00.000Z')) {
   let at = start
@@ -99,5 +105,31 @@ describe('the configured ceiling', () => {
     [12.7, 12],
   ])('reads %j as %i', (raw, expected) => {
     expect(dailyCallLimit(raw)).toBe(expected)
+  })
+})
+
+describe('the per-address daily allowance of model-backed answers', () => {
+  it('allows forty answers per address per UTC day', () => {
+    const time = clock(Date.parse('2026-10-02T12:00:00.000Z'))
+    const allowance = createDailyAllowance({ now: time.now })
+    expect(MODEL_ANSWERS_PER_ADDRESS_PER_DAY).toBe(40)
+    for (let answer = 0; answer < 40; answer += 1) {
+      expect(allowance.available('a')).toBe(true)
+      allowance.use('a')
+    }
+    expect(allowance.available('a')).toBe(false)
+    expect(allowance.available('b')).toBe(true)
+    time.advance(12 * 60 * 60 * 1000)
+    expect(allowance.available('a')).toBe(true)
+  })
+
+  it('forgets the least recently seen address past its size', () => {
+    const allowance = createDailyAllowance({ now: clock().now, perDay: 1, maxKeys: 2 })
+    allowance.use('a')
+    allowance.use('b')
+    allowance.use('c')
+    expect(allowance.size()).toBe(2)
+    expect(allowance.available('a')).toBe(true)
+    expect(allowance.available('c')).toBe(false)
   })
 })
