@@ -14,9 +14,21 @@ import { ASK_PLATFORM_FAMILIES, type AskLocale } from './schemas'
 
 const LANGUAGE: Record<AskLocale, string> = { uk: 'Ukrainian', en: 'English' }
 
-/** Angle brackets out, so a query cannot close its own tag and pose as an instruction. */
+/** Angle brackets escaped, so a query cannot close its own tag and pose as an instruction. */
 function asData(text: string): string {
-  return text.replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim()
+  // Escaped rather than removed: "Switch <500 грн" still means under 500.
+  return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * One field of a candidate line. Names, genres and tags are third-party data — RAWG's tags are
+ * community-edited — so none of them may break a column (`|`), a line or the block's tags.
+ */
+function cell(text: string): string {
+  return text
+    .replace(/[|<>\n\r]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 const list = (values: readonly string[]) => values.join(', ')
@@ -130,16 +142,16 @@ function price(card: CandidateCard): string {
   return `${card.priceUah} UAH${discount}`
 }
 
-const orDash = (values: readonly string[]) => (values.length ? list(values) : '-')
+const orDash = (values: readonly string[]) => {
+  const cells = values.map(cell).filter(Boolean)
+  return cells.length ? list(cells) : '-'
+}
 
 /** One line per candidate; a `|` or a line break inside a name could not shift the columns. */
 export function formatCandidate(card: CandidateCard): string {
   return [
-    card.id,
-    card.name
-      .replace(/[|<>\n\r]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim(),
+    cell(card.id),
+    cell(card.name),
     card.year ?? '?',
     orDash(card.genres),
     orDash(card.tags),
