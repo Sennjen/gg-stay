@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { format, resolveConfig } from 'prettier'
 import { renderReport, summarise, type CaseResult, type RunMeta } from './askReport'
 import { readAnswer, readCases, scoreCase, type AskCase } from './askScore'
 
@@ -282,8 +283,11 @@ async function main(argv: readonly string[]): Promise<number> {
   )
   const markdownPath = join(docs, `${stem}.md`)
   const jsonPath = join(runs, `${stem}.json`)
-  await writeFile(markdownPath, renderReport(meta, results, totals))
-  await writeFile(jsonPath, `${JSON.stringify({ meta, totals, results }, null, 2)}\n`)
+  // Written as `pnpm format` would leave them, so the files can be committed as they are.
+  const formatted = async (path: string, text: string) =>
+    format(text, { ...(await resolveConfig(path)), filepath: path })
+  await writeFile(markdownPath, await formatted(markdownPath, renderReport(meta, results, totals)))
+  await writeFile(jsonPath, await formatted(jsonPath, JSON.stringify({ meta, totals, results })))
 
   console.log(
     `\n${totals.passed}/${totals.cases} cases passed, ${totals.structured}/${totals.answered} structured, ` +
