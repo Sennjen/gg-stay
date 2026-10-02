@@ -32,6 +32,7 @@ describe('POST /api/ask in fixture mode', async () => {
       interpretation: 'Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
       filter: { gameModes: ['LOCAL_COOP'], platforms: [7], priceMaxUah: 500 },
       catalogUrl: '/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500',
+      ignoredFilters: [],
     })
     expect(Array.isArray(answer.items)).toBe(true)
     expect(typeof answer.tookMs).toBe('number')
@@ -61,6 +62,7 @@ describe('POST /api/ask in fixture mode', async () => {
   it('refuses an invalid body with a 400', async () => {
     expect((await post({ q: '', locale: 'uk' })).status).toBe(400)
     expect((await post('{not json')).status).toBe(400)
+    expect((await post({ q: 'x'.repeat(5_000), locale: 'uk' })).status).toBe(400)
     expect(
       (await post({ q: 'co-op', locale: 'uk' }, { 'content-type': 'text/plain' })).status,
     ).toBe(400)
