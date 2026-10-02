@@ -40,7 +40,7 @@ export const CARD_GRID_IMAGE_SIZES = 'sm:50vw md:380px lg:220px'
 export const CARD_LIST_IMAGE_SIZES = 'sm:100vw md:220px'
 
 /**
- * Ask page card: `grid-cols-1 sm:2 lg:3` (Tailwind 640/1024) inside `max-w-6xl` with `gap-4`, so
+ * Ask page card: `grid-cols-1 sm:2 lg:3` (Tailwind 640/1024) inside `max-w-6xl` with `gap-x-4`, so
  * the slot is the viewport minus the gutters below 640px, (w − 48) / 2 up to 1023px — widest,
  * ~487px, at the top of that range — and at most ~363px from 1024px up. A card here is a column
  * wide rather than a fifth of the page because the reason under it needs the width.

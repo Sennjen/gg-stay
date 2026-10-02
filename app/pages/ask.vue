@@ -342,12 +342,15 @@ useSeoMeta({
               ><span class="font-numeric">{{ itemCount }}</span></template
             >
           </i18n-t>
-          <ul class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <!-- Each item spans two rows of the list's own grid (a subgrid): the cards of a row share
+               one height and the reasons under them start on one line, however long the
+               reasons or however full the cards' price lines are. -->
+          <ul class="mt-3 grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
             <li
               v-for="(item, index) in answer.items"
               :key="item.card.id"
               data-test="ask-item"
-              class="flex flex-col gap-2"
+              class="row-span-2 grid grid-rows-subgrid gap-y-2"
             >
               <GameCard
                 :game="item.card"
