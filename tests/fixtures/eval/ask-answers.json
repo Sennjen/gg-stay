@@ -1,0 +1,75 @@
+{
+  "coopSwitch": {
+    "mode": "structured",
+    "interpretation": "Кооперативні ігри для двох на Nintendo Switch до 500 ₴",
+    "filter": { "platforms": [7], "gameModes": ["LOCAL_COOP"], "priceMaxUah": 500 },
+    "catalogUrl": "/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500",
+    "items": [
+      {
+        "card": { "id": "9102", "slug": "overcooked-2", "name": "Overcooked! 2" },
+        "reason": "Хаос на кухні, де без злагодженої команди все горить"
+      },
+      {
+        "card": { "id": "9101", "slug": "unravel-two", "name": "Unravel Two" },
+        "reason": "Дві плетені істоти, зв'язані ниткою, розгадують головоломки разом"
+      },
+      {
+        "card": { "id": "9104", "slug": "stardew-valley", "name": "Stardew Valley" },
+        "reason": null
+      }
+    ],
+    "ignoredFilters": [],
+    "indexStale": false,
+    "matchedTags": [],
+    "tookMs": 4210
+  },
+  "horrorEn": {
+    "mode": "structured",
+    "interpretation": "Atmospheric horror games on PC",
+    "filter": { "platforms": [4] },
+    "catalogUrl": "/en/games?platforms=4&sort=RATING_DESC",
+    "items": [
+      {
+        "card": { "id": "5001", "slug": "alan-wake-2", "name": "Alan Wake 2" },
+        "reason": "A writer trapped in a story that keeps rewriting the town around him"
+      },
+      {
+        "card": { "id": "5002", "slug": "soma", "name": "SOMA" },
+        "reason": "An undersea station where every machine might still think it is human"
+      },
+      {
+        "card": { "id": "5003", "slug": "dredge", "name": "DREDGE" },
+        "reason": "Quiet fishing by day, something wrong in the water by night"
+      }
+    ],
+    "ignoredFilters": [],
+    "indexStale": false,
+    "matchedTags": ["horror", "atmospheric"],
+    "tookMs": 5120
+  },
+  "fallback": {
+    "mode": "fallback",
+    "interpretation": null,
+    "filter": { "search": "щось як Hades, але коротше" },
+    "catalogUrl": "/games?search=%D1%89%D0%BE%D1%81%D1%8C",
+    "items": [
+      { "card": { "id": "274755", "slug": "hades", "name": "Hades" }, "reason": null },
+      { "card": { "id": "1000", "slug": "hades-ii", "name": "Hades II" }, "reason": null }
+    ],
+    "ignoredFilters": [],
+    "indexStale": false,
+    "matchedTags": [],
+    "tookMs": 9030
+  },
+  "emptyUnderstanding": {
+    "mode": "structured",
+    "interpretation": "Запит не стосується відеоігор",
+    "filter": {},
+    "catalogUrl": "/games",
+    "items": [],
+    "ignoredFilters": [],
+    "indexStale": false,
+    "matchedTags": [],
+    "tookMs": 1180
+  }
+}
