@@ -142,6 +142,32 @@ through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
   that does not expose Vercel's system environment variables to the build
   never turns it on by itself either.
 
+## Natural-language search
+
+`POST /api/ask` `{ q, locale }` turns a description — "кооператив для двох на
+Switch до 500 грн" — into the catalog filter it means and a short ranked list
+with one reason per game, using Claude Haiku 4.5 through the official
+Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
+query to a filter (re-validated against the live taxonomy, then run through
+the same resolvers as `/games`), one orders up to 40 candidates.
+
+- **Privacy:** the query text is sent to Anthropic to be answered. It is not
+  stored with the visitor's IP address: the address is used only for the
+  per-address rate limit, in memory, and the server log records counts,
+  latency, tokens, cost and mode — never the address and never the query.
+  Answers are cached in memory for 24 hours by query text, locale and index
+  version, with no visitor data.
+- **Limits:** 10 questions per address per minute; a per-instance daily
+  ceiling of model calls (`ASK_DAILY_LLM_CALLS`, default 500); queries up to
+  200 characters; 500/900 output tokens, an 8 s timeout and one retry per
+  call; a 12 s budget per question. The hard cap on spend is the monthly limit
+  set in the Anthropic Console.
+- **Fallback:** without `ANTHROPIC_API_KEY`, past the ceiling, or on any
+  error, refusal or timeout, the answer is `mode: "fallback"` — the raw query
+  as a plain catalog search — never an error page.
+- **Fixture mode** (`RAWG_FIXTURES=1`) answers from recorded responses
+  (`tests/fixtures/ask/recorded.json`) and never calls the API.
+
 ## Development
 
 ```bash
