@@ -1,0 +1,125 @@
+{
+  "answers": [
+    {
+      "query": "кооператив для двох на Switch до 500 грн",
+      "parse": {
+        "platforms": ["NINTENDO"],
+        "genres": [],
+        "gameModes": ["LOCAL_COOP"],
+        "ageRating": [],
+        "playtime": null,
+        "yearFrom": null,
+        "yearTo": null,
+        "metacriticMin": null,
+        "ratingMin": null,
+        "priceMaxUah": 500,
+        "free": null,
+        "onSaleMinPercent": null,
+        "ukrainianLocalisation": null,
+        "madeInUkraine": null,
+        "sort": null,
+        "searchText": null,
+        "similarTo": null,
+        "interpretation": "Кооперативні ігри для двох на Nintendo Switch до 500 ₴"
+      },
+      "rerank": {
+        "items": [
+          { "id": "9102", "reason": "Хаотичний кооператив на кухні для двох на одному екрані" },
+          { "id": "9101", "reason": "Платформер, який проходять лише вдвох, на Switch" },
+          { "id": "9104", "reason": "Спокійна ферма, де другий гравець приєднується локально" },
+          { "id": "777777", "reason": "Гра, якої немає серед кандидатів" }
+        ]
+      }
+    },
+    {
+      "query": "co-op for two on Switch under 500 UAH",
+      "parse": {
+        "platforms": ["NINTENDO"],
+        "genres": [],
+        "gameModes": ["LOCAL_COOP"],
+        "ageRating": [],
+        "playtime": null,
+        "yearFrom": null,
+        "yearTo": null,
+        "metacriticMin": null,
+        "ratingMin": null,
+        "priceMaxUah": 500,
+        "free": null,
+        "onSaleMinPercent": null,
+        "ukrainianLocalisation": null,
+        "madeInUkraine": null,
+        "sort": null,
+        "searchText": null,
+        "similarTo": null,
+        "interpretation": "Co-op games for two on Nintendo Switch under 500 ₴"
+      },
+      "rerank": {
+        "items": [
+          { "id": "9102", "reason": "Chaotic kitchen co-op for two on one screen" },
+          { "id": "9101", "reason": "A platformer built for exactly two players" },
+          { "id": "9104", "reason": "A calm farm a second player can join locally" }
+        ]
+      }
+    },
+    {
+      "query": "атмосферний горор українською",
+      "parse": {
+        "platforms": [],
+        "genres": [],
+        "gameModes": [],
+        "ageRating": [],
+        "playtime": null,
+        "yearFrom": null,
+        "yearTo": null,
+        "metacriticMin": null,
+        "ratingMin": null,
+        "priceMaxUah": null,
+        "free": null,
+        "onSaleMinPercent": null,
+        "ukrainianLocalisation": "ANY",
+        "madeInUkraine": null,
+        "sort": null,
+        "searchText": null,
+        "similarTo": null,
+        "interpretation": "Атмосферні горори з українською локалізацією"
+      },
+      "rerank": {
+        "items": [
+          { "id": "13537", "reason": "Гнітюча атмосфера Сіті 17, українські субтитри" },
+          { "id": "41494", "reason": "Темне місто майбутнього, український інтерфейс і субтитри" },
+          { "id": "3328", "reason": "Похмурий світ із чудовиськами, повна українська озвучка" }
+        ]
+      }
+    },
+    {
+      "query": "something like The Witcher 3",
+      "parse": {
+        "platforms": [],
+        "genres": [],
+        "gameModes": [],
+        "ageRating": [],
+        "playtime": null,
+        "yearFrom": null,
+        "yearTo": null,
+        "metacriticMin": null,
+        "ratingMin": null,
+        "priceMaxUah": null,
+        "free": null,
+        "onSaleMinPercent": null,
+        "ukrainianLocalisation": null,
+        "madeInUkraine": null,
+        "sort": null,
+        "searchText": null,
+        "similarTo": "The Witcher 3",
+        "interpretation": "Games like The Witcher 3: Wild Hunt"
+      },
+      "rerank": {
+        "items": [
+          { "id": "16944", "reason": "The previous Witcher: the same world and the same hero" },
+          { "id": "41494", "reason": "A story-driven action RPG from the same studio" },
+          { "id": "17857", "reason": "An action RPG with a bleak, open world" }
+        ]
+      }
+    }
+  ]
+}
