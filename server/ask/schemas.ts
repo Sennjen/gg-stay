@@ -61,7 +61,7 @@ export type AskParse = z.infer<typeof AskParseSchema>
 export const MAX_ANSWERS = 8
 
 /** The longest reason the model is asked for; the server cuts anything longer to this. */
-export const MAX_REASON_LENGTH = 100
+export const MAX_REASON_LENGTH = 80
 
 /**
  * The reason's length and the number of items are the only limits stated in a model-facing schema.

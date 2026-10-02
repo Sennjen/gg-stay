@@ -272,7 +272,7 @@ describe('the ask pipeline — structured answers', () => {
         }),
     })
     const { answer } = await runAsk({ q: 'co-op', locale: 'uk' }, { context, provider })
-    expect(answer.items[0]!.reason).toHaveLength(100)
+    expect(answer.items[0]!.reason).toHaveLength(80)
     expect(answer.items[1]!.reason).toBeNull()
   })
 

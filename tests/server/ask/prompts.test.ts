@@ -145,7 +145,7 @@ describe('the rerank prompt', () => {
 
   it('is deterministic text with the limits the answer is held to', () => {
     expect(RERANK_SYSTEM_PROMPT).toContain('up to 8 candidates')
-    expect(RERANK_SYSTEM_PROMPT).toContain('100')
+    expect(RERANK_SYSTEM_PROMPT).toContain('at most 80 characters')
     expect(RERANK_SYSTEM_PROMPT).not.toMatch(/\d{4}-\d{2}-\d{2}/)
   })
 })
