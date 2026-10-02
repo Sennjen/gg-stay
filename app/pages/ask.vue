@@ -307,7 +307,7 @@ useSeoMeta({
             data-test="ask-filter"
             :filter="answer.filter"
             :genres="genres"
-            :label="t('ask.filterLabel')"
+            :label="isFallback ? t('ask.searchLabel') : t('ask.filterLabel')"
           />
           <!-- A plain underlined link, not a chip: next to the chips it must not read as one more
                filter value. -->

@@ -288,6 +288,7 @@
     "results": "Результати",
     "interpretation": "Як ми зрозуміли запит:",
     "filterLabel": "Зрозумілий фільтр:",
+    "searchLabel": "Звичайний пошук:",
     "openInCatalog": "Відкрити в каталозі",
     "picked": "Підібрали {count} гру | Підібрали {count} гри | Підібрали {count} ігор",
     "found": "Знайшли {count} гру | Знайшли {count} гри | Знайшли {count} ігор",

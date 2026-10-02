@@ -288,6 +288,7 @@
     "results": "Results",
     "interpretation": "How we read it:",
     "filterLabel": "Understood filter:",
+    "searchLabel": "Plain search:",
     "openInCatalog": "Open in the catalog",
     "picked": "Picked {count} game | Picked {count} games",
     "found": "Found {count} game | Found {count} games",

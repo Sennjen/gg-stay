@@ -166,6 +166,10 @@ describe('the ask page, answered from the URL', () => {
     expect(wrapper.find('[data-test="ask-interpretation"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(2)
     expect(wrapper.find('[data-test="ask-reason"]').exists()).toBe(false)
+    // Nothing was "understood" here: the filter is the plain search the question became.
+    const filter = wrapper.get('[data-test="ask-filter"]')
+    expect(filter.get('span').text()).toBe('Звичайний пошук:')
+    expect(filter.findAll('li').map((chip) => chip.text())).toEqual([`«${FALLBACK_QUERY}»`])
     const href = new URL(
       wrapper.get('[data-test="ask-catalog-link"]').attributes('href')!,
       'http://site.test',
