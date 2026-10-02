@@ -144,6 +144,9 @@ through [Vercel Speed Insights](https://vercel.com/docs/speed-insights).
 
 ## Natural-language search
 
+How it works, how answers are ranked and the full path of checks behind it:
+[ADR-003](docs/adr/003-natural-language-search.md).
+
 `POST /api/ask` `{ q, locale }` turns a description — "кооператив для двох на
 Switch до 500 грн" — into the catalog filter it means and a short ranked list
 with one reason per game, using Claude Haiku 4.5 through the official
@@ -190,7 +193,8 @@ are `false`/empty when no page answered.
   itself.
 - **Fallback:** without `ANTHROPIC_API_KEY`, past a limit, once the credits
   run out, or on any error, refusal or timeout of the parse, the answer is
-  `mode: "fallback"` — the raw query as a plain catalog search — never an
+  `mode: "fallback"` — the raw query as a plain search over the index's game
+  names (RAWG only if the index is down) — never an
   error page. A failed ranking keeps the understood filter and serves its
   games in catalog order; filters the catalog could not apply are listed in
   `ignoredFilters`.
