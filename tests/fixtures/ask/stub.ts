@@ -4,6 +4,8 @@ import {
   EMPTY_QUERY,
   FALLBACK_ANSWER,
   FALLBACK_QUERY,
+  HOSTILE_ANSWER,
+  HOSTILE_QUERY,
   RATE_LIMITED_QUERY,
   RETRY_AFTER_SECONDS,
   STRUCTURED_ANSWER,
@@ -40,6 +42,7 @@ export function askStubResponse(body: unknown): StubResponse {
   if (query === STRUCTURED_QUERY) return { status: 200, body: STRUCTURED_ANSWER }
   if (query === EMPTY_QUERY) return { status: 200, body: EMPTY_ANSWER }
   if (query === FALLBACK_QUERY) return { status: 200, body: FALLBACK_ANSWER }
+  if (query === HOSTILE_QUERY) return { status: 200, body: HOSTILE_ANSWER }
   return {
     status: 200,
     body: {
