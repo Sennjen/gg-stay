@@ -27,4 +27,13 @@ export interface GraphQLContext {
   index: GameIndex
   steamPrices: SteamPriceFetch
   cache: ResolverCache
+  /**
+   * Keeps `work` running after the response has been sent. A serverless platform may freeze a
+   * function the moment it has answered, and a resolver that deliberately stops waiting for
+   * something — the catalog no longer waiting for a slow RAWG page, whose response should still
+   * reach the RAWG cache — hands it over here. Absent when the caller has no such hook (tests,
+   * `/api/ask`): the work is then simply left running, which is all a long-lived server needs.
+   * Nothing here catches, so what is handed over must already have its rejection handled.
+   */
+  waitUntil?: (work: Promise<unknown>) => void
 }

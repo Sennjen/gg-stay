@@ -581,22 +581,47 @@ describe('the ask pipeline — index-first retrieval', () => {
     it('gives a title search four seconds, then answers the rest from the index', async () => {
       const { rawg, asked } = slowRawg()
       const context = await contextWith(CATALOG, { rawg })
+      // A title the index does not hold, so the catalog's own hedge has nothing to answer with
+      // and the page keeps waiting for RAWG until this pipeline's budget runs out.
       const { provider } = scripted({
-        parse: parsing({ searchText: 'metro', genres: ['shooter'], yearFrom: 2011 }),
+        parse: parsing({ searchText: 'halo', genres: ['shooter'], yearFrom: 2011 }),
       })
       const started = Date.now()
-      const running = runAsk({ q: 'metro shooters', locale: 'en' }, { context, provider })
+      const running = runAsk({ q: 'halo shooters', locale: 'en' }, { context, provider })
       await vi.advanceTimersByTimeAsync(ASK_RAWG_BUDGET_MS)
       const outcome = await running
       expect(Date.now() - started).toBe(ASK_RAWG_BUDGET_MS)
       expect(asked).toHaveLength(1)
       expect(outcome.answer).toMatchObject({
         mode: 'structured',
-        filter: { search: 'metro', genres: ['shooter'], yearFrom: 2011 },
+        filter: { search: 'halo', genres: ['shooter'], yearFrom: 2011 },
         ignoredFilters: ['search'],
         indexedOnly: true,
       })
       expect(ids(outcome.answer).sort()).toEqual(['801', '802', '807'])
+    })
+
+    it('takes the catalog’s index answer for a title the index holds, once RAWG is slow', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const { rawg, asked } = slowRawg()
+      const context = await contextWith(CATALOG, { rawg })
+      const { provider } = scripted({
+        parse: parsing({ searchText: 'metro', genres: ['shooter'], yearFrom: 2011 }),
+      })
+      const running = runAsk({ q: 'metro shooters', locale: 'en' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(ASK_RAWG_BUDGET_MS)
+      const outcome = await running
+      expect(asked).toHaveLength(1)
+      // `catalogPage` answered from the index after `RAWG_HEDGE_MS`, inside this pipeline's own
+      // budget, with the title applied as the index applies it: a match on the game's name.
+      expect(outcome.answer).toMatchObject({
+        mode: 'structured',
+        filter: { search: 'metro', genres: ['shooter'], yearFrom: 2011 },
+        ignoredFilters: [],
+        indexedOnly: true,
+      })
+      expect(ids(outcome.answer)).toEqual(['807'])
+      info.mockRestore()
     })
 
     it('asks RAWG, within its four seconds, only when the index cannot answer', async () => {

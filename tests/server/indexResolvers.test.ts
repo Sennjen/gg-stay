@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GameIndex } from '../../server/index/GameIndex'
 import { degradeOnFailure, unavailableGameIndex, withDeadline } from '../../server/index/index'
+import { RAWG_HEDGE_MS } from '../../server/graphql/resolvers/games'
 import type { ResolverCache } from '../../server/graphql/context'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import { createSteamPriceFetch } from '../../server/steam/steamPriceFetch'
@@ -683,6 +684,221 @@ describe('a slow but healthy index', () => {
     expect(errors).toBeUndefined()
     expect(clock.finished.meta).toBe(1400)
     expect(clock.finished.rawg).toBe(1000)
+  })
+})
+
+describe('a RAWG page RAWG is slow to answer', () => {
+  // RAWG's slow path on a cache miss, measured on production: seven seconds for one genre and a
+  // start year. Every RAWG call here takes that long on the fake clock, unless a case says otherwise.
+  const RAWG_SLOW_MS = 7_000
+
+  /** RAWG's fixture answers, each after `ms` on the (fake) clock. */
+  function rawgTaking(ms: number): RawgFetch & { paths: string[] } {
+    return countingRawg(async (path, params, options) => {
+      await new Promise((resolve) => setTimeout(resolve, ms))
+      return fixtureRawg(path, params, options)
+    })
+  }
+
+  // Only the timers are faked: yoga and the in-memory index run on promises alone, and a frozen
+  // `Date` or `queueMicrotask` would stall them for reasons that have nothing to do with RAWG.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const PLAIN_FILTER = { filter: { genres: ['action'], yearFrom: 2010 } }
+
+  it('takes RAWG’s answer when it arrives within the budget', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const rawg = rawgTaking(RAWG_HEDGE_MS - 1)
+    const waitUntil = vi.fn()
+    const answer = runQuery({ index, rawg, waitUntil }, GAMES, PLAIN_FILTER)
+    await vi.advanceTimersByTimeAsync(RAWG_HEDGE_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games.indexedOnly).toBe(false)
+    expect(data!.games.items).toHaveLength(4)
+    expect(index.calls.search).toHaveLength(0)
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+    // The budget's timer went with RAWG's answer; nothing is left scheduled behind the page.
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('answers from the index once the budget is spent, and leaves RAWG running', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const rawg = rawgTaking(RAWG_SLOW_MS)
+    const waitUntil = vi.fn<(work: Promise<unknown>) => void>()
+    const answer = runQuery({ index, rawg, waitUntil }, GAMES, PLAIN_FILTER)
+    await vi.advanceTimersByTimeAsync(RAWG_HEDGE_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games).toMatchObject({ indexedOnly: true, indexStale: false, ignoredFilters: [] })
+    expect(data!.games.items.length).toBeGreaterThan(0)
+    expect(index.calls.search).toHaveLength(1)
+    expect(index.calls.search[0]).toMatchObject({ genres: ['action'], yearFrom: 2010 })
+    expect(info).toHaveBeenCalledTimes(1)
+    expect(info).toHaveBeenCalledWith(
+      `[catalog] RAWG slower than ${RAWG_HEDGE_MS} ms, answered from the index`,
+    )
+
+    // The RAWG request was not cancelled: it was handed over, and settles when RAWG answers.
+    expect(rawg.paths).toEqual(['games'])
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    let settled = false
+    void waitUntil.mock.calls[0]![0].then(() => (settled = true))
+    await vi.advanceTimersByTimeAsync(RAWG_SLOW_MS - RAWG_HEDGE_MS)
+    expect(settled).toBe(true)
+  })
+
+  it('never lets a RAWG failure after the budget surface, with or without a waitUntil', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const rawg: RawgFetch = async () => {
+        await new Promise((resolve) => setTimeout(resolve, RAWG_SLOW_MS))
+        throw new Error('RAWG went away')
+      }
+      const answer = runQuery({ index, rawg }, GAMES, PLAIN_FILTER)
+      await vi.advanceTimersByTimeAsync(RAWG_HEDGE_MS)
+      const { data, errors } = await answer
+      expect(errors).toBeUndefined()
+      expect(data!.games.indexedOnly).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(RAWG_SLOW_MS)
+      // An unhandled rejection is reported on a later turn of the event loop than the one it
+      // happened on, so a real macrotask has to pass before its absence means anything.
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('keeps waiting for RAWG when the filter names something the index has no facet for', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const rawg = rawgTaking(RAWG_SLOW_MS)
+    const waitUntil = vi.fn()
+    const answer = runQuery({ index, rawg, waitUntil }, GAMES, {
+      filter: { genres: ['action'], developers: ['cd-projekt-red'] },
+    })
+    await vi.advanceTimersByTimeAsync(RAWG_SLOW_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games).toMatchObject({ indexedOnly: false, ignoredFilters: [] })
+    expect(index.calls.search).toHaveLength(0)
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('keeps waiting for RAWG when the index has nothing on that page', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const rawg = rawgTaking(RAWG_SLOW_MS)
+    const waitUntil = vi.fn()
+    // Far deeper than the games the index holds: only RAWG has anything to show there.
+    const answer = runQuery({ index, rawg, waitUntil }, GAMES, { ...PLAIN_FILTER, page: 40 })
+    await vi.advanceTimersByTimeAsync(RAWG_SLOW_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games).toMatchObject({ indexedOnly: false, page: 40 })
+    expect(data!.games.items).toHaveLength(4)
+    // The index was asked, found nothing, and the page went on waiting.
+    expect(index.calls.search).toHaveLength(1)
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('keeps waiting for RAWG when the index page fails, and warns once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const broken = countCalls(
+      overriding(await publishTestIndex(ALL_DOCUMENTS), {
+        search: () => Promise.reject(new Error('ECONNRESET')),
+      }),
+    )
+    const rawg = rawgTaking(RAWG_SLOW_MS)
+    const waitUntil = vi.fn()
+    const answer = runQuery({ index: broken, rawg, waitUntil }, GAMES, PLAIN_FILTER)
+    await vi.advanceTimersByTimeAsync(RAWG_SLOW_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games.indexedOnly).toBe(false)
+    expect(data!.games.items).toHaveLength(4)
+    expect(broken.calls.search).toHaveLength(1)
+    // The request's index has let it down, so the RAWG page is not sent back to it for prices.
+    expect(broken.calls.getMany).toHaveLength(0)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('keeps waiting for RAWG when no index is configured, without asking it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const none = countCalls(unavailableGameIndex('nothing is configured'))
+    const rawg = rawgTaking(RAWG_SLOW_MS)
+    const answer = runQuery({ index: none, rawg }, GAMES, PLAIN_FILTER)
+    await vi.advanceTimersByTimeAsync(RAWG_SLOW_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games.indexedOnly).toBe(false)
+    // No metadata means nothing to answer with; asking anyway would only fail, and say so.
+    expect(none.calls.search).toHaveLength(0)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('answers from a stale index without a single price', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const stale = countCalls(
+      await publishTestIndex(ALL_DOCUMENTS, {
+        updatedAt: '2026-09-18T06:30:00.000Z',
+        pricesUpdatedAt: '2026-09-10T09:00:00.000Z',
+      }),
+    )
+    const rawg = rawgTaking(RAWG_SLOW_MS)
+    const answer = runQuery({ index: stale, rawg }, GAMES, PLAIN_FILTER)
+    await vi.advanceTimersByTimeAsync(RAWG_HEDGE_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games).toMatchObject({ indexedOnly: true, indexStale: true })
+    const items = data!.games.items as { price: unknown }[]
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.every((item) => item.price === null)).toBe(true)
+  })
+
+  it('answers a stale page whose price filters were dropped, and still names them', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const stale = countCalls(
+      await publishTestIndex(ALL_DOCUMENTS, {
+        updatedAt: '2026-09-18T06:30:00.000Z',
+        pricesUpdatedAt: '2026-09-10T09:00:00.000Z',
+      }),
+    )
+    const rawg = rawgTaking(RAWG_SLOW_MS)
+    const answer = runQuery({ index: stale, rawg }, GAMES, {
+      filter: { genres: ['action'], priceMaxUah: 100 },
+      sort: 'PRICE_ASC',
+    })
+    await vi.advanceTimersByTimeAsync(RAWG_HEDGE_MS)
+    const { data, errors } = await answer
+
+    expect(errors).toBeUndefined()
+    expect(data!.games).toMatchObject({ indexedOnly: true, indexStale: true })
+    expect(data!.games.ignoredFilters).toEqual(['priceMaxUah', 'sort'])
+    // Nothing stale was filtered or ordered on.
+    expect(stale.calls.search[0]).toMatchObject({ priceMaxUah: undefined, sort: 'POPULARITY_DESC' })
+    expect(data!.games.items.every((item: { price: unknown }) => item.price === null)).toBe(true)
   })
 })
 
