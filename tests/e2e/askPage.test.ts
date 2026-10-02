@@ -39,15 +39,20 @@ function decode(value: string): string {
 
 /**
  * A fresh visitor address per request unless one is given: the endpoint allows ten questions a
- * minute per address, and this suite asks more than that.
+ * minute per address, and this suite asks more than that. The address travels the way Vercel
+ * reports it, in `x-vercel-forwarded-for` (the server runs with `VERCEL=1`, the only setting in
+ * which the endpoint reads a header at all). `spoofed` adds a client-chosen `x-forwarded-for`.
  */
 let visitor = 0
 const nextAddress = () => `198.51.100.${++visitor}`
 
-async function page(path: string, address: string = nextAddress()) {
-  const response = await fetch(path, {
-    headers: { accept: 'text/html', 'x-forwarded-for': address },
-  })
+async function page(path: string, address: string = nextAddress(), spoofed?: string) {
+  const headers: Record<string, string> = {
+    accept: 'text/html',
+    'x-vercel-forwarded-for': address,
+  }
+  if (spoofed) headers['x-forwarded-for'] = spoofed
+  const response = await fetch(path, { headers })
   const html = await response.text()
   const head = html.slice(0, html.indexOf('</head>'))
   const meta = (name: string) =>
@@ -109,7 +114,8 @@ describe('the ask page on the server', async () => {
   await setup({
     server: true,
     browser: false,
-    env: { RAWG_FIXTURES: '1', NUXT_RAWG_FIXTURES: '1' },
+    // `VERCEL` at run time only: the endpoint keys clients by Vercel's headers when it is set.
+    env: { RAWG_FIXTURES: '1', NUXT_RAWG_FIXTURES: '1', VERCEL: '1' },
   })
 
   it('serves the page without a question as an indexable page with a form', async () => {
@@ -183,14 +189,16 @@ describe('the ask page on the server', async () => {
     )
   })
 
-  it("forwards the visitor's address, so the rate limit counts visitors, not server renders", async () => {
-    // The endpoint allows a burst of ten per address. Eleven renders from one visitor: the last is
-    // refused — and says when to try again, from the endpoint's Retry-After.
+  it("forwards Vercel's client address, so the rate limit counts visitors, not server renders", async () => {
+    // The endpoint allows a burst of ten per address. Eleven renders from one visitor, each with a
+    // different client-chosen `x-forwarded-for`: the last is still refused, because the key is the
+    // forwarded `x-vercel-forwarded-for` — and the page says when to try again.
     const busy = '203.0.113.10'
     for (let render = 0; render < 10; render += 1) {
-      expect(text((await page(askUrl(UNKNOWN), busy)).body)).toContain('ШІ-розбір')
+      const { body } = await page(askUrl(UNKNOWN), busy, `192.0.2.${render + 1}`)
+      expect(text(body)).toContain('ШІ-розбір')
     }
-    expect(text((await page(askUrl(UNKNOWN), busy)).body)).toMatch(
+    expect(text((await page(askUrl(UNKNOWN), busy, '192.0.2.99')).body)).toMatch(
       /Забагато запитів поспіль\. Спробуйте ще раз за \d+ секунд/,
     )
     // Another visitor is unaffected. Without the forwarded header both would be one address.
