@@ -368,10 +368,9 @@ function inRetrievalOrder(candidates: readonly GameCard[]): AskItem[] {
  * header's search would send it. Even that failing is an answer — an empty one.
  */
 async function fallback(request: AskRequest, context: GraphQLContext): Promise<Structured> {
-  const search = request.q.replace(/\s+/g, ' ').trim().slice(0, MAX_SEARCH_LENGTH).trim()
-  const filter: CatalogFilter = search ? { search } : {}
+  const answer = emptyFallback(request)
   const items: AskItem[] = await catalogPage(context, {
-    filter,
+    filter: answer.filter,
     sort: DEFAULT_SORT,
     page: 1,
     pageSize: FALLBACK_SIZE,
@@ -379,11 +378,18 @@ async function fallback(request: AskRequest, context: GraphQLContext): Promise<S
     (page) => page.items.slice(0, FALLBACK_SIZE).map((card) => ({ card, reason: null })),
     () => [],
   )
+  return { ...answer, items }
+}
+
+/** The fallback's shape with no cards: the raw query as a catalog search, and its link. */
+export function emptyFallback(request: AskRequest): Omit<AskAnswer, 'tookMs'> {
+  const search = request.q.replace(/\s+/g, ' ').trim().slice(0, MAX_SEARCH_LENGTH).trim()
+  const filter: CatalogFilter = search ? { search } : {}
   return {
     mode: 'fallback',
     interpretation: null,
     filter,
     catalogUrl: catalogUrl(filter, DEFAULT_SORT, request.locale),
-    items,
+    items: [],
   }
 }
