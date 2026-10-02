@@ -7,6 +7,7 @@ import {
   createRateLimiter,
   dailyCallLimit,
 } from '../ask/limits'
+import { askContext } from '../ask/pipeline'
 import { createRecordedProvider, type RecordedAnswers } from '../ask/recordedProvider'
 import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
 
@@ -45,7 +46,7 @@ export function useAsk(): AskHandlerDeps {
     allowance: createDailyAllowance({ now }),
     ceiling: createDailyCeiling({ limit: dailyCallLimit(config.askDailyLlmCalls), now }),
     cache: { get: cache.get, set: cache.set },
-    context: createGraphQLContext,
+    context: async () => askContext(await createGraphQLContext()),
     provider: fixtures
       ? createRecordedProvider(() =>
           useStorage('assets:ask-fixtures').getItem<RecordedAnswers>('recorded.json'),

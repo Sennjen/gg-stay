@@ -31,6 +31,10 @@ export interface RawgDeps {
 export interface RawgFetchOptions {
   /** Overrides the ttl (seconds) `ttlFor(path)` would otherwise pick for this call's cache entry. */
   ttl?: number
+  /** A tighter timeout for this call than the transport's 5 s. */
+  timeoutMs?: number
+  /** Fewer attempts for this call than the transport's two (one retry). */
+  maxAttempts?: number
 }
 
 export type RawgFetch = (
@@ -120,6 +124,10 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
       cacheKey: ({ path, params }) => normalizeKey(path, params),
       fixtureName: ({ path, params }) => fixtureName(path, params),
       ttlFor: ({ path, options }) => options?.ttl ?? ttlFor(path),
+      limitsFor: ({ options }) =>
+        options && (options.timeoutMs !== undefined || options.maxAttempts !== undefined)
+          ? { timeoutMs: options.timeoutMs, maxAttempts: options.maxAttempts }
+          : undefined,
     },
     deps,
   )

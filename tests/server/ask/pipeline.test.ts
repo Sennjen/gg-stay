@@ -3,6 +3,8 @@ import type { IndexedGame } from '../../../server/index/document'
 import type { GameIndex } from '../../../server/index/GameIndex'
 import type { GraphQLContext } from '../../../server/graphql/context'
 import {
+  ASK_RAWG_BUDGET_MS,
+  askContext,
   FALLBACK_RESERVE_MS,
   FALLBACK_SIZE,
   GENRES_TIMEOUT_MS,
@@ -371,10 +373,18 @@ describe('the ask pipeline — structured answers', () => {
     const rawg: RawgFetch = async () => {
       throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
     }
-    const context = await contextWith(COOP, { index: stale, rawg })
+    const failing = overriding(stale, { search: () => Promise.reject(new Error('down')) })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const context = await contextWith(COOP, { index: failing, rawg })
     const { provider } = scripted({ parse: () => failed('unavailable') })
     const { answer } = await runAsk({ q: 'portal', locale: 'uk' }, { context, provider })
-    expect(answer).toMatchObject({ mode: 'fallback', items: [], indexStale: false })
+    expect(answer).toMatchObject({
+      mode: 'fallback',
+      items: [],
+      indexStale: false,
+      indexedOnly: false,
+    })
+    warn.mockRestore()
   })
 
   it('falls back to the retrieval order without reasons when fewer than three ranked ids survive', async () => {
@@ -479,6 +489,135 @@ describe('the ask pipeline — structured answers', () => {
       'retrieve',
     ])
     for (const ms of Object.values(timings)) expect(ms).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('the ask pipeline — index-first retrieval', () => {
+  it('holds RAWG to one attempt of four seconds for the whole request', async () => {
+    const calls: unknown[] = []
+    const rawg: RawgFetch = async (path, params, options) => {
+      calls.push(options)
+      return fixtureRawg(path, params)
+    }
+    const context = askContext(await contextWith([], { rawg }))
+    await context.rawg('genres')
+    await context.rawg('games', {}, { ttl: 60 })
+    expect(calls).toEqual([
+      { timeoutMs: ASK_RAWG_BUDGET_MS, maxAttempts: 1 },
+      { timeoutMs: ASK_RAWG_BUDGET_MS, maxAttempts: 1, ttl: 60 },
+    ])
+  })
+
+  const CATALOG: IndexedGame[] = [
+    doc(801, 'Shooter 2012', { genres: ['shooter'], released: '2012-05-01' }),
+    doc(802, 'Shooter 2019', { genres: ['shooter'], released: '2019-05-01' }),
+    doc(803, 'Shooter 2010', { genres: ['shooter', 'action'], released: '2010-01-01' }),
+    doc(804, 'Long RPG', { genres: ['role-playing-games-rpg'], playtime: 80 }),
+    doc(805, 'Short RPG', { genres: ['role-playing-games-rpg'], playtime: 6 }),
+    doc(806, 'Short Puzzle', { genres: ['puzzle'], playtime: 3 }),
+    doc(807, 'Metro Exodus', { genres: ['shooter'], released: '2019-02-15' }),
+  ]
+
+  /** RAWG that never answers a games request, and counts the ones it was sent. */
+  function slowRawg() {
+    const asked: Record<string, unknown>[] = []
+    const rawg: RawgFetch = (path, params) => {
+      if (path !== 'games') return fixtureRawg(path, params)
+      asked.push(params ?? {})
+      return new Promise<never>(() => {})
+    }
+    return { rawg, asked }
+  }
+
+  it.each([
+    [
+      'a year range and a genre',
+      { yearFrom: 2010, yearTo: 2015, genres: ['shooter'] },
+      ['801', '803'],
+    ],
+    [
+      'a long playtime and a genre',
+      { playtime: 'LONG', genres: ['role-playing-games-rpg'] },
+      ['804'],
+    ],
+    ['a short playtime', { playtime: 'SHORT' }, ['805', '806']],
+  ] as [string, Partial<AskParse>, string[]][])(
+    'answers %s from the index, never waiting for RAWG',
+    async (_label, parse, expected) => {
+      const { rawg, asked } = slowRawg()
+      const context = await contextWith(CATALOG, { rawg })
+      const { provider } = scripted({ parse: parsing(parse) })
+      const outcome = await runAsk({ q: 'q', locale: 'en' }, { context, provider })
+      expect(asked).toEqual([])
+      expect(outcome.answer.mode).toBe('structured')
+      expect(outcome.answer.indexedOnly).toBe(true)
+      expect(outcome.answer.ignoredFilters).toEqual([])
+      expect(ids(outcome.answer).sort()).toEqual(expected)
+    },
+  )
+
+  it('still asks RAWG for a title search, which it ranks by relevance', async () => {
+    const asked: Record<string, unknown>[] = []
+    const rawg: RawgFetch = (path, params) => {
+      if (path === 'games') asked.push(params ?? {})
+      return fixtureRawg(path, params)
+    }
+    const context = await contextWith(CATALOG, { rawg })
+    const { provider } = scripted({ parse: parsing({ searchText: 'witcher' }) })
+    const outcome = await runAsk({ q: 'witcher games', locale: 'en' }, { context, provider })
+    expect(asked).toEqual([expect.objectContaining({ search: 'witcher' })])
+    expect(outcome.answer.indexedOnly).toBe(false)
+    expect(ids(outcome.answer)).toContain('3328')
+  })
+
+  describe('when RAWG is slow', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('gives a title search four seconds, then answers the rest from the index', async () => {
+      const { rawg, asked } = slowRawg()
+      const context = await contextWith(CATALOG, { rawg })
+      const { provider } = scripted({
+        parse: parsing({ searchText: 'metro', genres: ['shooter'], yearFrom: 2011 }),
+      })
+      const started = Date.now()
+      const running = runAsk({ q: 'metro shooters', locale: 'en' }, { context, provider })
+      await vi.advanceTimersByTimeAsync(ASK_RAWG_BUDGET_MS)
+      const outcome = await running
+      expect(Date.now() - started).toBe(ASK_RAWG_BUDGET_MS)
+      expect(asked).toHaveLength(1)
+      expect(outcome.answer).toMatchObject({
+        mode: 'structured',
+        filter: { search: 'metro', genres: ['shooter'], yearFrom: 2011 },
+        ignoredFilters: ['search'],
+        indexedOnly: true,
+      })
+      expect(ids(outcome.answer).sort()).toEqual(['801', '802', '807'])
+    })
+
+    it('asks RAWG, within its four seconds, only when the index cannot answer', async () => {
+      const asked: Record<string, unknown>[] = []
+      const rawg: RawgFetch = (path, params) => {
+        if (path === 'games') asked.push(params ?? {})
+        return fixtureRawg(path, params)
+      }
+      const index = overriding(await publishTestIndex(CATALOG), {
+        search: () => Promise.reject(new Error('down')),
+      })
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const context = await contextWith(CATALOG, { rawg, index })
+      const { provider } = scripted({ parse: parsing({ playtime: 'LONG' }) })
+      const outcome = await runAsk({ q: 'long games', locale: 'en' }, { context, provider })
+      expect(asked).toHaveLength(1)
+      expect(outcome.answer).toMatchObject({ mode: 'structured', indexedOnly: false })
+      // RAWG's fixture holds one game over forty hours.
+      expect(ids(outcome.answer)).toEqual(['3328'])
+      warn.mockRestore()
+    })
   })
 })
 
@@ -689,8 +828,9 @@ describe('the ask pipeline — fallback', () => {
     const outcome = await fallbackFor(provider)
     expect(outcome.failure).toBe(failure)
     expectFallback(outcome.answer)
-    // The plain search answers from the RAWG fixture, which holds four games.
-    expect(outcome.answer.items.map((item) => item.card.name)).toContain('Stardew Valley')
+    // The plain search is the index's name search, and no game here is called that.
+    expect(outcome.answer).toMatchObject({ items: [], indexedOnly: true })
+    expect(outcome.search).toBe('ok')
     expect(calls.rerank).toHaveLength(0)
   })
 
@@ -714,15 +854,46 @@ describe('the ask pipeline — fallback', () => {
     },
   )
 
-  it('falls back when retrieval fails', async () => {
+  it('falls back when neither the index nor RAWG can retrieve', async () => {
     const { provider } = scripted({ parse: parsing({ genres: ['action'] }) })
     const rawg: RawgFetch = async (path, params) => {
-      if (path === 'games' && params?.genres) throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
+      if (path === 'games') throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
       return fixtureRawg(path, params)
     }
-    const outcome = await fallbackFor(provider, { rawg })
+    const index = overriding(await publishTestIndex(COOP), {
+      search: () => Promise.reject(new Error('down')),
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const outcome = await fallbackFor(provider, { rawg, index })
     expect(outcome.failure).toBe('retrieval')
     expectFallback(outcome.answer)
+    warn.mockRestore()
+  })
+
+  it("answers the plain search from the index's names first", async () => {
+    const rawg: RawgFetch = async (path, params) => {
+      if (path === 'games') throw new Error('RAWG must not be asked')
+      return fixtureRawg(path, params)
+    }
+    const context = await contextWith(COOP, { rawg })
+    const { provider } = scripted({ parse: () => failed('unavailable') })
+    const { answer } = await runAsk({ q: 'overcooked', locale: 'en' }, { context, provider })
+    expect(answer).toMatchObject({ mode: 'fallback', indexedOnly: true })
+    expect(answer.items.map((item) => item.card.name)).toEqual(['Overcooked 2'])
+  })
+
+  it('answers the plain search from RAWG only when the index cannot', async () => {
+    const index = overriding(await publishTestIndex(COOP), {
+      search: () => Promise.reject(new Error('down')),
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const context = await contextWith(COOP, { index })
+    const { provider } = scripted({ parse: () => failed('unavailable') })
+    const { answer } = await runAsk({ q: RAW, locale: 'uk' }, { context, provider })
+    // The RAWG fixture answers every search with its four games.
+    expect(answer.items.map((item) => item.card.name)).toContain('Stardew Valley')
+    expect(answer.indexedOnly).toBe(false)
+    warn.mockRestore()
   })
 
   it('falls back when a provider throws instead of returning a failure', async () => {
@@ -776,10 +947,9 @@ describe('the ask pipeline — fallback', () => {
       expect(outcome.failure).toBe('timeout')
       expect(outcome.search).toBe('ok')
       expectFallback(outcome.answer)
-      expect(outcome.answer.items.length).toBeGreaterThan(0)
     })
 
-    it('answers within twelve seconds when everything upstream hangs — the worst case', async () => {
+    it('answers within the deadline when everything upstream hangs — the worst case', async () => {
       const never = new Promise<never>(() => {})
       const rawg: RawgFetch = () => never
       const provider: LlmProvider = {
@@ -788,7 +958,9 @@ describe('the ask pipeline — fallback', () => {
         parse: () => never,
         rerank: () => never,
       }
-      const context = await contextWith(COOP, { rawg })
+      // The index publishes, then never answers a search: the plain search hangs on it too.
+      const index = overriding(await publishTestIndex(COOP), { search: () => never })
+      const context = await contextWith(COOP, { rawg, index })
       const started = Date.now()
       let settled = false
       const running = runAsk({ q: RAW, locale: 'uk' }, { context, provider }).finally(() => {
@@ -1060,6 +1232,7 @@ describe('the ask pipeline — the answer shape', () => {
       'filter',
       'ignoredFilters',
       'indexStale',
+      'indexedOnly',
       'interpretation',
       'items',
       'matchedTags',

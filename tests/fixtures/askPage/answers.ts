@@ -53,6 +53,7 @@ export const STRUCTURED_ANSWER = {
       reason: 'Спокійна ферма, яку можна вести вдвох',
     },
   ],
+  indexedOnly: true,
   tookMs: 2140,
 } as const
 

@@ -140,6 +140,22 @@ describe('the ask page, answered from the URL', () => {
     expect(requests).toEqual([{ q: STRUCTURED_QUERY, locale: 'uk' }])
   })
 
+  it("says the answer comes from the index, in the catalog's own words", async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    const note = wrapper.get('[data-test="ask-results"] [data-test="index-note"]')
+    expect(plain(note.text())).toBe(
+      'Пошук серед 3 000 найпопулярніших ігор і всіх ігор українських студій — ціни й мови ми знаємо лише для них.',
+    )
+    // Text only: an answer has no price-run time, so no "prices updated" line.
+    expect(note.find('[data-test="prices-updated"]').exists()).toBe(false)
+  })
+
+  it('says nothing about the index when the answer did not come from it', async () => {
+    const wrapper = await renderAsk(askUrl(FALLBACK_QUERY))
+    expect(wrapper.find('[data-test="ask-results"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="index-note"]').exists()).toBe(false)
+  })
+
   it('shows the interpretation, the understood filter and a link to it in the catalog', async () => {
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
     const results = wrapper.get('[data-test="ask-results"]')

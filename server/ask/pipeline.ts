@@ -80,6 +80,11 @@ export const TOTAL_BUDGET_MS = 15_000
  * that fails leaves a structured answer, with no search to run.
  */
 export const FALLBACK_RESERVE_MS = 3_000
+/**
+ * The most /ask waits for RAWG, on the rare query only RAWG can answer (a title search), and as
+ * one attempt — not the catalog's two of five seconds each. Past it the index answers what it can.
+ */
+export const ASK_RAWG_BUDGET_MS = 4_000
 /** The genre list may take this long; past it the parse runs without genres. */
 export const GENRES_TIMEOUT_MS = 1_500
 /**
@@ -126,6 +131,12 @@ export interface AskAnswer {
    * it is then unknown; a fallback whose search answered reports that page's own value.
    */
   indexStale: boolean
+  /**
+   * The cards came from the index alone — the most popular games and every Ukrainian studio's —
+   * not from RAWG's whole catalog: what the catalog says with `GamePage.indexedOnly`, and the page
+   * can say it the same way. `false` when no page answered.
+   */
+  indexedOnly: boolean
   /**
    * Mood tags the cards were also matched on ("horror", "roguelike"). The catalog has no tag
    * filter, so they are not in `filter` or `catalogUrl`; the page can say "also matched on …".
@@ -220,6 +231,20 @@ function within<T>(
     )
   })
   return Promise.race([work, expiry]).finally(() => clearTimeout(timer))
+}
+
+/**
+ * The request context `/ask` runs on: the catalog's own, with RAWG held to one attempt of
+ * `ASK_RAWG_BUDGET_MS` — the transport's two five-second attempts would outlast the whole answer.
+ * Built once per request, before anything reads the index, so the request's index state is shared.
+ */
+export function askContext(context: GraphQLContext): GraphQLContext {
+  const rawg = context.rawg
+  return {
+    ...context,
+    rawg: (path, params, options) =>
+      rawg(path, params, { timeoutMs: ASK_RAWG_BUDGET_MS, maxAttempts: 1, ...options }),
+  }
 }
 
 export async function runAsk(request: AskRequest, deps: AskPipelineDeps): Promise<AskOutcome> {
@@ -393,7 +418,14 @@ async function prepare(
   // list of popular games would be an answer to a question nobody asked.
   if (isEmpty(understood)) {
     return {
-      answer: { ...base, items: [], ignoredFilters: [], indexStale: false, matchedTags: [] },
+      answer: {
+        ...base,
+        items: [],
+        ignoredFilters: [],
+        indexStale: false,
+        indexedOnly: false,
+        matchedTags: [],
+      },
       rerankFailure: null,
       degraded: false,
     }
@@ -417,6 +449,7 @@ async function prepare(
       items,
       ignoredFilters,
       indexStale: retrieved.indexStale,
+      indexedOnly: retrieved.indexedOnly,
       matchedTags: retrieved.matchedTags,
     },
     rerankFailure,
@@ -504,6 +537,8 @@ interface Retrieved {
   candidates: GameCard[]
   ignoredFilters: string[]
   indexStale: boolean
+  /** The candidates came from the index alone: the most popular games and the Ukrainian studios'. */
+  indexedOnly: boolean
   /** The mood tags the candidates were matched on; empty when no tag shaped them. */
   matchedTags: string[]
 }
@@ -514,7 +549,7 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
     understood.sort !== DEFAULT_SORT ||
     understood.tags.length > 0
   const byFilter = (): Promise<Retrieved> =>
-    understood.tags.length > 0 ? byTags(context, understood) : byCatalog(context, understood)
+    needsRawg(understood) ? byRawg(context, understood) : byIndex(context, understood)
 
   if (understood.similarTo === null) return byFilter()
 
@@ -529,6 +564,7 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
       candidates: similar.cards.slice(0, MAX_CANDIDATES),
       ignoredFilters: [],
       indexStale: similar.stale,
+      indexedOnly: true,
       matchedTags: [],
     }
   }
@@ -544,37 +580,79 @@ async function retrieve(context: GraphQLContext, understood: UnderstoodQuery): P
     ].slice(0, MAX_CANDIDATES),
     ignoredFilters: filtered.ignoredFilters,
     indexStale: filtered.indexStale || similar.stale,
+    indexedOnly: filtered.indexedOnly,
     matchedTags: filtered.matchedTags,
   }
 }
 
-/** The understood filter as the catalog would answer it: `catalogPage`, index or RAWG. */
-function byCatalog(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
-  return catalogPage(context, {
-    filter: understood.filter,
-    sort: understood.sort,
-    page: 1,
-    pageSize: MAX_CANDIDATES,
-  }).then((page) => ({
-    candidates: page.items,
-    ignoredFilters: page.ignoredFilters,
-    indexStale: page.indexStale,
-    matchedTags: [],
-  }))
+/**
+ * Whether the understood query needs what only RAWG can do. Every field the parse produces has an
+ * index facet or range except a title search: RAWG ranks titles by relevance over its whole
+ * catalog, the index only matches a substring among the games it holds.
+ */
+function needsRawg(understood: UnderstoodQuery): boolean {
+  return Boolean(understood.filter.search)
 }
 
 /**
- * The understood filter plus its mood tags, from the index's tag facets — the catalog has no tag
- * filter, so `catalogPage` cannot be asked. Most relevant first: the games carrying every tag,
- * then those carrying the most defining one (the parse lists it first), and only when that leaves
- * fewer than `MIN_RANKED`, those carrying any of them. Fewer than that still, and the catalog's
- * answer without the tags fills up the list behind them. A stale index drops the price filters
- * and the price sorts and names them, exactly as `/games` does; an index that cannot answer leaves
- * the catalog's answer alone, with no tag matched.
+ * The understood query as `/games` would answer it, through `catalogPage` — for a title search,
+ * the one thing the index cannot do as well. It has `ASK_RAWG_BUDGET_MS`, not the catalog's two
+ * five-second attempts; when that runs out, or RAWG fails, the index answers what it can and the
+ * fields it could not apply are named in `ignoredFilters`.
  */
-async function byTags(context: GraphQLContext, understood: UnderstoodQuery): Promise<Retrieved> {
+async function byRawg(
+  context: GraphQLContext,
+  understood: UnderstoodQuery,
+  indexToo = true,
+): Promise<Retrieved> {
+  const page = await within(
+    catalogPage(context, {
+      filter: understood.filter,
+      sort: understood.sort,
+      page: 1,
+      pageSize: MAX_CANDIDATES,
+    }),
+    ASK_RAWG_BUDGET_MS,
+  ).catch((): typeof EXPIRED => EXPIRED)
+  if (page !== EXPIRED) {
+    return {
+      candidates: page.items,
+      ignoredFilters: page.ignoredFilters,
+      indexStale: page.indexStale,
+      indexedOnly: page.indexedOnly,
+      matchedTags: [],
+    }
+  }
+  if (!indexToo) throw new Error('Neither RAWG nor the index answered')
+  const { search: _search, ...indexable } = understood.filter
+  const subset = await byIndex(context, { ...understood, filter: indexable }, false)
+  return {
+    ...subset,
+    ignoredFilters: [...new Set(['search', ...subset.ignoredFilters])],
+  }
+}
+
+/**
+ * The understood query from the index alone, mood tags included: one page of up to
+ * `MAX_CANDIDATES`, in the understood order, in a fraction of a second. With tags, most relevant
+ * first: the games carrying every tag, then those carrying the most defining one (the parse lists
+ * it first), and only when that leaves fewer than `MIN_RANKED`, those carrying any of them; fewer
+ * than that still, and the same query without the tags fills up the list behind them.
+ *
+ * A stale index drops the price filters and the price sorts and names them, exactly as `/games`
+ * does. An index that cannot answer leaves the query to RAWG (`byRawg`), within its own budget.
+ */
+async function byIndex(
+  context: GraphQLContext,
+  understood: UnderstoodQuery,
+  rawgToo = true,
+): Promise<Retrieved> {
   const state = await indexState(context)
-  if (state.meta === null || indexFailed(context)) return byCatalog(context, understood)
+  const unavailable = () => {
+    if (!rawgToo) throw new Error('Neither the index nor RAWG answered')
+    return byRawg(context, understood, false)
+  }
+  if (state.meta === null || indexFailed(context)) return unavailable()
 
   const filter = state.stale ? (withoutPriceFilters(understood.filter) ?? {}) : understood.filter
   const sort = state.stale && INDEX_SORTS.includes(understood.sort) ? DEFAULT_SORT : understood.sort
@@ -590,36 +668,33 @@ async function byTags(context: GraphQLContext, understood: UnderstoodQuery): Pro
   const page = (query: IndexQuery) =>
     cachedIndexPage(context, query, state.version).then((answer) => answer.items)
 
-  let groups: GameCard[][]
+  let candidates: GameCard[]
+  let matchedTags: string[] = []
   try {
-    groups = await Promise.all([
-      tags.length > 1 ? page({ ...base, tags, tagMatch: 'all' }) : Promise.resolve([]),
-      page({ ...base, tags: [tags[0]!] }),
-      tags.length > 1 ? page({ ...base, tags }) : Promise.resolve([]),
-    ])
+    if (tags.length === 0) {
+      candidates = await page(base)
+    } else {
+      const [every, defining, any] = await Promise.all([
+        tags.length > 1 ? page({ ...base, tags, tagMatch: 'all' }) : Promise.resolve([]),
+        page({ ...base, tags: [tags[0]!] }),
+        tags.length > 1 ? page({ ...base, tags }) : Promise.resolve([]),
+      ])
+      let tagged = unique([...every, ...defining])
+      if (tagged.length < MIN_RANKED) tagged = unique([...tagged, ...any])
+      if (tagged.length > 0) matchedTags = [...tags]
+      candidates = tagged.length >= MIN_RANKED ? tagged : unique([...tagged, ...(await page(base))])
+    }
   } catch (error) {
-    warnIndexOnce(context, 'the mood tags of a query could not be read', error)
-    return byCatalog(context, understood)
+    warnIndexOnce(context, 'the candidates of a query could not be read', error)
+    return unavailable()
   }
-  const [every, defining, any] = groups as [GameCard[], GameCard[], GameCard[]]
-  let tagged = unique([...every, ...defining])
-  if (tagged.length < MIN_RANKED) tagged = unique([...tagged, ...any])
-  tagged = tagged.slice(0, MAX_CANDIDATES)
-  if (state.stale) tagged = withoutPrices(tagged)
-  const matched: Retrieved = {
-    candidates: tagged,
+  candidates = candidates.slice(0, MAX_CANDIDATES)
+  return {
+    candidates: state.stale ? withoutPrices(candidates) : candidates,
     ignoredFilters,
     indexStale: state.stale,
-    matchedTags: tagged.length > 0 ? [...tags] : [],
-  }
-  if (tagged.length >= MIN_RANKED) return matched
-
-  const catalog = await byCatalog(context, understood)
-  return {
-    candidates: unique([...tagged, ...catalog.candidates]).slice(0, MAX_CANDIDATES),
-    ignoredFilters: [...new Set([...ignoredFilters, ...catalog.ignoredFilters])],
-    indexStale: state.stale || catalog.indexStale,
-    matchedTags: matched.matchedTags,
+    indexedOnly: true,
+    matchedTags,
   }
 }
 
@@ -754,14 +829,45 @@ function inRetrievalOrder(candidates: readonly GameCard[]): AskItem[] {
 }
 
 /**
- * The answer when the AI part did not run: the raw query as a plain catalog search, as the
- * header's search would send it. `ok` is false when even that failed — the answer is then empty.
+ * The answer when the AI part did not run: the raw query as a plain search. The index's name
+ * search answers it first — a fraction of a second, over the games it holds — and RAWG's title
+ * search only when the index cannot. `ok` is false when neither answered; the answer is then empty.
  */
 async function fallback(
   request: AskRequest,
   context: GraphQLContext,
 ): Promise<{ answer: Answered; ok: boolean }> {
   const answer = emptyFallback(request)
+  const search = answer.filter.search
+  if (!search) return { answer, ok: true }
+  const shown = (cards: readonly GameCard[]) =>
+    cards.slice(0, FALLBACK_SIZE).map((card) => ({ card, reason: null }))
+
+  const state = await indexState(context)
+  if (state.meta !== null && !indexFailed(context)) {
+    try {
+      const query = toIndexQuery({
+        filter: { search },
+        sort: DEFAULT_SORT,
+        page: 1,
+        pageSize: FALLBACK_SIZE,
+        today: context.today,
+      })
+      const { items } = await cachedIndexPage(context, query, state.version)
+      return {
+        answer: {
+          ...answer,
+          items: shown(state.stale ? withoutPrices(items) : items),
+          indexStale: state.stale,
+          indexedOnly: true,
+        },
+        ok: true,
+      }
+    } catch (error) {
+      warnIndexOnce(context, 'the plain search could not be read', error)
+    }
+  }
+
   try {
     const page = await catalogPage(context, {
       filter: answer.filter,
@@ -769,13 +875,13 @@ async function fallback(
       page: 1,
       pageSize: FALLBACK_SIZE,
     })
-    const items = page.items.slice(0, FALLBACK_SIZE).map((card) => ({ card, reason: null }))
     return {
       answer: {
         ...answer,
-        items,
+        items: shown(page.items),
         ignoredFilters: page.ignoredFilters,
         indexStale: page.indexStale,
+        indexedOnly: page.indexedOnly,
       },
       ok: true,
     }
@@ -796,6 +902,7 @@ export function emptyFallback(request: AskRequest): Omit<AskAnswer, 'tookMs'> {
     items: [],
     ignoredFilters: [],
     indexStale: false,
+    indexedOnly: false,
     matchedTags: [],
   }
 }
