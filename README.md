@@ -184,8 +184,10 @@ query to a filter (re-validated against the live taxonomy) plus up to three
 mood tags, one picks up to 8 of the 24 most relevant candidates and says why
 each fits. The candidates come from the price and localisation index whenever
 it can express everything understood — almost always, in a fraction of a
-second; only a title search goes to RAWG, for at most 4 s and one attempt,
-after which the index answers the rest and names the dropped field. The answer
+second; only a title search goes to RAWG. If RAWG has not answered within
+2.5 s the index's own name match answers it; with no such match RAWG gets up
+to 4 s and one attempt, after which the index answers the rest and names the
+dropped field. The answer
 is `{ mode, interpretation, filter, catalogUrl, items: [{ card, reason }],
 ignoredFilters, indexStale, indexedOnly, matchedTags, tookMs }`:
 `ignoredFilters`, `indexStale` and `indexedOnly` mean what they mean on a
