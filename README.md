@@ -2,25 +2,30 @@
 
 [![CI](https://github.com/Sennjen/gg-stay/actions/workflows/ci.yml/badge.svg)](https://github.com/Sennjen/gg-stay/actions/workflows/ci.yml)
 
-A server-rendered video game catalog built for Ukrainian players: Ukrainian-first interface, practical filters, and a GraphQL layer over the [RAWG](https://rawg.io) API.
+A server-rendered video game catalog built for Ukrainian players: Ukrainian-first interface, practical filters, hryvnia prices and Ukrainian localisation from Steam, and a GraphQL layer over the [RAWG](https://rawg.io) API.
 
 **Live:** https://gg-stay.vercel.app
 
 ## Status
 
-Week 1 (skeleton: catalog, game detail, Ukrainian and English UI, CI, preview
-deployments) is done, and so is the visual redesign: a cinematic landing
+Weeks 1–3 are done. Week 1 was the skeleton (catalog, game detail, Ukrainian
+and English UI, CI, preview deployments) and the visual redesign: a landing
 page, a cover-first catalog with a filter drawer, and a restyled game page
 share one dark design system (tokens and component inventory in
-[DESIGN.md](DESIGN.md)). Steam trailers (with a RAWG-clip fallback) and
-Ukrainian game descriptions (from each title's Steam store page, where one
-exists) are live.
+[DESIGN.md](DESIGN.md)), with Steam trailers (and a RAWG-clip fallback) and
+Ukrainian game descriptions from each title's Steam store page, where one
+exists.
 
-| Next   | Scope                                                                               |
-| ------ | ----------------------------------------------------------------------------------- |
-| Week 2 | Nightly Steam index (UAH prices, Ukrainian localisation), SEO, Lighthouse CI        |
-| Week 3 | Natural-language search with validated structured output and deterministic fallback |
-| Week 4 | Cross-store prices                                                                  |
+| Done since | What exists now                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Week 2     | A price index of about 3 270 games: Steam prices in UAH, discounts and Ukrainian localisation on cards and game pages, with filters and sorts over them |
+| Week 2     | A made-in-Ukraine shelf, label and filter built from a list of 25 studios; similar games on the game page                                               |
+| Week 2     | Page metadata, JSON-LD and sitemaps; Vercel Speed Insights; CI quality gates (bundle budget, Playwright with axe, Lighthouse CI)                        |
+| Week 3     | Natural-language search at `/ask`                                                                                                                       |
+
+| Next   | Scope              |
+| ------ | ------------------ |
+| Week 4 | Cross-store prices |
 
 ## Architecture
 
@@ -30,10 +35,13 @@ flowchart LR
   N -->|GraphQL| G[Nitro BFF /api/graphql]
   G -->|REST + key, cached| R[RAWG API]
   G -->|REST, cached, trailers + UA descriptions| S[Steam Store API]
+  G -->|read-only REST, 1.5 s deadline| I[(Upstash Redis index)]
+  J[GitHub Actions refresh job] -->|RAWG candidates, Steam prices + languages| I
 ```
 
 - The browser never calls RAWG or Steam directly; both API surfaces are only reached from the server.
 - Resolvers are thin: `filterToParams` → `rawgFetch` → `postFilter` → `mappers`. RAWG field names stop at the mapper.
+- Prices, discounts, Ukrainian localisation, the made-in-Ukraine flag and similar games come from a faceted Redis index that a scheduled GitHub Actions job rebuilds (prices every six hours, the whole index nightly) and the site reads with a read-only token. A catalog page filtered or sorted by any of those is answered by the index alone; every other page is answered by RAWG with the index data attached, and by the index when RAWG has not answered within 2.5 s and the index can express the filter. No page fails when the index does. The decision is recorded in [ADR-004](docs/adr/004-price-index.md).
 - Both upstreams go through one transport (`createUpstreamFetch`): a rate limiter, a 5 s timeout, one retry on 5xx or timeout, an LRU-bounded cache and stale-if-error. RAWG is parameterised at 4 rps with per-path TTLs (lists 10 min, detail 24 h, taxonomies 7 days); Steam at one request per 1.5 s with a flat 24 h TTL. Errors name their own upstream.
 - All catalog filter state lives in the URL, parsed and serialised by pure functions.
 
@@ -46,22 +54,31 @@ flowchart LR
 - A cover ring of the catalog's most-added titles — pause on hover, drag or
   arrow-key rotation, click through to a game page; a static marquee below
   768 px and under reduced motion.
-- "Why GG Stay", new-releases and top-rated rows, and a closing call to action.
+- "Why GG Stay", up to five shelves — made in Ukraine, with Ukrainian
+  localisation, on sale (30 % off or more), best of this year, upcoming — each
+  linking to the catalog page it is the start of, and a closing call to
+  action. A shelf with fewer than four games is not shown.
 
 ## Catalog and game page
 
 - A slide-out filter drawer (left panel ≥ 1024 px, bottom sheet below):
-  platform, genre, year range, Metacritic, player rating, playtime, game
-  mode, age rating, store and developer, all as active filter chips.
+  price, discount, Ukrainian localisation, made in Ukraine, platform, genre,
+  year range, Metacritic, player rating, playtime, game mode, age rating,
+  store and developer, all as active filter chips. Sorting by price or
+  discount comes with them.
+- Cards show the Steam price in hryvnia, the discount, a Ukrainian
+  localisation badge and a made-in-Ukraine label for the games the index
+  holds ([ADR-004](docs/adr/004-price-index.md)); a page the index answers
+  says under its result count that it searched only those games.
 - A header search with a debounced instant-results dropdown, keyboard
   navigable, that reuses the catalog's own search query.
 - Grid or list view (a local preference, not part of the URL).
-- The game page carries a scoreboard row, a keyboard- and screen-reader-
-  accessible screenshot gallery/lightbox, and store links.
+- The game page carries a scoreboard row with the price and the localisation,
+  a keyboard- and screen-reader-accessible screenshot gallery/lightbox, store
+  links, and a row of similar games when the index has at least four.
 
-Decisions are recorded in [docs/adr](docs/adr); the week 1 design is in
-[docs/specs](docs/specs); the redesign design is in
-[docs/specs/2026-09-19-redesign-design.md](docs/specs/2026-09-19-redesign-design.md).
+Decisions are recorded in [docs/adr](docs/adr); the design of each cycle is in
+[docs/specs](docs/specs).
 
 ## Search engines
 
@@ -84,11 +101,23 @@ Decisions are recorded in [docs/adr](docs/adr); the week 1 design is in
 
 ## Performance
 
-Lighthouse (mobile) is measured on `/`, `/games` and a game page after each
-performance change lands, with the report and numbers recorded in
-[docs/perf](docs/perf/README.md). That file also carries the measured
-first-load JavaScript for `/games` (131.1 KB gzipped, 117.5 KB brotli) against
-the 120 KB budget ADR-002 set, chunk by chunk, and what is left to move.
+Lighthouse (mobile) is measured on production after each performance change
+lands, with the reports and numbers recorded in
+[docs/perf](docs/perf/README.md). The latest run (2026-10-05, median of three):
+
+| Page                                    | Performance | LCP   | CLS   |
+| --------------------------------------- | ----------- | ----- | ----- |
+| `/` (landing)                           | 92          | 3.2 s | 0     |
+| `/games`                                | 95          | 2.7 s | 0     |
+| `/games/[slug]`                         | 93          | 2.9 s | 0.001 |
+| `/games?priceMaxUah=600&sort=PRICE_ASC` | 94          | 2.8 s | 0     |
+| `/ask`                                  | 99          | 1.7 s | 0     |
+
+Accessibility and best practices are 100 on all five. The first-load
+JavaScript of `/games` is 140 974 bytes gzipped (137.7 KiB) against the CI
+budget of 144 633 bytes; the 120 KB target ADR-002 set is still missed and
+recorded there. A catalog page waits at most 2.5 s for RAWG before the index
+answers it instead, when the index can express the filter.
 
 Every pull request also runs quality gates against a fixture-mode production
 build started in CI: the `/games` JavaScript budget (today's size plus 5 %),
@@ -234,12 +263,16 @@ server itself; set `QUALITY_REUSE_SERVER=1` to run it against one already listen
 
 ## Known gaps
 
-- Player rating, playtime and age rating filters are applied after fetching a page, because RAWG has no query parameters for them. A filtered page can hold fewer than 20 games and the total count reflects the unfiltered query.
-- Selecting several game modes widens the result set rather than narrowing it, because RAWG treats comma-separated tags as OR.
-- The response cache is in memory per server instance, LRU-bounded at 500 entries, until the shared Redis store lands in week 2.
-- Fixture mode ignores filters that RAWG would apply server-side.
+- On a page RAWG answers, the player rating, playtime and age rating filters are applied after fetching the page, because RAWG has no query parameters for them: such a page can hold fewer than 20 games and its total reflects the unfiltered query. A page the index answers applies them exactly.
+- Selecting several game modes widens the result set rather than narrowing it: RAWG treats comma-separated tags as OR, and the index unites the values of one facet the same way.
+- The index holds about 3 270 games — the 3 000 most popular on RAWG plus the games of the 25 listed Ukrainian studios. Price, discount, localisation and made-in-Ukraine filters, the price sorts and similar games search only those, and a game outside the index shows no price on its card.
+- When RAWG is slower than 2.5 s, page 1 of a catalog can come from the index and page 2 from RAWG a moment later. Their order and totals differ, so a game can repeat or be skipped and the pager's total can move.
+- The upstream response caches are in memory per server instance, LRU-bounded at 500 entries each; there is no shared response cache. A cold function start adds 3–4.7 s to any page.
+- `/ask` answers in about 6 s at the median and 7.4 s at the 95th percentile ([second evaluation run](docs/llm/eval-2026-10-02-2.md)).
+- The `quality` CI job (bundle budget, Playwright, Lighthouse CI) runs on every pull request but is not a required check: only `verify` blocks a merge.
+- Fixture mode ignores filters that RAWG would apply server-side; the index filters work there against a seeded in-memory index.
 - Steam trailer URLs carry a signed query string; how long that signature stays valid is undocumented by Steam, so a cached trailer link could go stale before its own cache entry expires. Not yet observed in practice.
-- There are no prices yet — `PriceSummary`/`StoreOffer` price fields exist in the schema but resolve to `null` until the nightly Steam index (week 2) fills them in.
+- Prices come from Steam only; other stores are linked without a price until week 4.
 
 ## Attribution
 
