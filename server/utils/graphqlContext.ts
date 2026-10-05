@@ -1,5 +1,6 @@
 import type { GraphQLContext } from '../graphql/context'
 import { useGameIndex } from '../index/index'
+import { keepRunning } from './keepRunning'
 
 /**
  * The context one request's resolvers run in — the GraphQL endpoint builds one per request, and so
@@ -18,5 +19,7 @@ export async function createGraphQLContext(): Promise<GraphQLContext> {
     index: await useGameIndex(),
     steamPrices: useSteamPrices(),
     cache: useResolverCache(),
+    // Both endpoints get it from here, so an abandoned RAWG request survives on either.
+    waitUntil: keepRunning,
   }
 }
