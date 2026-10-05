@@ -132,6 +132,32 @@ Individual runs — landing: 68 / 81 / 80; catalog: 84 / 97 / 97; game page: 92 
 
 The price layer cost nothing measurable: every page is within run-to-run noise of step 4, and page weight did not move (the price line is a few hundred bytes of HTML per card; no new JavaScript on the default catalog). Server response time stayed at 30–40 ms on cached pages; one cold game page answered in 274 ms, which includes the live Steam price refresh. The page served entirely from the index scores 91 — slightly below the RAWG-served catalog because its first cover comes from a different, uncached set of images.
 
+## Step 6 — end of week 3
+
+Measured 2026-10-05 on commit `21bc902`, after the landing shelves, similar games, the SEO work, Speed Insights and natural-language search had all shipped. Same method and the same tool versions as step 5 (Lighthouse 13.5.0, headless Chrome 154), plus one new page: `/ask` in its idle state, before a question is asked.
+
+| Page                                    | Performance | LCP   | CLS   | TBT   | Page weight | Accessibility | Best practices | SEO |
+| --------------------------------------- | ----------- | ----- | ----- | ----- | ----------- | ------------- | -------------- | --- |
+| `/` (landing)                           | 92          | 3.2 s | 0     | 80 ms | 1.40 MB     | 100           | 100            | 100 |
+| `/games`                                | 95          | 2.7 s | 0     | 20 ms | 0.78 MB     | 100           | 100            | 100 |
+| `/games/[slug]`                         | 93          | 2.9 s | 0.001 | 30 ms | 0.71 MB     | 100           | 100            | 100 |
+| `/games?priceMaxUah=600&sort=PRICE_ASC` | 94          | 2.8 s | 0     | 10 ms | 0.81 MB     | 100           | 100            | 69  |
+| `/ask`                                  | 99          | 1.7 s | 0     | 0 ms  | 0.31 MB     | 100           | 100            | 100 |
+
+Individual runs — landing: 91 / 92 / 93 (LCP 2.8 / 3.2 / 3.1 s); catalog: 89 / 95 / 97 (LCP 3.6 / 2.7 / 2.5 s); game page: 92 / 93 / 97 (LCP 3.3 / 2.9 / 2.5 s); indexed catalog: 96 / 94 / 87 (LCP 2.5 / 2.8 / 3.6 s); ask: 96 / 99 / 99 (LCP 2.3 / 1.7 / 1.8 s). Reports: [landing](step6-week3-close/home.report.html), [catalog](step6-week3-close/catalog.report.html), [game page](step6-week3-close/detail.report.html), [indexed catalog](step6-week3-close/catalog-indexed.report.html), [ask](step6-week3-close/ask.report.html).
+
+The catalog, the game page and the indexed catalog are within run-to-run noise of step 5 (97, 92 and 91 there); single runs on those pages still spread by up to nine points. The landing is not within noise: all three runs scored 91–93 against 68 / 81 / 80 in step 5, with a simulated LCP of 3.2 s instead of 5.2 s, although the page got heavier — 1.40 MB against 0.8 MB, nearly all of the difference in images, since five shelves replaced the two rows after step 5. In every run of this step the LCP element is the hero poster; in step 5's median run it was a 420 px card cover. Which change moved it was not isolated, so this is recorded as a measurement, not as the result of an optimisation.
+
+Two other differences are real and expected. The indexed catalog's SEO score is 69 because a filtered catalog page has been `noindex, follow` since the SEO work, and Lighthouse counts a page that blocks indexing as failing `is-crawlable`; that is the intended behaviour, not a regression. The game page grew from 0.5 MB to 0.71 MB, again in images: it now carries a row of similar games. Script transfer in these runs is about 176 KB on every page against 158 KB in step 5, which includes the Speed Insights script that only a measured visitor downloads. Server response time was 30–40 ms in fourteen of the fifteen runs and 119 ms in one.
+
+### Catalog response time
+
+Lighthouse does not show what a visitor waits for on a catalog page RAWG has not answered before. That was measured separately: the GraphQL `games` query against production, wall-clock time from one client.
+
+- **2026-10-02, before #66.** A page whose RAWG response was not cached took 2.7–10.4 s: `genres=shooter&yearFrom=2010` 7.0 s, `genres=shooter&yearFrom=2010&yearTo=2015` 10.4 s — RAWG's 5 s timeout plus one retry. The same pages from the cache took 0.5 s. A cold function start adds 3–4.7 s to any page.
+- **#66.** RAWG gets 2.5 s (`RAWG_HEDGE_MS`); after that the index answers the page if it can express the filter, and the overtaken RAWG request finishes in the background and fills the cache.
+- **2026-10-05, after #66.** 13 uncached filter combinations answered in 0.6–1.7 s, all of them by RAWG. RAWG was fast that day, so the hedge did not fire in production during the measurement. It is covered by tests only (`tests/server/indexResolvers.test.ts`); its effect on a slow RAWG page has not been observed on the live site.
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
@@ -209,6 +235,10 @@ ADR-002 is still missed and still recorded there; this number only stops further
 
 The Vercel Speed Insights loader (#52) adds about 0.4 KB gzip to the `/games` first load, inside
 the 5 % headroom.
+
+Re-measured 2026-10-05 on commit `21bc902` with the same build and command: **140 974 bytes
+(137.7 KiB) gzipped** over eleven modules, 3 229 bytes above the 2026-10-01 measurement and 3 659
+bytes under the budget. The budget itself has not been raised.
 
 ## Quality gates in CI
 
