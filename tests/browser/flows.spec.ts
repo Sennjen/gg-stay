@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import type { Page, Request } from '@playwright/test'
+import type { Locator, Page, Request, Route } from '@playwright/test'
 import { expect, expectAccessible, test, waitForHydration } from './fixtures'
 
 /**
@@ -25,6 +25,106 @@ function isGameQuery(request: Request): boolean {
 const copy = JSON.parse(readFileSync(resolve(process.cwd(), 'i18n/locales/uk.json'), 'utf-8')) as {
   game: { stillLoading: string; about: string }
   gallery: { heading: string }
+}
+
+/**
+ * Answers the page's request with what the server sends when RAWG is late: the real answer, cut
+ * down on its way to the browser to the page built from the index document. The fixture build
+ * answers at once, so no answer of its own is ever partial.
+ */
+async function answerInPart(route: Route): Promise<void> {
+  const response = await route.fetch()
+  const body = (await response.json()) as {
+    data: { game: { screenshots: unknown[]; stores: { store: string }[] } }
+  }
+  const game = body.data.game
+  await route.fulfill({
+    response,
+    json: {
+      data: {
+        game: {
+          ...game,
+          partial: true,
+          localizedDescription: null,
+          website: null,
+          screenshots: game.screenshots.slice(0, 1),
+          platforms: [],
+          genres: [],
+          developers: [],
+          publishers: [],
+          stores: game.stores.filter((offer) => offer.store === 'steam'),
+        },
+      },
+    },
+  })
+}
+
+/**
+ * Opens the Witcher's page from the catalog on a clock that moves only when the flow moves it.
+ *
+ * The page counts its three and its six seconds on its own clock. Left running, that clock goes on
+ * through whatever the flow does between the page mounting and the flow looking at it, and a
+ * runner that stalls there finds the page's second request already made. So the clock is stopped
+ * before the click and the navigation is taken through by hand — Nuxt holds every navigation until
+ * the browser has had a frame to repaint in, which is a timer of the page's. That stretch is over
+ * when the page's request is out; the page is not mounted before its answer, so none of its own
+ * time has gone by then.
+ */
+async function openWitcherOnAStoppedClock(page: Page, asked: () => number): Promise<void> {
+  // Installed, the clock still runs with the real one until it is paused.
+  await page.clock.install()
+  await page.goto('/games')
+  await waitForHydration(page)
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 100)
+
+  const answered = page.waitForResponse((response) => isGameQuery(response.request()))
+  await page.locator(`a[href="${WITCHER}"]`).first().click()
+  await expect
+    .poll(
+      async () => {
+        if (asked() === 0) await page.clock.runFor(50)
+        return asked()
+      },
+      { intervals: [10] },
+    )
+    .toBe(1)
+  await answered
+}
+
+/**
+ * Runs something that waits on the page's own timers — axe yields to one between any two rules —
+ * while the stopped clock is moved under it a millisecond at a time, and by no more than
+ * `budgetMs` in all. Out of budget the clock stays where it is and the work, if it still needs a
+ * timer, runs into the flow's timeout: the page's own waits are never reached by accident.
+ */
+async function onTheStoppedClock(
+  page: Page,
+  budgetMs: number,
+  work: () => Promise<void>,
+): Promise<void> {
+  let done = false
+  const finished = work().finally(() => {
+    done = true
+  })
+  // Whatever the work ends with is reported once, below; the loop only needs to know it has ended.
+  finished.catch(() => {})
+  for (let moved = 0; !done; moved += 1) {
+    if (moved < budgetMs) await page.clock.runFor(1)
+    await new Promise((turn) => setTimeout(turn, 10))
+  }
+  await finished
+}
+
+/** The line over the cover, and the two things it must keep clear of: checked for each sentence. */
+async function expectLineOverTheCover(page: Page, note: Locator): Promise<void> {
+  const hero = (await page.locator('article > div:not([role="status"])').first().boundingBox())!
+  const title = (await page.getByRole('heading', { level: 1 }).boundingBox())!
+  const line = (await note.boundingBox())!
+  // It takes no room: it is inside the hero's box, above the title, and within the page's width.
+  expect(line.y).toBeGreaterThanOrEqual(hero.y)
+  expect(line.y + line.height).toBeLessThan(title.y)
+  expect(line.x).toBeGreaterThanOrEqual(0)
+  expect(line.x + line.width).toBeLessThanOrEqual(page.viewportSize()!.width)
 }
 
 /** The catalog's "Знайдено: N" / "Found: N" line, as a number. */
@@ -292,77 +392,39 @@ test('catalog → a game: the answer to the page’s own request says where its 
 test('a game opened with a partial answer → one quiet line → the page asks again by itself → the whole page, and nothing above it has moved', async ({
   page,
 }) => {
-  // The fixture build answers at once, so no answer of its own is ever partial. The first answer
-  // to the page's request is cut down on its way to the browser to what the server sends when
-  // RAWG is late — the page built from the index document — and every later one passes untouched.
+  // The first answer to the page's request is the partial one; every later one passes untouched.
   let asked = 0
   await page.route('**/api/graphql', async (route) => {
     if (!isGameQuery(route.request())) return route.fallback()
     asked += 1
-    if (asked > 1) return route.fallback()
-    const response = await route.fetch()
-    const body = (await response.json()) as {
-      data: { game: { screenshots: unknown[]; stores: { store: string }[] } }
-    }
-    const game = body.data.game
-    await route.fulfill({
-      response,
-      json: {
-        data: {
-          game: {
-            ...game,
-            partial: true,
-            localizedDescription: null,
-            website: null,
-            screenshots: game.screenshots.slice(0, 1),
-            platforms: [],
-            genres: [],
-            developers: [],
-            publishers: [],
-            stores: game.stores.filter((offer) => offer.store === 'steam'),
-          },
-        },
-      },
-    })
+    return asked === 1 ? answerInPart(route) : route.fallback()
   })
-  // The page's own clock, so its three seconds are moved rather than waited for. Installed, it
-  // still runs with the real one until it is paused.
-  await page.clock.install()
-
-  await page.goto('/games')
-  await waitForHydration(page)
-  await page.locator(`a[href="${WITCHER}"]`).first().click()
+  await openWitcherOnAStoppedClock(page, () => asked)
 
   const title = page.getByRole('heading', { level: 1, name: 'The Witcher 3: Wild Hunt' })
   await expect(title).toBeVisible()
-  const note = page.getByRole('status').filter({ hasText: copy.game.stillLoading })
-  await expect(note).toBeVisible()
-  // The clock stops here, a moment into the three seconds, so that the partial page is looked at
-  // and measured for as long as that takes without its second request coming in between.
-  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 100)
+  const note = page.locator('[data-test="game-partial-note"]')
   await expect(note).toHaveText(copy.game.stillLoading)
+  await expect(note).toBeVisible()
   await expect(page.getByRole('heading', { name: copy.game.about })).toHaveCount(0)
-  expect(asked).toBe(1)
 
-  // The line lies over the top of the cover and takes no room: it is inside the hero's box.
-  const hero = page.locator('article > div').first()
+  await expectLineOverTheCover(page, note)
+  const hero = page.locator('article > div:not([role="status"])').first()
   const scoreboard = page.locator('article dl').first()
-  const heroBox = (await hero.boundingBox())!
-  const noteBox = (await note.boundingBox())!
-  expect(noteBox.y).toBeGreaterThanOrEqual(heroBox.y)
-  expect(noteBox.y + noteBox.height).toBeLessThan((await title.boundingBox())!.y)
   const before = {
-    hero: heroBox,
+    hero: await hero.boundingBox(),
     title: await title.boundingBox(),
     scoreboard: await scoreboard.boundingBox(),
     scrollY: await page.evaluate(() => window.scrollY),
   }
 
-  // axe works on the page's timers, so the clock runs again while it looks. Should that take the
-  // rest of the three seconds on a slow machine, the page completes itself meanwhile — which is
-  // where the next step takes it anyway.
-  await page.clock.resume()
-  await expectAccessible(page, 'game page with a partial answer')
+  // The audit is of the partial page: two seconds of the page's three is all the clock is given
+  // under it, so the second request cannot have been made meanwhile — and was not.
+  await onTheStoppedClock(page, 2_000, () =>
+    expectAccessible(page, 'game page with a partial answer'),
+  )
+  expect(asked).toBe(1)
+  await expect(note).toHaveText(copy.game.stillLoading)
 
   // Three seconds on, the page asks again; the whole answer takes the partial one's place.
   await page.clock.fastForward(3_000)
@@ -381,7 +443,9 @@ test('a game opened with a partial answer → one quiet line → the page asks a
   // A whole page asks nothing more, however long it stays open.
   await page.clock.fastForward(60_000)
   expect(asked).toBe(2)
-  await expectAccessible(page, 'game page completed by its own second request')
+  await onTheStoppedClock(page, 2_000, () =>
+    expectAccessible(page, 'game page completed by its own second request'),
+  )
 })
 
 test('the locale switch keeps the page, uk → en → uk', async ({ page }) => {
