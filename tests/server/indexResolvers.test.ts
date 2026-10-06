@@ -1225,6 +1225,77 @@ describe('the live price is honest about its age', () => {
   })
 })
 
+describe('a live read Steam answers without a price', () => {
+  const WITCHER = { slug: 'the-witcher-3-wild-hunt' }
+
+  /** The Witcher 3 with a price eight hours old: old enough for the page to ask Steam. */
+  const witcherDueARefresh = () =>
+    publishTestIndex([{ ...DEV_FIXTURE_GAMES[0]!, priceUpdatedAt: '2026-09-18T01:00:00.000Z' }])
+
+  const steamOffer = (data: Record<string, unknown> | undefined) =>
+    (data!.game as { stores: { store: string }[] }).stores.find((offer) => offer.store === 'steam')
+
+  it('is remembered for six hours, so the next reader does not wait for Steam to say it again', async () => {
+    const cache = createTestCache()
+    const steam = steamPricesReturning(async () => null)
+    const index = await witcherDueARefresh()
+
+    const first = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+    expect(steam.calls).toEqual(['292030'])
+    // Under the live price's own prefix and for the live price's own lifetime.
+    expect(cache.writes).toEqual([['steam-price:292030', 21_600]])
+
+    const second = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+    expect(steam.calls).toEqual(['292030'])
+    expect(cache.writes).toHaveLength(1)
+
+    // Both readers get the index copy, dated as the index dated it.
+    for (const { data, errors } of [first, second]) {
+      expect(errors).toBeUndefined()
+      expect(steamOffer(data)).toMatchObject({
+        priceUah: 675,
+        updatedAt: '2026-09-18T01:00:00.000Z',
+      })
+    }
+  })
+
+  it('remembers a price without an amount the same way: it is not a price either', async () => {
+    const cache = createTestCache()
+    const steam = steamPricesReturning(async () => ({
+      priceUah: Number.NaN,
+      regularPriceUah: 1349,
+      discountPercent: 0,
+      isFree: false,
+    }))
+    const index = await witcherDueARefresh()
+
+    await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+    const { data } = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+    expect(steam.calls).toEqual(['292030'])
+    expect(steamOffer(data)).toMatchObject({ priceUah: 675, updatedAt: '2026-09-18T01:00:00.000Z' })
+  })
+
+  it('is not what a failed read is: nothing is remembered, and the next reader asks again', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const cache = createTestCache()
+    let reads = 0
+    const steam = steamPricesReturning(async () => {
+      reads += 1
+      if (reads === 1) throw new Error('502 Bad Gateway')
+      return { priceUah: 404, regularPriceUah: 1349, discountPercent: 70, isFree: false }
+    })
+    const index = await witcherDueARefresh()
+
+    const first = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+    expect(steamOffer(first.data)).toMatchObject({ priceUah: 675 })
+    expect(cache.writes).toEqual([])
+
+    const second = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+    expect(steam.calls).toEqual(['292030', '292030'])
+    expect(steamOffer(second.data)).toMatchObject({ priceUah: 404, updatedAt: TEST_NOW })
+  })
+})
+
 describe('the landing rows', () => {
   it('attach prices to the RAWG shelves with a single index read', async () => {
     const { data, errors } = await runQuery({ index }, LANDING)

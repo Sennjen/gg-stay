@@ -22,9 +22,12 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * Prices are refreshed every six hours by the nightly job, so an entry that old — and a game with
  * a Steam store page that the index has never seen at all — is refreshed live from Steam for this
  * one app, and the answer is kept in Nitro storage for the same six hours so the next reader pays
- * nothing. The live read is about the price only: the design refreshes languages weekly, so the
- * language list always comes from the index. Anything that goes wrong keeps the index copy and
- * logs a warning, because this page has to render either way, and the site never writes to Redis.
+ * nothing. "Steam has no price for this app" is such an answer too, and is kept the same way: a
+ * delisted or regionless game would otherwise cost every reader of its page a Steam request that
+ * can only say the same thing again. The live read is about the price only: the design refreshes
+ * languages weekly, so the language list always comes from the index. Anything that goes wrong
+ * keeps the index copy and logs a warning, because this page has to render either way, and the
+ * site never writes to Redis.
  *
  * The read goes through `fetchPrices([appId])`, which is the only Steam path in this project that
  * never caches (`steamPriceFetch.ts`'s `NO_CACHE`). The per-app transport beside it keeps its
@@ -47,6 +50,21 @@ interface LivePrice {
    * stamps `updatedAt` with the read rather than with its own request time.
    */
   fetchedAt: string
+}
+
+/**
+ * What one live read left in the cache: the price, or `null` for "Steam answered, and has no
+ * price for this app". Only an answer is ever written — a read that failed leaves nothing, so the
+ * next reader asks Steam again.
+ */
+interface RememberedPrice {
+  price: SteamPrice | null
+  fetchedAt: string
+}
+
+/** The remembered answer as a price to serve, or `null` when what is remembered is that none exists. */
+function pricedOrNull(remembered: RememberedPrice): LivePrice | null {
+  return remembered.price ? { price: remembered.price, fetchedAt: remembered.fetchedAt } : null
 }
 
 export const game: QueryResolvers['game'] = (_parent, { slug }, context) =>
@@ -116,17 +134,21 @@ async function livePrice(context: GraphQLContext, appId: string): Promise<LivePr
   try {
     // The cache read is inside the guard on purpose: a storage driver that throws must cost this
     // page a Steam request, never a 500.
-    const cached = await context.cache.get<LivePrice>(key)
-    if (cached) return cached
+    const cached = await context.cache.get<RememberedPrice>(key)
+    if (cached) return pricedOrNull(cached)
 
     const prices = await context.steamPrices.fetchPrices([appId])
     const price = prices.get(appId) ?? null
-    // Steam answering with no price at all — a regionless app, or an entry that does not parse —
-    // is not a fresher price; the index copy stays. Neither is one without an amount.
-    if (!price || !Number.isFinite(price.priceUah)) return null
-    const live: LivePrice = { price, fetchedAt: context.now }
-    await context.cache.set(key, live, LIVE_PRICE_TTL_SECONDS)
-    return live
+    // Steam answering with no price at all — a regionless or delisted app, or an entry that does
+    // not parse — is not a fresher price; the index copy stays. Neither is one without an amount.
+    // It is an answer all the same, and is remembered as one, so the next reader of this page
+    // does not wait for Steam to give it again.
+    const remembered: RememberedPrice = {
+      price: price && Number.isFinite(price.priceUah) ? price : null,
+      fetchedAt: context.now,
+    }
+    await context.cache.set(key, remembered, LIVE_PRICE_TTL_SECONDS)
+    return pricedOrNull(remembered)
   } catch (error) {
     warnIndexOnce(context, 'the live Steam price could not be read', error)
     return null
