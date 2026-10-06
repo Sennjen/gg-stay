@@ -159,6 +159,13 @@ export const typeDefs = /* GraphQL */ `
     """
     similar: [GameCard!]!
     platformFamilies: [PlatformFamily!]!
+    """
+    True when this answer left out something RAWG would have supplied: RAWG's own answer about the
+    game was late or failed and the page was built from the index instead, or the page went out
+    before the store links or the screenshots had arrived. The same query a few seconds later
+    gets the rest. A partial answer must never be stored by a shared cache.
+    """
+    partial: Boolean!
   }
 
   enum DescriptionSource {

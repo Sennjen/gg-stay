@@ -172,6 +172,7 @@ describe('Query.game', () => {
         screenshots {
           url
         }
+        partial
       }
     }
   `
@@ -184,6 +185,8 @@ describe('Query.game', () => {
       ageRating: 'PEGI18',
       gameModes: ['SINGLE'],
       similar: [],
+      // Everything RAWG has about the game is in the answer.
+      partial: false,
     })
     expect(data!.game.stores.map((offer: { store: string }) => offer.store)).toEqual([
       'steam',
