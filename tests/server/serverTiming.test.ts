@@ -1073,6 +1073,46 @@ describe('the Server-Timing header of a GraphQL answer', () => {
     }
   })
 
+  it('keeps two requests that overlap apart: each answer says what its own request waited', async () => {
+    const index = await publishTestIndex([DOCUMENT])
+    // One app, as the site has one, and a RAWG that is three times slower about one game than
+    // about the other. Each request gets a context and a timing of its own.
+    const rawg: RawgFetch = async (path, params, options) => {
+      await elapse(path.startsWith(`games/${SLUG}`) ? 900 : 300)
+      return fixtureRawg(path, params, options)
+    }
+    const yoga = createYogaApp((timing) => timedContext(contextOf({ rawg, index }), timing))
+    const ask = (slug: string) =>
+      Promise.resolve(
+        yoga.fetch('http://test/api/graphql', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            query: 'query Name($slug: String!) { game(slug: $slug) { name } }',
+            variables: { slug },
+          }),
+        }),
+      )
+
+    // The slow one is asked first; the quick one arrives while it is out, and is answered first.
+    const slow = ask(SLUG)
+    await advance(100)
+    const quick = ask('portal-2')
+    await advance(800)
+    const [first, second] = await Promise.all([slow, quick])
+
+    expect(((await first.json()) as QueryResult).data!.game.name).toBe('The Witcher 3: Wild Hunt')
+    expect(first.headers.get('server-timing')).toBe(
+      'rawg;dur=900;desc="RAWG x3", index;dur=0;desc="Index x3", total;dur=900',
+    )
+    // RAWG has no such game in this fixture set, and said so 300 ms into this request, not 900:
+    // nothing of the other request's wait is in it, and it never came to read a document.
+    expect(((await second.json()) as QueryResult).errors![0]!.extensions!.code).toBe('NOT_FOUND')
+    expect(second.headers.get('server-timing')).toBe(
+      'rawg;dur=300;desc="RAWG x3", index;dur=0;desc="Index x2", total;dur=300',
+    )
+  })
+
   it('names the total alone for a context that was not built to be timed', async () => {
     const rawg = vi.fn(fixtureRawg)
     const yoga = createYogaApp(() => contextOf({ rawg }))
