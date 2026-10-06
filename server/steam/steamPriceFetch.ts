@@ -49,7 +49,7 @@ export interface SteamPriceFetch {
    * One app's price, read from Steam now and never cached: the game page's live refresh.
    *
    * It has three outcomes where `fetchPrices` has two, because the page remembers the second for
-   * six hours and must never remember the third (`readSteamPrice` draws the line):
+   * an hour and must never remember the third (`readSteamPrice` draws the line):
    *
    * - the price Steam gives;
    * - `null`, when Steam answers for this app and has no price for it — an app it will not

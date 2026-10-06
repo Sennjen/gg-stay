@@ -57,14 +57,15 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * Prices are refreshed every six hours by the nightly job, so an entry that old — and a game with
  * a Steam store page that the index has never seen at all — is refreshed live from Steam for this
  * one app, and the answer is kept in Nitro storage for the same six hours so the next reader pays
- * nothing. "Steam has no price for this app" is such an answer too, and is kept the same way: a
- * delisted or regionless game would otherwise cost every reader of its page a Steam request that
- * can only say the same thing again. Only Steam saying so counts: an answer that could not be
- * read — an empty body under a 200, a body with nothing in it about this app — is a failed read
- * like any other, and nothing is kept of a failed read, so the next reader asks again. The live
- * read is about the price only: the design refreshes languages weekly, so the language list
- * always comes from the index. Anything that goes wrong keeps the index copy and logs a warning,
- * because this page has to render either way, and the site never writes to Redis.
+ * nothing. "Steam has no price for this app" is an answer too, and is kept as well: a delisted or
+ * regionless game would otherwise cost every reader of its page a Steam request that can only say
+ * the same thing again. It is kept for one hour, not six (`NO_LIVE_PRICE_TTL_SECONDS` says why).
+ * Only Steam saying so counts: an answer that could not be read — an empty body under a 200, a
+ * body with nothing in it about this app — is a failed read like any other, and nothing is kept
+ * of a failed read, so the next reader asks again. The live read is about the price only: the
+ * design refreshes languages weekly, so the language list always comes from the index. Anything
+ * that goes wrong keeps the index copy and logs a warning, because this page has to render either
+ * way, and the site never writes to Redis.
  *
  * Which app to ask about comes from the index document when the refresh job has published the
  * game's Steam app id there — the read then starts the moment the document is found, beside the
@@ -103,7 +104,20 @@ export const LIVE_PRICE_BUDGET_MS = 1_000
 
 /** How old an index price may be before the page refreshes that one game from Steam. */
 export const PRICE_REFRESH_AFTER_MS = 6 * 60 * 60 * 1000
+/** How long a price Steam gave is kept: until the index would have refreshed it anyway. */
 const LIVE_PRICE_TTL_SECONDS = 6 * 60 * 60
+/**
+ * How long "Steam has no price for this app" is kept: one hour, where a price is kept six.
+ *
+ * A price is a fact about the app. "None" is weaker evidence, because Steam does not only say it
+ * of an app it does not sell here: under load it answers a 200 with the same
+ * `{"<appid>":{"success":false}}` for an app that does have a price (`scripts/index/prices.ts`
+ * has the note), and nothing on the wire tells the two apart. So a "none" may be wrong, and a
+ * wrong one must not keep a page from its price for long. An hour still does what remembering it
+ * is for — a delisted or regionless game stops costing every reader of its page a Steam request —
+ * and is the longest a soft failure can pass for an answer.
+ */
+const NO_LIVE_PRICE_TTL_SECONDS = 60 * 60
 const LIVE_PRICE_PREFIX = 'steam-price'
 
 interface LivePrice {
@@ -123,9 +137,10 @@ interface LivePrice {
 }
 
 /**
- * What one live read left in the cache: the price, or `null` for "Steam answered, and has no
- * price for this app". Only an answer is ever written — a read that failed leaves nothing, so the
- * next reader asks Steam again, and an answer that could not be read is a read that failed.
+ * What one live read left in the cache: the price, kept for six hours, or `null` for "Steam
+ * answered, and has no price for this app", kept for one. Only an answer is ever written — a read
+ * that failed leaves nothing, so the next reader asks Steam again, and an answer that could not
+ * be read is a read that failed.
  */
 interface RememberedPrice {
   price: SteamPrice | null
@@ -374,7 +389,7 @@ function steamAppIdOf(entry: IndexedGame | null): string | null {
  * before the page is assembled, and costs the page nothing then.
  *
  * A read the page does not wait out is left running, like every request here (`Pending`): it ends
- * in the six-hour cache entry the next reader is served from.
+ * in the cache entry the next reader is served from.
  */
 function livePrices(context: GraphQLContext, pending: Pending) {
   let asked: { appId: string; price: Observed<LivePrice | null>; budget: Promise<void> } | null =
@@ -433,14 +448,15 @@ async function livePrice(context: GraphQLContext, appId: string): Promise<LivePr
 
     // `null` here is Steam's own word that it has no price for this app — a regionless or
     // delisted one, a free one. It is not a fresher price, so the index copy stays; it is an
-    // answer all the same, and is remembered as one, so the next reader of this page does not
-    // wait for Steam to give it again. An answer that could not be read never gets this far:
-    // `fetchPrice` raises it as the failed read it is, and the `catch` below keeps nothing.
+    // answer all the same, and is remembered as one — for an hour — so the next reader of this
+    // page does not wait for Steam to give it again. An answer that could not be read never gets
+    // this far: `fetchPrice` raises it as the failed read it is, and the `catch` keeps nothing.
     const price = await context.steamPrices.fetchPrice(appId)
     // A price without an amount is no price to serve, and it is not Steam saying it has none.
     if (price && !Number.isFinite(price.priceUah)) throw new UpstreamError('STEAM', 'ERROR')
     const remembered: RememberedPrice = { price, fetchedAt: context.now }
-    await context.cache.set(key, remembered, LIVE_PRICE_TTL_SECONDS)
+    const keptFor = price ? LIVE_PRICE_TTL_SECONDS : NO_LIVE_PRICE_TTL_SECONDS
+    await context.cache.set(key, remembered, keptFor)
     return pricedOrNull(remembered)
   } catch (error) {
     warnIndexOnce(context, 'the live Steam price could not be read', error)

@@ -1239,15 +1239,16 @@ describe('a live read Steam answers without a price', () => {
   const steamOffer = (data: Record<string, unknown> | undefined) =>
     (data!.game as { stores: { store: string }[] }).stores.find((offer) => offer.store === 'steam')
 
-  it('is remembered for six hours, so the next reader does not wait for Steam to say it again', async () => {
+  it('is remembered for an hour, so the next reader does not wait for Steam to say it again', async () => {
     const cache = createTestCache()
     const steam = steamPricesReturning(async () => null)
     const index = await witcherDueARefresh()
 
     const first = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
     expect(steam.calls).toEqual(['292030'])
-    // Under the live price's own prefix and for the live price's own lifetime.
-    expect(cache.writes).toEqual([['steam-price:292030', 21_600]])
+    // Under the live price's own prefix, and for an hour: a sixth of the life a price is given,
+    // because Steam under load says "none" of apps that have one.
+    expect(cache.writes).toEqual([['steam-price:292030', 3_600]])
 
     const second = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
     expect(steam.calls).toEqual(['292030'])
@@ -1261,6 +1262,68 @@ describe('a live read Steam answers without a price', () => {
         updatedAt: '2026-09-18T01:00:00.000Z',
       })
     }
+  })
+
+  /**
+   * A cache that forgets an entry once its lifetime is over, on a clock the test moves — what the
+   * site's resolver cache does with the lifetime it is handed, without waiting for one.
+   */
+  function expiringCache(): { cache: ResolverCache; advance: (ms: number) => void } {
+    let now = 0
+    const entries = new Map<string, { value: unknown; expiresAt: number }>()
+    return {
+      advance: (ms) => void (now += ms),
+      cache: {
+        get: async <T>(key: string) => {
+          const entry = entries.get(key)
+          return entry && entry.expiresAt > now ? (entry.value as T) : null
+        },
+        set: async (key, value, ttlSeconds) => {
+          entries.set(key, { value, expiresAt: now + ttlSeconds * 1000 })
+        },
+      },
+    }
+  }
+
+  const HOUR_MS = 60 * 60 * 1000
+
+  it('is asked about again once the hour is over, and not a moment before', async () => {
+    const { cache, advance } = expiringCache()
+    const steam = steamPricesReturning(async () => null)
+    const index = await witcherDueARefresh()
+    const view = () => runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+
+    await view()
+    advance(HOUR_MS - 1)
+    await view()
+    expect(steam.calls).toEqual(['292030'])
+
+    // A "none" that was Steam's soft failure has not outlived the hour.
+    advance(1)
+    await view()
+    expect(steam.calls).toEqual(['292030', '292030'])
+  })
+
+  it('does not shorten the life of a price: that is still kept for six hours', async () => {
+    const { cache, advance } = expiringCache()
+    const steam = steamPricesReturning(async () => ({
+      priceUah: 404,
+      regularPriceUah: 1349,
+      discountPercent: 70,
+      isFree: false,
+    }))
+    const index = await witcherDueARefresh()
+    const view = () => runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
+
+    await view()
+    advance(6 * HOUR_MS - 1)
+    const { data } = await view()
+    expect(steam.calls).toEqual(['292030'])
+    expect(steamOffer(data)).toMatchObject({ priceUah: 404, updatedAt: TEST_NOW })
+
+    advance(1)
+    await view()
+    expect(steam.calls).toEqual(['292030', '292030'])
   })
 
   it('is not what a price without an amount is: that is no answer, and nothing is remembered', async () => {
@@ -1319,7 +1382,7 @@ describe('a live read Steam answers without a price', () => {
 
       await runQuery({ index, steamPrices: transport, cache }, GAME, WITCHER)
       expect(fetched).toHaveLength(1)
-      expect(cache.writes).toEqual([['steam-price:292030', 21_600]])
+      expect(cache.writes).toEqual([['steam-price:292030', 3_600]])
 
       const second = await runQuery({ index, steamPrices: transport, cache }, GAME, WITCHER)
       expect(second.errors).toBeUndefined()

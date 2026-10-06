@@ -5,8 +5,8 @@ import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
 /**
  * The cache for things a resolver computed rather than fetched: an index-served catalog page
  * (600 s, keyed by the filter, the sort, the page and the index version, so a publication
- * invalidates it on its own) and the one Steam price a game page refreshes live — or the fact
- * that Steam has none for that app (6 h either way).
+ * invalidates it on its own) and the one Steam price a game page refreshes live (6 h) — or the
+ * fact that Steam has none for that app (1 h).
  *
  * It runs on the same bounded LRU as the upstream caches, so a key space driven by user-supplied
  * filters cannot grow without limit. Keys are hashed because they carry JSON, and unstorage reads

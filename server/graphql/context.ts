@@ -6,8 +6,8 @@ import type { SteamPriceFetch } from '../steam/steamPriceFetch'
 /**
  * A key/value cache with a per-entry lifetime, for results a resolver computes rather than for an
  * upstream response: index-served catalog pages (600 s) and what the game page's live Steam read
- * found for one app, a price or none (6 h). Declared structurally so a test can pass a Map-backed
- * one.
+ * found for one app, a price (6 h) or none (1 h). Declared structurally so a test can pass a
+ * Map-backed one.
  */
 export interface ResolverCache {
   get: <T>(key: string) => Promise<T | null>
