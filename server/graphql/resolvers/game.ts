@@ -1,5 +1,5 @@
 import { isMadeInUkraine } from '../../../shared/ukrainianStudios'
-import type { IndexedGame } from '../../index/document'
+import { isIndexableSlug, type IndexedGame } from '../../index/document'
 import { steamStorePageOf, toGame, toLocalisationInfo, toSteamOffer } from '../../index/toGraphql'
 import { mapGame } from '../../rawg/mappers'
 import type { RawgGameDetail, RawgList, RawgScreenshot, RawgStoreLink } from '../../rawg/types'
@@ -171,6 +171,13 @@ type LivePrices = ReturnType<typeof livePrices>
 
 export const game: QueryResolvers['game'] = (_parent, { slug }, context) =>
   withUpstreamErrors(async () => {
+    // The slug is a visitor's, in a request variable nothing else bounds, and it is about to be
+    // sent to RAWG three times over. One that cannot be a game's — empty, longer than any slug
+    // the index would file, or not well-formed text, which cannot even be put in an address — is
+    // answered here as RAWG would answer it, and costs no upstream a request. The same rule the
+    // index draws its own line by (`isIndexableSlug`), so the two can never disagree about it.
+    if (!isIndexableSlug(slug)) throw new UpstreamError('RAWG', 'NOT_FOUND', 404)
+
     const pending = trackPending(context)
     try {
       return await gamePage(context, slug, pending)

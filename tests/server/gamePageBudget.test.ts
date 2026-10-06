@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { GameIndex } from '../../server/index/GameIndex'
-import type { IndexedGame } from '../../server/index/document'
+import { MAX_SLUG_LENGTH, type IndexedGame } from '../../server/index/document'
 import { unavailableGameIndex } from '../../server/index/index'
 import {
   GAME_DETAIL_HEDGE_MS,
@@ -975,6 +975,58 @@ describe('a detail request that fails', () => {
       await advance(4_000)
       for (const [work] of waitUntil.mock.calls) await expect(work).resolves.toBeUndefined()
     })
+  })
+})
+
+describe('an address that cannot be a game’s', () => {
+  it.each([
+    ['is empty', ''],
+    ['is one character longer than a slug may be', 'x'.repeat(MAX_SLUG_LENGTH + 1)],
+    ['is a hundred thousand characters long', 'portal-2'.repeat(12_500)],
+    ['is not well-formed text', 'portal-\uD800'],
+  ])(
+    'is answered “no such game” without a word to RAWG, the index or Steam when it %s',
+    async (_what, slug) => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const index = await indexHolding(DOCUMENT)
+      const rawg = rawgAnswering()
+      const steamPrices = steamPricesTaking(PROMPT_MS)
+      const waitUntil = vi.fn()
+
+      // Nothing is asked, so nothing is waited for: the answer needs no clock at all.
+      const { data, errors } = await runQuery({ index, rawg, steamPrices, waitUntil }, PAGE, {
+        slug,
+      })
+
+      expect(data!.game).toBeNull()
+      expect(errors).toHaveLength(1)
+      expect(errors![0]!.extensions!.code).toBe('NOT_FOUND')
+      expect(rawg.paths).toEqual([])
+      expect(index.calls).toEqual({ search: [], getMany: [], getOne: [], idBySlug: [], meta: 0 })
+      expect(steamPrices.calls).toEqual([])
+      expect(waitUntil).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+      // Anyone can ask for such an address: it is worth no line in the log.
+      expect(info).not.toHaveBeenCalled()
+      expect(warn).not.toHaveBeenCalled()
+    },
+  )
+
+  it('still asks RAWG about a slug of exactly the longest length', async () => {
+    const slug = 'x'.repeat(MAX_SLUG_LENGTH)
+    const rawg = rawgAnswering()
+
+    const { data, errors } = await pageAt(PROMPT_MS, { rawg }, PAGE, { slug })
+
+    expect(rawg.paths).toEqual([
+      `games/${slug}`,
+      `games/${slug}/stores`,
+      `games/${slug}/screenshots`,
+    ])
+    // RAWG's own word this time: the fixture set has no such game.
+    expect(data!.game).toBeNull()
+    expect(errors![0]!.extensions!.code).toBe('NOT_FOUND')
   })
 })
 
