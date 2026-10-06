@@ -75,8 +75,8 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * price from an answer that is not one. The per-app transport beside it keeps its answers for
  * twenty-four hours, so a "refresh" through it would very often hand back a day-old body — and
  * the whole point of this call is that the timestamp on the price is true. What is
- * cached is this resolver's own six-hour entry, and it carries the moment the fetch actually
- * happened, which is what `updatedAt` is stamped with.
+ * cached is this resolver's own six-hour entry, and it carries the clock of the request that made
+ * the read (`context.now`), which is what `updatedAt` is stamped with.
  */
 
 /**
@@ -109,9 +109,15 @@ const LIVE_PRICE_PREFIX = 'steam-price'
 interface LivePrice {
   price: SteamPrice
   /**
-   * When this price was actually read from Steam — the moment the uncached fetch returned, kept
-   * in the cache entry beside the price, so a reader served from the cache six hours later still
-   * stamps `updatedAt` with the read rather than with its own request time.
+   * When this price was read from Steam: the clock of the request that read it (`context.now`,
+   * taken once as that request began), kept in the cache entry beside the price, so a reader
+   * served from the cache hours later still stamps `updatedAt` with the read rather than with its
+   * own request time.
+   *
+   * It is the moment the read was asked for, not the moment Steam answered. The two are apart by
+   * however long Steam took — and a read the page stopped waiting for can take several seconds
+   * more (two five-second attempts at most, behind the limiter's queue). The difference only ever
+   * errs one way: a price is dated a little older than it is, never newer.
    */
   fetchedAt: string
 }

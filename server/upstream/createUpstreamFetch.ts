@@ -137,8 +137,16 @@ export function createUpstreamFetch<TRequest>(
    * Everyone who joins gets exactly what the first caller gets: the body, the stale entry it fell
    * back to, or its error. A failure is shared only with the callers that were already waiting for
    * it. The entry is removed before the outcome can be observed, so a call made after a failure
-   * always sends a request of its own. And an entry cannot linger: every attempt carries its own
-   * abort timeout, so a call ends after at most `maxAttempts` of them however the upstream behaves.
+   * always sends a request of its own.
+   *
+   * An entry lasts as long as its call and no longer: the two cache calls, and at most
+   * `maxAttempts` attempts, each waiting its turn at the limiter and each ended by its own abort
+   * timeout however the upstream behaves. That bounds it in a process that keeps running. A
+   * platform that freezes an instance in the middle of a call freezes the entry with it: it is
+   * still there after the thaw, and a caller that joins it then gets a request answered, or timed
+   * out, long after it was sent. So a request a caller stops waiting for should be handed to the
+   * platform to finish (`leaveRunning` in `server/graphql/budget.ts`), as the game page and the
+   * catalog do.
    *
    * "Exactly" means the same object, not a copy of it. A caller that joined holds the very value
    * the first caller holds, and so does a cache that keeps what it is handed — the refresh job's
