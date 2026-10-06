@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { GameIndex } from '../../server/index/GameIndex'
 import type { IndexedGame } from '../../server/index/document'
 import { unavailableGameIndex } from '../../server/index/index'
@@ -1533,6 +1533,25 @@ describe('the Ukrainian description', () => {
   /** RAWG answering at once, so the clock in these cases is the description's alone. */
   const rawgAtOnce = (): RawgFetch => fixtureRawg
 
+  /**
+   * Steam's price transport for the cases that have no index. The game is outside the index
+   * there, so the page asks Steam for its price as well as for its description, and Steam's answer
+   * here is that it has none: an answer, and a quiet one. The default double would refuse the
+   * call instead, the page would take the refusal for a failed read and only warn — and a "was
+   * not expected to be called" that ends in a passing case is a guard that cannot fail.
+   */
+  const steamWithoutAPrice = () => steamPricesReturning(() => null)
+
+  // So in this block a warning is always something the page did that the case did not ask for:
+  // a read that failed where none should have, a call a double refused.
+  let warn: MockInstance<typeof console.warn>
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   /** Steam's recorded answers, each after `ms`; `calls` is every app it was asked about. */
   function steamTaking(ms: number): SteamFetch & { calls: string[] } {
     const calls: string[] = []
@@ -1547,11 +1566,12 @@ describe('the Ukrainian description', () => {
 
   it('is Steam’s when Steam answers within the budget', async () => {
     const steam = steamTaking(STEAM_DESCRIPTION_BUDGET_MS - 1)
+    const steamPrices = steamWithoutAPrice()
     const waitUntil = vi.fn()
 
     const { data, errors } = await pageAt(
       STEAM_DESCRIPTION_BUDGET_MS - 1,
-      { rawg: rawgAtOnce(), steam, waitUntil },
+      { rawg: rawgAtOnce(), steam, steamPrices, waitUntil },
       DESCRIPTION,
       IN_UKRAINIAN,
     )
@@ -1560,6 +1580,8 @@ describe('the Ukrainian description', () => {
     expect(data!.game.localizedDescription).toMatchObject({ language: 'uk', source: 'STEAM' })
     expect(data!.game.localizedDescription.text).toContain('Ґеральт із Рівії')
     expect(steam.calls).toEqual(['292030'])
+    // The price was asked for as well, on its own transport, and answered.
+    expect(steamPrices.calls).toEqual(['292030'])
     expect(waitUntil).not.toHaveBeenCalled()
     // The budget's timer went with Steam's answer.
     expect(vi.getTimerCount()).toBe(0)
@@ -1572,7 +1594,7 @@ describe('the Ukrainian description', () => {
 
     const { data, errors } = await pageAt(
       STEAM_DESCRIPTION_BUDGET_MS,
-      { rawg: rawgAtOnce(), steam, waitUntil },
+      { rawg: rawgAtOnce(), steam, steamPrices: steamWithoutAPrice(), waitUntil },
       DESCRIPTION,
       IN_UKRAINIAN,
     )
@@ -1603,7 +1625,7 @@ describe('the Ukrainian description', () => {
 
     const { data, errors } = await pageAt(
       100,
-      { rawg: rawgAtOnce(), steam, waitUntil },
+      { rawg: rawgAtOnce(), steam, steamPrices: steamWithoutAPrice(), waitUntil },
       DESCRIPTION,
       IN_UKRAINIAN,
     )
@@ -1621,8 +1643,9 @@ describe('the Ukrainian description', () => {
         throw new Error('Steam went away')
       }
       const waitUntil = vi.fn<(work: Promise<unknown>) => void>()
-      const withHook = runQuery({ steam, waitUntil }, DESCRIPTION, IN_UKRAINIAN)
-      const withoutHook = runQuery({ steam }, DESCRIPTION, IN_UKRAINIAN)
+      const steamPrices = steamWithoutAPrice()
+      const withHook = runQuery({ steam, steamPrices, waitUntil }, DESCRIPTION, IN_UKRAINIAN)
+      const withoutHook = runQuery({ steam, steamPrices }, DESCRIPTION, IN_UKRAINIAN)
       await advance(STEAM_DESCRIPTION_BUDGET_MS)
       for (const { data, errors } of await Promise.all([withHook, withoutHook])) {
         expect(errors).toBeUndefined()
@@ -1638,7 +1661,11 @@ describe('the Ukrainian description', () => {
 
   it('costs the English page nothing: no Steam request and no timer', async () => {
     const steam = steamTaking(4_000)
-    const { data, errors } = await runQuery({ steam }, DESCRIPTION, { ...WITCHER, locale: 'en' })
+    const { data, errors } = await runQuery(
+      { steam, steamPrices: steamWithoutAPrice() },
+      DESCRIPTION,
+      { ...WITCHER, locale: 'en' },
+    )
 
     expect(errors).toBeUndefined()
     expect(data!.game.localizedDescription).toEqual(RAWG_TEXT)

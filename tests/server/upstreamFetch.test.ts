@@ -279,6 +279,54 @@ describe('a request in flight that fails', () => {
     expect(await retried).toEqual({ ok: true })
   })
 
+  it('is forgotten when the call fails before anything is sent, on a cache that cannot be read', async () => {
+    const { runtime, sent, store } = makeRuntime()
+    let broken = true
+    vi.mocked(runtime.cache.get).mockImplementation(async (key: string) => {
+      if (broken) throw new Error('the storage driver is broken')
+      return store.get(key) ?? null
+    })
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+
+    // Two callers, one call: both get its failure, and nothing reached the network.
+    const calls = [fetchUpstream({ key: 'games' }), fetchUpstream({ key: 'games' })]
+    for (const call of calls) await expect(call).rejects.toThrow('the storage driver is broken')
+    expect(runtime.cache.get).toHaveBeenCalledTimes(1)
+    expect(sent).toHaveLength(0)
+
+    // The entry went with the failure, so the next call starts over instead of joining it.
+    broken = false
+    const next = fetchUpstream({ key: 'games' })
+    await settle()
+    expect(sent).toHaveLength(1)
+    sent[0]!.answer(200, { ok: true })
+    expect(await next).toEqual({ ok: true })
+  })
+
+  it('is forgotten when the call fails before anything is sent, on a request that cannot be built', async () => {
+    let buildable = false
+    const fragile: UpstreamConfig<Request> = {
+      ...config,
+      buildUrl: (request) => {
+        if (!buildable) throw new Error('no address for this request')
+        return config.buildUrl(request)
+      },
+    }
+    const { runtime, sent } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(fragile, runtime)
+
+    const calls = [fetchUpstream({ key: 'games' }), fetchUpstream({ key: 'games' })]
+    for (const call of calls) await expect(call).rejects.toThrow('no address for this request')
+    expect(sent).toHaveLength(0)
+
+    buildable = true
+    const next = fetchUpstream({ key: 'games' })
+    await settle()
+    expect(sent).toHaveLength(1)
+    sent[0]!.answer(200, { ok: true })
+    expect(await next).toEqual({ ok: true })
+  })
+
   it('gives every waiting caller the stale entry the first one fell back to', async () => {
     const { runtime, sent, store } = makeRuntime()
     store.set('games', { value: { stale: true }, expiresAt: 0 })
