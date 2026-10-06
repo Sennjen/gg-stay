@@ -1263,7 +1263,8 @@ describe('a live read Steam answers without a price', () => {
     }
   })
 
-  it('remembers a price without an amount the same way: it is not a price either', async () => {
+  it('is not what a price without an amount is: that is no answer, and nothing is remembered', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const cache = createTestCache()
     const steam = steamPricesReturning(async () => ({
       priceUah: Number.NaN,
@@ -1275,9 +1276,91 @@ describe('a live read Steam answers without a price', () => {
 
     await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
     const { data } = await runQuery({ index, steamPrices: steam, cache }, GAME, WITCHER)
-    expect(steam.calls).toEqual(['292030'])
+    // Not a price to serve, so the index copy stands; not Steam saying it has none, so both
+    // readers asked.
     expect(steamOffer(data)).toMatchObject({ priceUah: 675, updatedAt: '2026-09-18T01:00:00.000Z' })
+    expect(steam.calls).toEqual(['292030', '292030'])
+    expect(cache.writes).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(2)
   })
+
+  /**
+   * The real price transport over a Steam that answers every request with `body` under a 200, so
+   * that what is remembered is decided by what came off the wire and not by a double's `null`.
+   */
+  function steamAnswering(body: unknown) {
+    const fetched: string[] = []
+    const transport = createSteamPriceFetch({
+      fixtures: false,
+      fetchJson: async (url: string) => {
+        fetched.push(url)
+        return { status: 200, body }
+      },
+      readFixture: async () => null,
+      now: () => Date.parse(TEST_NOW),
+      sleep: async () => {},
+      steamFetch: () => {
+        throw new Error('the game page must not read the 24h-cached per-app transport')
+      },
+    })
+    return { transport, fetched }
+  }
+
+  it.each([
+    [{ '292030': { success: false } }, 'an app Steam will not describe to this region'],
+    [{ '292030': { success: true, data: [] } }, 'an app with no price under the price filter'],
+  ])(
+    'is remembered when it is Steam’s own word, read off the wire: %j (%s)',
+    async (body, _what) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const cache = createTestCache()
+      const { transport, fetched } = steamAnswering(body)
+      const index = await witcherDueARefresh()
+
+      await runQuery({ index, steamPrices: transport, cache }, GAME, WITCHER)
+      expect(fetched).toHaveLength(1)
+      expect(cache.writes).toEqual([['steam-price:292030', 21_600]])
+
+      const second = await runQuery({ index, steamPrices: transport, cache }, GAME, WITCHER)
+      expect(second.errors).toBeUndefined()
+      expect(steamOffer(second.data)).toMatchObject({ priceUah: 675 })
+      expect(fetched).toHaveLength(1)
+      // An answer, not a failure: nothing to warn about.
+      expect(warn).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    [null, 'an empty body'],
+    ['<html>Service Unavailable</html>', 'an error page'],
+    [{}, 'an object with nothing about the app'],
+    [{ '292030': { success: true } }, 'an entry that says nothing readable'],
+  ])(
+    'is not what an answer that cannot be read is, even under a 200: %j (%s)',
+    async (body, _what) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const cache = createTestCache()
+      const { transport, fetched } = steamAnswering(body)
+      const index = await witcherDueARefresh()
+
+      const first = await runQuery({ index, steamPrices: transport, cache }, GAME, WITCHER)
+      expect(first.errors).toBeUndefined()
+      // The page keeps the index copy, as after any failed read, and says once what happened.
+      expect(steamOffer(first.data)).toMatchObject({
+        priceUah: 675,
+        updatedAt: '2026-09-18T01:00:00.000Z',
+      })
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        '[index] the live Steam price could not be read: STEAM upstream failure: ERROR',
+      )
+      expect(cache.writes).toEqual([])
+
+      // Nothing was remembered, so the next reader asks Steam again.
+      await runQuery({ index, steamPrices: transport, cache }, GAME, WITCHER)
+      expect(fetched).toHaveLength(2)
+      expect(cache.writes).toEqual([])
+    },
+  )
 
   it('is not what a failed read is: nothing is remembered, and the next reader asks again', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})

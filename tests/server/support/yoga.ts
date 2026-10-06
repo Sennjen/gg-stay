@@ -59,13 +59,19 @@ const notExpected = (what: string) => () => {
 
 /** A Steam price transport that answers nothing, for the paths that must not call one. */
 export const noSteamPrices: SteamPriceFetch = {
-  fetchPrices: notExpected('price'),
+  fetchPrices: notExpected('batched price'),
+  fetchPrice: notExpected('price'),
   fetchAppLanguages: notExpected('language'),
 }
 
 /**
- * The live price path the game page uses. It calls `fetchPrices`, never `fetchAppLanguages` — the
- * former is the uncached read, and a test that let the latter answer would hide that.
+ * The live price path the game page uses. It calls `fetchPrice` — the uncached read of one app,
+ * the one that tells "Steam has no price" from an answer that is not one — and never the batched
+ * `fetchPrices`, which is the refresh job's, nor `fetchAppLanguages`, which is cached for a day; a
+ * test that let either of those answer would hide that.
+ *
+ * `price` answers as `fetchPrice` does: a price, `null` for "Steam has none for this app", or a
+ * throw for a read that failed. `calls` is every app that was asked about, in order.
  */
 export function steamPricesReturning(
   price: (appId: string) => Promise<SteamPrice | null> | SteamPrice | null,
@@ -73,14 +79,11 @@ export function steamPricesReturning(
   const calls: string[] = []
   return {
     calls,
+    fetchPrices: notExpected('batched price'),
     fetchAppLanguages: notExpected('language'),
-    fetchPrices: async (appIds) => {
-      const answers = new Map<string, SteamPrice | null>()
-      for (const appId of appIds) {
-        calls.push(appId)
-        answers.set(appId, await price(appId))
-      }
-      return answers
+    fetchPrice: async (appId) => {
+      calls.push(appId)
+      return price(appId)
     },
   }
 }

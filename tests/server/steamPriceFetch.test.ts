@@ -228,6 +228,155 @@ describe('fetchPrices', () => {
   })
 })
 
+describe('fetchPrice', () => {
+  const UAH_100 = {
+    success: true,
+    data: {
+      price_overview: { currency: 'UAH', initial: 10000, final: 5000, discount_percent: 50 },
+    },
+  }
+
+  /** The transport over a Steam that answers every request with `body` under a 200. */
+  function answering(body: unknown) {
+    const fetchJson = vi.fn(async (_url: string) => ({ status: 200, body }))
+    const { deps } = makeDeps({ fetchJson })
+    return { steamPrices: createSteamPriceFetch(deps), fetchJson }
+  }
+
+  it('asks Steam for the one app, with cc=ua and the price filter, and gives its price', async () => {
+    const { steamPrices, fetchJson } = answering({ '292030': UAH_100 })
+
+    expect(await steamPrices.fetchPrice('292030')).toEqual({
+      priceUah: 50,
+      regularPriceUah: 100,
+      discountPercent: 50,
+      isFree: false,
+    })
+    const url = new URL(fetchJson.mock.calls[0]![0])
+    expect(url.origin + url.pathname).toBe('https://store.steampowered.com/api/appdetails')
+    expect(url.searchParams.get('appids')).toBe('292030')
+    expect(url.searchParams.get('cc')).toBe('ua')
+    expect(url.searchParams.get('filters')).toBe('price_overview')
+  })
+
+  it.each([
+    [{ '1': { success: false } }, 'an app Steam will not describe to this region'],
+    [{ '1': { success: true, data: [] } }, 'a free or not-for-sale app under the price filter'],
+    [{ '1': { success: true, data: {} } }, 'an app whose data carries no price'],
+  ])('answers null when Steam says it has no price for the app: %j (%s)', async (body, _what) => {
+    const { steamPrices, fetchJson } = answering(body)
+
+    expect(await steamPrices.fetchPrice('1')).toBeNull()
+    expect(fetchJson).toHaveBeenCalledTimes(1)
+  })
+
+  /** What Steam can send under a 200 that is not its answer about app 1. */
+  const NOT_AN_ANSWER: [body: unknown, what: string][] = [
+    [null, 'an empty body'],
+    [[], 'a list'],
+    ['<html>Service Unavailable</html>', 'an error page'],
+    [{}, 'an object with nothing in it'],
+    [{ '2': UAH_100 }, 'an answer about another app only'],
+    [{ '1': null }, 'an entry of null'],
+    [{ '1': { success: true } }, 'success with no data'],
+    [
+      {
+        '1': {
+          success: true,
+          data: {
+            price_overview: { currency: 'USD', initial: 1999, final: 1999, discount_percent: 0 },
+          },
+        },
+      },
+      'a price that is not in hryvnia',
+    ],
+  ]
+
+  it.each(NOT_AN_ANSWER)(
+    'fails, as a read that failed, when the answer cannot be read: %j (%s)',
+    async (body) => {
+      const { steamPrices, fetchJson } = answering(body)
+
+      const failure = await steamPrices.fetchPrice('1').catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(UpstreamError)
+      expect(failure).toMatchObject({ source: 'STEAM', kind: 'ERROR' })
+      // A 200 is an answer to the transport: it is not asked for again, whatever was in it.
+      expect(fetchJson).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each(NOT_AN_ANSWER)(
+    'leaves the batched read as it was for the same answer, which is "no price": %j (%s)',
+    async (body) => {
+      const { steamPrices } = answering(body)
+
+      // The refresh job's reader: it does its own accounting of which answers were definitive.
+      const prices = await steamPrices.fetchPrices(['1'])
+      expect([...prices]).toEqual([['1', null]])
+    },
+  )
+
+  it('fails as the transport fails, after its one retry, when Steam does not answer', async () => {
+    const fetchJson = vi.fn().mockRejectedValue(timeoutError())
+    const { deps } = makeDeps({ fetchJson })
+
+    await expect(createSteamPriceFetch(deps).fetchPrice('1')).rejects.toMatchObject({
+      kind: 'TIMEOUT',
+    })
+    expect(fetchJson).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps nothing: the next read asks Steam again', async () => {
+    const { steamPrices, fetchJson } = answering({ '1': UAH_100 })
+
+    await steamPrices.fetchPrice('1')
+    await steamPrices.fetchPrice('1')
+    expect(fetchJson).toHaveBeenCalledTimes(2)
+  })
+
+  it('is the same request as a batched read of that one app, so the two share it in flight', async () => {
+    const { steamPrices, fetchJson } = answering({ '1': UAH_100 })
+
+    const [one, batch] = await Promise.all([
+      steamPrices.fetchPrice('1'),
+      steamPrices.fetchPrices(['1']),
+    ])
+    expect(fetchJson).toHaveBeenCalledTimes(1)
+    expect(batch.get('1')).toEqual(one)
+  })
+
+  it('reads the recorded file in fixture mode, where an app it does not hold has no price', async () => {
+    const readFixture = vi.fn(async (name: string) =>
+      name === 'prices' ? realPricesFixture : null,
+    )
+    const { deps } = makeDeps({ fixtures: true, readFixture })
+    const steamPrices = createSteamPriceFetch(deps)
+
+    expect(await steamPrices.fetchPrice('292030')).toEqual({
+      priceUah: 675,
+      regularPriceUah: 1349,
+      discountPercent: 50,
+      isFree: false,
+    })
+    // Recorded with `data: []`: Steam's own "no price".
+    expect(await steamPrices.fetchPrice('570')).toBeNull()
+    // Not recorded at all: the file is the whole of Steam here, and there is nobody to ask again.
+    expect(await steamPrices.fetchPrice('99999999')).toBeNull()
+    expect(deps.fetchJson).not.toHaveBeenCalled()
+    expect(readFixture).toHaveBeenCalledTimes(1)
+  })
+
+  it('still fails in fixture mode on a recorded entry that cannot be read', async () => {
+    const readFixture = vi.fn(async () => ({ '1': 'not an entry' }))
+    const { deps } = makeDeps({ fixtures: true, readFixture })
+
+    await expect(createSteamPriceFetch(deps).fetchPrice('1')).rejects.toMatchObject({
+      source: 'STEAM',
+      kind: 'ERROR',
+    })
+  })
+})
+
 describe('fetchAppLanguages', () => {
   it('delegates to the injected per-app steamFetch for one unfiltered call', async () => {
     const steamFetch = vi.fn<SteamFetch>(async () => ({

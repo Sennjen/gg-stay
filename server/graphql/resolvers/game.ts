@@ -59,19 +59,22 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * one app, and the answer is kept in Nitro storage for the same six hours so the next reader pays
  * nothing. "Steam has no price for this app" is such an answer too, and is kept the same way: a
  * delisted or regionless game would otherwise cost every reader of its page a Steam request that
- * can only say the same thing again. The live read is about the price only: the design refreshes
- * languages weekly, so the language list always comes from the index. Anything that goes wrong
- * keeps the index copy and logs a warning, because this page has to render either way, and the
- * site never writes to Redis.
+ * can only say the same thing again. Only Steam saying so counts: an answer that could not be
+ * read — an empty body under a 200, a body with nothing in it about this app — is a failed read
+ * like any other, and nothing is kept of a failed read, so the next reader asks again. The live
+ * read is about the price only: the design refreshes languages weekly, so the language list
+ * always comes from the index. Anything that goes wrong keeps the index copy and logs a warning,
+ * because this page has to render either way, and the site never writes to Redis.
  *
  * Which app to ask about comes from the index document when the refresh job has published the
  * game's Steam app id there — the read then starts the moment the document is found, beside the
  * RAWG requests instead of behind them — and from RAWG's own store links otherwise, as before.
  *
- * The read goes through `fetchPrices([appId])`, which is the only Steam path in this project that
- * never caches (`steamPriceFetch.ts`'s `NO_CACHE`). The per-app transport beside it keeps its
- * answers for twenty-four hours, so a "refresh" through it would very often hand back a day-old
- * body — and the whole point of this call is that the timestamp on the price is true. What is
+ * The read goes through `fetchPrice(appId)`, on the only Steam transport in this project that
+ * never caches (`steamPriceFetch.ts`'s `NO_CACHE`) — and the read that tells Steam having no
+ * price from an answer that is not one. The per-app transport beside it keeps its answers for
+ * twenty-four hours, so a "refresh" through it would very often hand back a day-old body — and
+ * the whole point of this call is that the timestamp on the price is true. What is
  * cached is this resolver's own six-hour entry, and it carries the moment the fetch actually
  * happened, which is what `updatedAt` is stamped with.
  */
@@ -116,7 +119,7 @@ interface LivePrice {
 /**
  * What one live read left in the cache: the price, or `null` for "Steam answered, and has no
  * price for this app". Only an answer is ever written — a read that failed leaves nothing, so the
- * next reader asks Steam again.
+ * next reader asks Steam again, and an answer that could not be read is a read that failed.
  */
 interface RememberedPrice {
   price: SteamPrice | null
@@ -417,16 +420,15 @@ async function livePrice(context: GraphQLContext, appId: string): Promise<LivePr
     const cached = await context.cache.get<RememberedPrice>(key)
     if (cached) return pricedOrNull(cached)
 
-    const prices = await context.steamPrices.fetchPrices([appId])
-    const price = prices.get(appId) ?? null
-    // Steam answering with no price at all — a regionless or delisted app, or an entry that does
-    // not parse — is not a fresher price; the index copy stays. Neither is one without an amount.
-    // It is an answer all the same, and is remembered as one, so the next reader of this page
-    // does not wait for Steam to give it again.
-    const remembered: RememberedPrice = {
-      price: price && Number.isFinite(price.priceUah) ? price : null,
-      fetchedAt: context.now,
-    }
+    // `null` here is Steam's own word that it has no price for this app — a regionless or
+    // delisted one, a free one. It is not a fresher price, so the index copy stays; it is an
+    // answer all the same, and is remembered as one, so the next reader of this page does not
+    // wait for Steam to give it again. An answer that could not be read never gets this far:
+    // `fetchPrice` raises it as the failed read it is, and the `catch` below keeps nothing.
+    const price = await context.steamPrices.fetchPrice(appId)
+    // A price without an amount is no price to serve, and it is not Steam saying it has none.
+    if (price && !Number.isFinite(price.priceUah)) throw new UpstreamError('STEAM', 'ERROR')
+    const remembered: RememberedPrice = { price, fetchedAt: context.now }
     await context.cache.set(key, remembered, LIVE_PRICE_TTL_SECONDS)
     return pricedOrNull(remembered)
   } catch (error) {
