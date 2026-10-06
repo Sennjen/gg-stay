@@ -371,9 +371,12 @@ test('catalog → a game: the answer to the page’s own request says where its 
   expect(response.status()).toBe(200)
   // Fixture mode's upstreams are its recordings and its seeded index: RAWG's three answers about
   // the page, Steam's Ukrainian description, and the index's reads for the page and its row of
-  // similar games. Names and numbers, and nothing of the request.
+  // similar games. Names and numbers, and nothing of the request. Steam is asked once more — for
+  // the price — when the server under the flows has been up long enough for the price the index
+  // was seeded with to have aged past the six hours it is trusted for: a server kept for reuse,
+  // never the one a run starts for itself.
   expect(response.headers()['server-timing']).toMatch(
-    /^rawg;dur=\d+;desc="RAWG x3", steam;dur=\d+;desc="Steam x1", index;dur=\d+;desc="Index x[1-9]\d*", total;dur=\d+$/,
+    /^rawg;dur=\d+;desc="RAWG x3", steam;dur=\d+;desc="Steam x[12]", index;dur=\d+;desc="Index x[1-9]\d*", total;dur=\d+$/,
   )
   // The policy of the endpoint is still beside it.
   expect(response.headers()['content-security-policy']).toBe(
