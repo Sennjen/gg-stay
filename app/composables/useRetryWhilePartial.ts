@@ -136,9 +136,13 @@ export function useRetryWhilePartial<TData>(
 
   onMounted(() => {
     // The old answer stays on the page until the new one arrives, so the key is what says first
-    // that the page has moved on.
-    watch(query.key, leaveAnswer)
-    watch(query.data, restart)
+    // that the page has moved on. One watcher for the two, because a turn to an answer the app
+    // already held moves both at once, and heard of separately the turn could come last and stop
+    // the asking that the new answer had just started.
+    watch([query.key, query.data], ([key, answer], [keyBefore, shown]) => {
+      if (answer !== shown) restart()
+      else if (key !== keyBefore) leaveAnswer()
+    })
     restart()
   })
   onBeforeUnmount(stop)

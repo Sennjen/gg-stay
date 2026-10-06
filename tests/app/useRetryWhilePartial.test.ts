@@ -328,6 +328,29 @@ describe('what the asking leaves behind', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('starts over for the other game’s answer just the same when the answer is noticed before the turn', async () => {
+    // An answer the app already held is on the page in the same turn as the page moves to it,
+    // and which of the two a page hears of first is not its to choose.
+    const { data, key, request, state } = show(partialAnswer('Portal 2'), [
+      wholeAnswer('Half-Life 2'),
+    ])
+    await advance(1_000)
+
+    data.value = partialAnswer('Half-Life 2')
+    key.value = 'gql:Game:{"slug":"half-life-2"}'
+    await flushPromises()
+    expect(state()).toBe('asking')
+    expect(vi.getTimerCount()).toBe(1)
+
+    // Its own three seconds, not the two that were left of the last game's.
+    await advance(FIRST_WAIT - 1)
+    expect(request).not.toHaveBeenCalled()
+    await advance(1)
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(data.value).toEqual(wholeAnswer('Half-Life 2'))
+    expect(state()).toBe('idle')
+  })
+
   it('starts over when a new answer arrives by another way, and drops the attempt that was out', async () => {
     const slow = deferred<Answer | null>()
     const { data, request } = show(partialAnswer(), [slow.promise, wholeAnswer()])
