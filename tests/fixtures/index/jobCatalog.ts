@@ -6,7 +6,7 @@ import type { RawgGameListItem, RawgList, RawgStoreLink } from '../../../server/
  *
  * | id  | what it proves                                                             |
  * | --- | -------------------------------------------------------------------------- |
- * | 101 | the ordinary case: a Steam page, a discounted price, Ukrainian text и audio |
+ * | 101 | the usual case: a Steam page, a discounted price, Ukrainian text and audio  |
  * | 102 | Ukrainian text without audio                                               |
  * | 103 | no store links at all, and a cover-only screenshot list — no hover preview  |
  * | 104 | store links without a Steam one — the empty-string "has none" marker        |
