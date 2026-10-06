@@ -158,6 +158,32 @@ Lighthouse does not show what a visitor waits for on a catalog page RAWG has not
 - **#66.** RAWG gets 2.5 s (`RAWG_HEDGE_MS`); after that the index answers the page if it can express the filter, and the overtaken RAWG request finishes in the background and fills the cache.
 - **2026-10-05, after #66.** 13 uncached filter combinations answered in 0.6–1.7 s, all of them by RAWG. RAWG was fast that day, so the hedge did not fire in production during the measurement. It is covered by tests only (`tests/server/indexResolvers.test.ts`); its effect on a slow RAWG page has not been observed on the live site.
 
+## Step 7 — after the mascot
+
+Measured 2026-10-06 on commit `a7ba405`, the day Gege reached production: a still face in the header on every page, a greeter on the landing page (client-only, mounted after hydration, rises two seconds later) and a redesigned `/ask`. Same method and the same tool versions as step 6 (Lighthouse 13.5.0, headless Chrome 154), the two pages the change touches.
+
+| Page          | Performance | LCP   | CLS | TBT   | Page weight | Accessibility | Best practices | SEO |
+| ------------- | ----------- | ----- | --- | ----- | ----------- | ------------- | -------------- | --- |
+| `/` (landing) | 83          | 4.1 s | 0   | 50 ms | 1.41 MB     | 100           | 100            | 100 |
+| `/ask`        | 96          | 2.3 s | 0   | 0 ms  | 0.32 MB     | 100           | 100            | 100 |
+
+Individual runs — landing: 83 / 80 / 91 (LCP 4.1 / 4.5 / 3.2 s); ask: 99 / 96 / 95 (LCP 1.7 / 2.3 / 2.4 s). Reports: [landing](step7-after-mascot/home.report.html), [ask](step7-after-mascot/ask.report.html). A second set of three landing runs, taken minutes later to see how stable the first was: 80 / 78 / 91 (LCP 4.6 / 4.6 / 3.3 s).
+
+Against step 6 the landing median is nine points lower (92 → 83) with LCP at 4.1 s instead of 3.2 s, which is outside the 91–93 spread of that step. `/ask` went from 99 to 96 and from 1.7 s to 2.3 s; step 6's own runs were 96 / 99 / 99, so that is inside its spread, though all three runs sit at its low end.
+
+What the mascot itself costs is in the reports, and it is small:
+
+- **Transfer, landing.** Scripts 175.6 → 184.1 KB (18 → 21 requests), stylesheets 11.3 → 14.1 KB (4 → 7), the document 15.4 → 16.5 KB; 16 KB more in total.
+- **Before first paint.** One more render-blocking stylesheet, `GegeMascot.css` (0.65 KB, for the header face, so on every page), and 0.5 KB more in `entry.css`. Ten modules are preloaded in the first wave instead of nine; modules do not block rendering.
+- **The greeter.** Its chunk (4.4 KB), its stylesheet (1.1 KB) and its one `dealOfTheDay` request are all sent after the load event, as designed.
+- **Main thread and layout.** TBT 50 ms (80 ms in step 6), CLS 0. The LCP element is still the hero poster, still requested at High priority with the first wave.
+
+None of that explains nine points, and the runs say where they went. The six landing runs fall into two groups that download and execute the same things. In the two that scored 91 the page painted 0.5 s after the navigation started (observed, unthrottled: 483 and 478 ms) and the result is step 6's: 91, LCP 3.2–3.3 s. In the four that scored 78–83 the requests and the main-thread work are the same, and the load event comes at 0.7–1.3 s — but the first frame was presented at 1.5 s in three runs and at 2.5 s in one, after the load event, with the main thread idle. A trace of such a run on `/ask` shows the compositor reporting a dropped frame at every vsync from the moment the document committed, and no main-thread frame requested until 1.47 s, half a second after hydration had finished. Lighthouse builds its simulated FCP and LCP on the observed paint, so a late frame costs 0.3–0.6 s of FCP and 0.8–1.4 s of LCP in the model.
+
+The same late frame is in step 6's raw runs, before the mascot existed: `/ask` run 1 (first paint at 1 497 ms with the load event at 652 ms — it scored 96 with LCP 2.3 s, exactly today's median) and the indexed catalog's run 3 (1 510 ms against 564 ms, the 87 in that step). That was 2 runs in 15. Today it was 4 of 6 on the landing, 5 of 6 on `/ask` (two of the three above and three more taken for the trace) and 1 of 4 on `/games`, measured as a control at 93 / 94 / 90 / 92. Ten of those twelve late frames landed between 1.49 and 1.53 s after the navigation started, whatever the load time (0.56–1.25 s), which points at a timer in the browser rather than at work in the page. It did not appear in five runs against a trivial control page, or in six runs against a local production build of this same commit (node-server preset, fixture data; first paint at 45–76 ms).
+
+So this step records a lower landing median and does not attribute it to the mascot: the mascot's measured cost is 16 KB and one 0.65 KB stylesheet, and the points were lost to a late first frame that predates it. It does not clear the mascot either — the late frame was far more frequent than on 2026-10-05 and its cause was not established, so "more frequent because of the change" is not excluded by anything here. Nothing was changed in the page. The honest reading of the table is "91 with LCP 3.2 s when the first frame is on time, as in step 6; 78–83 when it is not".
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
