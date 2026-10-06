@@ -1,15 +1,15 @@
 import { createHash } from 'node:crypto'
-import { createAnthropicProvider } from '../ask/anthropicProvider'
-import type { AskHandlerDeps, CachedAsk } from '../ask/handler'
+import { createBoundedCache, MAX_CACHE_ENTRIES } from '../utils/boundedCache'
+import { createAnthropicProvider } from './anthropicProvider'
+import type { AskHandlerDeps, CachedAsk } from './handler'
 import {
   createDailyAllowance,
   createDailyCeiling,
   createRateLimiter,
   dailyCallLimit,
-} from '../ask/limits'
-import { askContext } from '../ask/pipeline'
-import { createRecordedProvider, type RecordedAnswers } from '../ask/recordedProvider'
-import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
+} from './limits'
+import { askContext } from './pipeline'
+import { createRecordedProvider, type RecordedAnswers } from './recordedProvider'
 
 /**
  * What `/api/ask` runs on, built once per server process: the limits and the response cache are
@@ -21,6 +21,13 @@ import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
  *   request is answered by the fallback, never with an error.
  * - `ASK_DAILY_LLM_CALLS` overrides the per-instance daily ceiling of model calls (default 500;
  *   0 turns the model off).
+ *
+ * This file is deliberately not in `server/utils`. Nitro auto-imports that directory through one
+ * module the server entry loads at start, so everything a util imports is read and evaluated on
+ * every cold start, whatever the request. From there this file took the Anthropic SDK, zod and the
+ * whole ask pipeline with it — 286 files and 1.7 MB that only `POST /api/ask` needs. Imported by
+ * the route alone, they load with the route's own chunk, on the first question an instance gets.
+ * See "Cold start" in docs/perf/README.md.
  */
 
 let instance: AskHandlerDeps | undefined

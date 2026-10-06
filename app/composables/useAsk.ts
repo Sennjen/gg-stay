@@ -91,9 +91,9 @@ const askKey = (locale: string, query: string) => `ask:${locale}:${query}`
  * any other is sent as it is, because the endpoint owns the rules for a valid one (its 400 costs
  * the visitor nothing).
  *
- * Named `useAskAnswer` rather than after its file: the server's own `useAsk()` (the endpoint's
- * dependencies, `server/utils/ask.ts`) is an auto-import too, and one name for both made the
- * server's type check resolve the endpoint's call to this composable.
+ * Named `useAskAnswer` rather than after its file: the server has a `useAsk()` of its own (the
+ * endpoint's dependencies, `server/ask/useAsk.ts`), and when that one was an auto-import too, one
+ * name for both made the server's type check resolve the endpoint's call to this composable.
  *
  * The call goes through `useRequestFetch()`: in the server render it forwards the visitor's request
  * headers, `x-forwarded-for` among them, so the endpoint's per-address rate limit counts this
