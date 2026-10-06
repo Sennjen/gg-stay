@@ -2,6 +2,7 @@ import type { GameIndex, IndexQuery } from '../../../server/index/GameIndex'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex, type MemoryGameIndex } from '../../../server/index/memoryIndex'
 import type { GraphQLContext, ResolverCache } from '../../../server/graphql/context'
+import { timedContext } from '../../../server/graphql/serverTiming'
 import { createYogaApp } from '../../../server/graphql/yoga'
 import type { RawgFetch } from '../../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../../server/steam/steamFetch'
@@ -206,12 +207,9 @@ export interface QueryResult {
   errors?: { message: string; extensions?: { code?: string } }[]
 }
 
-export async function runQuery(
-  context: TestContext,
-  query: string,
-  variables: Record<string, unknown> = {},
-): Promise<QueryResult> {
-  const yoga = createYogaApp(() => ({
+/** The context a suite's resolvers run in: the doubles above, and whatever the suite replaces. */
+function testContext(context: TestContext): GraphQLContext {
+  return {
     rawg: fixtureRawg,
     steam: fixtureSteam,
     today: TEST_TODAY,
@@ -220,13 +218,37 @@ export async function runQuery(
     steamPrices: noSteamPrices,
     cache: noCache,
     ...context,
-  }))
-  const response = await yoga.fetch('http://test/api/graphql', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  })
+  }
+}
+
+const post = (query: string, variables: Record<string, unknown>): RequestInit => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ query, variables }),
+})
+
+export async function runQuery(
+  context: TestContext,
+  query: string,
+  variables: Record<string, unknown> = {},
+): Promise<QueryResult> {
+  const yoga = createYogaApp(() => testContext(context))
+  const response = await yoga.fetch('http://test/api/graphql', post(query, variables))
   return (await response.json()) as QueryResult
+}
+
+/**
+ * The same operation, answered with the HTTP response rather than its body, and through a context
+ * whose upstream calls are timed — the way the site's own endpoint builds one
+ * (`server/api/graphql.ts`) — so the response carries the `Server-Timing` header the site sends.
+ */
+export function postQuery(
+  context: TestContext,
+  query: string,
+  variables: Record<string, unknown> = {},
+): Promise<Response> {
+  const yoga = createYogaApp((timing) => timedContext(testContext(context), timing))
+  return Promise.resolve(yoga.fetch('http://test/api/graphql', post(query, variables)))
 }
 
 /** An index that was built but never published: the shape a fresh deployment starts in. */
