@@ -5,7 +5,9 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core'
 import { readBody } from 'h3'
 import { useGql } from '~/composables/useGql'
 
-interface EchoVars {
+// A type alias, not an interface: only an alias has the implicit index signature that makes it a
+// `Record<string, unknown>`, which is what `useGql` asks of an operation's variables.
+type EchoVars = {
   value: string
 }
 interface EchoData {
