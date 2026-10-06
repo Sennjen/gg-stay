@@ -45,4 +45,17 @@ describe('the live smoke comparison', () => {
     expect(mismatches.length).toBeGreaterThan(0)
     expect(mismatches[0]).toContain('search')
   })
+
+  it('compares the slug lookups too, and notices a store that folds the case', async () => {
+    const redis = createFakeRedis()
+    const live = createUpstashIndex(redis, { keyPrefix: 'smoke:0:', runId: 'the-run' })
+    const memory = createMemoryGameIndex()
+    // The reference matches a slug exactly; this one answers for any capitalisation of it, which
+    // is what a store that compared hash fields loosely would look like from here.
+    const idBySlug = memory.idBySlug.bind(memory)
+    memory.idBySlug = (slug) => idBySlug(slug.toLowerCase())
+    const { mismatches } = await compareAdapters(live, memory)
+    expect(mismatches).toHaveLength(1)
+    expect(mismatches[0]).toContain('idBySlug("Jade-Jungle")')
+  })
 })

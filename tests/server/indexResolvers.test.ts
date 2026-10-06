@@ -510,6 +510,7 @@ describe('an index that never answers', () => {
       search: () => new Promise(() => {}),
       getMany: () => new Promise(() => {}),
       getOne: () => new Promise(() => {}),
+      idBySlug: () => new Promise(() => {}),
       meta: () => new Promise(() => {}),
       allSlugs: () => new Promise(() => {}),
     }

@@ -117,12 +117,24 @@ export function createTestCache(): CountingCache {
 }
 
 export interface CountingIndex extends GameIndex {
-  readonly calls: { search: IndexQuery[]; getMany: number[][]; getOne: number[]; meta: number }
+  readonly calls: {
+    search: IndexQuery[]
+    getMany: number[][]
+    getOne: number[]
+    idBySlug: string[]
+    meta: number
+  }
 }
 
 /** The same index, with every call recorded, so a test can pin "exactly one `getMany`". */
 export function countCalls(index: GameIndex): CountingIndex {
-  const calls: CountingIndex['calls'] = { search: [], getMany: [], getOne: [], meta: 0 }
+  const calls: CountingIndex['calls'] = {
+    search: [],
+    getMany: [],
+    getOne: [],
+    idBySlug: [],
+    meta: 0,
+  }
   return {
     calls,
     search: (query) => {
@@ -136,6 +148,10 @@ export function countCalls(index: GameIndex): CountingIndex {
     getOne: (id) => {
       calls.getOne.push(id)
       return index.getOne(id)
+    },
+    idBySlug: (slug) => {
+      calls.idBySlug.push(slug)
+      return index.idBySlug(slug)
     },
     meta: () => {
       calls.meta += 1
@@ -173,6 +189,7 @@ export function overriding(index: GameIndex, overrides: Partial<GameIndex>): Gam
     search: (query) => (overrides.search ?? index.search.bind(index))(query),
     getMany: (ids) => (overrides.getMany ?? index.getMany.bind(index))(ids),
     getOne: (id) => (overrides.getOne ?? index.getOne.bind(index))(id),
+    idBySlug: (slug) => (overrides.idBySlug ?? index.idBySlug.bind(index))(slug),
     meta: () => (overrides.meta ?? index.meta.bind(index))(),
     allSlugs: () => (overrides.allSlugs ?? index.allSlugs.bind(index))(),
   }

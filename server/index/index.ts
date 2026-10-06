@@ -12,8 +12,8 @@ import { createUpstashCommands, createUpstashIndex } from './upstashIndex'
  * matters:
  *
  * - **Configured to know nothing** (`unavailableGameIndex`) answers quietly: `meta()` is `null`,
- *   `getMany` and `getOne` find nothing, only `search` rejects. Nothing failed, so nothing is
- *   logged and no page reports the index as stale.
+ *   `getMany`, `getOne` and `idBySlug` find nothing, only `search` rejects. Nothing failed, so
+ *   nothing is logged and no page reports the index as stale.
  * - **Something went wrong** — a rejection, or a call that passed its deadline —
  *   (`degradeOnFailure`) rejects from *every* method with `IndexUnavailableError`. A caller has to
  *   be able to tell "this index holds nothing" from "this index just let me down", because a
@@ -49,6 +49,8 @@ export function unavailableGameIndex(reason: string): GameIndex {
     search: (): Promise<IndexSearchResult> => Promise.reject(new IndexUnavailableError(reason)),
     getMany: async (): Promise<Map<number, IndexedGame>> => new Map(),
     getOne: async (): Promise<IndexedGame | null> => null,
+    // "This index holds no such game", which is what a slug outside the index answers as well.
+    idBySlug: async (): Promise<number | null> => null,
     meta: async (): Promise<IndexMeta | null> => null,
     allSlugs: async (): Promise<IndexedSlug[]> => [],
   }
@@ -57,7 +59,8 @@ export function unavailableGameIndex(reason: string): GameIndex {
 /**
  * The same index, with whatever the transport raised turned into one `IndexUnavailableError`.
  *
- * Every method rejects, including the three that could answer "nothing" instead. The difference
+ * Every method rejects, including the ones that could answer "nothing" instead — `idBySlug` among
+ * them, for which `null` already means "the index does not hold this game". The difference
  * between "this index holds nothing" and "this index just failed" is one a caller has to be able
  * to see: a request that has been let down once stops asking for the rest of its life (see
  * `indexFailed` in `server/graphql/indexPath.ts`), and a quiet empty answer would hide that and
@@ -84,6 +87,7 @@ export function degradeOnFailure(
     search: (query: IndexQuery) => attempt(() => index.search(query)),
     getMany: (ids: number[]) => attempt(() => index.getMany(ids)),
     getOne: (id: number) => attempt(() => index.getOne(id)),
+    idBySlug: (slug: string) => attempt(() => index.idBySlug(slug)),
     meta: () => attempt(() => index.meta()),
     allSlugs: () => attempt(() => index.allSlugs()),
   }
@@ -168,6 +172,7 @@ export function withDeadline(
     search: (query) => race(() => index.search(query)),
     getMany: (ids) => race(() => index.getMany(ids)),
     getOne: (id) => race(() => index.getOne(id)),
+    idBySlug: (slug) => race(() => index.idBySlug(slug)),
     meta: () => race(() => index.meta()),
     allSlugs: () => race(() => index.allSlugs(), bulkTimeoutMs),
   }
@@ -241,6 +246,9 @@ export function withCircuit(
     search: (query) => through(() => index.search(query)),
     getMany: (ids) => through(() => index.getMany(ids)),
     getOne: (id) => through(() => index.getOne(id)),
+    // A page read like `getOne`, and judged like one: a slug lookup that fails or crawls says the
+    // same about the store as a document read that does.
+    idBySlug: (slug) => through(() => index.idBySlug(slug)),
     meta: () => through(() => index.meta()),
     // The sitemap read respects an open circuit — a store the pages have given up on is not asked
     // for its whole version — but never feeds it: reading thousands of documents is slow by

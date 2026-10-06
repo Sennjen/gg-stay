@@ -99,6 +99,26 @@ export interface GameIndex {
   search(query: IndexQuery): Promise<IndexSearchResult>
   getMany(ids: number[]): Promise<Map<number, IndexedGame>>
   getOne(id: number): Promise<IndexedGame | null>
+  /**
+   * The id of the game the published version holds under this slug, for a caller that knows a
+   * game by its address and not yet by its id — the game page, before RAWG has answered. `null`
+   * for a slug no indexed game carries, when nothing is published, and for a version published
+   * before the refresh job wrote slugs: that last one cannot be told from "not in the index", and
+   * nothing needs it to be — the caller treats both as a game the index does not hold.
+   *
+   * The slug is matched exactly, byte for byte, as the game's document spells it: no case
+   * folding, no trimming, no decoding. `Portal-2` does not find `portal-2`. The index answers
+   * only for the spelling it published — the one every link, the sitemap and the canonical URL
+   * carry — so it can never answer for an address it does not know to be that game's. A slug two
+   * games claim, which RAWG does not produce, belongs to the more popular one and then to the
+   * lower id (`buildIndexPlan`).
+   *
+   * Like `search` and `getMany`, it is served by the version `idx:current` names when it starts,
+   * so the id it returns can already be gone by the time `getOne` asks for it; a missing document
+   * means what it always means. One read command, like every other read: the site's token is
+   * read-only.
+   */
+  idBySlug(slug: string): Promise<number | null>
   meta(): Promise<IndexMeta | null>
   /**
    * Every game of the published version, in the default (popularity) order, for the sitemap; empty

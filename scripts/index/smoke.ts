@@ -165,6 +165,15 @@ async function compareReads(
     [...(await memory.getMany([3, 9999, 7]))],
   )
   found.same('getMany([])', [...(await live.getMany([]))], [...(await memory.getMany([]))])
+  // The slug hash: one `HGET` through the REST transport — on the read-only token when there is
+  // one — and a real server's own exact match on a hash field, case and all.
+  for (const slug of ['jade-jungle', 'Jade-Jungle', 'no-such-game']) {
+    found.same(
+      `idBySlug(${JSON.stringify(slug)})`,
+      await live.idBySlug(slug),
+      await memory.idBySlug(slug),
+    )
+  }
   found.same('meta()', await live.meta(), await memory.meta())
 }
 
@@ -200,6 +209,11 @@ async function compareWrites(
     updatedAt: swapped,
   })
   found.same('the publish swapped', (await live.search({})).ids, (await memory.search({})).ids)
+  found.same(
+    'the slugs swapped with it',
+    [await live.idBySlug('delta-force'), await live.idBySlug('alpha-quest')],
+    [await memory.idBySlug('delta-force'), await memory.idBySlug('alpha-quest')],
+  )
   found.same(
     'previousMeta after the swap',
     (await live.previousMeta())?.updatedAt,

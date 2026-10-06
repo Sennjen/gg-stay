@@ -17,6 +17,7 @@ import {
   platformFacetKey,
   playtimeFacetKey,
   rangeKey,
+  slugsKey,
   storeFacetKey,
   versionPrefix,
 } from '../../../server/index/keys'
@@ -38,6 +39,15 @@ describe('index keys', () => {
     expect(madeInUkraineFacetKey(2)).toBe('idx:v2:f:ua')
     expect(metaKey(2)).toBe('idx:v2:meta')
     expect(namesKey(2)).toBe('idx:v2:names')
+    expect(slugsKey(2)).toBe('idx:v2:slugs')
+  })
+
+  it('keeps every slug of a version in one hash, never in a key of its own', () => {
+    // A slug is a field of `idx:v{N}:slugs`, so it is never part of a key name: no spelling of a
+    // slug can produce a key that collides with another key of the index, in this version or out.
+    expect(slugsKey(7)).not.toContain('portal-2')
+    expect(slugsKey(7).startsWith(versionPrefix(7))).toBe(true)
+    expect(slugsKey(7)).not.toBe(slugsKey(8))
   })
 
   it('gives every sort its own order set and every trimmed value its own range set', () => {

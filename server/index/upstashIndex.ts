@@ -21,6 +21,7 @@ import {
   metaKey,
   namesKey,
   orderKey as orderSetKey,
+  slugsKey,
   versionPrefix,
 } from './keys'
 import { planQuery } from './queryPlan'
@@ -494,6 +495,22 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     return (await this.getMany([id])).get(id) ?? null
   }
 
+  /**
+   * One `HGET` on the version's slug hash, after the pointer's `GET` when that is due — read
+   * commands only, so it works on the site's token. The slug is the hash field as it stands: the
+   * batch is a JSON body, so nothing in a slug needs escaping, and Redis compares fields byte for
+   * byte, which is the exact match the port promises.
+   *
+   * A version that has no slug hash — one published before the job wrote it — answers `nil` to
+   * every field, exactly as a hash without that field does, and both come out as `null`.
+   */
+  async idBySlug(slug: string): Promise<number | null> {
+    const version = await this.currentVersion()
+    if (version === null) return null
+    const id = await this.read((batch) => batch.hget(slugsKey(version), slug))
+    return id === null ? null : Number(id)
+  }
+
   async meta(): Promise<IndexMeta | null> {
     const version = await this.currentVersion()
     if (version === null) return null
@@ -593,6 +610,7 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
       ...plan.orders.keys(),
       ...plan.ranges.keys(),
       namesKey(version),
+      slugsKey(version),
     ]
     // The registry is written first and registers itself, and the metadata key the publication
     // will write: a run interrupted halfway leaves keys the sweep can still find.
@@ -637,6 +655,16 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
       queued.push({
         add: (batch) => batch.hset(namesKey(version), fields),
         bytes: commandBytes(['HSET', namesKey(version), ...Object.entries(fields).flat()]),
+      })
+    }
+    // The slugs beside the names, chunked the same way: one hash of the whole version, registered
+    // above with everything else, so a rerun, a discard and the sweep all take it with them. A
+    // slug is the field exactly as the document spells it, because `idBySlug` reads it that way.
+    for (const part of chunk([...plan.slugs], Math.min(this.itemsPerCommand, 200))) {
+      const fields = Object.fromEntries(part.map(([slug, id]) => [slug, String(id)]))
+      queued.push({
+        add: (batch) => batch.hset(slugsKey(version), fields),
+        bytes: commandBytes(['HSET', slugsKey(version), ...Object.entries(fields).flat()]),
       })
     }
 

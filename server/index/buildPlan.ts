@@ -22,6 +22,12 @@ export interface IndexPlan {
   ranges: Map<string, [number, number][]>
   /** Id → folded name, the pairs written under `namesKey`. */
   names: Map<number, string>
+  /**
+   * Slug → id, the pairs written under `slugsKey`: how a game page that knows only its slug finds
+   * its document. The slug is the document's own, spelled exactly as the document spells it — not
+   * folded, not trimmed — because the reader matches it exactly too.
+   */
+  slugs: Map<string, number>
 }
 
 /**
@@ -61,9 +67,34 @@ function primaryOf(sort: GameSortValue, game: IndexedGame): number {
   }
 }
 
+/**
+ * The contract's tie-break, on its own: the more popular game first, then the lower id. Every
+ * order ends on it, and it also decides which game keeps a slug two of them claim.
+ */
+function byPopularityThenId(left: IndexedGame, right: IndexedGame): number {
+  if (left.popularity !== right.popularity) return right.popularity - left.popularity
+  return left.id - right.id
+}
+
+/**
+ * Which game each slug leads to. RAWG gives every game a slug of its own, so in practice this is
+ * one entry per document — but a hash field holds a single id, and an index that quietly let the
+ * last game listed win would answer differently for the same games in a different order. So the
+ * rule is written down: a slug two games claim belongs to the more popular one, then to the lower
+ * id. Built from the stored documents, so every slug here is the slug of a document of the version.
+ */
+function slugOwners(docs: ReadonlyMap<number, IndexedGame>): Map<string, number> {
+  const slugs = new Map<string, number>()
+  for (const game of [...docs.values()].sort(byPopularityThenId)) {
+    if (!slugs.has(game.slug)) slugs.set(game.slug, game.id)
+  }
+  return slugs
+}
+
 export function buildIndexPlan(version: number, games: readonly IndexedGame[]): IndexPlan {
   const docs = new Map(games.map((game) => [game.id, game]))
   const names = new Map(games.map((game) => [game.id, foldName(game.name)]))
+  const slugs = slugOwners(docs)
 
   const facets = new Map<string, number[]>()
   for (const game of games) {
@@ -91,8 +122,7 @@ export function buildIndexPlan(version: number, games: readonly IndexedGame[]): 
           return descending ? rightValue - leftValue : leftValue - rightValue
         }
       }
-      if (left.popularity !== right.popularity) return right.popularity - left.popularity
-      return left.id - right.id
+      return byPopularityThenId(left, right)
     })
     orders.set(
       orderKey(version, sort),
@@ -110,5 +140,5 @@ export function buildIndexPlan(version: number, games: readonly IndexedGame[]): 
     ranges.set(rangeKey(version, field), entries)
   }
 
-  return { docs, facets, orders, ranges, names }
+  return { docs, facets, orders, ranges, names, slugs }
 }

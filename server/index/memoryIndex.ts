@@ -203,6 +203,14 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     return game ? clone(game) : null
   }
 
+  /**
+   * The plan's own slug table, read as it was built: a `Map` matches a key exactly, as a Redis
+   * hash matches a field, so the two adapters cannot disagree about which spelling finds a game.
+   */
+  async idBySlug(slug: string): Promise<number | null> {
+    return this.live?.plan.slugs.get(slug) ?? null
+  }
+
   async meta(): Promise<IndexMeta | null> {
     return this.live ? { ...this.live.meta } : null
   }

@@ -88,6 +88,57 @@ describe('buildIndexPlan', () => {
     expect(plan.names.size).toBe(FIXTURE_GAMES.length)
   })
 
+  it('files every game under its own slug, spelled as the document spells it', () => {
+    expect(plan.slugs.size).toBe(FIXTURE_GAMES.length)
+    expect(plan.slugs.get('kite-keep')).toBe(35)
+    for (const game of FIXTURE_GAMES) expect(plan.slugs.get(game.slug), game.slug).toBe(game.id)
+
+    // Not folded as the names are: a slug is matched exactly, so it is stored exactly.
+    const mixed = buildIndexPlan(1, [
+      { ...FIXTURE_GAMES[0]!, slug: 'Kite-Keep' },
+      { ...FIXTURE_GAMES[1]!, slug: 'kite-keep' },
+      { ...FIXTURE_GAMES[2]!, slug: ' padded ' },
+    ])
+    expect([...mixed.slugs]).toEqual([
+      ['Kite-Keep', 1],
+      ['kite-keep', 2],
+      [' padded ', 3],
+    ])
+  })
+
+  it('gives a slug two games claim to the more popular one, then to the lower id', () => {
+    const claim = (id: number, slug: string, popularity: number) => ({
+      ...FIXTURE_GAMES.find((game) => game.id === id)!,
+      slug,
+      popularity,
+    })
+    const games = [
+      claim(3, 'twice', 10),
+      claim(1, 'twice', 90),
+      claim(2, 'twice', 90),
+      claim(5, 'tied', 40),
+      claim(4, 'tied', 40),
+    ]
+    // The same answer whatever order a run lists the games in: the rule, not the arrival order.
+    for (const order of [games, [...games].reverse()]) {
+      const slugs = buildIndexPlan(1, order).slugs
+      expect(slugs.get('twice')).toBe(1)
+      expect(slugs.get('tied')).toBe(4)
+      expect(slugs.size).toBe(2)
+    }
+    // The documents are all still there; only the slug has a single owner.
+    expect(buildIndexPlan(1, games).docs.size).toBe(5)
+  })
+
+  it('files a slug only under a document the version stores', () => {
+    // The same id listed twice keeps its last document, and only that document's slug.
+    const slugs = buildIndexPlan(1, [
+      { ...FIXTURE_GAMES[0]!, slug: 'old-slug' },
+      { ...FIXTURE_GAMES[0]!, slug: 'new-slug' },
+    ]).slugs
+    expect([...slugs]).toEqual([['new-slug', 1]])
+  })
+
   it('orders names with a Ukrainian collator', () => {
     const byRank = order('NAME_ASC')
       .slice()
