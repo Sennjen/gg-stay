@@ -49,6 +49,10 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     // Three hours before the run, so a development game page shows the "updated N hours ago"
     // caption and stays under the six-hour live-refresh threshold.
     priceUpdatedAt: '2026-09-20T03:00:00.000Z',
+    // The app the RAWG store-link fixture points at, published the way the refresh job publishes
+    // it — so the game page knows which Steam app to ask about, and which store page to name,
+    // before RAWG has said anything. The same goes for the two games below.
+    steamAppId: '292030',
   },
   {
     id: 4200,
@@ -79,6 +83,7 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     localisation: { text: true, audio: false, source: 'steam' },
     madeInUkraine: false,
     priceUpdatedAt: DEV_FIXTURE_PRICES_UPDATED_AT,
+    steamAppId: '620',
   },
   {
     id: 654,
@@ -104,6 +109,7 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     localisation: null,
     madeInUkraine: false,
     priceUpdatedAt: DEV_FIXTURE_PRICES_UPDATED_AT,
+    steamAppId: '413150',
   },
 ]
 

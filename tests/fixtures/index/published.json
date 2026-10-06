@@ -49,7 +49,8 @@
         "source": "steam"
       },
       "madeInUkraine": false,
-      "priceUpdatedAt": "2026-09-20T03:00:00.000Z"
+      "priceUpdatedAt": "2026-09-20T03:00:00.000Z",
+      "steamAppId": "292030"
     },
     {
       "id": 4200,
@@ -88,7 +89,8 @@
         "source": "steam"
       },
       "madeInUkraine": false,
-      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z",
+      "steamAppId": "620"
     },
     {
       "id": 654,
@@ -124,7 +126,8 @@
       "free": true,
       "localisation": null,
       "madeInUkraine": false,
-      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z",
+      "steamAppId": "413150"
     },
     {
       "id": 28201,
