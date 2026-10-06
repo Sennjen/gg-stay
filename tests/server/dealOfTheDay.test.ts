@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IndexedGame } from '../../server/index/document'
 import { degradeOnFailure } from '../../server/index/index'
+import { INDEX_STALE_AFTER_MS } from '../../server/graphql/indexPath'
 import { DEAL_POOL_SIZE } from '../../server/graphql/resolvers/dealOfTheDay'
 import {
   countCalls,
@@ -11,6 +12,7 @@ import {
   publishTestIndex,
   runQuery,
   TEST_INDEX_META,
+  TEST_NOW,
   TEST_TODAY,
 } from './support/yoga'
 
@@ -158,6 +160,83 @@ describe('the deal of the day', () => {
   })
 })
 
+/** An ISO timestamp `ms` before the request's clock (`TEST_NOW`). */
+function before(ms: number): string {
+  return new Date(Date.parse(TEST_NOW) - ms).toISOString()
+}
+
+describe('a deal has a fresh price of its own', () => {
+  const DAY = 86_400_000
+
+  it('never picks a game whose price was carried forward for a month in a fresh index', async () => {
+    // The biggest discount of all, read thirty days ago and kept ever since: the index as a whole
+    // is fresh, so only the game's own timestamp says the sale may be long over.
+    const carried = document(9, { ...onSale(95), priceUpdatedAt: before(30 * DAY) })
+    const index = await publishTestIndex([...CATALOG, carried])
+    const ids = new Set<string>()
+    for (let offset = 0; offset < 8; offset += 1) {
+      // Only the date moves; the clock the ages are measured against stays `TEST_NOW`.
+      ids.add((await dealOf({ index, today: addDays(TEST_TODAY, offset) }))!.id)
+    }
+    expect(ids).toEqual(new Set(QUALIFYING_IDS))
+  })
+
+  it('measures the age against the window the index itself is held to, inclusive', async () => {
+    const onTheEdge = document(1, { ...onSale(60), priceUpdatedAt: before(INDEX_STALE_AFTER_MS) })
+    const justPast = document(2, {
+      ...onSale(90),
+      priceUpdatedAt: before(INDEX_STALE_AFTER_MS + 1),
+    })
+    const index = await publishTestIndex([onTheEdge, justPast])
+    for (let offset = 0; offset < 3; offset += 1) {
+      expect((await dealOf({ index, today: addDays(TEST_TODAY, offset) }))!.id).toBe('1')
+    }
+  })
+
+  it('answers null when every qualifying game has an old price', async () => {
+    const old = { priceUpdatedAt: before(8 * DAY) }
+    const index = await publishTestIndex([
+      document(1, { ...onSale(70), ...old }),
+      document(2, { ...onSale(90), ...old }),
+    ])
+    expect(await dealOf({ index })).toBeNull()
+  })
+
+  it('still picks from twenty when old prices sit among the biggest discounts', async () => {
+    // Ten carried-forward prices at the very top, then thirty fresh ones: the pool is the twenty
+    // biggest fresh discounts (ids 11–30), not what is left of the first twenty.
+    const many = Array.from({ length: 40 }, (_, position) =>
+      document(position + 1, {
+        ...onSale(99 - position),
+        ...(position < 10 ? { priceUpdatedAt: before(30 * DAY) } : {}),
+      }),
+    )
+    const index = countCalls(await publishTestIndex(many))
+    const seen = new Set<number>()
+    for (let offset = 0; offset < 40; offset += 1) {
+      seen.add(Number((await dealOf({ index, today: addDays(TEST_TODAY, offset) }))!.id))
+    }
+    expect([...seen].sort((left, right) => left - right)).toEqual(
+      Array.from({ length: 20 }, (_, position) => position + 11),
+    )
+    // One search per request: the freshness check reads nothing more.
+    expect(index.calls.search).toHaveLength(40)
+    expect(index.calls.getMany).toEqual([])
+    expect(index.calls.getOne).toEqual([])
+  })
+
+  it('does not offer a paid game that is given away at −100 %', async () => {
+    const giveaway = document(9, {
+      priceUah: 0,
+      regularPriceUah: 500,
+      discountPercent: 100,
+      free: false,
+    })
+    const index = await publishTestIndex([giveaway])
+    expect(await dealOf({ index })).toBeNull()
+  })
+})
+
 describe('what the deal of the day asks the index', () => {
   it('reads the metadata once and one page of the biggest discounts', async () => {
     const index = countCalls(await publishTestIndex(CATALOG))
@@ -171,7 +250,8 @@ describe('what the deal of the day asks the index', () => {
       metacriticMin: 75,
       sort: 'DISCOUNT_DESC',
       page: 1,
-      pageSize: 20,
+      // The largest page, so cards dropped after the read do not shrink the pool of twenty.
+      pageSize: 40,
     })
   })
 
@@ -245,6 +325,26 @@ describe('no deal of the day', () => {
       set: async () => {},
     }
     expect(await dealOf({ index, cache })).toBeNull()
+  })
+
+  it('when the result cache cannot be written, as a landing shelf does', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const index = await publishTestIndex(CATALOG)
+    const cache = {
+      get: async () => null,
+      set: () => Promise.reject(new Error('cache full')),
+    }
+    expect(await dealOf({ index, cache })).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a date that is not one', () => {
+  it('answers null without asking the index for anything', async () => {
+    const index = countCalls(await publishTestIndex(CATALOG))
+    expect(await dealOf({ index, today: 'not-a-date' })).toBeNull()
+    expect(index.calls.meta).toBe(0)
+    expect(index.calls.search).toEqual([])
   })
 })
 
