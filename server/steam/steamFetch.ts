@@ -27,6 +27,8 @@ export interface SteamDeps {
 
 export interface SteamFetchOptions {
   ttl?: number
+  /** Called when this call was answered from the cache and Steam was not asked — see `UpstreamFetch`. */
+  onCached?: () => void
 }
 
 export type SteamFetch = (appId: string, options?: SteamFetchOptions) => Promise<unknown>
@@ -74,5 +76,5 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
     deps,
   )
 
-  return (appId, options) => fetchUpstream({ appId, options })
+  return (appId, options) => fetchUpstream({ appId, options }, options?.onCached)
 }

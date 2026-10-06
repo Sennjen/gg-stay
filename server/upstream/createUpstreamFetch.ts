@@ -8,7 +8,9 @@ import { UpstreamError, type UpstreamSource } from './errors'
  * Steam transport ended up throwing errors that said "RAWG".
  *
  * A call for something another call is already fetching joins that request instead of sending a
- * second one — see `inFlight` below for exactly which calls count as the same.
+ * second one — see `inFlight` below for exactly which calls count as the same. And a caller that
+ * wants to know is told when its answer was already in the cache, so nobody was asked for it — see
+ * `UpstreamFetch`.
  *
  * Everything that differs between the two is a parameter: the source name, the throttle interval,
  * how a request becomes a URL, a cache key, a fixture name and a ttl, and an optional projection
@@ -65,6 +67,25 @@ export interface UpstreamLimits {
 }
 
 /**
+ * One call to an upstream.
+ *
+ * `onCached` is for a caller that measures what its calls cost it — the collector behind the
+ * `Server-Timing` header, `server/graphql/serverTiming.ts`. It is called, before the answer is
+ * handed over, when a fresh cache entry answered and the upstream was not asked: the one case in
+ * which a call waited for nobody. An answer the upstream gave is not that, and neither is a
+ * request another caller had already sent, a stale entry that stood in for a failed refresh, or a
+ * recorded fixture, which is the upstream of fixture mode. So a caller that is never told may
+ * count every one of its calls as a call.
+ */
+export type UpstreamFetch<TRequest> = (request: TRequest, onCached?: () => void) => Promise<unknown>
+
+/** What one logical call ended with, and whether the cache alone supplied it. */
+interface Loaded {
+  value: unknown
+  cached: boolean
+}
+
+/**
  * How long an attempt may take before it is logged even though it succeeded. RAWG answers most
  * requests in well under a second; the ones that take two or more are the tail the game page's
  * time budget exists for, and one line each is the evidence for deciding later whether a second,
@@ -110,7 +131,7 @@ function isTimeout(error: unknown): boolean {
 export function createUpstreamFetch<TRequest>(
   config: UpstreamConfig<TRequest>,
   runtime: UpstreamRuntime,
-): (request: TRequest) => Promise<unknown> {
+): UpstreamFetch<TRequest> {
   const project = config.project ?? ((value: unknown) => value)
   // Read when a line is written, not when the transport is built, so the default follows whatever
   // `console.info` is at that moment.
@@ -133,12 +154,13 @@ export function createUpstreamFetch<TRequest>(
    * first, instead of collecting the first one's answer the moment it lands.
    *
    * Everyone who joins gets exactly what the first caller gets: the body, the stale entry it fell
-   * back to, or its error. A failure is shared only with the callers that were already waiting for
-   * it. The entry is removed before the outcome can be observed, so a call made after a failure
-   * always sends a request of its own. And an entry cannot linger: every attempt carries its own
-   * abort timeout, so a call ends after at most `maxAttempts` of them however the upstream behaves.
+   * back to, or its error — and the same word on whether the cache alone supplied it. A failure is
+   * shared only with the callers that were already waiting for it. The entry is removed before the
+   * outcome can be observed, so a call made after a failure always sends a request of its own. And
+   * an entry cannot linger: every attempt carries its own abort timeout, so a call ends after at
+   * most `maxAttempts` of them however the upstream behaves.
    */
-  const inFlight = new Map<string, Promise<unknown>>()
+  const inFlight = new Map<string, Promise<Loaded>>()
 
   async function throttle(now: number): Promise<void> {
     const slot = Math.max(now, nextSlot)
@@ -233,17 +255,21 @@ export function createUpstreamFetch<TRequest>(
     throw lastError
   }
 
-  /** One logical call, from the cache read to the cache write. */
+  /**
+   * One logical call, from the cache read to the cache write. `cached` is true for the one answer
+   * nobody was asked for: a fresh entry. A stale entry that stands in for a failed refresh is not
+   * that — the upstream was asked first, and whoever called waited for it to fail.
+   */
   async function load(
     request: TRequest,
     key: string,
     now: number,
     limits: Required<UpstreamLimits>,
-  ): Promise<unknown> {
+  ): Promise<Loaded> {
     const entry = await runtime.cache.get(key)
     // An entry an older build cached from a bad body is no entry at all.
     const cached = entry && isJsonObject(entry.value) ? entry : null
-    if (cached && cached.expiresAt > now) return cached.value
+    if (cached && cached.expiresAt > now) return { value: cached.value, cached: true }
 
     try {
       const body = await fetchWithRetry(config.buildUrl(request), now, limits, loggedPath(key))
@@ -251,17 +277,27 @@ export function createUpstreamFetch<TRequest>(
       if (isJsonObject(body)) {
         await runtime.cache.set(key, { value, expiresAt: now + config.ttlFor(request) * 1000 })
       }
-      return value
+      return { value, cached: false }
     } catch (error) {
       // A 404 is an answer, not a failure: serving a stale body for a game that no longer exists
       // would be worse than the error.
       const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
-      if (cached && !notFound) return cached.value
+      if (cached && !notFound) return { value: cached.value, cached: false }
       throw error
     }
   }
 
-  return async function upstreamFetch(request: TRequest): Promise<unknown> {
+  /**
+   * What `call` ended with, for one of the callers waiting on it — who is told first, when the
+   * cache alone supplied it, so the caller knows what its call was by the time it has the answer.
+   */
+  async function answerOf(call: Promise<Loaded>, onCached?: () => void): Promise<unknown> {
+    const { value, cached } = await call
+    if (cached) onCached?.()
+    return value
+  }
+
+  return async function upstreamFetch(request: TRequest, onCached?: () => void): Promise<unknown> {
     // Capture `now` synchronously, before the first await, so concurrent calls (e.g.
     // Promise.all(...)) all reserve throttle slots against the same reference point instead of one
     // call's simulated sleep (in tests) or real elapsed time (in production) skewing another
@@ -285,12 +321,12 @@ export function createUpstreamFetch<TRequest>(
     // event loop must find each other, and they would not if either had already yielded.
     const sharedBy = `${limits.timeoutMs}/${limits.maxAttempts} ${key}`
     const running = inFlight.get(sharedBy)
-    if (running) return running
+    if (running) return answerOf(running, onCached)
 
     // `load` is an async function, so nothing it does can run this `finally` before the entry is
     // set; and the promise callers hold is the one that settles after the entry is gone.
     const call = load(request, key, now, limits).finally(() => inFlight.delete(sharedBy))
     inFlight.set(sharedBy, call)
-    return call
+    return answerOf(call, onCached)
   }
 }

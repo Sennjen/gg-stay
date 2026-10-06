@@ -37,6 +37,12 @@ export interface RawgFetchOptions {
   timeoutMs?: number
   /** Fewer attempts for this call than the transport's two (one retry). */
   maxAttempts?: number
+  /**
+   * Called when this call was answered from the cache and RAWG was not asked — see `UpstreamFetch`.
+   * It is about the call, not about the request: it is part of neither the cache key nor what
+   * makes two calls one request.
+   */
+  onCached?: () => void
 }
 
 export type RawgFetch = (
@@ -134,5 +140,5 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
     deps,
   )
 
-  return (path, params, options) => fetchUpstream({ path, params, options })
+  return (path, params, options) => fetchUpstream({ path, params, options }, options?.onCached)
 }
