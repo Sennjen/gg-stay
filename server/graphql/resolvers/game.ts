@@ -9,7 +9,7 @@ import { UpstreamError } from '../../upstream/errors'
 import { trackPending, valueOf, type Observed, type Pending } from '../budget'
 import type { GraphQLContext } from '../context'
 import { withUpstreamErrors } from '../errors'
-import { indexEntry, indexEntryBySlug, indexState, warnIndexOnce } from '../indexPath'
+import { indexEntry, indexEntryBySlug, indexState } from '../indexPath'
 import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolvers-types'
 
 /**
@@ -484,9 +484,29 @@ async function livePrice(context: GraphQLContext, appId: string): Promise<LivePr
     await context.cache.set(key, remembered, keptFor)
     return pricedOrNull(remembered)
   } catch (error) {
-    warnIndexOnce(context, 'the live Steam price could not be read', error)
+    warnOfLivePriceOnce(context, error)
     return null
   }
+}
+
+/** The requests that have already said a live price could not be read. */
+const warnedOfLivePrice = new WeakSet<GraphQLContext>()
+
+/**
+ * One line per request, at warn level, for a live price that could not be read — naming what
+ * failed and nothing else, never an address.
+ *
+ * It is Steam that failed here, or the price cache, and the line says so under the page's own
+ * name. It is deliberately not the index's warning (`warnIndexOnce`): that one also marks the
+ * request's index as failed, after which nothing in the request asks the index again — and a
+ * Steam answer that could not be read would take the similar games off the very page it failed
+ * to price, with the index in perfect health.
+ */
+function warnOfLivePriceOnce(context: GraphQLContext, error: unknown): void {
+  if (warnedOfLivePrice.has(context)) return
+  warnedOfLivePrice.add(context)
+  const reason = error instanceof Error ? error.message : 'unknown error'
+  console.warn(`[game] the live Steam price could not be read: ${reason}`)
 }
 
 /** The entry with the price Steam has just given on it, dated by the read. */

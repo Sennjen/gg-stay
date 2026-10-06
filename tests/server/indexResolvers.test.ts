@@ -600,13 +600,20 @@ describe('an index that never answers', () => {
     const throwing = overriding(await publishTestIndex(ALL_DOCUMENTS), {
       getOne: () => Promise.reject(new Error('ECONNRESET')),
     })
-    const { data, errors } = await runQuery({ index: throwing }, GAME, {
+    // Without its index entry the page asks Steam for the price itself. Steam has none to add
+    // here: this case is about the index, and a Steam double that refused would now be a second
+    // warning of its own, since a failed price read is no longer filed under the index's.
+    const steamPrices = steamPricesReturning(() => null)
+    const { data, errors } = await runQuery({ index: throwing, steamPrices }, GAME, {
       slug: 'the-witcher-3-wild-hunt',
     })
     expect(errors).toBeUndefined()
     expect(data!.game.localisation).toBeNull()
     expect(data!.game.madeInUkraine).toBe(false)
-    expect(warn).toHaveBeenCalledTimes(1)
+    expect(steamPrices.calls).toEqual(['292030'])
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[index] the game page could not read its index entry: ECONNRESET',
+    )
   })
 
   it('renders the landing when the attachment throws', async () => {
@@ -1414,7 +1421,7 @@ describe('a live read Steam answers without a price', () => {
         updatedAt: '2026-09-18T01:00:00.000Z',
       })
       expect(warn).toHaveBeenCalledExactlyOnceWith(
-        '[index] the live Steam price could not be read: STEAM upstream failure: ERROR',
+        '[game] the live Steam price could not be read: STEAM upstream failure: ERROR',
       )
       expect(cache.writes).toEqual([])
 

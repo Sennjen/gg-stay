@@ -1488,6 +1488,75 @@ describe('the live Steam price', () => {
     expect(waitUntil).toHaveBeenCalledTimes(1)
   })
 
+  it('does not take the index down with it when it fails: the similar games are still read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const others = FIXTURE_GAMES.slice(0, 5)
+    const index = await indexHolding(
+      { ...DUE_A_REFRESH, similar: others.map((game) => game.id) },
+      ...others,
+    )
+    // Steam answers inside the budget, with something that cannot be read as an answer.
+    const steamPrices = steamPricesTaking(200, new UpstreamError('STEAM', 'ERROR'))
+    const query = /* GraphQL */ `
+      query Page($slug: String!) {
+        game(slug: $slug) {
+          partial
+          stores {
+            store
+            priceUah
+            updatedAt
+          }
+          similar {
+            id
+          }
+        }
+      }
+    `
+
+    const { data, errors } = await pageAt(200, { index, rawg: rawgAnswering(), steamPrices }, query)
+
+    expect(errors).toBeUndefined()
+    // The index copy of the price stands, as after any failed read...
+    expect(data!.game.stores[0]).toEqual({
+      store: 'steam',
+      priceUah: 675,
+      updatedAt: DUE_A_REFRESH.priceUpdatedAt,
+    })
+    // ...and the index itself has let nobody down: the row below the page is read from it after
+    // the failure, by the one read it always costs.
+    expect(data!.game.similar).toEqual(others.map((game) => ({ id: String(game.id) })))
+    expect(index.calls.getMany).toEqual([others.map((game) => game.id)])
+    expect(data!.game.partial).toBe(false)
+    // It is Steam that failed, and the line says so under the page's own name, not the index's.
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[game] the live Steam price could not be read: STEAM upstream failure: ERROR',
+    )
+  })
+
+  it('says once a request that a price could not be read, however many fields asked for it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const index = await indexHolding(DUE_A_REFRESH)
+    const steamPrices = steamPricesTaking(200, new UpstreamError('STEAM', 'TIMEOUT'))
+    const query = /* GraphQL */ `
+      query Twice($slug: String!) {
+        first: game(slug: $slug) {
+          id
+        }
+        second: game(slug: $slug) {
+          id
+        }
+      }
+    `
+
+    const { errors } = await pageAt(200, { index, rawg: rawgAnswering(), steamPrices }, query)
+
+    expect(errors).toBeUndefined()
+    expect(steamPrices.calls).toEqual(['292030', '292030'])
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[game] the live Steam price could not be read: STEAM upstream failure: TIMEOUT',
+    )
+  })
+
   it('never lets a read that fails after its budget surface, and says so once', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await expectNoUnhandledRejection(async () => {
