@@ -232,6 +232,7 @@ Status values: **exists** (unchanged since before the redesign),
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AppHeader`                     | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9; "Запитати" link beside the catalog in week 3, renamed "AI-підбір" with Gege's face before it                                      |
 | `GegeMascot`                    | Done — the AI-picks mascot, an inline pixel-art SVG with four moods; see "Gege, the mascot" below                                                                                                             |
+| `GegeGreeter`                   | Done — the landing page's greeting: Gege rises from the corner with the deal of the day; see "Gege, the mascot" below                                                                                         |
 | `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                                                                   |
 | `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
 | `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
@@ -491,3 +492,14 @@ focusable); the text beside him always carries the meaning.
   wraps to make some: the face is left out below 360 px, and below 400 px on the English site,
   whose locale switcher ("Українська") is the widest. The label may wrap below 360 px (375 px in
   English).
+- **On the landing page** `GegeGreeter` brings him up from the bottom-right corner (`peek`, 120 px
+  wide, 80 px on a phone) two seconds after the page is interactive and the tab is on screen, with
+  a speech bubble: `surface-2`, a 1 px `accent` border, `rounded-card`, body copy in the interface
+  face and only his name in Tektur. The bubble sits beside him on a wide screen and above him on a
+  phone, where the two together never cover more than the bottom third of the screen — past that
+  the copy scrolls inside the bubble, above the buttons. The discount is the ordinary `sale` chip,
+  the call to action the ordinary `accent` button: the colour exception stays with his drawing.
+  Dismissed, he dives head first and leaves one grip in the corner, a 56 × 44 px button that opens
+  the bubble again. The greeter is fixed, teleported to `<body>`, a labelled `<aside>` that never
+  takes focus by itself, and is mounted in the browser only, after idle. The rise and the dive run
+  250 ms ease-out; with reduced motion he is simply there.

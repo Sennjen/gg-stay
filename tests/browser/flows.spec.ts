@@ -33,6 +33,61 @@ test('landing → the "Усі ігри" link of a shelf → the catalog it names
   await expectAccessible(page, 'catalog filtered by a shelf')
 })
 
+test('landing → Gege rises with the deal → dismissed to a grip → reopened → «Давай» opens the ask page', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForHydration(page)
+  // He is no part of the server HTML or of the hydrated page: he comes later, by himself.
+  const greeter = page.getByRole('complementary', { name: 'Ґеґе, помічник із підбору ігор' })
+  await expect(greeter).toHaveCount(0)
+
+  const bubble = page.locator('[data-test="gege-bubble"]')
+  await expect(bubble).toBeVisible()
+  // Appearing must not move focus: it is still where a fresh page leaves it.
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+  // The fixture index has one game that qualifies as the deal of the day.
+  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toHaveAttribute(
+    'href',
+    '/games/portal-2',
+  )
+  await expect(bubble).toContainText('−75%')
+  await expectAccessible(page, 'landing with the greeter open')
+
+  // Escape with focus inside dismisses him, and focus follows to the grip he leaves behind.
+  await bubble.getByRole('button', { name: 'Не зараз' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(bubble).toBeHidden()
+  const grip = greeter.getByRole('button', { name: 'Ґеґе: AI-підбір' })
+  await expect(grip).toBeFocused()
+  await expect(grip).toHaveAttribute('aria-expanded', 'false')
+  await expectAccessible(page, 'landing with the greeter dismissed')
+
+  // The grip opens the bubble again from the keyboard, and Tab walks on into it.
+  await page.keyboard.press('Enter')
+  await expect(bubble).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(bubble.getByRole('link', { name: 'Давай' })).toBeFocused()
+
+  await bubble.getByRole('button', { name: 'Не зараз' }).click()
+  await expect(bubble).toBeHidden()
+
+  // Dismissed once, he does not rise by himself again in this session: only the grip is back.
+  await page.reload()
+  await waitForHydration(page)
+  await expect(grip).toBeVisible()
+  await page.waitForTimeout(2500)
+  await expect(bubble).toBeHidden()
+
+  await grip.click()
+  await bubble.getByRole('link', { name: 'Давай' }).click()
+  await expect(page).toHaveURL(/\/ask$/)
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(greeter).toHaveCount(0)
+})
+
 test('catalog → filter drawer → price and localisation change the count → a game', async ({
   page,
 }) => {

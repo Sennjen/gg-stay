@@ -37,7 +37,17 @@
   },
   "gege": {
     "name": "Gege",
-    "nav": "AI picks"
+    "nav": "AI picks",
+    "greeter": {
+      "label": "Gege, the game-picking helper",
+      "toggle": "Gege: AI picks",
+      "hello": "Hi, I'm {name}!",
+      "deal": "Today {name} is {discount} at {price}.",
+      "pitch": "I can pick many more games for you — without a long search through the catalog.",
+      "accept": "Let's go",
+      "decline": "Not now",
+      "close": "Close"
+    }
   },
   "search": {
     "label": "Search games",

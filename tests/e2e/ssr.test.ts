@@ -61,6 +61,14 @@ describe('server-side rendering', async () => {
     expect(caption).toMatch(/<a[^>]*>\s*The Witcher 3: Wild Hunt\s*<\/a>/)
   })
 
+  it('leaves the mascot greeter out of the landing HTML: it is mounted in the browser, after idle', async () => {
+    for (const path of ['/', '/en']) {
+      const html = await $fetch<string>(path)
+      expect(html).not.toContain('gege-greeter')
+      expect(html).not.toContain('gege-bubble')
+    }
+  })
+
   it('renders the landing sections below the hero: count, rows and closing call to action', async () => {
     const html = await $fetch<string>('/')
     // totalGames is 4 in the fixture set, which rounds down to nothing — there is no friendly

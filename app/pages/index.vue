@@ -53,6 +53,16 @@ const shelves = computed(() => {
   })
 })
 
+// Gege's greeter is an extra on top of a finished page: it is mounted only once the app has
+// hydrated and the browser is idle, so it is absent from the server HTML, its chunk and its one
+// query stay off the first load, and nothing it does can delay the hero.
+const greeterReady = ref(false)
+onMounted(() => {
+  onNuxtReady(() => {
+    greeterReady.value = true
+  })
+})
+
 const { absoluteUrl } = useSiteUrl()
 const robots = useRobots()
 
@@ -159,5 +169,7 @@ useHead({
         </NuxtLink>
       </section>
     </div>
+
+    <LazyGegeGreeter v-if="greeterReady" />
   </div>
 </template>
