@@ -216,6 +216,12 @@ export type PriceSummary = {
 };
 
 export type Query = {
+  /**
+   * One well-reviewed game at half price or better, the same for every visitor all UTC day.
+   * Answered from the index only; null when the index is unavailable, its prices are stale or
+   * nothing qualifies.
+   */
+  dealOfTheDay?: Maybe<GameCard>;
   developers: Array<Taxonomy>;
   game?: Maybe<Game>;
   games: GamePage;
@@ -497,6 +503,7 @@ export type PriceSummaryResolvers<ContextType = GraphQLContext, ParentType exten
 };
 
 export type QueryResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Query'] = ResolversParentTypes['Query']> = {
+  dealOfTheDay?: Resolver<Maybe<ResolversTypes['GameCard']>, ParentType, ContextType>;
   developers?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType, RequireFields<QueryDevelopersArgs, 'search'>>;
   game?: Resolver<Maybe<ResolversTypes['Game']>, ParentType, ContextType, RequireFields<QueryGameArgs, 'slug'>>;
   games?: Resolver<ResolversTypes['GamePage'], ParentType, ContextType, RequireFields<QueryGamesArgs, 'page' | 'pageSize' | 'sort'>>;

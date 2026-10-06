@@ -136,6 +136,7 @@ describe('every shipped document passes the limits', () => {
   it('finds every generated document', () => {
     expect(documents.map(([name]) => name).sort()).toEqual([
       'CatalogTaxonomiesDocument',
+      'DealOfTheDayDocument',
       'DevelopersDocument',
       'GameDocument',
       'GamesDocument',
