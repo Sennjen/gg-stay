@@ -102,10 +102,25 @@ const WHOLE = {
   partial: false,
 }
 
+/** What RAWG's answer adds to the page built from the index. */
+const WHOLE_PARTS = {
+  localizedDescription: WHOLE.localizedDescription,
+  website: WHOLE.website,
+  screenshots: WHOLE.screenshots,
+  genres: WHOLE.genres,
+  developers: WHOLE.developers,
+  publishers: WHOLE.publishers,
+  stores: WHOLE.stores,
+  partial: false,
+}
+
 type Game = typeof PARTIAL | typeof WHOLE
 
-/** What one request is answered with: a game, or an error code inside an HTTP 200. */
-type Reply = Game | { failsWith: string }
+/**
+ * What one request is answered with: a game, an error code inside an HTTP 200, or a game that is
+ * held back until the case lets it go.
+ */
+type Reply = Game | { failsWith: string } | { game: Game; after: Promise<void> }
 
 let replies: Reply[] = []
 const asked: { slug: string; locale: string }[] = []
@@ -122,6 +137,10 @@ registerEndpoint('/api/graphql', {
         data: { game: null },
         errors: [{ message: 'Upstream', extensions: { code: reply.failsWith } }],
       }
+    }
+    if ('after' in reply) {
+      await reply.after
+      return { data: { game: reply.game } }
     }
     return { data: { game: reply } }
   },
@@ -327,6 +346,55 @@ describe('a game page whose answer is partial', () => {
     leave(wrapper)
     await advance(60_000)
     expect(asked).toHaveLength(2)
+  })
+})
+
+describe('a game page that turns to another game', () => {
+  it('asks nothing more for the game it has left, even while the next one is still loading', async () => {
+    let arrive = () => {}
+    const held = new Promise<void>((resolve) => {
+      arrive = resolve
+    })
+    const PORTAL = { ...WHOLE, id: '4200', slug: 'portal-2', name: 'Portal 2' }
+    const wrapper = await renderGame([PARTIAL, { game: PORTAL, after: held }])
+    await advance(1_000)
+
+    // The same page, asked for another game: its own request for it goes out at once.
+    await goTo('/games/portal-2')
+    expect(asked.map((variables) => variables.slug)).toEqual([SLUG, 'portal-2'])
+
+    // The partial answer stays on screen while the new one loads, and its three seconds run out
+    // in the meantime. Nothing is asked for it — which would be asked about the new game by now.
+    expect(wrapper.find(NOTE).exists()).toBe(true)
+    await advance(10_000)
+    expect(asked).toHaveLength(2)
+
+    arrive()
+    await advance(0)
+    expect(wrapper.get('h1').text()).toBe('Portal 2')
+    expect(wrapper.find(NOTE).exists()).toBe(false)
+    await advance(60_000)
+    expect(asked).toHaveLength(2)
+  })
+
+  it('starts its count again for the next game’s own partial answer', async () => {
+    const PORTAL = { ...PARTIAL, id: '4200', slug: 'portal-2', name: 'Portal 2' }
+    const wrapper = await renderGame([PARTIAL, PARTIAL, PORTAL, { ...PORTAL, ...WHOLE_PARTS }])
+    // One of the first game's two attempts is spent before the page turns.
+    await advance(3_000)
+    expect(asked).toHaveLength(2)
+
+    await goTo('/games/portal-2')
+    await advance(0)
+    expect(wrapper.get('h1').text()).toBe('Portal 2')
+    expect(wrapper.find(NOTE).exists()).toBe(true)
+    expect(asked.map((variables) => variables.slug)).toEqual([SLUG, SLUG, 'portal-2'])
+
+    // Three seconds after the new game's answer, not six: the attempts are the answer's own.
+    await advance(3_000)
+    expect(asked.map((variables) => variables.slug)).toEqual([SLUG, SLUG, 'portal-2', 'portal-2'])
+    expect(wrapper.find(NOTE).exists()).toBe(false)
+    expect(wrapper.text()).toContain(uk.game.about)
   })
 })
 
