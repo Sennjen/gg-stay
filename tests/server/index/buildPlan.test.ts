@@ -99,11 +99,13 @@ describe('buildIndexPlan', () => {
       { ...FIXTURE_GAMES[1]!, slug: 'kite-keep' },
       { ...FIXTURE_GAMES[2]!, slug: ' padded ' },
     ])
-    expect([...mixed.slugs]).toEqual([
-      ['Kite-Keep', 1],
-      ['kite-keep', 2],
-      [' padded ', 3],
-    ])
+    expect(mixed.slugs).toEqual(
+      new Map([
+        ['Kite-Keep', 1],
+        ['kite-keep', 2],
+        [' padded ', 3],
+      ]),
+    )
   })
 
   it('gives a slug two games claim to the more popular one, then to the lower id', () => {
@@ -136,7 +138,7 @@ describe('buildIndexPlan', () => {
       { ...FIXTURE_GAMES[0]!, slug: 'old-slug' },
       { ...FIXTURE_GAMES[0]!, slug: 'new-slug' },
     ]).slugs
-    expect([...slugs]).toEqual([['new-slug', 1]])
+    expect(slugs).toEqual(new Map([['new-slug', 1]]))
   })
 
   it('orders names with a Ukrainian collator', () => {
