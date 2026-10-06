@@ -127,7 +127,10 @@ export default defineNuxtConfig({
   nitro: {
     // `/api/ask` holds one 12 s deadline and the `/ask` page can wait for it during a server render;
     // pinning the function limit keeps a slow answer a fallback rather than a platform timeout.
-    vercel: { functions: { maxDuration: 30 } },
+    // The region is Frankfurt: the index lives in Upstash's `eu-central-1`, so every index read
+    // from Vercel's default `iad1` crossed the Atlantic and back, and so did every request of the
+    // European visitors the site is for.
+    vercel: { functions: { maxDuration: 30, regions: ['fra1'] } },
     // Vercel compresses at its edge; a node-server build serves `public/` itself and, without
     // this, sends every script and stylesheet uncompressed. The quality gates in CI (Lighthouse,
     // the bundle budget's server) run a node-server build, so it gets precompressed gzip and
