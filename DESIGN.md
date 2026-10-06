@@ -233,6 +233,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `AppHeader`                     | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9; "Запитати" link beside the catalog in week 3, renamed "AI-підбір" with Gege's face before it                                      |
 | `GegeMascot`                    | Done — the AI-picks mascot, an inline pixel-art SVG with four moods; see "Gege, the mascot" below                                                                                                             |
 | `GegeGreeter`                   | Done — the landing page's greeting: Gege rises from the corner with the deal of the day; see "Gege, the mascot" below                                                                                         |
+| `GegeSpeech`                    | Done — Gege beside a speech bubble in the page's flow (the greeter's bubble look); used by the ask page                                                                                                       |
 | `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                                                                   |
 | `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
 | `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
@@ -277,7 +278,9 @@ Status values: **exists** (unchanged since before the redesign),
 | `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
 | `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8; "Схожі ігри" row below the store links in week 2B                                                                                                             |
-| `pages/ask.vue`                 | Done — week 3 — natural-language search; see "Ask page" below                                                                                                                                                 |
+| `pages/ask.vue`                 | Done — week 3 — natural-language search; rebuilt around Gege, with the games as rows; see "Ask page" below                                                                                                    |
+| `ask/AskResultRow`              | Done — one game of an answer as a row, the reason as its primary line; see "Ask page" below                                                                                                                   |
+| `ask/AskWaiting`                | Done — Gege thinking, a line that changes with the clock, and the outline of the rows; see "Ask page" below                                                                                                   |
 
 ### Footer (PR 9)
 
@@ -412,47 +415,68 @@ lives in the URL as `q`: the form only navigates, the server renders the answer,
 link that can be shared. With `q` the page is `noindex, follow` and its canonical is the plain
 `/ask`; without it the page is indexable.
 
-- **Form.** A visible label ("Яку гру шукаєте?") over a `surface-1` textarea, limited to 200
-  characters, with a counter under it ("40 із 200 символів", numbers in `.font-numeric` through an
-  `<i18n-t>` slot) that the field names in `aria-describedby`. Enter sends, Shift+Enter breaks the
-  line. An empty question is answered with a sentence under the field and `aria-invalid`, never a
-  disabled button. The submit button is the form's one accent element (a retry button in a failure
-  state is the other accent on screen). The form is a `search` landmark named by its label. Three
-  example questions are `surface-1` chip buttons under a "Або спробуйте приклад:" caption and send
-  at once. A one-line note in `fg-2` says who reads the question and that it is not stored with an
-  IP.
-- **Answer.** Under an `h2` "Результати": the interpretation line ("Як ми зрозуміли запит:" in
-  `fg-2`, the sentence in `fg`); the understood filter as `ReadonlyFilterChips` under a visible
-  "Зрозумілий фільтр:" caption ("Звичайний пошук:" in fallback, where nothing was understood);
-  "Відкрити в каталозі" as a plain underlined link — not a chip, so it does not read as one more
-  filter value — whose query is re-validated through the catalog's own URL layer, shown only when
-  that query is not empty (a "like X" answer or one with nothing understood has no filter to open,
-  and the whole catalog would show none of its games); the count; then the cards, one column on
-  phones, two from 640 px, three from 1024 px. Each card has its reason under it, "Чому підходить:"
-  in `fg-2` before the reason in `fg`. Each item spans two rows of a subgrid, so the cards of a row
-  share one height and their reasons start on one line. The covers use `ASK_CARD_IMAGE_SIZES`. A
-  card the endpoint sent without a reason (its rerank failed) has no reason line at all, not an
-  empty one. The interpretation and the reasons are model-written: rendered by text interpolation
-  only, held to 200 and 120 characters, and allowed to break inside a long word. The search chip —
-  in fallback, the whole question — wraps, clamped to two lines with the full text still in the DOM
-  and its `title` (`rounded-card` rather than `rounded-chip` once it can take two lines); value
-  chips stay on one line. Nothing on the page scrolls sideways at 375 px.
+- **Gege.** The page is his (see "Gege, the mascot"): `GegeSpeech` puts him beside a speech bubble
+  in the page's flow, and everything the page says about an answer is said in that bubble. The
+  column is `max-w-3xl`, centred. Without a question he opens the page, 100 px wide and `idle`,
+  beside a bubble whose title is the page's one `h1` — "Опиши гру, як сказав би другові" — over a
+  line in `fg-2` on what to write; on a phone he stands on top of the bubble. With a question the
+  `h1` stays as a plain line above the form and he moves down to the answer, so there is one Gege
+  on screen at a time and the form and the answer share the first screen.
+- **Form.** It never leaves the page: with an answer on screen the question is still in the field
+  above it and can be edited and sent again. A visible label ("Яку гру шукаєте?") over one
+  `surface-1` box that holds the textarea (200 characters at most, growing with its text), the
+  counter ("40 із 200 символів", numbers in `.font-numeric` through an `<i18n-t>` slot, named in the
+  field's `aria-describedby`) and the "Підібрати" button. The box wears the focus ring for the field
+  inside it. Enter sends, Shift+Enter breaks the line. An empty question is answered with a
+  sentence under the box and `aria-invalid`, never a disabled button. The submit button is the
+  form's one accent element (a retry button in a failure state is the other accent on screen). The
+  form is a `search` landmark named by its label. Three example questions — his suggestions, with
+  his still 20 px face before the caption — are `surface-1` chip buttons, 44 px tall, shown while
+  there is no question yet; each sends at once. A one-line note in `fg-2` says who reads the
+  question and that it is not stored with an IP.
+- **Answer.** Under an `h2` "Результати", Gege (60 px, 40 px on a phone) and his bubble: the
+  interpretation in his voice ("Зрозумів так:" in `fg-2`, the sentence in `fg`); the understood
+  filter as `ReadonlyFilterChips` under a visible "Зрозумілий фільтр:" caption ("Звичайний пошук:"
+  in fallback, where nothing was understood); "Відкрити в каталозі" as a plain underlined link —
+  not a chip, so it does not read as one more filter value — whose query is re-validated through
+  the catalog's own URL layer, shown only when that query is not empty (a "like X" answer or one
+  with nothing understood has no filter to open, and the whole catalog would show none of its
+  games); the count; and the catalog's index note. He is `happy` for a moment when an answer he
+  picked is rendered, then `idle`. The interpretation and the reasons are model-written: rendered
+  by text interpolation only, held to 200 and 120 characters, and allowed to break inside a long
+  word. The search chip — in fallback, the whole question — wraps, clamped to two lines with the
+  full text still in the DOM and its `title` (`rounded-card` rather than `rounded-chip` once it can
+  take two lines); value chips stay on one line. Nothing on the page scrolls sideways at 375 px.
+- **Rows.** The games are rows (`ask/AskResultRow`), not catalog cards: a 160 px cover
+  (`ASK_ROW_IMAGE_SIZES`), the name as an `h3` and the row's one link (stretched over the row,
+  which draws the focus ring), **the reason as the primary line under the name** — `fg` at the body
+  size, no caption before it — then year, platforms, the Metacritic chip and "Зроблено в Україні",
+  with the price, its discount and the localisation badge on the right. On a phone the cover
+  shrinks to 96 px beside the name and the reason, the facts and the price each run the full width
+  under them. A game the endpoint sent without a reason (its rerank failed) has no reason line at
+  all, not an empty one. Every row of an answer is in the document — nothing is paged, folded or
+  loaded later — and the count line is the length of the same list, so "Підібрали 8 ігор" is eight
+  rows on about two screens. (As cards, two to a row and 400 px tall under a taller form, the same
+  eight were four screens of covers, and the first screen showed four of them.)
 - **Filters the catalog could not apply.** The answer's `ignoredFilters` strike the matching chips
   through with the catalog's reason beside them in words (`ignoredFilterReason`, shared with
   `ActiveFilterChips`), a declined sort is named as the catalog names it ("«Спочатку дешевші» не
   застосовано"), and when stale prices are the reason the catalog's `CatalogStaleBanner` sits above
   the answer. Whether the prices were stale comes from the answer's own `indexStale` (the catalog
   page its cards came from), because a declined price filter alone fits a silent index too.
-- **States.** Loading: a skeleton of the interpretation, the chips and three cards, the section
-  `aria-busy`. Fallback: a calm `surface-1` note, no colour and no alert role — "ШІ-розбір зараз
-  недоступний — показуємо звичайний пошук" — above the plain search's cards. Empty: a dashed panel
-  that suggests rephrasing, and opening the filter in the catalog only when there is one. Rate
-  limited: "спробуйте ще раз за N секунд" from `Retry-After` (read on the server and carried in the
-  payload, never computed from a clock), or "за хвилину" without one. Failed: a sentence and a retry
-  button. Too long (the endpoint's 400): "Запит задовгий…", with no retry. All three are
-  `role="alert"`.
-- **Announcements and focus.** A `role="status"` region always says the current state ("Підбираємо
-  ігри…", "Підібрали 3 гри", the fallback note and count, "Нічого не підібрали"); it is derived from
+- **States.** Every one is Gege beside a bubble. Waiting (`ask/AskWaiting`): he is `thinking` and
+  the bubble's line changes with the clock — "Читаю запит…", "Шукаю ігри…" after 2 s, "Пояснюю
+  вибір…" after 4 s — over the outline of three rows, the section `aria-busy`. The lines are timed,
+  not reported by the endpoint. Fallback: he says the calm sentence, no colour and no alert role —
+  "ШІ-розбір зараз недоступний — показуємо звичайний пошук" — above the plain search's rows, and
+  stays `idle`. Empty: the bubble suggests rephrasing, and opening the filter in the catalog only
+  when there is one. Rate limited: "спробуйте ще раз за N секунд" from `Retry-After` (read on the
+  server and carried in the payload, never computed from a clock), or "за хвилину" without one.
+  Failed: a sentence and a retry button. Too long (the endpoint's 400): "Запит задовгий…", with no
+  retry. All three failures are `role="alert"` inside his bubble, and he is `idle` beside them.
+- **Announcements and focus.** A `role="status"` region always says the current state ("Читаю
+  запит…" once for the whole wait — the lines that follow on screen are not announced — then
+  "Підібрали 3 гри", the fallback note and count, or "Нічого не підібрали"); it is derived from
   the answer, so the server and the hydrated client agree. Focus moves to the results heading when
   an answer the visitor just asked for lands; a page opened from a link moves no focus.
 - **Back and Forward.** Answers are remembered per tab, in memory and bounded, by locale and
@@ -492,6 +516,13 @@ focusable); the text beside him always carries the meaning.
   wraps to make some: the face is left out below 360 px, and below 400 px on the English site,
   whose locale switcher ("Українська") is the widest. The label may wrap below 360 px (375 px in
   English).
+- **On `/ask`** `GegeSpeech` stands him to the left of a bubble with the same look as the
+  greeter's — `surface-2`, a 1 px `accent` border, `rounded-card`, a tail pointing at him. `lead`
+  is the page's opening line (100 px, level with the middle of the bubble; above it on a phone);
+  `reply` is a line in the conversation (60 px at the bubble's top corner, resized to 40 px on a
+  phone by a rule, so the server render needs no viewport). He is `idle` at the start and beside
+  an empty answer or a failure, `thinking` during the wait, and `happy` for a moment over an answer
+  he picked.
 - **On the landing page** `GegeGreeter` brings him up from the bottom-right corner (`peek`, 120 px
   wide, 80 px on a phone) two seconds after the page is interactive and the tab is on screen, with
   a speech bubble: `surface-2`, a 1 px `accent` border, `rounded-card`, body copy in the interface

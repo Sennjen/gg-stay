@@ -213,11 +213,31 @@ test('ask at 375 px → a recorded question → a long one that falls back → B
 
   await page.goto('/ask')
   await waitForHydration(page)
+  // Gege opens the page, and the bubble's title is the page's heading.
+  await expect(page.locator('[data-test="ask-intro"] svg[data-mood="idle"]')).toBeVisible()
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Опиши гру, як сказав би другові' }),
+  ).toBeVisible()
   await expectAccessible(page, 'ask page')
 
   await page.getByRole('button', { name: 'атмосферний горор українською' }).click()
   await expect(page.getByRole('heading', { level: 2, name: 'Результати' })).toBeFocused()
-  await expect(page.getByText('Чому підходить:').first()).toBeVisible()
+  await expect(page.locator('[data-test="ask-interpretation"]')).toContainText('Зрозумів так:')
+  await expect(page.locator('[data-test="ask-reason"]').first()).toBeVisible()
+  // The number in the count line is the number of rows a visitor can scroll to: every row is in
+  // the document and takes up room on the page.
+  const rows = page.locator('[data-test="ask-item"]')
+  const counted = Number(/\d+/.exec(await page.locator('[data-test="ask-count"]').innerText())![0])
+  await expect(rows).toHaveCount(counted)
+  for (const row of await rows.all()) {
+    await row.scrollIntoViewIfNeeded()
+    await expect(row).toBeVisible()
+  }
+  // The form is still there, above the answer, with the question in it.
+  await expect(page.getByRole('textbox', { name: 'Яку гру шукаєте?' })).toHaveValue(
+    'атмосферний горор українською',
+  )
+  expect(await pageWidth()).toBeLessThanOrEqual(375)
   await expectAccessible(page, 'ask answer')
 
   // Unrecorded in fixture mode, so the endpoint falls back and the whole question becomes the
@@ -225,7 +245,7 @@ test('ask at 375 px → a recorded question → a long one that falls back → B
   const long =
     'хочу атмосферну гру з гарним сюжетом про подорож у часі для двох гравців на дивані ввечері'
   await page.getByRole('textbox', { name: 'Яку гру шукаєте?' }).fill(long)
-  await page.getByRole('button', { name: 'Підібрати ігри' }).click()
+  await page.getByRole('button', { name: 'Підібрати', exact: true }).click()
   await expect(page.locator('[data-test="ask-fallback-note"]')).toBeVisible()
   expect(await pageWidth()).toBeLessThanOrEqual(375)
   await expectAccessible(page, 'ask fallback')
@@ -233,7 +253,7 @@ test('ask at 375 px → a recorded question → a long one that falls back → B
 
   // Back renders the answer this tab already has: no new question, no skeleton.
   await page.goBack()
-  await expect(page.getByText('Чому підходить:').first()).toBeVisible()
+  await expect(page.locator('[data-test="ask-reason"]').first()).toBeVisible()
   await page.goForward()
   await expect(page.locator('[data-test="ask-fallback-note"]')).toBeVisible()
   expect(asked).toHaveLength(2)

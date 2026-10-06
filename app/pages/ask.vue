@@ -6,7 +6,6 @@ import {
   askIgnoredSort,
   normaliseAskQuery,
 } from '~/utils/askAnswer'
-import { ASK_CARD_IMAGE_SIZES } from '~/utils/rawgImage'
 import { OG_IMAGE, askRobots, trimDescription, withSiteName } from '~/utils/seo'
 
 /** How much of the question a page title may carry before it is cut on a word boundary. */
@@ -14,6 +13,12 @@ const TITLE_QUERY_LIMIT = 60
 
 /** The three example questions, in the order the page offers them. */
 const EXAMPLE_KEYS = ['coop', 'horror', 'hades'] as const
+
+/** The rows whose covers load at once: the ones a first screen can hold under the form. */
+const EAGER_COVERS = 2
+
+/** How long Gege stays pleased with an answer before he goes back to idling. */
+const HAPPY_MS = 1500
 
 const { t } = useI18n()
 const route = useRoute()
@@ -67,7 +72,9 @@ const showStaleBanner = computed(
 const ignoredSort = computed(() =>
   answer.value ? askIgnoredSort(answer.value.catalogUrl, ignoredFilters.value) : null,
 )
-const itemCount = computed(() => answer.value?.items.length ?? 0)
+// The one list of games: the count line and the rows are both made from it.
+const results = computed(() => answer.value?.items ?? [])
+const itemCount = computed(() => results.value.length)
 const countKey = computed(() => (isFallback.value ? 'ask.found' : 'ask.picked'))
 
 /**
@@ -77,8 +84,9 @@ const countKey = computed(() => (isFallback.value ? 'ask.found' : 'ask.picked'))
  */
 const liveMessage = computed(() => {
   switch (view.value) {
+    // The first of the waiting lines, once: the lines that follow it on screen are not announced.
     case 'loading':
-      return t('ask.loading')
+      return t('ask.waiting.reading')
     case 'empty':
       return t('ask.emptyTitle')
     case 'results': {
@@ -110,6 +118,29 @@ watch(view, async (next) => {
   focusResultsWhenReady.value = false
   await nextTick()
   resultsHeadingRef.value?.focus()
+})
+
+// Gege is pleased once per answer he picked himself: when it is rendered, and again when another
+// takes its place. A plain search, an empty answer and a failure leave him as he was.
+const pleased = ref(true)
+let pleasedTimer: ReturnType<typeof setTimeout> | null = null
+function cheer() {
+  if (pleasedTimer !== null) clearTimeout(pleasedTimer)
+  pleased.value = true
+  pleasedTimer = setTimeout(() => {
+    pleasedTimer = null
+    pleased.value = false
+  }, HAPPY_MS)
+}
+const answerMood = computed(() =>
+  view.value === 'results' && !isFallback.value && pleased.value ? 'happy' : 'idle',
+)
+onMounted(() => {
+  cheer()
+  watch(answer, cheer)
+})
+onBeforeUnmount(() => {
+  if (pleasedTimer !== null) clearTimeout(pleasedTimer)
 })
 
 async function submit(text: string = draft.value) {
@@ -167,43 +198,48 @@ useSeoMeta({
 </script>
 
 <template>
-  <div>
-    <div class="max-w-3xl">
-      <h1 class="font-display-heading text-2xl text-fg sm:text-3xl">{{ t('ask.title') }}</h1>
-      <p class="mt-2 text-fg-2">{{ t('ask.lead') }}</p>
+  <div class="mx-auto max-w-3xl">
+    <!-- Gege opens the page; once there is a question he moves down to the answer, and the heading
+         stays behind as a plain line so the form and the answer share the first screen. -->
+    <GegeSpeech v-if="view === 'idle'" variant="lead" :size="100" data-test="ask-intro">
+      <div class="px-5 py-4">
+        <h1 class="font-display-heading text-xl text-fg sm:text-2xl">{{ t('ask.intro.title') }}</h1>
+        <p class="mt-2 text-fg-2">{{ t('ask.intro.text') }}</p>
+      </div>
+    </GegeSpeech>
+    <h1 v-else class="font-display-heading text-xl text-fg sm:text-2xl">
+      {{ t('ask.intro.title') }}
+    </h1>
 
-      <form
-        role="search"
-        :aria-labelledby="`${fieldId}-label`"
-        class="mt-6"
-        novalidate
-        @submit.prevent="submit()"
+    <form
+      role="search"
+      :aria-labelledby="`${fieldId}-label`"
+      class="mt-6"
+      novalidate
+      @submit.prevent="submit()"
+    >
+      <label :id="`${fieldId}-label`" :for="fieldId" class="block text-sm font-medium text-fg">{{
+        t('ask.label')
+      }}</label>
+      <!-- One box for the field, its counter and the button, and the box wears the focus ring: the
+           field inside it has no edge of its own to draw one on. -->
+      <div
+        class="mt-2 rounded-card border border-line bg-surface-1 outline-offset-2 outline-accent transition-colors duration-200 ease-out hover:border-fg-2 has-[textarea:focus-visible]:border-fg-2 has-[textarea:focus-visible]:outline-2"
       >
-        <label :id="`${fieldId}-label`" :for="fieldId" class="block text-sm font-medium text-fg">{{
-          t('ask.label')
-        }}</label>
         <textarea
           :id="fieldId"
           ref="fieldRef"
           v-model="draft"
           name="q"
-          rows="3"
+          rows="2"
           :maxlength="ASK_MAX_LENGTH"
           :aria-describedby="describedBy"
           :aria-invalid="emptyQuestion ? 'true' : undefined"
-          class="mt-2 block w-full resize-y rounded-card border border-line bg-surface-1 px-4 py-3 text-base text-fg focus-visible:outline-2"
+          class="ask-field block max-h-48 w-full resize-none field-sizing-content bg-transparent px-4 pt-3 pb-1 text-base text-fg"
           @input="onInput"
           @keydown.enter="onEnter"
         />
-        <p
-          v-if="emptyQuestion"
-          :id="emptyQuestionId"
-          data-test="ask-empty-question"
-          class="mt-2 text-sm text-fg"
-        >
-          {{ t('ask.emptyQuestion') }}
-        </p>
-        <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center justify-between gap-3 py-2 pr-2 pl-4">
           <i18n-t
             :id="counterId"
             keypath="ask.counter"
@@ -220,37 +256,49 @@ useSeoMeta({
           </i18n-t>
           <button
             type="submit"
-            class="rounded-chip bg-accent px-5 py-2 font-medium text-on-accent focus-visible:outline-2"
+            class="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-chip bg-accent px-6 font-medium text-on-accent focus-visible:outline-2"
           >
             {{ t('ask.submit') }}
           </button>
         </div>
-      </form>
-
-      <div data-test="ask-examples" class="mt-6">
-        <p :id="`${fieldId}-examples`" class="text-sm text-fg-2">{{ t('ask.examplesLabel') }}</p>
-        <ul :aria-labelledby="`${fieldId}-examples`" class="mt-2 flex flex-wrap gap-2">
-          <li v-for="key in EXAMPLE_KEYS" :key="key">
-            <button
-              type="button"
-              class="rounded-chip border border-line bg-surface-1 px-3 py-1.5 text-left text-sm text-fg transition-colors duration-150 ease-out hover:border-fg-2 focus-visible:outline-2"
-              @click="submit(t(`ask.examples.${key}`))"
-            >
-              {{ t(`ask.examples.${key}`) }}
-            </button>
-          </li>
-        </ul>
       </div>
+      <p
+        v-if="emptyQuestion"
+        :id="emptyQuestionId"
+        data-test="ask-empty-question"
+        class="mt-2 text-sm text-fg"
+      >
+        {{ t('ask.emptyQuestion') }}
+      </p>
+    </form>
 
-      <p :id="privacyId" class="mt-6 text-sm text-fg-2">{{ t('ask.privacy') }}</p>
+    <!-- His suggestions, offered while there is nothing on the page yet; each one asks at once. -->
+    <div v-if="view === 'idle'" data-test="ask-examples" class="mt-5">
+      <p :id="`${fieldId}-examples`" class="flex items-center gap-2 text-sm text-fg-2">
+        <GegeMascot :size="20" :animated="false" />
+        {{ t('ask.examplesLabel') }}
+      </p>
+      <ul :aria-labelledby="`${fieldId}-examples`" class="mt-2 flex flex-wrap gap-2">
+        <li v-for="key in EXAMPLE_KEYS" :key="key">
+          <button
+            type="button"
+            class="min-h-11 cursor-pointer rounded-chip border border-line bg-surface-1 px-4 py-2 text-left text-sm text-fg transition-colors duration-150 ease-out hover:border-fg-2 hover:bg-surface-2 focus-visible:outline-2"
+            @click="submit(t(`ask.examples.${key}`))"
+          >
+            {{ t(`ask.examples.${key}`) }}
+          </button>
+        </li>
+      </ul>
     </div>
+
+    <p :id="privacyId" class="mt-5 text-xs text-fg-2">{{ t('ask.privacy') }}</p>
 
     <p data-test="ask-live" role="status" class="sr-only">{{ liveMessage }}</p>
 
     <section
       v-if="view !== 'idle'"
       data-test="ask-results"
-      class="mt-10"
+      class="mt-8 border-t border-line pt-6"
       :aria-labelledby="resultsHeadingId"
       :aria-busy="view === 'loading' ? 'true' : undefined"
     >
@@ -258,156 +306,134 @@ useSeoMeta({
         :id="resultsHeadingId"
         ref="resultsHeadingRef"
         tabindex="-1"
-        class="font-display-heading text-xl text-fg focus-visible:outline-2"
+        class="w-fit font-display-heading text-lg text-fg focus-visible:outline-2"
       >
         {{ t('ask.results') }}
       </h2>
 
-      <div v-if="view === 'loading'" data-test="ask-loading" class="mt-4">
-        <div class="h-5 w-2/3 max-w-md rounded bg-surface-2 motion-safe:animate-pulse" />
-        <div class="mt-3 flex gap-2">
-          <div class="h-7 w-28 rounded-chip bg-surface-2 motion-safe:animate-pulse" />
-          <div class="h-7 w-36 rounded-chip bg-surface-2 motion-safe:animate-pulse" />
-        </div>
-        <ul class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <li
-            v-for="index in 3"
-            :key="index"
-            data-test="skeleton"
-            class="overflow-hidden rounded-card border border-line bg-surface-1"
-          >
-            <div class="aspect-video w-full bg-surface-2 motion-safe:animate-pulse" />
-            <div class="space-y-2 p-3">
-              <div class="h-4 w-3/4 rounded bg-surface-2 motion-safe:animate-pulse" />
-              <div class="h-3 w-1/3 rounded bg-surface-2 motion-safe:animate-pulse" />
-            </div>
-          </li>
-        </ul>
-      </div>
+      <AskWaiting v-if="view === 'loading'" class="mt-4" />
 
-      <div
-        v-else-if="view === 'error' && failure"
-        data-test="ask-error"
-        role="alert"
-        class="mt-4 rounded-card border border-line bg-surface-1 p-6 text-fg"
-      >
-        <i18n-t
-          v-if="failure.kind === 'rate-limited' && failure.retryAfterSeconds"
-          keypath="ask.errorRateLimited"
-          tag="p"
-          :plural="failure.retryAfterSeconds"
-        >
-          <template #count
-            ><span class="font-numeric">{{ failure.retryAfterSeconds }}</span></template
+      <GegeSpeech v-else-if="view === 'error' && failure" class="mt-4">
+        <div data-test="ask-error" role="alert" class="p-4 text-fg">
+          <i18n-t
+            v-if="failure.kind === 'rate-limited' && failure.retryAfterSeconds"
+            keypath="ask.errorRateLimited"
+            tag="p"
+            :plural="failure.retryAfterSeconds"
           >
-        </i18n-t>
-        <p v-else-if="failure.kind === 'rate-limited'">{{ t('ask.errorRateLimitedMinute') }}</p>
-        <i18n-t v-else-if="failure.kind === 'invalid'" keypath="ask.errorInvalid" tag="p">
-          <template #max
-            ><span class="font-numeric">{{ ASK_MAX_LENGTH }}</span></template
+            <template #count
+              ><span class="font-numeric">{{ failure.retryAfterSeconds }}</span></template
+            >
+          </i18n-t>
+          <p v-else-if="failure.kind === 'rate-limited'">{{ t('ask.errorRateLimitedMinute') }}</p>
+          <i18n-t v-else-if="failure.kind === 'invalid'" keypath="ask.errorInvalid" tag="p">
+            <template #max
+              ><span class="font-numeric">{{ ASK_MAX_LENGTH }}</span></template
+            >
+          </i18n-t>
+          <p v-else>{{ t('ask.errorFailed') }}</p>
+          <button
+            v-if="failure.kind !== 'invalid'"
+            type="button"
+            class="mt-3 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-chip bg-accent px-5 font-medium text-on-accent focus-visible:outline-2"
+            @click="submit(urlQuery)"
           >
-        </i18n-t>
-        <p v-else>{{ t('ask.errorFailed') }}</p>
-        <button
-          v-if="failure.kind !== 'invalid'"
-          type="button"
-          class="mt-4 rounded-chip bg-accent px-4 py-2 text-on-accent focus-visible:outline-2"
-          @click="submit(urlQuery)"
-        >
-          {{ t('errors.retry') }}
-        </button>
-      </div>
+            {{ t('errors.retry') }}
+          </button>
+        </div>
+      </GegeSpeech>
 
       <template v-else-if="answer">
         <CatalogStaleBanner v-if="showStaleBanner" class="mt-4" />
-        <p
-          v-if="isFallback"
-          data-test="ask-fallback-note"
-          class="mt-4 rounded-card border border-line bg-surface-1 px-4 py-3 text-sm text-fg"
-        >
-          {{ t('ask.fallbackNote') }}
-        </p>
-        <p v-else-if="answer.interpretation" data-test="ask-interpretation" class="mt-4 text-fg">
-          <span class="text-fg-2">{{ t('ask.interpretation') }}</span>
-          {{ ' ' }}<span class="text-lg break-words">{{ answer.interpretation }}</span>
-        </p>
-        <!-- The catalog's own note, text only: an answer carries no price-run time to age. -->
-        <CatalogIndexNote v-if="answer.indexedOnly" class="mt-2" now="" />
-
-        <div
-          v-if="catalogLink"
-          data-test="ask-filter-row"
-          class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2"
-        >
-          <ReadonlyFilterChips
-            data-test="ask-filter"
-            :filter="answer.filter"
-            :genres="genres"
-            :label="isFallback ? t('ask.searchLabel') : t('ask.filterLabel')"
-            :ignored="ignoredFilters"
-            :index-stale="indexStale"
-          />
-          <p v-if="ignoredSort" data-test="ask-sort-ignored" class="text-xs text-fg-2">
-            {{ t('catalog.sortIgnored', { name: t(`sorts.${ignoredSort}`) }) }}
-          </p>
-          <!-- A plain underlined link, not a chip: next to the chips it must not read as one more
-               filter value. -->
-          <NuxtLink
-            :to="catalogLink"
-            data-test="ask-catalog-link"
-            class="text-sm text-fg underline underline-offset-4 hover:text-fg-2 focus-visible:outline-2"
-          >
-            {{ t('ask.openInCatalog') }}
-          </NuxtLink>
-        </div>
-
-        <div
-          v-if="view === 'empty'"
-          data-test="ask-empty"
-          class="mt-6 rounded-card border border-dashed border-line p-8 text-center"
-        >
-          <p class="font-semibold text-fg">{{ t('ask.emptyTitle') }}</p>
-          <p class="mt-2 text-fg-2">
-            {{ catalogLink ? t('ask.emptyHint') : t('ask.emptyHintNoFilter') }}
-          </p>
-        </div>
-
-        <template v-else>
-          <i18n-t
-            :keypath="countKey"
-            tag="p"
-            :plural="itemCount"
-            data-test="ask-count"
-            class="mt-6 text-sm text-fg-2"
-          >
-            <template #count
-              ><span class="font-numeric">{{ itemCount }}</span></template
+        <!-- Keyed by the question: an answer that replaces another from memory (Back, Forward) is
+             a new line of his, with its own moment of being pleased. -->
+        <GegeSpeech :key="ask.query.value" :mood="answerMood" class="mt-4" data-test="ask-answer">
+          <div class="space-y-3 p-4">
+            <p v-if="isFallback" data-test="ask-fallback-note" class="text-fg">
+              {{ t('ask.fallbackNote') }}
+            </p>
+            <i18n-t
+              v-else-if="answer.interpretation"
+              keypath="ask.understood"
+              tag="p"
+              data-test="ask-interpretation"
+              class="text-fg-2"
             >
-          </i18n-t>
-          <!-- Each item spans two rows of the list's own grid (a subgrid): the cards of a row share
-               one height and the reasons under them start on one line, however long the
-               reasons or however full the cards' price lines are. -->
-          <ul class="mt-3 grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-            <li
-              v-for="(item, index) in answer.items"
-              :key="item.card.id"
-              data-test="ask-item"
-              class="row-span-2 grid grid-rows-subgrid gap-y-2"
+              <template #interpretation
+                ><span class="font-medium break-words text-fg">{{
+                  answer.interpretation
+                }}</span></template
+              >
+            </i18n-t>
+
+            <div
+              v-if="catalogLink"
+              data-test="ask-filter-row"
+              class="flex flex-wrap items-center gap-x-3 gap-y-2"
             >
-              <GameCard
-                :game="item.card"
-                :heading-level="3"
-                :cover-sizes="ASK_CARD_IMAGE_SIZES"
-                :eager="index === 0"
-                :priority="index === 0"
+              <ReadonlyFilterChips
+                data-test="ask-filter"
+                :filter="answer.filter"
+                :genres="genres"
+                :label="isFallback ? t('ask.searchLabel') : t('ask.filterLabel')"
+                :ignored="ignoredFilters"
+                :index-stale="indexStale"
               />
-              <p v-if="item.reason" data-test="ask-reason" class="px-1 text-sm break-words text-fg">
-                <span class="text-fg-2">{{ t('ask.reason') }}</span> {{ item.reason }}
+              <p v-if="ignoredSort" data-test="ask-sort-ignored" class="text-xs text-fg-2">
+                {{ t('catalog.sortIgnored', { name: t(`sorts.${ignoredSort}`) }) }}
               </p>
-            </li>
-          </ul>
-        </template>
+              <!-- A plain underlined link, not a chip: next to the chips it must not read as one
+                   more filter value. -->
+              <NuxtLink
+                :to="catalogLink"
+                data-test="ask-catalog-link"
+                class="text-sm text-fg underline underline-offset-4 hover:text-fg-2 focus-visible:outline-2"
+              >
+                {{ t('ask.openInCatalog') }}
+              </NuxtLink>
+            </div>
+
+            <div v-if="view === 'empty'" data-test="ask-empty">
+              <p class="font-semibold text-fg">{{ t('ask.emptyTitle') }}</p>
+              <p class="mt-1 text-fg-2">
+                {{ catalogLink ? t('ask.emptyHint') : t('ask.emptyHintNoFilter') }}
+              </p>
+            </div>
+            <!-- The number is the length of the very list rendered below it. -->
+            <i18n-t
+              v-else
+              :keypath="countKey"
+              tag="p"
+              :plural="results.length"
+              data-test="ask-count"
+              class="font-semibold text-fg"
+            >
+              <template #count
+                ><span class="font-numeric">{{ results.length }}</span></template
+              >
+            </i18n-t>
+
+            <!-- The catalog's own note, text only: an answer carries no price-run time to age. -->
+            <CatalogIndexNote v-if="answer.indexedOnly" now="" />
+          </div>
+        </GegeSpeech>
+
+        <!-- One row per game and every row in the document: nothing is paged, folded or left to
+             load later, so the count above is what the visitor finds by scrolling. -->
+        <ul v-if="results.length" class="mt-4 space-y-3" :aria-labelledby="resultsHeadingId">
+          <li v-for="(item, index) in results" :key="item.card.id" data-test="ask-item">
+            <AskResultRow :item="item" :eager="index < EAGER_COVERS" />
+          </li>
+        </ul>
       </template>
     </section>
   </div>
 </template>
+
+<style scoped>
+/* The box around the field draws the focus ring (see the template). Written here rather than as a
+   utility: the global `:focus-visible` rule in main.css is unlayered and outranks every utility. */
+.ask-field:focus-visible {
+  outline: none;
+}
+</style>

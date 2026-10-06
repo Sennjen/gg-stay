@@ -13,6 +13,7 @@ import {
   BROKEN_QUERY,
   EMPTY_QUERY,
   FALLBACK_QUERY,
+  FULL_QUERY,
   LIKE_QUERY,
   MARKUP_QUERY,
   NOTHING_QUERY,
@@ -79,7 +80,8 @@ afterEach(() => {
 describe('the ask page, idle', () => {
   it('has a heading, a labelled text field with a limit and a counter, and a submit button', async () => {
     const wrapper = await renderAsk('/ask')
-    expect(wrapper.get('h1').text()).toBe('Опишіть гру словами')
+    expect(wrapper.findAll('h1')).toHaveLength(1)
+    expect(wrapper.get('h1').text()).toBe('Опиши гру, як сказав би другові')
 
     const field = wrapper.get('textarea')
     const label = wrapper.get(`label[for="${field.attributes('id')}"]`)
@@ -88,7 +90,19 @@ describe('the ask page, idle', () => {
     const counter = wrapper.get(`#${field.attributes('aria-describedby')!.split(' ')[0]}`)
     expect(plain(counter.text())).toBe('0 із 200 символів')
 
-    expect(wrapper.get('button[type="submit"]').text()).toBe('Підібрати ігри')
+    expect(wrapper.get('button[type="submit"]').text()).toBe('Підібрати')
+  })
+
+  it('opens with Gege, idle, saying what to write in his bubble', async () => {
+    const wrapper = await renderAsk('/ask')
+    const intro = wrapper.get('[data-test="ask-intro"]')
+    expect(intro.get('svg').attributes('data-mood')).toBe('idle')
+    expect(intro.get('svg').attributes('width')).toBe('100')
+    // The page's one heading is the bubble's title.
+    expect(intro.get('h1').text()).toBe('Опиши гру, як сказав би другові')
+    expect(intro.get('p').text()).toBe(
+      'Жанр, настрій, з ким граєш, скільки готовий витратити. Я знайду ігри й поясню, чому саме вони.',
+    )
   })
 
   it('offers the three example questions as buttons', async () => {
@@ -160,9 +174,14 @@ describe('the ask page, answered from the URL', () => {
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
     const results = wrapper.get('[data-test="ask-results"]')
     expect(results.get('h2').text()).toBe('Результати')
-    expect(results.get('[data-test="ask-interpretation"]').text()).toContain(
-      'Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
+    // In his voice, inside his bubble.
+    const bubble = results.get('[data-test="ask-answer"]')
+    expect(plain(bubble.get('[data-test="ask-interpretation"]').text())).toBe(
+      'Зрозумів так: Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
     )
+    expect(bubble.find('[data-test="ask-filter"]').exists()).toBe(true)
+    expect(bubble.find('[data-test="ask-count"]').exists()).toBe(true)
+    expect(bubble.find('[data-test="index-note"]').exists()).toBe(true)
     const chips = results.get('[data-test="ask-filter"] ul')
     expect(plain(results.get('[data-test="ask-filter"]').text())).toMatch(/^Зрозумілий фільтр:/)
     expect(chips.findAll('li').map((chip) => plain(chip.text()))).toEqual([
@@ -176,7 +195,7 @@ describe('the ask page, answered from the URL', () => {
     expect(results.find('[data-test="ask-fallback-note"]').exists()).toBe(false)
   })
 
-  it('lists the cards in order, each with the reason it fits under it', async () => {
+  it('lists the games as rows in order, each with the reason it fits under its name', async () => {
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
     const items = wrapper.findAll('[data-test="ask-item"]')
     expect(items.map((item) => item.get('[data-test="card-title"]').text())).toEqual([
@@ -185,10 +204,63 @@ describe('the ask page, answered from the URL', () => {
       'Stardew Valley',
     ])
     expect(items.map((item) => plain(item.get('[data-test="ask-reason"]').text()))).toEqual(
-      STRUCTURED_ANSWER.items.map((item) => `Чому підходить: ${item.reason}`),
+      STRUCTURED_ANSWER.items.map((item) => item.reason),
     )
-    // Under the results' own h2.
-    expect(items[0]!.get('[data-test="card-title"]').element.tagName).toBe('H3')
+    // The reason is a primary line, not a caption: the text colour, at the body size.
+    const reason = items[0]!.get('[data-test="ask-reason"]')
+    expect(reason.classes()).toContain('text-fg')
+    expect(reason.classes().some((name) => /^text-(xs|sm)$/.test(name))).toBe(false)
+    // Under the results' own h2, and the name is the link to the game's page.
+    const title = items[0]!.get('[data-test="card-title"]')
+    expect(title.element.tagName).toBe('H3')
+    expect(title.get('a').attributes('href')).toBe('/games/overcooked-2')
+  })
+
+  it('shows the facts and the price of each game in its row', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    const [first, second] = wrapper.findAll('[data-test="ask-item"]')
+    expect(plain(first!.get('[data-test="ask-meta"]').text())).toContain('2020')
+    expect(first!.get('[data-test="ask-meta"] [role="img"]').attributes('aria-label')).toContain(
+      '84',
+    )
+    expect(plain(first!.get('[data-test="price"]').text())).toContain('−60%')
+    expect(first!.find('[data-test="localisation"]').exists()).toBe(true)
+    // A game without a price has no price block at all.
+    expect(second!.find('[data-test="ask-price"]').exists()).toBe(false)
+  })
+
+  it('counts exactly the rows it renders: eight games are eight rows, all in the document', async () => {
+    const wrapper = await renderAsk(askUrl(FULL_QUERY))
+    const rows = wrapper.findAll('[data-test="ask-item"]')
+    const counted = Number(/\d+/.exec(wrapper.get('[data-test="ask-count"]').text())![0])
+    expect(counted).toBe(8)
+    expect(rows).toHaveLength(counted)
+    // Every one is a whole row — a name that links somewhere — and none is hidden.
+    for (const row of rows) {
+      expect(row.get('[data-test="card-title"] a').attributes('href')).toMatch(/^\/games\//)
+      expect(row.attributes('hidden')).toBeUndefined()
+      expect(row.classes()).not.toContain('hidden')
+    }
+    expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe('Підібрали 8 ігор')
+  })
+
+  it('keeps the form above the answer, with the question in it', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    const form = wrapper.get('form[role="search"]').element
+    const results = wrapper.get('[data-test="ask-results"]').element
+    expect(form.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe(STRUCTURED_QUERY)
+    expect(wrapper.get('button[type="submit"]').text()).toBe('Підібрати')
+    // Still one heading, now a plain line: Gege has moved down to the answer.
+    expect(wrapper.findAll('h1')).toHaveLength(1)
+    expect(wrapper.find('[data-test="ask-intro"]').exists()).toBe(false)
+  })
+
+  it('has Gege pleased with his picks for a moment, then idle again', async () => {
+    const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
+    const mood = () => wrapper.get('[data-test="ask-answer"] svg').attributes('data-mood')
+    expect(mood()).toBe('happy')
+    await vi.waitFor(() => expect(mood()).toBe('idle'), { timeout: 3000, interval: 50 })
   })
 
   it('says how many games it picked, visibly and in a live region', async () => {
@@ -201,7 +273,9 @@ describe('the ask page, answered from the URL', () => {
 
   it('in fallback, says calmly that the AI part did not run and shows the plain search', async () => {
     const wrapper = await renderAsk(askUrl(FALLBACK_QUERY))
-    const note = wrapper.get('[data-test="ask-fallback-note"]')
+    const note = wrapper.get('[data-test="ask-answer"] [data-test="ask-fallback-note"]')
+    // Nothing of his to be pleased with.
+    expect(wrapper.get('[data-test="ask-answer"] svg').attributes('data-mood')).toBe('idle')
     expect(note.text()).toBe('ШІ-розбір зараз недоступний — показуємо звичайний пошук')
     expect(note.attributes('role')).toBeUndefined()
     expect(wrapper.find('[data-test="ask-interpretation"]').exists()).toBe(false)
@@ -227,6 +301,8 @@ describe('the ask page, answered from the URL', () => {
     const empty = wrapper.get('[data-test="ask-empty"]')
     expect(empty.text()).toContain('Нічого не підібрали')
     expect(empty.text()).toContain('Спробуйте описати інакше')
+    expect(wrapper.get('[data-test="ask-answer"] svg').attributes('data-mood')).toBe('idle')
+    expect(wrapper.find('[data-test="ask-count"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="ask-item"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="ask-catalog-link"]').attributes('href')).toMatch(
       /^\/games\?search=/,
@@ -242,6 +318,10 @@ describe('the ask page, answered from the URL', () => {
       'Забагато запитів поспіль. Спробуйте ще раз за 42 секунди.',
     )
     expect(wrapper.find('[data-test="ask-item"]').exists()).toBe(false)
+    // Gege says it, idle.
+    const speech = wrapper.get('[data-test="ask-results"] [data-test="gege-speech"]')
+    expect(speech.get('svg').attributes('data-mood')).toBe('idle')
+    expect(speech.find('[data-test="ask-error"]').exists()).toBe(true)
   })
 
   it('when the answer failed, offers to try again, and trying again asks again', async () => {
@@ -307,7 +387,7 @@ describe('the ask page, answers the catalog could not fully apply', () => {
     expect(wrapper.find('[data-test="ask-sort-ignored"]').exists()).toBe(false)
   })
 
-  it('renders an unranked answer as cards alone: no reason lines, no empty elements', async () => {
+  it('renders an unranked answer as rows without a reason: no reason line, no empty element', async () => {
     const wrapper = await renderAsk(askUrl(UNRANKED_QUERY))
     const items = wrapper.findAll('[data-test="ask-item"]')
     expect(items).toHaveLength(3)
@@ -315,7 +395,8 @@ describe('the ask page, answers the catalog could not fully apply', () => {
     expect(wrapper.text()).not.toContain('Чому підходить')
     for (const item of items) {
       expect(item.element.children).toHaveLength(1)
-      expect(item.element.children[0]!.getAttribute('data-test')).toBe('game-card')
+      expect(item.element.children[0]!.getAttribute('data-test')).toBe('ask-row')
+      expect(item.findAll('p').every((line) => line.text() !== '')).toBe(true)
     }
     expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрали 3 гри')
   })
@@ -359,8 +440,15 @@ describe('the ask page, text written by the model', () => {
   })
 
   it('renders them by text interpolation only: the page has no v-html', () => {
-    const source = readFileSync(resolve(process.cwd(), 'app/pages/ask.vue'), 'utf-8')
-    expect(source).not.toMatch(/v-html|innerHTML/)
+    for (const file of [
+      'app/pages/ask.vue',
+      'app/components/ask/AskResultRow.vue',
+      'app/components/ask/AskWaiting.vue',
+      'app/components/GegeSpeech.vue',
+    ]) {
+      const source = readFileSync(resolve(process.cwd(), file), 'utf-8')
+      expect(source, file).not.toMatch(/v-html|innerHTML/)
+    }
   })
 })
 
@@ -420,7 +508,7 @@ describe('the ask page, asked from the form', () => {
     await settle(() => expect(document.activeElement?.tagName).toBe('H2'))
   })
 
-  it('shows a busy skeleton while the answer is on its way', async () => {
+  it('shows Gege thinking over a busy skeleton while the answer is on its way', async () => {
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -441,7 +529,29 @@ describe('the ask page, asked from the form', () => {
       const results = wrapper.get('[data-test="ask-results"]')
       expect(results.attributes('aria-busy')).toBe('true')
       expect(results.findAll('[data-test="skeleton"]')).toHaveLength(3)
-      expect(wrapper.get('[data-test="ask-live"]').text()).toBe('Підбираємо ігри…')
+      expect(results.get('[data-test="ask-loading"] svg').attributes('data-mood')).toBe('thinking')
+      expect(results.get('[data-test="ask-waiting-line"]').text()).toBe('Читаю запит…')
+      // Announced once, by the page's status region; the line that changes is not a live region.
+      const live = wrapper.get('[data-test="ask-live"]')
+      expect(live.text()).toBe('Читаю запит…')
+      expect(
+        results
+          .get('[data-test="ask-loading"]')
+          .element.querySelector('[aria-live], [role="status"]'),
+      ).toBeNull()
+      // The form stays, with the question in it.
+      expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe(STRUCTURED_QUERY)
+
+      // The line follows the clock, and the announcement does not follow the line.
+      await vi.waitFor(
+        () => expect(results.get('[data-test="ask-waiting-line"]').text()).toBe('Шукаю ігри…'),
+        { timeout: 3000, interval: 50 },
+      )
+      expect(live.text()).toBe('Читаю запит…')
+      await vi.waitFor(
+        () => expect(results.get('[data-test="ask-waiting-line"]').text()).toBe('Пояснюю вибір…'),
+        { timeout: 3000, interval: 50 },
+      )
 
       release()
       await settle(() => expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(3))

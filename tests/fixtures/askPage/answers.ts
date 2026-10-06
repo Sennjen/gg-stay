@@ -57,6 +57,42 @@ export const STRUCTURED_ANSWER = {
   tookMs: 2140,
 } as const
 
+/**
+ * A full answer: the eight games the endpoint sends at most, as production answered this very
+ * question when eight cards looked like four. Some carry a price, one has no reason.
+ */
+export const FULL_QUERY = 'кооператив для двох на дивані'
+
+const FULL_NAMES = [
+  'Overcooked! 2',
+  'It Takes Two',
+  'Trine 2: Complete Story',
+  'Castle Crashers',
+  'Human: Fall Flat',
+  'Rayman Legends',
+  'Guacamelee! Super Turbo Championship Edition',
+  'Overcooked',
+] as const
+
+export const FULL_ANSWER = {
+  ...STRUCTURED_ANSWER,
+  items: FULL_NAMES.map((name, index) => ({
+    card: card(20 + index, name, {
+      price:
+        index % 2 === 0
+          ? {
+              bestUah: 99 + index * 10,
+              regularUah: 499,
+              discountPercent: 60,
+              isFree: false,
+              updatedAt: '2026-10-01T06:00:00.000Z',
+            }
+          : null,
+    }),
+    reason: index === 7 ? null : `Причина ${index + 1}`,
+  })),
+} as const
+
 export const FALLBACK_QUERY = 'щось як Hades, але коротше'
 
 export const FALLBACK_ANSWER = {
