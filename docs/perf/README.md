@@ -184,6 +184,54 @@ The same late frame is in step 6's raw runs, before the mascot existed: `/ask` r
 
 So this step records a lower landing median and does not attribute it to the mascot: the mascot's measured cost is 16 KB and one 0.65 KB stylesheet, and the points were lost to a late first frame that predates it. It does not clear the mascot either — the late frame was far more frequent than on 2026-10-05 and its cause was not established, so "more frequent because of the change" is not excluded by anything here. Nothing was changed in the page. The honest reading of the table is "91 with LCP 3.2 s when the first frame is on time, as in step 6; 78–83 when it is not".
 
+### Cold start
+
+A request that lands on a function instance that has just started waits for the instance. On 2026-10-02 that was measured from one client as 3–4.7 s on top of any page (GraphQL `games`: 4.7 s cold, 0.5 s warm). One more production sample from 2026-10-06 narrows it: `{ __typename }`, a query that calls no upstream and reads no index, took 2.29 s on the first request after a quiet period and 0.39–0.51 s on the next three (time to first byte after the TLS handshake: 1.74 s against 0.17–0.24 s). About 1.5 s of a cold start is therefore spent before the function asks anyone anything; the rest of the 3–4.7 s is the first request's own upstream work, which a cold instance always does in full because its RAWG cache is empty (0.6–1.7 s for an uncached catalog page, see step 6).
+
+Vercel's logs are not readable from here, so what follows is **measured locally**: the Vercel-preset function (`NITRO_PRESET=vercel pnpm build`, `.vercel/output/functions/__fallback.func` — every route is a link to this one function), imported in a fresh Node 22.21.1 process per sample on a laptop, in fixture mode, median of 15 samples. A laptop has a warm disk cache and a faster core than a function instance, so these are lower bounds and the proportions matter more than the milliseconds.
+
+| Where the cold time goes (local)                             | Before              | After               |
+| ------------------------------------------------------------ | ------------------- | ------------------- |
+| Node starting, nothing loaded                                | 20 ms               | 20 ms               |
+| Modules read and evaluated when the function entry is loaded | 827 files, 5.74 MB  | 58 files, 2.31 MB   |
+| — the Anthropic SDK                                          | 189 files, 0.85 MB  | none                |
+| — zod                                                        | 97 files, 0.83 MB   | none                |
+| — graphql, graphql-yoga and what they depend on              | 479 files, 1.65 MB  | none                |
+| — Vue's template compiler, through vue-router → vue          | 22 files, 1.09 MB   | 22 files, 1.09 MB   |
+| Loading the function entry                                   | 204 ms              | 57 ms               |
+| First request, `POST /api/graphql` (`games`)                 | 49 ms (4 ms warm)   | 139 ms (6 ms warm)  |
+| First request, `GET /games`                                  | 117 ms (14 ms warm) | 210 ms (15 ms warm) |
+| **Entry + first request**, `POST /api/graphql` (`games`)     | 253 ms              | 197 ms              |
+| **Entry + first request**, `GET /games`                      | 318 ms              | 266 ms              |
+| **Entry + first request**, `GET /`                           | 333 ms              | 268 ms              |
+| **Entry + first request**, `GET /ask`                        | 312 ms              | 251 ms              |
+| **Entry + first request**, `GET /robots.txt`                 | 223 ms              | 69 ms               |
+| **Entry + first request**, `POST /api/ask`                   | 238 ms              | 242 ms              |
+| Modules loaded by a cold `GET /games`, entry and request     | 885 files, 6.72 MB  | 598 files, 4.96 MB  |
+
+What the "before" column shows. The function entry imported everything `server/utils` reaches, because Nitro auto-imports that directory through one module the entry loads at start. `server/utils/ask.ts` reached the Anthropic SDK, zod and the ask pipeline, and through the pipeline the catalog resolver and graphql-yoga — so a cold start for a static-looking page, for `robots.txt`, for anything, read and compiled 286 files that only `POST /api/ask` uses. A CPU profile of a cold `GET /games` agrees on the kind of work: of 423 ms sampled, 132 ms is resolving, reading and compiling modules and 22 ms opening files; the server bundle's own top-level code is 26 ms.
+
+**The fix** (`753ca2a`): the file moved to `server/ask/useAsk.ts` and the route imports it. The ask pipeline, the SDK and zod now load with the first question an instance gets, and graphql-yoga with the first GraphQL request, which is why the first request got slower by about what the entry got faster by on a page that uses GraphQL — the gain there is the 52–65 ms of the SDK and zod (16–22 %), and a route that needs neither starts in a third of the time. `POST /api/ask` itself is unchanged within noise. Whether the production gain is larger than the local one — a function instance reads those files from a colder disk — is not known until it is measured on the deployed site; no such measurement was possible before a deployment.
+
+Round trips were counted too, with the index pointed at a stub store that answers every request after 100 ms and RAWG in fixture mode:
+
+| First request on a cold instance | Index round trips, in sequence                              | On a warm instance |
+| -------------------------------- | ----------------------------------------------------------- | ------------------ |
+| `GET /games`                     | 3 — the version pointer, the meta, the page's documents     | 2                  |
+| `GET /` (cache miss)             | 3 — the pointer, the meta, then four requests side by side  | 2                  |
+| `GET /games/[slug]`              | 4 — the pointer, the game's document, the meta, the similar | 2                  |
+
+A cold instance adds exactly one round trip to the chain, the `idx:current` pointer (kept for 60 s afterwards), and in production the first of them also opens the connection. The RAWG request already runs beside the pointer and the meta (`rawgPage` starts it before anything is awaited), so there was nothing independent left to start in parallel on the catalog path. What a real first connection to Upstash and to RAWG costs from the function's region was not measured: it needs the credentials.
+
+Not done here, because each is a decision about cost, configuration or caching semantics rather than a safe code change:
+
+- **Keeping an instance warm** (a scheduled request, or a plan that keeps one ready). It removes the wait for most visitors of a quiet site and costs invocations or a subscription; it does nothing for a second instance started under load.
+- **Region.** The function answered the sample above from `iad1` while the request entered at `cdg1`, so every uncached request of a European visitor crosses the Atlantic twice. Moving it is one setting, and it has to be decided together with where the Upstash database is.
+- **Bundling the server's dependencies into the function** instead of tracing them as files. Module loading is the largest local share of a cold start and 598 files are still read for a cold catalog page; this is the change most likely to move it, and the one that needs a production check — `nuxt.config.ts` already documents one dual-package problem with graphql.
+- **A compiler-free Vue on the server.** 22 files and 1.09 MB are loaded at start for a template compiler nothing uses, about 15 ms locally. Aliasing `vue` risks two copies of Vue in one render.
+- **Reading the index pointer earlier** — at instance start, or beside RAWG on the game page. One round trip less in the cold chain, for one Redis read that some instances would not have needed, and a new method on the index port.
+- **Caching more routes at the CDN**, as `/` already is (`isr: 600`). A cached page is not rendered by a cold instance at all; it changes how fresh a page may be.
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
