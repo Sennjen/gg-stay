@@ -232,6 +232,23 @@ Not done here, because each is a decision about cost, configuration or caching s
 - **Reading the index pointer earlier** — at instance start, or beside RAWG on the game page. One round trip less in the cold chain, for one Redis read that some instances would not have needed, and a new method on the index port.
 - **Caching more routes at the CDN**, as `/` already is (`isr: 600`). A cached page is not rendered by a cold instance at all; it changes how fresh a page may be.
 
+### The function's region, before and after
+
+Measured on production on 2026-10-07 from one client in Europe, minutes apart: before on commit `c1f0dba` (`x-vercel-id: cdg1::iad1::…`), after on `53fc6bb` (`cdg1::fra1::…`). Wall-clock time of the whole request, each row on queries the instance had not cached.
+
+| Request                                           | `iad1`            | `fra1`            |
+| ------------------------------------------------- | ----------------- | ----------------- |
+| `{ __typename }`, warm, median of 10              | 0.35 s            | 0.29 s            |
+| Catalog page answered by the index, median of 12  | 0.59 s            | 0.25 s            |
+| Catalog page answered by RAWG, median of 12       | 1.06 s            | 0.65 s            |
+| Game page, first open, median (30 games, then 12) | 1.62 s            | 1.26 s            |
+| Game page, the same query again, median           | 0.57 s            | 0.24 s            |
+| `/api/ask`, the same three fresh questions        | 7.9 / 8.4 / 7.7 s | 8.3 / 8.3 / 7.4 s |
+
+Everything that reads the index got faster by roughly the two Atlantic crossings each read used to make; the model's answer dominates `/api/ask` and did not move. The RAWG row is the least certain: RAWG's own latency changes from minute to minute (two of the twelve `iad1` requests ran into the 2.5 s hedge, none of the `fra1` ones), so it shows that RAWG is not slower from Frankfurt rather than how much faster it is.
+
+The first request after each deploy, one sample each and so not a measurement: 2.29 s before #69, 1.26 s after it in `iad1`, 0.97 s in `fra1`.
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
