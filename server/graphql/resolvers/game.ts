@@ -330,6 +330,11 @@ async function rawgPage(
   const listed = links.map((link) => steamAppIdFromUrl(link.url)).find((found) => found !== null)
   const appId = listed ? (steamAppIdOf(entry) ?? listed) : null
   const live = appId ? await price.read(appId, entry) : null
+  // Without a live price the index's own stands, under the timestamp the index gave it — however
+  // old that is, and even when the index as a whole is too stale to put a price on a card. That
+  // is this page's rule, and it is deliberate: the page shows a price's age beside the price
+  // (`GameScoreboard`), so an old price is an honest one here, where a card has no room to say
+  // how old its price is. A page the index answers on its own withholds a stale one (`indexPage`).
   const priced = appId && live ? withLivePrice(entry ?? emptyEntryFor(appId), live) : entry
 
   return {

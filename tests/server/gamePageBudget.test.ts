@@ -1261,6 +1261,31 @@ describe('the live Steam price', () => {
     expect(steamPrices.calls).toEqual(['292030'])
   })
 
+  it('leaves an old index price standing on a page RAWG answered, even from an index too stale to price a card', async () => {
+    // Nine days since the last price stage. The page shows a price's age beside the price, so an
+    // old one is an honest one here; a page built from the same stale index withholds it (above).
+    const NINE_DAYS_AGO = '2026-09-09T06:00:00.000Z'
+    const stale = await publishTestIndex([{ ...DOCUMENT, priceUpdatedAt: NINE_DAYS_AGO }], {
+      updatedAt: '2026-09-18T06:30:00.000Z',
+      pricesUpdatedAt: NINE_DAYS_AGO,
+    })
+
+    // Steam is asked, being long overdue, and does not answer inside its budget.
+    const steamPrices = steamPricesTaking(3_000)
+    const { data, errors } = await pageAt(LIVE_PRICE_BUDGET_MS, {
+      index: stale,
+      rawg: rawgAnswering(),
+      steamPrices,
+    })
+
+    expect(errors).toBeUndefined()
+    expect(steamPrices.calls).toEqual(['292030'])
+    expect(data!.game).toEqual({
+      ...WHOLE_PAGE,
+      stores: [{ ...INDEX_PRICED, updatedAt: NINE_DAYS_AGO }, GOG],
+    })
+  })
+
   it('counts its budget from when it was asked for, not from when the page came to need it', async () => {
     const index = await indexHolding(DUE_A_REFRESH)
     const rawg = rawgAnswering({ detail: 900 })
