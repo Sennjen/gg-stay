@@ -1174,6 +1174,7 @@ export function createRedisCommands(send: SendCommands): RedisCommands {
       sunion: (keys) => read(asMembers, 'SUNION', ...keys),
       zrangeAll: (key) => read(asMembers, 'ZRANGE', key, 0, -1),
       zrangebyscore: (key, min, max) => read(asMembers, 'ZRANGEBYSCORE', key, min, max),
+      hget: (key, field) => read(asText, 'HGET', key, field),
       hgetall: (key) =>
         read(
           (raw) => {

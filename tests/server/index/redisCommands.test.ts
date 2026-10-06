@@ -68,6 +68,7 @@ describe('withKeyPrefix', () => {
     const read = moved.pipeline()
     const values = read.mget(['one', 'missing', 'two'])
     const single = read.get('one')
+    const field = read.hget('fields', 'name')
     const fields = read.hgetall('fields')
     const members = read.smembers('members')
     const page = read.zrangeAll('scores')
@@ -75,9 +76,32 @@ describe('withKeyPrefix', () => {
 
     expect(values.value).toEqual(['1', null, '2'])
     expect(single.value).toBe('1')
+    expect(field.value).toBe('alpha')
     expect(fields.value).toEqual({ name: 'alpha' })
     expect(members.value).toEqual(['x'])
     expect(page.value).toEqual(['x'])
+  })
+
+  it('moves the key of a hash and never a field inside it', async () => {
+    const redis = createFakeRedis()
+    const moved = withKeyPrefix(redis, 'smoke:')
+    const write = moved.pipeline()
+    write.hset('slugs', { 'kite-keep': '35' })
+    await write.exec()
+
+    const read = moved.pipeline()
+    const found = read.hget('slugs', 'kite-keep')
+    await read.exec()
+    expect(found.value).toBe('35')
+
+    // Seen without the prefix: the hash moved aside, and the field in it is spelled as it was
+    // given — a field is a value, and prefixing it would make every lookup miss.
+    const direct = redis.pipeline()
+    const stored = direct.hgetall('smoke:slugs')
+    const unmoved = direct.hget('slugs', 'kite-keep')
+    await direct.exec()
+    expect(stored.value).toEqual({ 'kite-keep': '35' })
+    expect(unmoved.value).toBeNull()
   })
 
   it('deletes through the prefix and keeps the transaction a transaction', async () => {

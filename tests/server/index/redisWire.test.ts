@@ -43,6 +43,7 @@ describe('the Redis wire format', () => {
     batch.zrangeAll('order')
     batch.zrangebyscore('range', '-inf', '300')
     batch.hset('names', { '1': 'alpha' })
+    batch.hget('slugs', 'kite-keep')
     await batch.exec()
 
     expect(sent).toHaveLength(1)
@@ -61,7 +62,39 @@ describe('the Redis wire format', () => {
       ['ZRANGE', 'order', 0, -1],
       ['ZRANGEBYSCORE', 'range', '-inf', '300'],
       ['HSET', 'names', '1', 'alpha'],
+      ['HGET', 'slugs', 'kite-keep'],
     ])
+  })
+
+  it('sends a hash field as it is, whatever characters it is made of', async () => {
+    // A batch is a JSON body, not a URL: a field travels as one JSON string, so nothing in it is
+    // escaped, folded or decoded on the way, and a field cannot spill into the key beside it.
+    const { send, sent } = recorder()
+    const fields = [
+      'Kite-Keep',
+      'nier:automata',
+      'left/right',
+      'a b',
+      '50%25-off',
+      'say-"hi"',
+      'pokémon-snap',
+      '__proto__',
+      '2048',
+    ]
+    const batch = createRedisCommands(send).pipeline()
+    batch.hset('slugs', Object.fromEntries(fields.map((field, id) => [field, String(id)])))
+    for (const field of fields) batch.hget('slugs', field)
+    await batch.exec()
+
+    const [written, ...read] = sent[0]!.commands
+    expect(written!.slice(0, 2)).toEqual(['HSET', 'slugs'])
+    // Field, value, field, value…: every field is there once, spelled as it was given and still
+    // beside its own value.
+    const pairs = written!.slice(2)
+    const stored = new Map<string | number, string | number>()
+    for (let at = 0; at < pairs.length; at += 2) stored.set(pairs[at]!, pairs[at + 1]!)
+    expect(stored).toEqual(new Map(fields.map((field, id) => [field, String(id)])))
+    expect(read).toEqual(fields.map((field) => ['HGET', 'slugs', field]))
   })
 
   it('reads a lock as taken only when the store answers', async () => {
@@ -107,6 +140,8 @@ describe('the Redis wire format', () => {
           // The REST API answers HGETALL with a flat field/value list.
           case 'HGETALL':
             return { result: ['1', 'alpha', '2', 'beta'] }
+          case 'HGET':
+            return { result: '35' }
           default:
             return { result: 'OK' }
         }
@@ -119,6 +154,7 @@ describe('the Redis wire format', () => {
     const documents = batch.mget(['a', 'b'])
     const members = batch.smembers('registry')
     const names = batch.hgetall('names')
+    const id = batch.hget('slugs', 'kite-keep')
     await batch.exec()
 
     expect(pointer.value).toBe('7')
@@ -127,6 +163,7 @@ describe('the Redis wire format', () => {
     expect(documents.value).toEqual(['{"id":10}', null])
     expect(members.value).toEqual(['a', 'b'])
     expect(names.value).toEqual({ '1': 'alpha', '2': 'beta' })
+    expect(id.value).toBe('35')
   })
 
   it('reads a missing key as null and an absent hash as no fields', async () => {
@@ -135,10 +172,13 @@ describe('the Redis wire format', () => {
     const missing = batch.get('nothing')
     const empty = batch.hgetall('nothing')
     const none = batch.smembers('nothing')
+    // One answer for a hash without the field and for no hash at all: Redis says nil to both.
+    const field = batch.hget('nothing', 'kite-keep')
     await batch.exec()
     expect(missing.value).toBeNull()
     expect(empty.value).toEqual({})
     expect(none.value).toEqual([])
+    expect(field.value).toBeNull()
   })
 
   it('throws when any command of the batch failed', async () => {

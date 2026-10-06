@@ -187,6 +187,8 @@ export function createFakeRedis(): FakeRedis {
             .map(([member]) => member)
         }),
 
+      hget: (key, field) => queueRead('hget', () => ofKind(key, 'hash')?.fields.get(field) ?? null),
+
       hgetall: (key) =>
         queueRead('hgetall', () => Object.fromEntries(ofKind(key, 'hash')?.fields ?? [])),
 
