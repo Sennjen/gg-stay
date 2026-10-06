@@ -401,10 +401,11 @@ off.
 ### A game page answered in part
 
 The server answers a game page inside a time budget, with what it has by then
-(`docs/specs/2026-10-06-game-page-budget-design.md`). When RAWG had not finished answering, the
-page is `partial`: it may lack its description, RAWG's screenshots, the stores other than Steam and
-the genres, developer and publisher of the facts panel. Every section is simply absent until it has
-data — no skeleton, no placeholder — exactly as it is for a game that has none.
+(`docs/specs/2026-10-06-game-page-budget-design.md`). When not everything about the game had
+arrived, the page is `partial`: it may lack its description, RAWG's screenshots, the stores other
+than Steam and the genres, developer and publisher of the facts panel — or, for a Steam game the
+index does not hold, only its price. Every section is simply absent until it has data — no
+skeleton, no placeholder — exactly as it is for a game that has none.
 
 - **The line.** One sentence says so — "The description and screenshots are still loading…" on
   the English page, `game.stillLoading` in both locale files. It lies over the top-left corner of
@@ -420,8 +421,14 @@ data — no skeleton, no placeholder — exactly as it is for a game that has no
   seconds after the answer it has, and six seconds after the next one if that is partial too
   (`useRetryWhilePartial`). A whole answer takes the place of the partial one in one step — the
   line goes, the sections that now have data appear where they belong, and the cover, the title
-  and the scoreboard stay where they were. A second partial answer is not shown, and neither is
-  a failure: the page a visitor is reading only ever changes for the whole one.
+  and the scoreboard stay where they were; what arrives may push what is below it down. The one
+  thing that arrives inside the scoreboard is the Steam price of a game the index does not hold.
+  It takes its own cell there, and the scoreboard grows by a line or a row where the cell needs
+  one: on a phone, where the hero is as tall as its content, that pushes down what is below; from
+  640 px up, where the hero is held at its minimum height with its content on its bottom edge, it
+  lifts the title instead (by 13 to 67 px on the Witcher's page, measured with its price held
+  back). A second partial answer is not shown, and neither is a failure: the page a visitor is
+  reading only ever changes for the whole one.
 - **When the rest does not come.** After two attempts nothing more is asked, and the line stops
   saying that something is loading: "The description and screenshots didn't load. Try reloading
   the page later." (`game.notLoaded`), in the same place and the same chip — one line from about
