@@ -181,6 +181,30 @@ describe('the Redis wire format', () => {
     expect(field.value).toBeNull()
   })
 
+  it('keeps every field of a hash it reads whole, whatever the field is called', async () => {
+    // A field is data, and data can be called anything: assigned to a plain object, a field named
+    // `__proto__` would vanish without a word, where the store — and the fake — hold it like any
+    // other.
+    const send: SendCommands = async () => [
+      { result: ['__proto__', '11', 'constructor', '12', 'toString', '13', 'kite-keep', '35'] },
+    ]
+    const batch = createRedisCommands(send).pipeline()
+    const fields = batch.hgetall('idx:v1:slugs')
+    await batch.exec()
+
+    expect(new Map(Object.entries(fields.value))).toEqual(
+      new Map([
+        ['__proto__', '11'],
+        ['constructor', '12'],
+        ['toString', '13'],
+        ['kite-keep', '35'],
+      ]),
+    )
+    // Still an ordinary record to whoever reads a field by name.
+    expect(fields.value['kite-keep']).toBe('35')
+    expect(Object.getPrototypeOf(fields.value)).toBe(Object.prototype)
+  })
+
   it('throws when any command of the batch failed', async () => {
     const send: SendCommands = async () => [{ result: 'OK' }, { error: 'WRONGTYPE nope' }]
     const batch = createRedisCommands(send).pipeline()

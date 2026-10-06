@@ -1206,13 +1206,16 @@ export function createRedisCommands(send: SendCommands): RedisCommands {
       hgetall: (key) =>
         read(
           (raw) => {
-            // The REST API answers HGETALL with a flat field/value list.
+            // The REST API answers HGETALL with a flat field/value list. A field is data and can
+            // be called anything, so each one is defined rather than assigned: `fields[name] = …`
+            // on a plain object silently drops a field named `__proto__`, which the store holds
+            // like any other.
             const flat = asList(raw)
-            const fields: Record<string, string> = {}
+            const fields: [string, string][] = []
             for (let position = 0; position + 1 < flat.length; position += 2) {
-              fields[String(flat[position])] = String(flat[position + 1])
+              fields.push([String(flat[position]), String(flat[position + 1])])
             }
-            return fields
+            return Object.fromEntries(fields)
           },
           'HGETALL',
           key,
