@@ -2,8 +2,9 @@ import { waitUntil } from '@vercel/functions'
 
 /**
  * Keeps `work` running after the response has been sent, for the one kind of work a request
- * deliberately stops waiting for: a slow RAWG page the index has already answered, whose response
- * should still land in the RAWG cache for the next visitor.
+ * deliberately stops waiting for: an upstream request it has answered without — a slow RAWG page
+ * the index stood in for, a store link or a Steam price a game page did not wait out — whose
+ * response should still land in its cache for the next visitor.
  *
  * On Vercel a function may be frozen the moment it has answered. `@vercel/functions` reads the
  * platform's own per-request context, so this needs no h3 event and works the same from

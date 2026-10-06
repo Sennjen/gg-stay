@@ -556,7 +556,11 @@ describe('an index that never answers', () => {
     expect(data!.game.localisation).toBeNull()
     const offers = data!.game.stores as { store: string; priceUah: number | null }[]
     expect(offers.find((offer) => offer.store === 'steam')?.priceUah).toBeNull()
-    expect(hung.calls.getOne).toEqual([3328])
+    // One timeout for the whole request: `meta()` failed, so the slug was never looked up and the
+    // game's document never read.
+    expect(hung.calls.meta).toBe(1)
+    expect(hung.calls.idBySlug).toEqual([])
+    expect(hung.calls.getOne).toEqual([])
   })
 
   it('renders the landing instead of hanging', async () => {

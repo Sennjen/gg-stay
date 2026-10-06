@@ -1,18 +1,53 @@
 import { isMadeInUkraine } from '../../../shared/ukrainianStudios'
 import type { IndexedGame } from '../../index/document'
-import { toLocalisationInfo, toSteamOffer } from '../../index/toGraphql'
+import { toGame, toLocalisationInfo, toSteamOffer } from '../../index/toGraphql'
 import { mapGame } from '../../rawg/mappers'
 import type { RawgGameDetail, RawgList, RawgScreenshot, RawgStoreLink } from '../../rawg/types'
 import type { SteamPrice } from '../../steam/price'
-import { steamAppIdFromUrl } from '../../steam/steam'
+import { steamAppIdFromUrl, steamStoreUrl } from '../../steam/steam'
+import { UpstreamError } from '../../upstream/errors'
+import { trackPending, valueOf, type Observed, type Pending } from '../budget'
 import type { GraphQLContext } from '../context'
 import { withUpstreamErrors } from '../errors'
-import { indexEntry, warnIndexOnce } from '../indexPath'
+import { indexEntry, indexEntryBySlug, indexState, warnIndexOnce } from '../indexPath'
 import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolvers-types'
 
 /**
- * The game page reads its own index entry: the Steam offer carries the price, and the page gets
- * the language list and the made-in-Ukraine flag.
+ * The game page, answered inside a time budget.
+ *
+ * The page asks RAWG three things — the game's detail, its store links and its screenshots — and
+ * the index one: the document it holds under this address. All of it is sent before anything is
+ * awaited, the detail first, and the index beside the RAWG requests rather than in front of them.
+ * What the page then waits for depends on what it can do without:
+ *
+ * - **The detail** is the page. RAWG's answer inside `GAME_DETAIL_HEDGE_MS` is used exactly as it
+ *   always was. Past that, a game the index holds is answered from its index document (`toGame`)
+ *   and marked `partial`; so is one whose detail request failed, without waiting for the budget.
+ *   A game the index does not hold waits for RAWG as long as RAWG takes and fails as RAWG fails,
+ *   as before — which is every game while the index is unavailable, once it has failed in this
+ *   request, and for as long as the published version has no slugs to find a game by. "No such
+ *   game" is RAWG's answer rather than a failure of it, and is passed on whatever the index holds:
+ *   the index was built from RAWG's list some time ago, and RAWG is the one that knows whether
+ *   the game still exists.
+ * - **The store links and the screenshots** are enhancements. They are waited for until
+ *   `GAME_EXTRAS_BUDGET_MS` after the request began, and the page is then assembled from whichever
+ *   have arrived — `partial` if one had not. One that failed inside the budget is not missing in
+ *   that sense: the page renders without it and is complete, exactly as it was.
+ * - **The live Steam price** (below) is waited for `LIVE_PRICE_BUDGET_MS` from the moment it was
+ *   asked for. Past that the index price stands, under its own true timestamp. That is not a
+ *   reason for `partial`: the page has a price, and says how old it is.
+ *
+ * Nothing the page stops waiting for is cancelled. Every request keeps running so that its answer
+ * reaches the cache it was headed for, and `Pending.release` hands whatever is still running to
+ * `context.waitUntil` at every exit — the page the same visitor's browser asks for again a few
+ * seconds later then collects those answers instead of starting over, because the transport
+ * shares a request that is still in flight (`createUpstreamFetch`).
+ *
+ * The page also reads its own index entry: the Steam offer carries the price, and the page gets
+ * the language list and the made-in-Ukraine flag. On a page RAWG answered the entry is read by the
+ * id RAWG gave, as it always was — in the usual case that is the very read the lookup by slug has
+ * already made, and `Game.similar` shares it, so one request reads the game's document once. The
+ * lookup by slug is a head start, not a second source: RAWG says which game the page is about.
  *
  * The flag has a second source that needs no index at all: the game's own RAWG developers, checked
  * against the studio list (`shared/ukrainianStudios.ts`). That keeps it right for a game outside
@@ -29,6 +64,10 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * keeps the index copy and logs a warning, because this page has to render either way, and the
  * site never writes to Redis.
  *
+ * Which app to ask about comes from the index document when the refresh job has published the
+ * game's Steam app id there — the read then starts the moment the document is found, beside the
+ * RAWG requests instead of behind them — and from RAWG's own store links otherwise, as before.
+ *
  * The read goes through `fetchPrices([appId])`, which is the only Steam path in this project that
  * never caches (`steamPriceFetch.ts`'s `NO_CACHE`). The per-app transport beside it keeps its
  * answers for twenty-four hours, so a "refresh" through it would very often hand back a day-old
@@ -36,6 +75,28 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * cached is this resolver's own six-hour entry, and it carries the moment the fetch actually
  * happened, which is what `updatedAt` is stamped with.
  */
+
+/**
+ * How long the page waits for RAWG's detail before a game the index holds is answered from the
+ * index instead.
+ *
+ * The same two and a half seconds the catalog gives RAWG (`RAWG_HEDGE_MS` in `games.ts`), for the
+ * same reason: long enough that a page RAWG answers at its usual pace is never second-guessed,
+ * short enough that a visitor is not left looking at a skeleton for the whole of RAWG's slow
+ * path — which reached 8.6 s for a first open of a game page when it was measured on production
+ * (`docs/specs/2026-10-07-game-page-budget-design.md`).
+ */
+export const GAME_DETAIL_HEDGE_MS = 2_500
+
+/**
+ * How long after the request began the page still waits for the store links and the screenshots.
+ * Shorter than the detail's budget on purpose: the page can be read without either, and the one
+ * that is missing arrives with the page's own second request.
+ */
+export const GAME_EXTRAS_BUDGET_MS = 1_500
+
+/** How long the page waits for a live Steam price, counted from the moment it was asked for. */
+export const LIVE_PRICE_BUDGET_MS = 1_000
 
 /** How old an index price may be before the page refreshes that one game from Steam. */
 export const PRICE_REFRESH_AFTER_MS = 6 * 60 * 60 * 1000
@@ -67,31 +128,207 @@ function pricedOrNull(remembered: RememberedPrice): LivePrice | null {
   return remembered.price ? { price: remembered.price, fetchedAt: remembered.fetchedAt } : null
 }
 
+/** What the index holds for the address the page was asked for, when it can stand in for RAWG. */
+interface Indexed {
+  document: IndexedGame
+  /** The index's prices are too old to be shown (`indexState`). */
+  stale: boolean
+}
+
+/** RAWG's two enhancements to the page, and the budget they share. */
+interface Extras {
+  storeLinks: Observed<RawgList<RawgStoreLink>>
+  screenshots: Observed<RawgList<RawgScreenshot>>
+  /** Resolves `GAME_EXTRAS_BUDGET_MS` after the request began. */
+  budget: Promise<void>
+}
+
+type LivePrices = ReturnType<typeof livePrices>
+
 export const game: QueryResolvers['game'] = (_parent, { slug }, context) =>
   withUpstreamErrors(async () => {
-    const path = `games/${encodeURIComponent(slug)}`
-    const [detail, storeLinks, screenshots] = await Promise.all([
-      context.rawg(path) as Promise<RawgGameDetail>,
-      // Store links are an enhancement: the page still renders without them.
-      (context.rawg(`${path}/stores`) as Promise<RawgList<RawgStoreLink>>).catch(() => null),
-      // Same pattern: screenshots are an enhancement, not required to render the page.
-      (context.rawg(`${path}/screenshots`) as Promise<RawgList<RawgScreenshot>>).catch(() => null),
-    ])
-    const links = storeLinks?.results ?? []
-    const mapped = mapGame(detail, links, screenshots?.results ?? [])
-    return attachIndexEntry(context, mapped, links)
+    const pending = trackPending(context)
+    try {
+      return await gamePage(context, slug, pending)
+    } finally {
+      // However the answer came out — a page, a partial page or an error — no timer outlives it,
+      // and nothing it started and did not wait for is dropped.
+      pending.release()
+    }
   })
 
-async function attachIndexEntry(
-  context: GraphQLContext,
-  mapped: Game,
-  links: RawgStoreLink[],
+async function gamePage(context: GraphQLContext, slug: string, pending: Pending): Promise<Game> {
+  const path = `games/${encodeURIComponent(slug)}`
+
+  // Sent before anything is awaited, the detail first: the transport spaces its requests, and the
+  // detail is the one the page cannot be built without.
+  const detail = pending.observe(context.rawg(path).then(detailOrThrow))
+  const extras: Extras = {
+    // Store links are an enhancement: the page still renders without them.
+    storeLinks: pending.observe(context.rawg(`${path}/stores`) as Promise<RawgList<RawgStoreLink>>),
+    // Same pattern: screenshots are an enhancement, not required to render the page.
+    screenshots: pending.observe(
+      context.rawg(`${path}/screenshots`) as Promise<RawgList<RawgScreenshot>>,
+    ),
+    budget: pending.budget(GAME_EXTRAS_BUDGET_MS),
+  }
+  const hedge = pending.budget(GAME_DETAIL_HEDGE_MS)
+
+  // The index, beside the RAWG requests and never in front of them. With the document comes the
+  // game's Steam app id, so a price that is due a refresh is asked for right there, while RAWG is
+  // still out.
+  const price = livePrices(context, pending)
+  const indexed = pending.observe(
+    indexedGame(context, slug).then((found) => {
+      if (found) price.startEarly(found.document)
+      return found
+    }),
+  )
+
+  await Promise.race([detail.settled, hedge])
+  if (!hasAnswered(detail)) {
+    // RAWG is late, or has failed. The index answers if it holds the game — unless RAWG's own
+    // answer gets in first, which is the better page and costs nothing more to take.
+    const found = await Promise.race([
+      indexed.settled.then(() => valueOf(indexed) ?? null),
+      answerOf(detail),
+    ])
+    if (found) return indexPage(found, detail, price)
+    // RAWG got in first, or the index does not hold the game: RAWG's answer, or RAWG's error,
+    // exactly as before.
+  }
+
+  const answer = await detail.settled
+  if (answer.status === 'rejected') throw answer.reason
+  return rawgPage(context, answer.value, extras, price)
+}
+
+/**
+ * RAWG's detail, or the upstream error a body that is not a game stands for. RAWG has been seen
+ * answering with an empty body under a 200, which the transport hands back once without caching
+ * it (see `rawgListOrThrow` for the same rule on lists). Named here, at the source, it is a failed
+ * detail like any other: a game the index holds is answered from the index, and any other game
+ * fails through the resolvers' error mapping rather than on a property read.
+ */
+function detailOrThrow(body: unknown): RawgGameDetail {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new UpstreamError('RAWG', 'ERROR')
+  }
+  return body as RawgGameDetail
+}
+
+function isNotFound(reason: unknown): boolean {
+  return reason instanceof UpstreamError && reason.kind === 'NOT_FOUND'
+}
+
+/**
+ * Whether RAWG has said what the page needs to know: which game this is — or that there is no such
+ * game, which is as much an answer and is never second-guessed from the index.
+ */
+function hasAnswered(detail: Observed<RawgGameDetail>): boolean {
+  const outcome = detail.outcome()
+  return (
+    outcome.status === 'fulfilled' || (outcome.status === 'rejected' && isNotFound(outcome.reason))
+  )
+}
+
+/**
+ * Resolves — with `null`, "nothing from the index" — when RAWG has answered (`hasAnswered`), and
+ * never settles when it has failed instead: a RAWG failure does not win a race against the index,
+ * it leaves the index to answer.
+ */
+function answerOf(detail: Observed<RawgGameDetail>): Promise<null> {
+  return detail.settled.then(() => (hasAnswered(detail) ? null : new Promise<never>(() => {})))
+}
+
+/**
+ * The document the index holds for this address, with what the index says about its own prices;
+ * `null` whenever the page should carry on as for a game the index does not hold.
+ *
+ * That is when there is no index to ask — nothing published, nothing configured, or a metadata
+ * read that failed — when the index has already let this request down, in which case the lookup
+ * is not even made (`indexEntryBySlug`), and when it does not know the slug, which is also all a
+ * version published before the refresh job wrote slugs can say. Never rejects: a read that fails
+ * is warned about once, like every index read, and declines.
+ *
+ * The metadata is read first. It is the one read that says whether there is anything to ask, so
+ * an index that is down costs this page one failed call rather than two, and `Game.similar` needs
+ * it anyway — within a request it is read once.
+ */
+async function indexedGame(context: GraphQLContext, slug: string): Promise<Indexed | null> {
+  const state = await indexState(context)
+  if (state.meta === null) return null
+  const document = await indexEntryBySlug(context, slug)
+  return document ? { document, stale: state.stale } : null
+}
+
+/**
+ * The page built from the index document, when RAWG's detail is late or has failed: `toGame` says
+ * what such a page holds, and that it is `partial`.
+ *
+ * Its Steam offer carries the freshest price there is — the live one when it was due and Steam
+ * answered within its budget, the index copy otherwise. A stale index is not trusted with a price
+ * here either, as on every page the index serves on its own: its copy is withheld, and only a
+ * price Steam has just given is shown.
+ *
+ * One `console.info` line per page answered this way: the runtime logs are how it is seen in
+ * production.
+ */
+async function indexPage(
+  { document, stale }: Indexed,
+  detail: Observed<RawgGameDetail>,
+  price: LivePrices,
 ): Promise<Game> {
+  const rawg = detail.outcome()
+  console.info(
+    rawg.status === 'rejected'
+      ? `[game] RAWG failed (${kindOf(rawg.reason)}), answered from the index`
+      : `[game] RAWG slower than ${GAME_DETAIL_HEDGE_MS} ms, answered from the index`,
+  )
+
+  // Without an app id there is no Steam offer on this page, and so nothing for a price to sit on.
+  const appId = steamAppIdOf(document)
+  const live = appId ? await price.read(appId, document) : null
+  if (live) return toGame(withLivePrice(document, live))
+  return toGame(stale ? withoutPrice(document) : document)
+}
+
+function kindOf(reason: unknown): string {
+  return reason instanceof UpstreamError ? reason.kind : 'ERROR'
+}
+
+/**
+ * The page built from RAWG's detail, as it always was, with whatever else has arrived.
+ *
+ * The store links and the screenshots are waited for until their budget is spent — which, for a
+ * detail that itself arrived after it, is no time at all — and the page says `partial` when one
+ * of them had still not settled. The index entry is read by the id RAWG gave.
+ */
+async function rawgPage(
+  context: GraphQLContext,
+  detail: RawgGameDetail,
+  extras: Extras,
+  price: LivePrices,
+): Promise<Game> {
+  await Promise.race([
+    Promise.all([extras.storeLinks.settled, extras.screenshots.settled]),
+    extras.budget,
+  ])
+  const links = valueOf(extras.storeLinks)?.results ?? []
+  const mapped = mapGame(detail, links, valueOf(extras.screenshots)?.results ?? [])
+  const partial = isPending(extras.storeLinks) || isPending(extras.screenshots)
+
   const id = Number(mapped.id)
   const entry = Number.isFinite(id) ? await indexEntry(context, id) : null
-  const appId = links.map((link) => steamAppIdFromUrl(link.url)).find((found) => found !== null)
 
-  const priced = appId ? await refreshedPrice(context, appId, entry) : entry
+  // Whether there is a Steam price to show is RAWG's store link's to say, as it always was: the
+  // price sits on that link. Which app the link stands for is the document's to say when it
+  // knows, because that is the app whose price is already being read.
+  const listed = links.map((link) => steamAppIdFromUrl(link.url)).find((found) => found !== null)
+  const appId = listed ? (steamAppIdOf(entry) ?? listed) : null
+  const live = appId ? await price.read(appId, entry) : null
+  const priced = appId && live ? withLivePrice(entry ?? emptyEntryFor(appId), live) : entry
+
   return {
     ...mapped,
     stores: withSteamPrice(mapped.stores, priced),
@@ -99,27 +336,69 @@ async function attachIndexEntry(
     madeInUkraine:
       isMadeInUkraine(mapped.developers.map((developer) => developer.slug)) ||
       (entry?.madeInUkraine ?? false),
+    partial,
   }
 }
 
-/** The index entry with a fresher price on it, or the entry unchanged when none was needed. */
-async function refreshedPrice(
-  context: GraphQLContext,
-  appId: string,
-  entry: IndexedGame | null,
-): Promise<IndexedGame | null> {
-  if (entry && !needsRefresh(context, entry)) return entry
+function isPending(request: Observed<unknown>): boolean {
+  return request.outcome().status === 'pending'
+}
 
-  const live = await livePrice(context, appId)
-  if (!live) return entry
+/**
+ * The Steam app the index document names, when it names one. Anything that is not an app id is no
+ * app id: the value goes into a store address and a cache key (`steamStoreUrl`).
+ */
+function steamAppIdOf(entry: IndexedGame | null): string | null {
+  const appId = entry?.steamAppId
+  return appId && steamStoreUrl(appId) ? appId : null
+}
+
+/**
+ * The live Steam price for the one app this page is about: asked for at most once per app, and
+ * waited for `LIVE_PRICE_BUDGET_MS` from the moment it was asked — not from the moment the page
+ * came to need it, so a read that started beside the RAWG requests has usually used its budget up
+ * before the page is assembled, and costs the page nothing then.
+ *
+ * A read the page does not wait out is left running, like every request here (`Pending`): it ends
+ * in the six-hour cache entry the next reader is served from.
+ */
+function livePrices(context: GraphQLContext, pending: Pending) {
+  let asked: { appId: string; price: Observed<LivePrice | null>; budget: Promise<void> } | null =
+    null
+
+  function ask(appId: string) {
+    if (asked?.appId !== appId) {
+      asked = {
+        appId,
+        price: pending.observe(livePrice(context, appId)),
+        budget: pending.budget(LIVE_PRICE_BUDGET_MS),
+      }
+    }
+    return asked
+  }
 
   return {
-    ...(entry ?? emptyEntryFor(appId)),
-    priceUah: live.price.priceUah,
-    regularPriceUah: live.price.regularPriceUah,
-    discountPercent: live.price.discountPercent,
-    free: live.price.isFree,
-    priceUpdatedAt: live.fetchedAt,
+    /**
+     * Asks Steam as soon as the index document says which app to ask about, when its price is due
+     * a refresh. Does nothing once the answer has been given: a head start is all this is.
+     */
+    startEarly(document: IndexedGame): void {
+      if (pending.released) return
+      const appId = steamAppIdOf(document)
+      if (appId && needsRefresh(context, document)) ask(appId)
+    },
+
+    /**
+     * The live price for `appId`, or `null` when none is needed — the entry's own is fresh
+     * enough — when Steam has none, when the read failed, and when it did not arrive in time. In
+     * every one of those the caller keeps what the index holds.
+     */
+    async read(appId: string, entry: IndexedGame | null): Promise<LivePrice | null> {
+      if (entry && !needsRefresh(context, entry)) return null
+      const { price, budget } = ask(appId)
+      await Promise.race([price.settled, budget])
+      return valueOf(price) ?? null
+    },
   }
 }
 
@@ -129,6 +408,7 @@ function needsRefresh(context: GraphQLContext, entry: IndexedGame): boolean {
   return !Number.isFinite(age) || age > PRICE_REFRESH_AFTER_MS
 }
 
+/** Never rejects: whatever goes wrong is warned about, and the caller keeps the index copy. */
 async function livePrice(context: GraphQLContext, appId: string): Promise<LivePrice | null> {
   const key = `${LIVE_PRICE_PREFIX}:${appId}`
   try {
@@ -152,6 +432,30 @@ async function livePrice(context: GraphQLContext, appId: string): Promise<LivePr
   } catch (error) {
     warnIndexOnce(context, 'the live Steam price could not be read', error)
     return null
+  }
+}
+
+/** The entry with the price Steam has just given on it, dated by the read. */
+function withLivePrice(entry: IndexedGame, live: LivePrice): IndexedGame {
+  return {
+    ...entry,
+    priceUah: live.price.priceUah,
+    regularPriceUah: live.price.regularPriceUah,
+    discountPercent: live.price.discountPercent,
+    free: live.price.isFree,
+    priceUpdatedAt: live.fetchedAt,
+  }
+}
+
+/** The document with its price withheld, for a page a stale index serves on its own. */
+function withoutPrice(document: IndexedGame): IndexedGame {
+  return {
+    ...document,
+    priceUah: null,
+    regularPriceUah: null,
+    discountPercent: 0,
+    free: false,
+    priceUpdatedAt: null,
   }
 }
 

@@ -31,11 +31,12 @@ export interface GraphQLContext {
   /**
    * Keeps `work` running after the response has been sent. A serverless platform may freeze a
    * function the moment it has answered, and a resolver that deliberately stops waiting for
-   * something — the catalog no longer waiting for a slow RAWG page, whose response should still
-   * reach the RAWG cache — hands it over here. The site passes `keepRunning`
-   * (`server/utils/keepRunning.ts`); a test passes a spy, or nothing, in which case the work is
-   * simply left running. Nothing here catches, so what is handed over must already have its
-   * rejection handled.
+   * something — the catalog no longer waiting for a slow RAWG page, the game page no longer
+   * waiting for anything past its budget — hands it over here, so that the response still reaches
+   * the cache it was headed for. The site passes `keepRunning` (`server/utils/keepRunning.ts`); a
+   * test passes a spy, or nothing, in which case the work is simply left running. Nothing here
+   * catches, so what is handed over must already have its rejection handled — which is what
+   * `leaveRunning` (`server/graphql/budget.ts`) is for.
    */
   waitUntil?: (work: Promise<unknown>) => void
 }
