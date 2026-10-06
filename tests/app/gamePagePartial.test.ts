@@ -4,18 +4,22 @@ import { flushPromises } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { readBody } from 'h3'
+import { defineComponent, h, onMounted, ref } from 'vue'
 import { clearNuxtData } from '#app'
 import GamePage from '~/pages/games/[slug].vue'
 
 /**
  * The game page with an answer the server marked `partial`, against a stand-in for the BFF that
- * answers each request as the case scripts it: the one quiet line, the two attempts the page makes
- * by itself, and what each kind of answer to them does to the page. The clock is fake; the
- * requests and the rendering run as they do in a browser.
+ * answers each request as the case scripts it: the one quiet line and what it says when, the two
+ * attempts the page makes by itself, and what each kind of answer to them does to the page. The
+ * clock is fake; the requests and the rendering run as they do in a browser.
  */
 
 const SLUG = 'the-witcher-3-wild-hunt'
 const ROUTE = `/games/${SLUG}`
+/** The page's status region: there on every game page, with words in it only when it has any. */
+const REGION = '[role="status"]'
+/** The line itself, inside the region. */
 const NOTE = '[data-test="game-partial-note"]'
 
 /**
@@ -23,7 +27,7 @@ const NOTE = '[data-test="game-partial-note"]'
  * would arrive compiled, which is how the app wants them and not something to compare text with.
  */
 interface Copy {
-  game: { stillLoading: string; about: string; whereToBuy: string }
+  game: { stillLoading: string; notLoaded: string; about: string; whereToBuy: string }
   gallery: { heading: string }
 }
 const copyOf = (locale: 'uk' | 'en'): Copy =>
@@ -167,10 +171,32 @@ async function goTo(route: string): Promise<void> {
 
 const mounted = new Set<{ unmount: () => void }>()
 
+/**
+ * The page as it was first rendered, before anything it does once it is mounted had reached the
+ * screen. That is the markup a server sends for the same answer and the markup a browser builds to
+ * take it over, so what is true of it is true of both.
+ */
+const firstRender: { html: string; region: Element | null } = { html: '', region: null }
+
+/**
+ * The page inside an element that looks at it the moment it is mounted: hooks run before the
+ * render they cause, so what this one sees is the first render whatever the page's own hooks did.
+ */
+const WatchedGamePage = defineComponent({
+  setup() {
+    const root = ref<HTMLElement | null>(null)
+    onMounted(() => {
+      firstRender.html = root.value?.innerHTML ?? ''
+      firstRender.region = root.value?.querySelector(REGION) ?? null
+    })
+    return () => h('div', { ref: root }, h(GamePage))
+  },
+})
+
 async function renderGame(answers: Reply[], route = ROUTE) {
   replies = [...answers]
   await goTo(route)
-  const wrapper = await mountSuspended(GamePage, { route })
+  const wrapper = await mountSuspended(WatchedGamePage, { route })
   mounted.add(wrapper)
   await flushPromises()
   return wrapper
@@ -204,23 +230,27 @@ afterEach(() => {
   vi.useRealTimers()
   replies = []
   asked.length = 0
+  firstRender.html = ''
+  firstRender.region = null
   clearNuxtData()
 })
 
 describe('a game page whose answer is partial', () => {
   it('says in one quiet line that the description and the screenshots are still loading', async () => {
     const wrapper = await renderGame([PARTIAL])
+    const region = wrapper.get(REGION)
     const note = wrapper.get(NOTE)
 
     expect(note.text()).toBe(uk.game.stillLoading)
-    // Announced politely, by the one status region the page has.
-    expect(note.attributes('role')).toBe('status')
+    // Announced politely, by the one status region the page has, which holds nothing else.
     expect(wrapper.findAll('[role="status"], [aria-live]')).toHaveLength(1)
+    expect(region.element.contains(note.element)).toBe(true)
+    expect(region.text()).toBe(uk.game.stillLoading)
     // Near the top: inside the article, before its heading.
     const article = wrapper.get('article').element
-    expect(article.firstElementChild).toBe(note.element)
+    expect(article.firstElementChild).toBe(region.element)
     // And out of the flow, over the cover, so it takes no room and moves nothing.
-    expect(note.classes()).toContain('absolute')
+    expect(region.classes()).toContain('absolute')
   })
 
   it('says it in English on the English page', async () => {
@@ -228,6 +258,26 @@ describe('a game page whose answer is partial', () => {
     expect(wrapper.get(NOTE).text()).toBe('The description and screenshots are still loading…')
     expect(en.game.stillLoading).toBe('The description and screenshots are still loading…')
     expect(asked).toEqual([{ slug: SLUG, locale: 'en' }])
+  })
+
+  it('is first rendered with its status region empty, and puts the sentence into that region once mounted', async () => {
+    const wrapper = await renderGame([PARTIAL])
+
+    // The first render — what a server sends, and what a browser builds over it — is the partial
+    // page, with the region and without a word in it: no "still loading" for a crawler to read.
+    expect(firstRender.html).toContain('The Witcher 3: Wild Hunt')
+    expect(firstRender.html).not.toContain(uk.game.stillLoading)
+    expect(firstRender.html).not.toContain('game-partial-note')
+    const first = document.createElement('div')
+    first.innerHTML = firstRender.html
+    const regions = first.querySelectorAll(REGION)
+    expect(regions).toHaveLength(1)
+    expect(regions[0]!.textContent).toBe('')
+    expect(regions[0]!.children).toHaveLength(0)
+
+    // The sentence arrives in the region that was already there, which is what gets it announced.
+    expect(wrapper.get(REGION).element).toBe(firstRender.region)
+    expect(wrapper.get(REGION).text()).toBe(uk.game.stillLoading)
   })
 
   it('renders every section it has data for, and none it has not', async () => {
@@ -258,10 +308,15 @@ describe('a game page whose answer is partial', () => {
     const heading = wrapper.get('h1').element
     const stores = wrapper.get('#where-to-buy').element
 
+    const region = wrapper.get(REGION).element
+
     await advance(3_000)
 
+    // The line goes; the region it was in stays, with nothing in it to say or to see.
     expect(wrapper.find(NOTE).exists()).toBe(false)
-    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.get(REGION).element).toBe(region)
+    expect(region.textContent).toBe('')
+    expect(region.children).toHaveLength(0)
     expect(wrapper.text()).toContain(uk.game.about)
     expect(wrapper.text()).toContain('Geralt of Rivia looks for the child of prophecy.')
     expect(wrapper.findAll('#screenshot-gallery-heading ~ ul li')).toHaveLength(3)
@@ -278,24 +333,77 @@ describe('a game page whose answer is partial', () => {
     expect(asked).toHaveLength(2)
   })
 
-  it('asks once more six seconds after a second partial answer, then keeps the line and stops', async () => {
+  it('asks once more six seconds after a second partial answer, and then says that the rest did not load', async () => {
     const wrapper = await renderGame([PARTIAL, PARTIAL, PARTIAL])
+    const region = wrapper.get(REGION).element
     const note = wrapper.get(NOTE).element
 
     await advance(3_000)
     expect(asked).toHaveLength(2)
+    // One attempt left: the line is the element it was, with the words it had — said once.
+    expect(wrapper.get(NOTE).element).toBe(note)
+    expect(wrapper.get(NOTE).text()).toBe(uk.game.stillLoading)
+
     await advance(5_999)
     expect(asked).toHaveLength(2)
+    expect(wrapper.get(NOTE).text()).toBe(uk.game.stillLoading)
     await advance(1)
     expect(asked).toHaveLength(3)
 
-    // The line is the element it was from the start, with the words it had: said once.
+    // Nothing is loading any more, and the line stops saying that something is. The same line in
+    // the same region, with new words: a second announcement, and the last.
+    expect(wrapper.get(NOTE).text()).toBe(uk.game.notLoaded)
+    expect(uk.game.notLoaded).toBe(
+      'Опис і скріншоти не завантажилися. Спробуйте оновити сторінку пізніше.',
+    )
     expect(wrapper.get(NOTE).element).toBe(note)
-    expect(wrapper.get(NOTE).text()).toBe(uk.game.stillLoading)
-    expect(wrapper.findAll('[role="status"]')).toHaveLength(1)
+    expect(wrapper.get(REGION).element).toBe(region)
+    expect(wrapper.findAll('[role="status"], [aria-live]')).toHaveLength(1)
+    // The page under it is as it was.
+    expect(wrapper.get('h1').text()).toBe('The Witcher 3: Wild Hunt')
+    expect(wrapper.text()).toContain(uk.game.whereToBuy)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+
     await advance(60_000)
     expect(asked).toHaveLength(3)
+    expect(wrapper.get(NOTE).text()).toBe(uk.game.notLoaded)
   })
+
+  it('says so in English on the English page', async () => {
+    const wrapper = await renderGame([PARTIAL, PARTIAL, PARTIAL], `/en${ROUTE}`)
+    await advance(3_000)
+    await advance(6_000)
+    expect(wrapper.get(NOTE).text()).toBe(
+      "The description and screenshots didn't load. Try reloading the page later.",
+    )
+    expect(en.game.notLoaded).toBe(
+      "The description and screenshots didn't load. Try reloading the page later.",
+    )
+  })
+
+  it.each([
+    ['fail', { failsWith: 'UPSTREAM_TIMEOUT' }],
+    // The index still holds a game RAWG has dropped: the page was built from the index, and each
+    // attempt is told there is no such game.
+    ['are told there is no such game', { failsWith: 'NOT_FOUND' }],
+  ])(
+    'says that the rest did not load when both attempts %s, and puts no error in place of the page',
+    async (_what, failure) => {
+      const wrapper = await renderGame([PARTIAL, failure, failure])
+      const heading = wrapper.get('h1').element
+
+      await advance(3_000)
+      expect(wrapper.get(NOTE).text()).toBe(uk.game.stillLoading)
+      await advance(6_000)
+      expect(asked).toHaveLength(3)
+
+      expect(wrapper.get(NOTE).text()).toBe(uk.game.notLoaded)
+      expect(wrapper.get('h1').element).toBe(heading)
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      await advance(60_000)
+      expect(asked).toHaveLength(3)
+    },
+  )
 
   it('takes the whole answer of the second attempt when the first stayed partial', async () => {
     const wrapper = await renderGame([PARTIAL, PARTIAL, WHOLE])
@@ -364,8 +472,10 @@ describe('a game page that turns to another game', () => {
     expect(asked.map((variables) => variables.slug)).toEqual([SLUG, 'portal-2'])
 
     // The partial answer stays on screen while the new one loads, and its three seconds run out
-    // in the meantime. Nothing is asked for it — which would be asked about the new game by now.
-    expect(wrapper.find(NOTE).exists()).toBe(true)
+    // in the meantime. Nothing is asked for it — which would be asked about the new game by now —
+    // and so the line that said it was being asked for is gone.
+    expect(wrapper.get('h1').text()).toBe('The Witcher 3: Wild Hunt')
+    expect(wrapper.find(NOTE).exists()).toBe(false)
     await advance(10_000)
     expect(asked).toHaveLength(2)
 
@@ -403,7 +513,9 @@ describe('a game page whose answer is whole', () => {
     const wrapper = await renderGame([WHOLE])
 
     expect(wrapper.find(NOTE).exists()).toBe(false)
-    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    // The region is there all the same, empty: a page cannot know it will never need it.
+    expect(wrapper.get(REGION).text()).toBe('')
+    expect(wrapper.get(REGION).element.children).toHaveLength(0)
     expect(wrapper.text()).toContain(uk.game.about)
     await advance(60_000)
     expect(asked).toHaveLength(1)

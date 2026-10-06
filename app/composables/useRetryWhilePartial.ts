@@ -16,6 +16,18 @@ import type { Ref } from 'vue'
  */
 export const PARTIAL_RETRY_DELAYS_MS: readonly number[] = [3_000, 6_000]
 
+/**
+ * How the asking stands for the answer on the page:
+ *
+ * - `idle` — nothing is being asked. The answer is whole, or there is none; or the page is not
+ *   mounted in a browser yet, which is every server render and a browser's first render of it;
+ * - `asking` — the answer is partial, and the page is waiting to ask again or has asked and is
+ *   waiting for the answer;
+ * - `stopped` — the answer is partial still, and both attempts are spent: nothing more will come
+ *   by itself.
+ */
+export type PartialRetryState = 'idle' | 'asking' | 'stopped'
+
 /** What `useGql` hands a page about one operation, as far as asking it again goes. */
 interface RetriedQuery<TData> {
   /** The answer the page is showing. Written to here, a complete one replaces it in place. */
@@ -53,11 +65,18 @@ interface RetriedQuery<TData> {
  *
  * A new answer starts the count again: the two attempts belong to the answer on the page, not to
  * the visit.
+ *
+ * `state` tells the page how the asking stands, for whatever it says about it to its visitor. It
+ * is `idle` on a server and in a browser's first render, and changes only once the page is
+ * mounted: what a page says from it is therefore never in the server's markup, the two renders
+ * agree, and a status region that is there empty first has its words put into it afterwards —
+ * which is what makes a screen reader say them.
  */
 export function useRetryWhilePartial<TData>(
   query: RetriedQuery<TData>,
   partial: (answer: TData | null | undefined) => boolean | undefined,
-): void {
+): { state: Readonly<Ref<PartialRetryState>> } {
+  const state = ref<PartialRetryState>('idle')
   let timer: ReturnType<typeof setTimeout> | undefined
   /** Attempts made for the answer on the page. */
   let attempts = 0
@@ -71,9 +90,15 @@ export function useRetryWhilePartial<TData>(
     generation += 1
   }
 
-  function schedule(): void {
+  /** Waits for the next attempt; with none left, the asking is over and the page is told so. */
+  function waitOrStop(): void {
     const delay = PARTIAL_RETRY_DELAYS_MS[attempts]
-    if (delay !== undefined) timer = setTimeout(askAgain, delay)
+    if (delay === undefined) {
+      state.value = 'stopped'
+      return
+    }
+    state.value = 'asking'
+    timer = setTimeout(askAgain, delay)
   }
 
   async function askAgain(): Promise<void> {
@@ -89,22 +114,34 @@ export function useRetryWhilePartial<TData>(
     if (asked !== generation) return
     // Writing the answer is itself "a new answer arrived", which ends this round below.
     if (partial(answer) === false) query.data.value = answer
-    else schedule()
+    else waitOrStop()
   }
 
   /** The answer on the page is a new one: whatever was pending was for the last. */
   function restart(): void {
     stop()
     attempts = 0
-    if (partial(query.data.value) === true) schedule()
+    if (partial(query.data.value) === true) waitOrStop()
+    else state.value = 'idle'
+  }
+
+  /**
+   * The page has turned to something else. The old answer stays on it until the new one arrives,
+   * but nothing is being asked for it any more — and nothing said about it is true of the next.
+   */
+  function leaveAnswer(): void {
+    stop()
+    state.value = 'idle'
   }
 
   onMounted(() => {
     // The old answer stays on the page until the new one arrives, so the key is what says first
     // that the page has moved on.
-    watch(query.key, stop)
+    watch(query.key, leaveAnswer)
     watch(query.data, restart)
     restart()
   })
   onBeforeUnmount(stop)
+
+  return { state: readonly(state) }
 }

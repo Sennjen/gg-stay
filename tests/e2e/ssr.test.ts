@@ -502,6 +502,19 @@ describe('server-side rendering', async () => {
     expect(html).toContain('оновлено')
   })
 
+  it('renders the game page’s status region empty: what it says, it says once it is in a browser', async () => {
+    // The region a partial page's line is put into is in the markup of every game page, so that a
+    // screen reader has it before there is anything in it — and the server puts nothing in it,
+    // whatever the answer: it holds only the mark of the line that is not there.
+    for (const locale of ['', '/en']) {
+      const html = await $fetch<string>(`${locale}/games/the-witcher-3-wild-hunt`)
+      const regions = [...html.matchAll(/<div[^>]*\brole="status"[^>]*>([\s\S]*?)<\/div>/g)]
+      expect(regions).toHaveLength(1)
+      expect(regions[0]![1]).toBe('<!---->')
+      expect(html).not.toContain('game-partial-note')
+    }
+  })
+
   it('applies the Ukrainian plural rule server-side for the ratings count', async () => {
     const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
     // Fixture rating: 6800, uk-UA grouped with a no-break space (U+00A0) between the digits;

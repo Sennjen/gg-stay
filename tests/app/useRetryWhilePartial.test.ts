@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { createSSRApp, defineComponent, h, ref, shallowRef } from 'vue'
+import { createSSRApp, defineComponent, h, nextTick, ref, shallowRef } from 'vue'
 import { renderToString } from 'vue/server-renderer'
-import { PARTIAL_RETRY_DELAYS_MS, useRetryWhilePartial } from '~/composables/useRetryWhilePartial'
+import {
+  PARTIAL_RETRY_DELAYS_MS,
+  useRetryWhilePartial,
+  type PartialRetryState,
+} from '~/composables/useRetryWhilePartial'
 
 /**
  * The rule a page follows when its answer came back partial: when it asks again, what it does
@@ -31,13 +35,20 @@ function harness(shown: Answer | null | undefined, replies: Reply[] = []) {
     if (reply instanceof Error) throw reply
     return reply
   })
+  // What the page is told about the asking, by the instance mounted last; and in the markup, so
+  // that a server render shows what it was told too.
+  let told: { readonly value: PartialRetryState } = { value: 'idle' }
   const Page = defineComponent({
     setup() {
-      useRetryWhilePartial({ data, key, request }, (answer) => answer?.game?.partial)
-      return () => h('p', data.value?.game?.name ?? '')
+      const { state } = useRetryWhilePartial(
+        { data, key, request },
+        (answer) => answer?.game?.partial,
+      )
+      told = state
+      return () => h('p', { 'data-state': state.value }, data.value?.game?.name ?? '')
     },
   })
-  return { data, key, request, Page }
+  return { data, key, request, Page, state: () => told.value }
 }
 
 const mounted: VueWrapper[] = []
@@ -349,6 +360,95 @@ describe('what the asking leaves behind', () => {
   })
 })
 
+describe('what the page is told about the asking', () => {
+  it.each([
+    ['is whole', wholeAnswer()],
+    ['has not arrived', undefined],
+    ['holds no game', { game: null }],
+  ])('is told nothing is going on when the answer %s', (_what, shown) => {
+    const { state } = show(shown)
+    expect(state()).toBe('idle')
+  })
+
+  it('is told the page is asking from the moment it is mounted, through the wait and the attempt', async () => {
+    const slow = deferred<Answer | null>()
+    const { state } = show(partialAnswer(), [slow.promise, wholeAnswer()])
+    expect(state()).toBe('asking')
+
+    await advance(FIRST_WAIT - 1)
+    expect(state()).toBe('asking')
+    // The attempt is out: still asking, with no timer behind it.
+    await advance(1)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(state()).toBe('asking')
+
+    // And through the second wait, after an attempt that stayed partial.
+    slow.resolve(partialAnswer())
+    await advance(SECOND_WAIT - 1)
+    expect(state()).toBe('asking')
+  })
+
+  it('is told nothing is going on once the whole answer is on the page', async () => {
+    const { state } = show(partialAnswer(), [wholeAnswer()])
+    await advance(FIRST_WAIT)
+    expect(state()).toBe('idle')
+  })
+
+  it.each([
+    ['stayed partial', [partialAnswer(), partialAnswer()]],
+    ['failed', [new Error('offline'), new Error('offline')]],
+    ['came back without the game', [{ game: null }, null]],
+  ] as [string, Reply[]][])(
+    'is told the asking is over when both attempts %s, and not a moment before the second is in',
+    async (_what, replies) => {
+      const { state, request } = show(partialAnswer(), replies)
+
+      await advance(FIRST_WAIT)
+      expect(state()).toBe('asking')
+      await advance(SECOND_WAIT - 1)
+      expect(state()).toBe('asking')
+      await advance(1)
+      expect(request).toHaveBeenCalledTimes(2)
+      expect(state()).toBe('stopped')
+
+      // And it stays over, for as long as this answer is the one on the page.
+      await advance(60_000)
+      expect(state()).toBe('stopped')
+    },
+  )
+
+  it('is told the page is asking again when a new partial answer arrives after the asking was over', async () => {
+    const { data, state, request } = show(partialAnswer(), [
+      partialAnswer(),
+      partialAnswer(),
+      wholeAnswer(),
+    ])
+    await advance(FIRST_WAIT + SECOND_WAIT)
+    expect(state()).toBe('stopped')
+
+    data.value = partialAnswer()
+    await flushPromises()
+    expect(state()).toBe('asking')
+    await advance(FIRST_WAIT)
+    expect(request).toHaveBeenCalledTimes(3)
+    expect(state()).toBe('idle')
+  })
+
+  it('is told nothing is going on while the page turns to another game, until that game’s answer says otherwise', async () => {
+    const { data, key, state } = show(partialAnswer('Portal 2'), [wholeAnswer('Half-Life 2')])
+    expect(state()).toBe('asking')
+
+    // The old answer is still on the page, but nothing is being asked for it any more.
+    key.value = 'gql:Game:{"slug":"half-life-2"}'
+    await flushPromises()
+    expect(state()).toBe('idle')
+
+    data.value = partialAnswer('Half-Life 2')
+    await flushPromises()
+    expect(state()).toBe('asking')
+  })
+})
+
 describe('a server render', () => {
   it('schedules nothing and asks nothing, however partial the answer', async () => {
     // Vue's development build sets a timer of its own the first time it builds the renderer a
@@ -360,6 +460,9 @@ describe('a server render', () => {
 
     const html = await renderToString(createSSRApp(Page))
     expect(html).toContain('Portal 2')
+    // And it tells the page nothing is going on — which, on a server, is true — so nothing the
+    // page says about the asking is in the server's markup.
+    expect(html).toContain('data-state="idle"')
     expect(vi.getTimerCount()).toBe(before)
     await advance(60_000)
     expect(request).not.toHaveBeenCalled()
@@ -373,16 +476,23 @@ describe('a server render', () => {
     const before = vi.getTimerCount()
 
     // The same page, mounted over the server's markup: this is when its three seconds start.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const app = createSSRApp(Page)
     app.mount(container)
     try {
+      // The first client render said what the server said, so the two agree...
+      expect(warn).not.toHaveBeenCalled()
       expect(vi.getTimerCount()).toBe(before + 1)
+      // ...and what the page is told changes only once it is mounted.
+      await nextTick()
+      expect(container.querySelector('p')?.getAttribute('data-state')).toBe('asking')
       await advance(FIRST_WAIT - 1)
       expect(request).not.toHaveBeenCalled()
       await advance(1)
       expect(request).toHaveBeenCalledTimes(1)
     } finally {
       app.unmount()
+      warn.mockRestore()
     }
   })
 })

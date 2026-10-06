@@ -421,11 +421,22 @@ data — no skeleton, no placeholder — exactly as it is for a game that has no
   (`useRetryWhilePartial`). A whole answer takes the place of the partial one in one step — the
   line goes, the sections that now have data appear where they belong, and the cover, the title
   and the scoreboard stay where they were. A second partial answer is not shown, and neither is
-  a failure: the page a visitor is reading only ever changes for the whole one. After two attempts
-  the line stays and nothing more is asked.
-- **Announcement.** The line is a `role="status"` region that lasts as long as the answer is
-  partial; the attempts in between neither rebuild nor reword it, so it is announced once. What
-  arrives is not announced.
+  a failure: the page a visitor is reading only ever changes for the whole one.
+- **When the rest does not come.** After two attempts nothing more is asked, and the line stops
+  saying that something is loading: "The description and screenshots didn't load. Try reloading
+  the page later." (`game.notLoaded`), in the same place and the same chip — one line from about
+  500 px up, two at 375 and at 320 px in both languages, still clear of the title. It stays until
+  the visitor reloads or leaves; the page under it is as it was.
+- **Not in the server's markup.** The line follows what the page is doing, and a page does
+  nothing until it is mounted in a browser. So the HTML the server sends for a partial page has
+  the place for the line and no sentence in it: a crawler, or a browser that runs no scripts,
+  keeps the partial page but is not told in its text that anything is still loading.
+- **Announcement.** The line's place is a `role="status"` region that every game page has from
+  its first render, empty and with no box of its own. The sentence is put into it once the page
+  is mounted — a region that is there first and then gets its words is what a screen reader
+  announces, as on the ask page. The attempts in between neither rebuild nor reword the line, so
+  it is announced once; the final sentence takes the first one's place in the same element and is
+  announced once too. What arrives is not announced.
 
 ### Share card (week 2C)
 

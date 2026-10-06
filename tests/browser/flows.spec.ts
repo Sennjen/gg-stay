@@ -23,7 +23,7 @@ function isGameQuery(request: Request): boolean {
 
 /** The Ukrainian words of the game page, read from the locale file the page itself renders. */
 const copy = JSON.parse(readFileSync(resolve(process.cwd(), 'i18n/locales/uk.json'), 'utf-8')) as {
-  game: { stillLoading: string; about: string }
+  game: { stillLoading: string; notLoaded: string; about: string }
   gallery: { heading: string }
 }
 
@@ -406,8 +406,10 @@ test('a game opened with a partial answer → one quiet line → the page asks a
 
   const title = page.getByRole('heading', { level: 1, name: 'The Witcher 3: Wild Hunt' })
   await expect(title).toBeVisible()
-  const note = page.locator('[data-test="game-partial-note"]')
-  await expect(note).toHaveText(copy.game.stillLoading)
+  // The page's one status region, with the line in it.
+  const region = page.locator('article').getByRole('status')
+  const note = region.locator('p')
+  await expect(region).toHaveText(copy.game.stillLoading)
   await expect(note).toBeVisible()
   await expect(page.getByRole('heading', { name: copy.game.about })).toHaveCount(0)
 
@@ -427,11 +429,12 @@ test('a game opened with a partial answer → one quiet line → the page asks a
     expectAccessible(page, 'game page with a partial answer'),
   )
   expect(asked).toBe(1)
-  await expect(note).toHaveText(copy.game.stillLoading)
+  await expect(region).toHaveText(copy.game.stillLoading)
 
   // Three seconds on, the page asks again; the whole answer takes the partial one's place.
   await page.clock.fastForward(3_000)
   await expect(note).toHaveCount(0)
+  await expect(region).toBeEmpty()
   await expect(page.getByRole('heading', { name: copy.game.about })).toBeVisible()
   const gallery = page.getByRole('region', { name: copy.gallery.heading })
   expect(await gallery.getByRole('button').count()).toBeGreaterThan(1)
@@ -449,6 +452,56 @@ test('a game opened with a partial answer → one quiet line → the page asks a
   await onTheStoppedClock(page, 2_000, () =>
     expectAccessible(page, 'game page completed by its own second request'),
   )
+})
+
+test('a game whose answer stays partial → the page asks twice → the line says the rest did not load, and nothing more is asked', async ({
+  page,
+}) => {
+  let asked = 0
+  await page.route('**/api/graphql', async (route) => {
+    if (!isGameQuery(route.request())) return route.fallback()
+    asked += 1
+    return answerInPart(route)
+  })
+  await openWitcherOnAStoppedClock(page, () => asked)
+
+  const region = page.locator('article').getByRole('status')
+  const note = region.locator('p')
+  await expect(region).toHaveText(copy.game.stillLoading)
+
+  // Three seconds on, the first attempt: partial again, so the page and its line stay as they are.
+  await page.clock.fastForward(3_000)
+  await expect.poll(() => asked).toBe(2)
+  await expect(region).toHaveText(copy.game.stillLoading)
+
+  // The second wait is counted from the arrival of that answer, which the flow cannot see land;
+  // the clock is moved on until the page has asked — six seconds of it, as the unit suite pins.
+  await expect
+    .poll(
+      async () => {
+        if (asked === 2) await page.clock.runFor(500)
+        return asked
+      },
+      { intervals: [10] },
+    )
+    .toBe(3)
+
+  // Both attempts spent: nothing is loading any more, and the line says so in the same place.
+  await expect(region).toHaveText(copy.game.notLoaded)
+  await expect(page.getByRole('status').filter({ hasText: copy.game.notLoaded })).toHaveCount(1)
+  await expectLineOverTheCover(page, note)
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'The Witcher 3: Wild Hunt' }),
+  ).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await onTheStoppedClock(page, 2_000, () =>
+    expectAccessible(page, 'game page whose answer stayed partial'),
+  )
+
+  // And that is the end of it, however long the page stays open.
+  await page.clock.fastForward(60_000)
+  await expect(region).toHaveText(copy.game.notLoaded)
+  expect(asked).toBe(3)
 })
 
 test('the locale switch keeps the page, uk → en → uk', async ({ page }) => {

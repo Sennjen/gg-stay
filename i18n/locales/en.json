@@ -247,7 +247,8 @@
     "origin": "Origin",
     "madeInUkraine": "Made in Ukraine",
     "similar": "Similar games",
-    "stillLoading": "The description and screenshots are still loading…"
+    "stillLoading": "The description and screenshots are still loading…",
+    "notLoaded": "The description and screenshots didn't load. Try reloading the page later."
   },
   "gallery": {
     "heading": "Screenshots",
