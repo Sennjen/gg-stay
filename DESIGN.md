@@ -401,7 +401,7 @@ off.
 ### A game page answered in part
 
 The server answers a game page inside a time budget, with what it has by then
-(`docs/specs/2026-10-07-game-page-budget-design.md`). When RAWG had not finished answering, the
+(`docs/specs/2026-10-06-game-page-budget-design.md`). When RAWG had not finished answering, the
 page is `partial`: it may lack its description, RAWG's screenshots, the stores other than Steam and
 the genres, developer and publisher of the facts panel. Every section is simply absent until it has
 data — no skeleton, no placeholder — exactly as it is for a game that has none.

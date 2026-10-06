@@ -120,7 +120,7 @@ recorded there. A catalog page waits at most 2.5 s for RAWG before the index
 answers it instead, when the index can express the filter.
 
 The game page works inside a time budget of its own
-([design](docs/specs/2026-10-07-game-page-budget-design.md)): a game the index
+([design](docs/specs/2026-10-06-game-page-budget-design.md)): a game the index
 holds is answered from the index when RAWG has not answered within 2.5 s, and
 the page asks again by itself for what was left out. Every `/api/graphql`
 answer says where its time went in a `Server-Timing` header —

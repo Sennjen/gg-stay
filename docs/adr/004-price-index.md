@@ -2,7 +2,7 @@
 
 Date: 2026-10-05 · Status: accepted
 
-This record describes a decision that is already in the code: it was designed on 2026-09-20 ([week 2A design](../specs/2026-09-20-week2a-price-index-design.md)), extended on 2026-09-30 ([week 2B design](../specs/2026-09-30-week2b-shelves-design.md)), changed by the RAWG hedge in #66 and last by the game page's time budget ([design](../specs/2026-10-07-game-page-budget-design.md)), which gave the index a lookup by slug and put the Steam app id on its documents. Where the designs and the code differ, this record follows the code.
+This record describes a decision that is already in the code: it was designed on 2026-09-20 ([week 2A design](../specs/2026-09-20-week2a-price-index-design.md)), extended on 2026-09-30 ([week 2B design](../specs/2026-09-30-week2b-shelves-design.md)), changed by the RAWG hedge in #66 and last by the game page's time budget ([design](../specs/2026-10-06-game-page-budget-design.md)), which gave the index a lookup by slug and put the Steam app id on its documents. Where the designs and the code differ, this record follows the code.
 
 ## Context
 

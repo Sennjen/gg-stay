@@ -88,7 +88,7 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * same reason: long enough that a page RAWG answers at its usual pace is never second-guessed,
  * short enough that a visitor is not left looking at a skeleton for the whole of RAWG's slow
  * path — which reached 8.6 s for a first open of a game page when it was measured on production
- * (`docs/specs/2026-10-07-game-page-budget-design.md`).
+ * (`docs/specs/2026-10-06-game-page-budget-design.md`).
  */
 export const GAME_DETAIL_HEDGE_MS = 2_500
 

@@ -1,10 +1,10 @@
 # A time budget for the game page
 
-Date: 2026-10-07. Status: approved by the owner in conversation.
+Date: 2026-10-06. Status: approved by the owner in conversation.
 
 ## Why
 
-Measured on production on 2026-10-07 (one client in Europe, the `game` query as the page sends it):
+Measured on production on 2026-10-06 (one client in Europe, the `game` query as the page sends it):
 
 - first open of a game page, 30 games: median 1.6 s, p90 3.7 s, maximum 8.6 s; six of thirty over 2.5 s;
 - the same pages again, answered from the instance's memory: median 0.57 s;
