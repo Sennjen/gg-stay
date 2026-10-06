@@ -113,6 +113,13 @@ export interface GameIndex {
    * games claim, which RAWG does not produce, belongs to the more popular one and then to the
    * lower id (`buildIndexPlan`).
    *
+   * The slug is a visitor's: it arrives in a request variable that nothing else bounds. So an
+   * empty slug, one longer than `MAX_SLUG_LENGTH` (200 characters) and one that is not well-formed
+   * text are not in the index by rule, not by lookup — every adapter answers `null` for them
+   * without asking its store, and the writer files no such slug (`isIndexableSlug` in
+   * `document.ts`, applied on both sides). A caller needs no bound of its own, and no slug it is
+   * handed can cost the store a request it would refuse or choke on.
+   *
    * Like `search` and `getMany`, it is served by the version `idx:current` names when it starts,
    * so the id it returns can already be gone by the time `getOne` asks for it; a missing document
    * means what it always means. One read command, like every other read: the site's token is

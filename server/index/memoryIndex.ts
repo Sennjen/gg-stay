@@ -206,6 +206,10 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   /**
    * The plan's own slug table, read as it was built: a `Map` matches a key exactly, as a Redis
    * hash matches a field, so the two adapters cannot disagree about which spelling finds a game.
+   * Nor about which slugs are not in the index at all: the plan files none that is empty,
+   * over-long or ill-formed (`isIndexableSlug`), so such a slug finds nothing here by construction
+   * — the Upstash adapter's check before it sends anything spares it a request, and there is no
+   * request to spare here.
    */
   async idBySlug(slug: string): Promise<number | null> {
     return this.live?.plan.slugs.get(slug) ?? null

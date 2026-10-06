@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../shared/catalog'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../../server/index/GameIndex'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
+import { MAX_SLUG_LENGTH } from '../../../server/index/document'
 import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
 
 /**
@@ -575,6 +576,36 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         // Nor is a name every object answers to.
         expect(await adapter.index.idBySlug('toString')).toBeNull()
         expect(await adapter.index.idBySlug('hasOwnProperty')).toBeNull()
+      })
+
+      it('holds no game under a slug that is empty, over-long or not well-formed', async () => {
+        const adapter = await fresh()
+        const longest = 'a'.repeat(MAX_SLUG_LENGTH)
+        const tooLong = `${longest}a`
+        // Half of a surrogate pair: text no encoding can carry, and one JSON escape away for
+        // anyone who writes the request by hand.
+        const illFormed = 'half-\ud83d-emoji'
+        const games = [longest, tooLong, illFormed, ''].map((slug, position) => ({
+          ...FIXTURE_GAMES[position]!,
+          slug,
+        }))
+        await publishGames(adapter, games)
+
+        // The bound itself is a slug like any other.
+        expect(await adapter.index.idBySlug(longest)).toBe(1)
+        // Past it a slug is not in the index, although a document of the version carries it: the
+        // slug a page asks for comes from a visitor, so what the index will not look up, it does
+        // not file either, and the two sides agree.
+        expect(await adapter.index.idBySlug(tooLong)).toBeNull()
+        expect(await adapter.index.idBySlug(illFormed)).toBeNull()
+        expect(await adapter.index.idBySlug('')).toBeNull()
+        expect(await adapter.index.idBySlug('x'.repeat(100_000))).toBeNull()
+
+        // Only the lookup by slug is refused. The documents are stored and read as ever.
+        expect((await adapter.index.getMany([1, 2, 3, 4])).size).toBe(4)
+        expect((await adapter.index.getOne(2))?.slug).toBe(tooLong)
+        expect((await adapter.index.getOne(3))?.slug).toBe(illFormed)
+        expect((await adapter.index.search({})).total).toBe(4)
       })
 
       it('hands back a Steam app id on the documents that have one, and none on the rest', async () => {

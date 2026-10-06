@@ -230,3 +230,27 @@ export function rangeValueOf(game: IndexedGame, field: IndexRangeField): number 
 export function foldName(name: string): string {
   return name.trim().toLocaleLowerCase('uk')
 }
+
+/**
+ * The longest slug the index files a game under, and the longest it looks up, in UTF-16 code
+ * units — the length a string reports. RAWG's slugs are a few dozen characters, so this is far
+ * past any of them; it exists because the slug a game page asks about comes from a visitor, in a
+ * request variable nothing else bounds, and megabytes of it would otherwise be sent to the store
+ * as one hash field.
+ */
+export const MAX_SLUG_LENGTH = 200
+
+/**
+ * Whether a slug can lead to a game of the index at all: not empty, no longer than
+ * `MAX_SLUG_LENGTH`, and well-formed text — a lone surrogate is one JSON escape away for whoever
+ * writes a request by hand, and it is not text UTF-8 can carry. Checked once by the writer, when
+ * it files the slugs of a version (`buildIndexPlan`), and once per lookup by the Upstash adapter
+ * before anything is sent, so both sides draw the line in the same place: what would not be
+ * looked up is not filed, and asking about it costs the store nothing.
+ *
+ * Nothing here judges what a slug is made of beyond that. The match is exact, so a slug in the
+ * wrong case or with a stray character simply finds nothing.
+ */
+export function isIndexableSlug(slug: string): boolean {
+  return slug.length > 0 && slug.length <= MAX_SLUG_LENGTH && slug.isWellFormed()
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndexPlan } from '../../../server/index/buildPlan'
-import { daysSinceEpoch } from '../../../server/index/document'
+import { MAX_SLUG_LENGTH, daysSinceEpoch, isIndexableSlug } from '../../../server/index/document'
 import { orderKey, rangeKey } from '../../../server/index/keys'
 import { FIXTURE_GAMES } from '../../fixtures/index/games'
 
@@ -141,6 +141,20 @@ describe('buildIndexPlan', () => {
     expect(slugs).toEqual(new Map([['new-slug', 1]]))
   })
 
+  it('files no slug a lookup would refuse: empty, over-long or not well-formed', () => {
+    const longest = 'a'.repeat(MAX_SLUG_LENGTH)
+    const bounded = buildIndexPlan(1, [
+      { ...FIXTURE_GAMES[0]!, slug: longest },
+      { ...FIXTURE_GAMES[1]!, slug: `${longest}a` },
+      { ...FIXTURE_GAMES[2]!, slug: 'half-\ud83d-emoji' },
+      { ...FIXTURE_GAMES[3]!, slug: '' },
+    ])
+    expect(bounded.slugs).toEqual(new Map([[longest, 1]]))
+    // The games themselves are planned like any other: documents, names, orders.
+    expect(bounded.docs.size).toBe(4)
+    expect(bounded.names.size).toBe(4)
+  })
+
   it('orders names with a Ukrainian collator', () => {
     const byRank = order('NAME_ASC')
       .slice()
@@ -157,6 +171,48 @@ describe('buildIndexPlan', () => {
   it('namespaces every key it produces under the version', () => {
     for (const key of [...plan.facets.keys(), ...plan.orders.keys(), ...plan.ranges.keys()]) {
       expect(key.startsWith('idx:v1:')).toBe(true)
+    }
+  })
+})
+
+/**
+ * The one rule about which slugs the index deals in at all, applied by the plan when it files them
+ * and by both adapters before they look one up.
+ */
+describe('isIndexableSlug', () => {
+  it('takes every slug RAWG writes, up to two hundred characters', () => {
+    expect(MAX_SLUG_LENGTH).toBe(200)
+    for (const game of FIXTURE_GAMES) expect(isIndexableSlug(game.slug), game.slug).toBe(true)
+    expect(isIndexableSlug('the-witcher-3-wild-hunt')).toBe(true)
+    expect(isIndexableSlug('a')).toBe(true)
+    expect(isIndexableSlug('a'.repeat(MAX_SLUG_LENGTH))).toBe(true)
+  })
+
+  it('refuses an empty slug and one a character past the bound', () => {
+    expect(isIndexableSlug('')).toBe(false)
+    expect(isIndexableSlug('a'.repeat(MAX_SLUG_LENGTH + 1))).toBe(false)
+    expect(isIndexableSlug('a'.repeat(1_000_000))).toBe(false)
+  })
+
+  it('measures the bound in UTF-16 code units, the length a string reports', () => {
+    // An emoji is two units, so a hundred of them are exactly at the bound.
+    expect(isIndexableSlug('\u{1F3AE}'.repeat(MAX_SLUG_LENGTH / 2))).toBe(true)
+    expect(isIndexableSlug('\u{1F3AE}'.repeat(MAX_SLUG_LENGTH / 2 + 1))).toBe(false)
+  })
+
+  it('refuses text that is not well-formed, and nothing else for what it is made of', () => {
+    expect(isIndexableSlug('half-\ud83d-emoji')).toBe(false)
+    expect(isIndexableSlug('\udc00')).toBe(false)
+    // Whole characters of any kind are fine: the match is exact, so an odd slug simply misses.
+    for (const slug of [
+      'Kite-Keep',
+      'nier:automata',
+      'a b',
+      '50%25-off',
+      'pokémon-snap',
+      '\u{1F3AE}',
+    ]) {
+      expect(isIndexableSlug(slug), slug).toBe(true)
     }
   })
 })

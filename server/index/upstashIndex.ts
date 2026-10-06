@@ -2,6 +2,7 @@ import { Redis } from '@upstash/redis'
 import type { Requester } from '@upstash/redis'
 import { buildIndexPlan } from './buildPlan'
 import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
+import { isIndexableSlug } from './document'
 import type {
   BeginVersionOptions,
   GameIndex,
@@ -503,8 +504,15 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
    *
    * A version that has no slug hash — one published before the job wrote it — answers `nil` to
    * every field, exactly as a hash without that field does, and both come out as `null`.
+   *
+   * The slug comes from a visitor, so it is judged before anything is sent, the pointer's `GET`
+   * included: an empty, over-long or ill-formed slug (`isIndexableSlug`) is not in the index, and
+   * saying so costs no request. Megabytes of "slug" uploaded as a hash field would be a refused
+   * or a slow request, and either one counts against the index for every other page
+   * (`withCircuit`).
    */
   async idBySlug(slug: string): Promise<number | null> {
+    if (!isIndexableSlug(slug)) return null
     const version = await this.currentVersion()
     if (version === null) return null
     const id = await this.read((batch) => batch.hget(slugsKey(version), slug))

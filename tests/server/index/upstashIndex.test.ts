@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
+import { MAX_SLUG_LENGTH } from '../../../server/index/document'
 import { CURRENT_VERSION_KEY, namesKey, slugsKey, versionPrefix } from '../../../server/index/keys'
 import { commandBytes } from '../../../server/index/redisCommands'
 import type { SendCommands } from '../../../server/index/upstashIndex'
@@ -258,6 +259,36 @@ describe('upstashIndex', () => {
       ])
     })
 
+    it('sends nothing at all for a slug that cannot be in the index', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      // An instance that has not even read the pointer yet: that request is not made either.
+      const cold = createUpstashIndex(redis)
+      const before = redis.requests.length
+
+      for (const slug of [
+        '',
+        'a'.repeat(MAX_SLUG_LENGTH + 1),
+        // What an anonymous request can put in the `slug` variable: megabytes of it.
+        'x'.repeat(2_000_000),
+        'half-\ud83d-emoji',
+        '\udc00',
+      ]) {
+        expect(await index.idBySlug(slug), `a slug of ${slug.length}`).toBeNull()
+        expect(await cold.idBySlug(slug), `a slug of ${slug.length}`).toBeNull()
+      }
+
+      expect(redis.requests.length).toBe(before)
+      expect(cold.stats()).toEqual({ requests: 0, commands: 0, bytes: 0 })
+
+      // The longest slug the index files is asked about like any other, and so is the pointer.
+      expect(await cold.idBySlug('a'.repeat(MAX_SLUG_LENGTH))).toBeNull()
+      expect(redis.requests.slice(before).map((request) => request.commands)).toEqual([
+        ['get'],
+        ['hget'],
+      ])
+    })
+
     it('asks for no slug at all when no version is published', async () => {
       const { redis, index } = makeAdapter()
       expect(await index.idBySlug('kite-keep')).toBeNull()
@@ -502,6 +533,21 @@ describe('upstashIndex', () => {
       // One key for the whole version: a key per slug would double what a version registers.
       expect(redis.keys().filter((key) => key.includes('slug'))).toEqual([slugsKey(version)])
       expect(redis.ttl(slugsKey(version))).toBeNull()
+    })
+
+    it('holds no slug a lookup would refuse', async () => {
+      const { redis, index } = makeAdapter()
+      const longest = 'a'.repeat(MAX_SLUG_LENGTH)
+      const games = [longest, `${longest}a`, 'half-\ud83d-emoji', ''].map((slug, position) => ({
+        ...FIXTURE_GAMES[position]!,
+        slug,
+      }))
+      const version = await publishGames(adapterFor(index, redis), games)
+
+      // So a field is never one the transport could not carry, and never one nobody will ask for.
+      expect(await hashOf(redis, slugsKey(version))).toEqual({ [longest]: '1' })
+      // The four documents are there all the same.
+      expect((await index.getMany([1, 2, 3, 4])).size).toBe(4)
     })
 
     it('registers the hash before it writes it, so nothing can leave it behind', async () => {
