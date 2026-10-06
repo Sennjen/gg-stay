@@ -86,10 +86,12 @@ function byPopularityThenId(left: IndexedGame, right: IndexedGame): number {
 
 /**
  * Which game each slug leads to. RAWG gives every game a slug of its own, so in practice this is
- * one entry per document — but a hash field holds a single id, and an index that quietly let the
- * last game listed win would answer differently for the same games in a different order. So the
- * rule is written down: a slug two games claim belongs to the more popular one, then to the lower
- * id. Built from the stored documents, so every slug here is the slug of a document of the version.
+ * one entry per document — but a run can still hand over two documents with one slug (a published
+ * studio game kept as it was, beside a game that has since taken its slug), a hash field holds a
+ * single id, and an index that quietly let the last game listed win would answer differently for
+ * the same games in a different order. So the rule is written down: a slug two games claim
+ * belongs to the more popular one, then to the lower id. Built from the stored documents, so every
+ * slug here is the slug of a document of the version.
  *
  * A slug no lookup would be made for — empty, longer than `MAX_SLUG_LENGTH`, or not well-formed
  * text — is left out, by the same test the Upstash adapter applies before it asks its store. RAWG

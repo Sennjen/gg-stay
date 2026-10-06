@@ -637,8 +637,9 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           slug,
           popularity,
         })
-        // RAWG never gives two games one slug, but a hash field holds one id, so which game keeps
-        // the slug is a rule and not an accident of the order a run listed them in.
+        // RAWG never gives two games one slug, but a run can hold a document it kept beside the
+        // game that has since taken its slug, and a hash field holds one id: which game keeps the
+        // slug is a rule, not an accident of the order a run listed them in.
         await publishGames(adapter, [
           claim(3, 'twice', 10),
           claim(1, 'twice', 90),

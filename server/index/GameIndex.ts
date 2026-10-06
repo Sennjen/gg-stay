@@ -110,8 +110,9 @@ export interface GameIndex {
    * folding, no trimming, no decoding. `Portal-2` does not find `portal-2`. The index answers
    * only for the spelling it published — the one every link, the sitemap and the canonical URL
    * carry — so it can never answer for an address it does not know to be that game's. A slug two
-   * games claim, which RAWG does not produce, belongs to the more popular one and then to the
-   * lower id (`buildIndexPlan`).
+   * games claim belongs to the more popular one and then to the lower id (`buildIndexPlan`). RAWG
+   * gives every game a slug of its own, but a run can still hold two documents with one: a
+   * published studio game it kept as it was, beside a game that has since taken its slug.
    *
    * The slug is a visitor's: it arrives in a request variable that nothing else bounds. So an
    * empty slug, one longer than `MAX_SLUG_LENGTH` (200 characters) and one that is not well-formed
