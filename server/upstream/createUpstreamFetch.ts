@@ -8,7 +8,9 @@ import { UpstreamError, type UpstreamSource } from './errors'
  * Steam transport ended up throwing errors that said "RAWG".
  *
  * A call for something another call is already fetching joins that request instead of sending a
- * second one — see `inFlight` below for exactly which calls count as the same.
+ * second one — see `inFlight` below for exactly which calls count as the same. That makes one rule
+ * for every caller: what a call resolves with is read-only, because the same object may be in
+ * another caller's hands, and in the cache's.
  *
  * Everything that differs between the two is a parameter: the source name, the throttle interval,
  * how a request becomes a URL, a cache key, a fixture name and a ttl, and an optional projection
@@ -137,6 +139,16 @@ export function createUpstreamFetch<TRequest>(
    * it. The entry is removed before the outcome can be observed, so a call made after a failure
    * always sends a request of its own. And an entry cannot linger: every attempt carries its own
    * abort timeout, so a call ends after at most `maxAttempts` of them however the upstream behaves.
+   *
+   * "Exactly" means the same object, not a copy of it. A caller that joined holds the very value
+   * the first caller holds, and so does a cache that keeps what it is handed — the refresh job's
+   * map does, and so do the tests'; the site's storage serialises on the way in, which is that
+   * storage's habit and not this transport's promise. So whatever a call resolves with must be
+   * treated as read-only: map it, filter it, sort a copy of it. A body changed in place would
+   * change under another request, and only when two of them happen to overlap, which no test
+   * with a single caller will ever show. Nothing is frozen to enforce this. The mappers and the
+   * job's stages that read these bodies build new objects from them, and a new reader has to do
+   * the same.
    */
   const inFlight = new Map<string, Promise<unknown>>()
 
