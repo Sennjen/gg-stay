@@ -5,6 +5,7 @@ import { mapGameCard, mapGamePage, type GamePageIndexState } from '../../rawg/ma
 import { postFilter } from '../../rawg/postFilter'
 import { rawgListOrThrow } from '../../rawg/rawgFetch'
 import type { RawgGameListItem } from '../../rawg/types'
+import { leaveRunning, outlasts } from '../budget'
 import type { GraphQLContext } from '../context'
 import { withUpstreamErrors } from '../errors'
 import {
@@ -282,10 +283,8 @@ async function rawgPage(
  *
  * The RAWG request it overtook is not cancelled. It keeps running so that its response lands in
  * the RAWG cache, and the next visitor asking for this page gets the whole catalog's answer in
- * milliseconds. On a platform that freezes a function once it has answered, `context.waitUntil`
- * keeps it alive until then; without one the request is simply left to finish. Either way it is
- * handed over already settled, so a rejection nobody is waiting for any more can never surface as
- * an unhandled one.
+ * milliseconds — `leaveRunning` keeps the function alive until then, and sees to it that a
+ * rejection nobody is waiting for any more can never surface as an unhandled one.
  *
  * Each page is decided on its own, so one catalog can be paged from two sources: page 1 answered
  * by the index (its order, its total) and page 2 by RAWG a moment later (RAWG's order and total),
@@ -316,11 +315,7 @@ async function indexPageIfRawgIsSlow(
   ])
   if (page === RAWG_FIRST || page === null) return null
 
-  const settled = fetching.then(
-    () => undefined,
-    () => undefined,
-  )
-  context.waitUntil?.(settled)
+  leaveRunning(context, fetching)
   console.info(`[catalog] RAWG slower than ${RAWG_HEDGE_MS} ms, answered from the index`)
   return page
 }
@@ -347,22 +342,6 @@ async function indexStandIn(
     warnIndexOnce(context, 'a slow RAWG page could not be answered from the index', error)
     return null
   }
-}
-
-/**
- * Whether `work` is still unsettled `ms` from now. Settling either way counts as in time — a RAWG
- * error inside the budget is the caller's to see, not a reason to look elsewhere — and clears the
- * timer at once, so a fast answer leaves nothing scheduled behind it.
- */
-function outlasts(work: Promise<unknown>, ms: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(true), ms)
-    const settle = () => {
-      clearTimeout(timer)
-      resolve(false)
-    }
-    work.then(settle, settle)
-  })
 }
 
 /**
