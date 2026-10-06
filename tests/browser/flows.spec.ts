@@ -325,7 +325,8 @@ test('a game opened with a partial answer → one quiet line → the page asks a
       },
     })
   })
-  // The page's own clock, so its three seconds are moved rather than waited for.
+  // The page's own clock, so its three seconds are moved rather than waited for. Installed, it
+  // still runs with the real one until it is paused.
   await page.clock.install()
 
   await page.goto('/games')
@@ -336,10 +337,12 @@ test('a game opened with a partial answer → one quiet line → the page asks a
   await expect(title).toBeVisible()
   const note = page.getByRole('status').filter({ hasText: copy.game.stillLoading })
   await expect(note).toBeVisible()
+  // The clock stops here, a moment into the three seconds, so that the partial page is looked at
+  // and measured for as long as that takes without its second request coming in between.
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 100)
   await expect(note).toHaveText(copy.game.stillLoading)
   await expect(page.getByRole('heading', { name: copy.game.about })).toHaveCount(0)
   expect(asked).toBe(1)
-  await expectAccessible(page, 'game page with a partial answer')
 
   // The line lies over the top of the cover and takes no room: it is inside the hero's box.
   const hero = page.locator('article > div').first()
@@ -354,6 +357,12 @@ test('a game opened with a partial answer → one quiet line → the page asks a
     scoreboard: await scoreboard.boundingBox(),
     scrollY: await page.evaluate(() => window.scrollY),
   }
+
+  // axe works on the page's timers, so the clock runs again while it looks. Should that take the
+  // rest of the three seconds on a slow machine, the page completes itself meanwhile — which is
+  // where the next step takes it anyway.
+  await page.clock.resume()
+  await expectAccessible(page, 'game page with a partial answer')
 
   // Three seconds on, the page asks again; the whole answer takes the partial one's place.
   await page.clock.fastForward(3_000)
