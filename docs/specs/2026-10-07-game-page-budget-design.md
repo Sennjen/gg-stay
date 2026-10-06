@@ -50,7 +50,7 @@ Constants (exported, used by tests): `GAME_DETAIL_HEDGE_MS = 2_500`, `GAME_EXTRA
 
 ### 6. The page
 
-`app/pages/games/[slug].vue`: when `game.partial` is true the page shows one quiet line near the top, announced politely once — uk «Опис і скриншоти ще завантажуються…», en "The description and screenshots are still loading…" — and asks again by itself, in the browser only: 3 s after the answer, and once more 6 s after that. A full answer replaces the page content in place and removes the line. If both attempts stay partial the line stays and nothing more is asked. Every section already renders without its data; nothing may shift except the content that arrives.
+`app/pages/games/[slug].vue`: when `game.partial` is true the page shows one quiet line near the top, announced politely once — uk «Опис і скріншоти ще завантажуються…», en "The description and screenshots are still loading…" — and asks again by itself, in the browser only: 3 s after the answer, and once more 6 s after that. A full answer replaces the page content in place and removes the line. If both attempts stay partial the line stays and nothing more is asked. Every section already renders without its data; nothing may shift except the content that arrives.
 
 ### 7. Where the time went
 
