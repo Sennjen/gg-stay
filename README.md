@@ -119,6 +119,16 @@ budget of 144 633 bytes; the 120 KB target ADR-002 set is still missed and
 recorded there. A catalog page waits at most 2.5 s for RAWG before the index
 answers it instead, when the index can express the filter.
 
+The game page works inside a time budget of its own
+([design](docs/specs/2026-10-07-game-page-budget-design.md)): a game the index
+holds is answered from the index when RAWG has not answered within 2.5 s, and
+the page asks again by itself for what was left out. Every `/api/graphql`
+answer says where its time went in a `Server-Timing` header —
+`rawg;dur=5012;desc="RAWG x3", index;dur=41;desc="Index x2", total;dur=5020` —
+one entry per upstream the request called, with its slowest call in
+milliseconds (limiter queue and retry included) and the number of calls; a
+cached answer is not a call. The browser's network panel shows it under Timing.
+
 Every pull request also runs quality gates against a fixture-mode production
 build started in CI: the `/games` JavaScript budget (today's size plus 5 %),
 Playwright smoke flows with axe accessibility checks, and Lighthouse CI with
@@ -269,7 +279,8 @@ server itself; set `QUALITY_REUSE_SERVER=1` to run it against one already listen
 - Selecting several game modes widens the result set rather than narrowing it: RAWG treats comma-separated tags as OR, and the index unites the values of one facet the same way.
 - The index holds about 3 270 games — the 3 000 most popular on RAWG plus the games of the 25 listed Ukrainian studios. Price, discount, localisation and made-in-Ukraine filters, the price sorts and similar games search only those, and a game outside the index shows no price on its card.
 - When RAWG is slower than 2.5 s, page 1 of a catalog can come from the index and page 2 from RAWG a moment later. Their order and totals differ, so a game can repeat or be skipped and the pager's total can move.
-- The upstream response caches are in memory per server instance, LRU-bounded at 500 entries each; there is no shared response cache. A cold function start adds 3–4.7 s to any page.
+- A game page waits for RAWG only as long as its budget when the index holds the game: 2.5 s for the game itself, 1.5 s for its store links and screenshots. Past that it goes out with what it has, says so in one line, and asks again by itself after 3 s and once more 6 s later. A game outside the index — the long tail beyond the 3 270 — still waits for RAWG for as long as RAWG takes, two attempts of 5 s each, and fails when RAWG does. A page whose two retries both come back partial stays partial until it is reloaded.
+- The upstream response caches are in memory per server instance, LRU-bounded at 500 entries each; there is no shared response cache. A cold function start adds 3–4.7 s to any page. A game page's own retry finds what its first request left running only when it reaches the same instance.
 - `/ask` answers in about 6 s at the median and 7.4 s at the 95th percentile ([second evaluation run](docs/llm/eval-2026-10-02-2.md)).
 - The `quality` CI job (bundle budget, Playwright, Lighthouse CI) runs on every pull request but is not a required check: only `verify` blocks a merge.
 - Fixture mode ignores filters that RAWG would apply server-side; the index filters work there against a seeded in-memory index.

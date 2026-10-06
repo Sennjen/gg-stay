@@ -277,7 +277,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `LocaleSwitcher`                | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
 | `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
-| `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8; "Схожі ігри" row below the store links in week 2B                                                                                                             |
+| `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8; "Схожі ігри" row below the store links in week 2B; the "still loading" line over the cover of a page answered in part — see "A game page answered in part"    |
 | `pages/ask.vue`                 | Done — week 3 — natural-language search; rebuilt around Gege, with the games as rows; see "Ask page" below                                                                                                    |
 | `ask/AskResultRow`              | Done — one game of an answer as a row, the reason as its primary line; see "Ask page" below                                                                                                                   |
 | `ask/AskWaiting`                | Done — Gege thinking, a line that changes with the clock, and the outline of the rows; see "Ask page" below                                                                                                   |
@@ -397,6 +397,35 @@ off.
   explanation under it in `fg-2`. It writes `madeInUkraine=1`, has its own chip, counts in the
   badge, and stays while the prices are stale, because it reads no price. The index note now reads
   "3 000 найпопулярніших ігор і всіх ігор українських студій".
+
+### A game page answered in part
+
+The server answers a game page inside a time budget, with what it has by then
+(`docs/specs/2026-10-07-game-page-budget-design.md`). When RAWG had not finished answering, the
+page is `partial`: it may lack its description, RAWG's screenshots, the stores other than Steam and
+the genres, developer and publisher of the facts panel. Every section is simply absent until it has
+data — no skeleton, no placeholder — exactly as it is for a game that has none.
+
+- **The line.** One sentence says so — "The description and screenshots are still loading…" on
+  the English page, `game.stillLoading` in both locale files. It lies over the top-left corner of
+  the cover, level with the title's left edge: 12px `fg-2` on `ink` at 85 % with a `line` border,
+  `rounded-card` — a chip on one line, and still a sound shape on the two lines the English takes
+  at 320 px. It is over the cover rather than in the flow for the reason the made-in-Ukraine label
+  is over a card's: the page with it is laid out exactly as the page without it, so nothing moves
+  when it appears and nothing when it goes. It uses no accent, signal or sale colour and no
+  motion: it is not an action, a live state or a price, and a spinner would promise more than a
+  page that may stay as it is. `fg-2` on that backdrop is 5.45:1 over a pure white cover, the
+  lightest it can be, and 8.13:1 over `ink`.
+- **What happens next.** In the browser, and only there, the page asks again by itself: three
+  seconds after the answer it has, and six seconds after the next one if that is partial too
+  (`useRetryWhilePartial`). A whole answer takes the place of the partial one in one step — the
+  line goes, the sections that now have data appear where they belong, and the cover, the title
+  and the scoreboard stay where they were. A second partial answer is not shown, and neither is
+  a failure: the page a visitor is reading only ever changes for the whole one. After two attempts
+  the line stays and nothing more is asked.
+- **Announcement.** The line is a `role="status"` region that lasts as long as the answer is
+  partial; the attempts in between neither rebuild nor reword it, so it is announced once. What
+  arrives is not announced.
 
 ### Share card (week 2C)
 
