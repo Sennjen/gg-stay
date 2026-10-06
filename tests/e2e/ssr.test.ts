@@ -597,7 +597,10 @@ describe('server-side rendering', async () => {
     const body = (await response.json()) as { data: { game: { partial: boolean } } }
     expect(body.data.game.partial).toBe(false)
     // Fixture mode's upstreams are its recordings and its seeded index: RAWG's three answers about
-    // the page, Steam's Ukrainian description, and the index's metadata, slug and document.
+    // the page, Steam's Ukrainian description, and the index's metadata, slug and document. Steam
+    // is not asked for the price: the index was seeded with one three hours old when this suite
+    // started its server a moment ago, and six hours is how long such a price is trusted. (The
+    // browser flows, whose server may be one kept for reuse, allow for the second request.)
     expect(response.headers.get('server-timing')).toMatch(
       /^rawg;dur=\d+;desc="RAWG x3", steam;dur=\d+;desc="Steam x1", index;dur=\d+;desc="Index x3", total;dur=\d+$/,
     )
