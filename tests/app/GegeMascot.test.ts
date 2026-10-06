@@ -49,18 +49,26 @@ describe('GegeMascot', () => {
   })
 
   describe('static poses', () => {
-    it('idle: open eyes, a smile, and lids that only the blink shows', async () => {
+    it('idle: open eyes and a smile, with no blink lids in a face that never blinks', async () => {
       const wrapper = await mountSuspended(GegeMascot, { props: { mood: 'idle', animated: false } })
       expect(wrapper.find('[data-eyes="open"]').exists()).toBe(true)
       expect(wrapper.find('[data-mouth="smile"]').exists()).toBe(true)
-      expect(wrapper.find('.gege-blink').exists()).toBe(true)
+      expect(wrapper.find('.gege-blink').exists()).toBe(false)
       expect(wrapper.find('.gege-buttons--thinking').exists()).toBe(false)
+    })
+
+    it('idle, moving: the same face plus the lids the blink shows', async () => {
+      const wrapper = await mountSuspended(GegeMascot, { props: { mood: 'idle' } })
+      expect(wrapper.find('[data-eyes="open"]').exists()).toBe(true)
+      expect(wrapper.find('.gege-blink').exists()).toBe(true)
     })
 
     it('peek: the idle face, tilted by its own class, with no blink', async () => {
       const wrapper = await mountSuspended(GegeMascot, { props: { mood: 'peek', animated: false } })
       expect(wrapper.find('[data-eyes="open"]').exists()).toBe(true)
       expect(wrapper.find('.gege-blink').exists()).toBe(false)
+      const moving = await mountSuspended(GegeMascot, { props: { mood: 'peek' } })
+      expect(moving.find('.gege-blink').exists()).toBe(false)
       expect(source).toMatch(/\.gege--peek \{\s*transform: rotate\(-8deg\);/)
     })
 

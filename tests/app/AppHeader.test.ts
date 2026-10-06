@@ -44,6 +44,29 @@ describe('AppHeader', () => {
     expect(wrapper.get('a[href="/en/ask"]').text()).toBe('AI picks')
   })
 
+  // The English bar is the tighter one (its locale switcher reads "Українська"), so it gives the
+  // face up and lets the label wrap at wider bars than the Ukrainian one. The logo wrapping is
+  // what these breakpoints prevent; the widths themselves are checked in a real browser.
+  it.each([
+    ['/games', '/ask', 'max-[360px]:hidden', 'min-[360px]:whitespace-nowrap'],
+    ['/en/games', '/en/ask', 'max-[400px]:hidden', 'min-[375px]:whitespace-nowrap'],
+  ])(
+    'on %s hides the face and frees the label at its own widths',
+    async (route, href, face, label) => {
+      const wrapper = await mountSuspended(AppHeader, { route })
+      const link = wrapper.get(`a[href="${href}"]`)
+      expect(link.classes()).toContain(label)
+      expect(link.get('svg').classes()).toContain(face)
+      expect(link.classes().filter((name) => name.endsWith('whitespace-nowrap'))).toHaveLength(1)
+      expect(
+        link
+          .get('svg')
+          .classes()
+          .filter((name) => name.endsWith(':hidden')),
+      ).toHaveLength(1)
+    },
+  )
+
   it('gives the header bar a fixed height, shared via --header-h with sections that must run underneath it', async () => {
     const wrapper = await mountSuspended(AppHeader, { route: '/games' })
 

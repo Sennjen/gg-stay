@@ -487,4 +487,7 @@ focusable); the text beside him always carries the meaning.
   animations outright and each mood keeps its static pose: the tilt for `peek`, the first button
   lit for `thinking`. `:animated="false"` gives the same still pose on request.
 - **In the header** he is a still 20 px face before the "AI-підбір" / "AI picks" link to `/ask`.
-  The link's accessible name is its text.
+  The link's accessible name is its text. A narrow bar has no room for him, and the logo never
+  wraps to make some: the face is left out below 360 px, and below 400 px on the English site,
+  whose locale switcher ("Українська") is the widest. The label may wrap below 360 px (375 px in
+  English).

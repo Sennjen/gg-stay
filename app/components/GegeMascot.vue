@@ -11,6 +11,10 @@
  * A mood is a pose first and a motion second: the pose is in the markup, the motion is CSS that
  * only applies with `animated` and without `prefers-reduced-motion: reduce`. Without motion each
  * mood is still told apart by its drawing alone.
+ *
+ * The root `<svg>` owns its `transform`: the peek tilt and every mood's motion are written there.
+ * To move him — a rise, a slide — animate a wrapper, not this element; a `transform` set on the
+ * component would be overridden by the animation, or would replace the static tilt.
  */
 export type GegeMood = 'idle' | 'peek' | 'thinking' | 'happy'
 
@@ -86,8 +90,8 @@ const height = computed(() => Math.round((props.size * GRID_HEIGHT) / GRID_WIDTH
       <path class="fill-signal" d="M6 2h3v3h-3zM11 2h3v3h-3z" />
       <path class="fill-ink" d="M7 3h2v2h-2zM12 3h2v2h-2z" />
       <path class="fill-fg" d="M6 2h1v1h-1zM11 2h1v1h-1z" />
-      <!-- Closed lids, shown for a moment by the idle blink only. -->
-      <g v-if="mood === 'idle'" class="gege-blink">
+      <!-- Closed lids, shown for a moment by the idle blink only — so a still face has none. -->
+      <g v-if="mood === 'idle' && animated" class="gege-blink">
         <path class="fill-accent" d="M6 2h3v3h-3zM11 2h3v3h-3z" />
         <path class="fill-ink" d="M6 4h3v1h-3zM11 4h3v1h-3z" />
       </g>
