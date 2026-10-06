@@ -114,7 +114,7 @@ lands, with the reports and numbers recorded in
 | `/ask`                                  | 99          | 1.7 s | 0     |
 
 Accessibility and best practices are 100 on all five. The first-load
-JavaScript of `/games` is 140 974 bytes gzipped (137.7 KiB) against the CI
+JavaScript of `/games` is 142 829 bytes gzipped (139.5 KiB) against the CI
 budget of 144 633 bytes; the 120 KB target ADR-002 set is still missed and
 recorded there. A catalog page waits at most 2.5 s for RAWG before the index
 answers it instead, when the index can express the filter.
@@ -127,7 +127,12 @@ answer says where its time went in a `Server-Timing` header —
 `rawg;dur=5012;desc="RAWG x3", index;dur=41;desc="Index x2", total;dur=5020` —
 one entry per upstream the request called, with its slowest call in
 milliseconds (limiter queue and retry included) and the number of calls; a
-cached answer is not a call. The browser's network panel shows it under Timing.
+cached answer is not a call, and neither is an index read that sent nothing to
+the store. The browser's network panel shows it under Timing for the requests
+the browser makes itself: a game opened from the catalog or by any other
+client-side navigation, and a partial page's own retries. A hard load asks
+inside the server render, and that answer's header stays on the server — the
+document carries none, so a slow first open shows only in the function log.
 
 Every pull request also runs quality gates against a fixture-mode production
 build started in CI: the `/games` JavaScript budget (today's size plus 5 %),
@@ -279,7 +284,10 @@ server itself; set `QUALITY_REUSE_SERVER=1` to run it against one already listen
 - Selecting several game modes widens the result set rather than narrowing it: RAWG treats comma-separated tags as OR, and the index unites the values of one facet the same way.
 - The index holds about 3 270 games — the 3 000 most popular on RAWG plus the games of the 25 listed Ukrainian studios. Price, discount, localisation and made-in-Ukraine filters, the price sorts and similar games search only those, and a game outside the index shows no price on its card.
 - When RAWG is slower than 2.5 s, page 1 of a catalog can come from the index and page 2 from RAWG a moment later. Their order and totals differ, so a game can repeat or be skipped and the pager's total can move.
-- A game page waits for RAWG only as long as its budget when the index holds the game: 2.5 s for the game itself, 1.5 s for its store links and screenshots. Past that it goes out with what it has, says so in one line, and asks again by itself after 3 s and once more 6 s later. A game outside the index — the long tail beyond the 3 270 — still waits for RAWG for as long as RAWG takes, two attempts of 5 s each, and fails when RAWG does. A page whose two retries both come back partial stays partial until it is reloaded.
+- A game page waits for RAWG only as long as its budget: 1.5 s for the store links and screenshots of any game, and 2.5 s for the game itself when the index holds it. Past that it goes out with what it has, says so in one line, and asks again by itself after 3 s and once more 6 s later. For a game outside the index — the long tail beyond the 3 270 — the game itself is still waited for as long as RAWG takes, two attempts of 5 s each, and the page fails when RAWG does; its store links and screenshots are cut at 1.5 s like any other's, so its page can go out partial too. A page whose two retries both come back partial, or fail, says that the rest did not load and stays as it is until it is reloaded.
+- A partial page is the whole page for whoever does not run its scripts: a crawler that takes the server's HTML, or a browser without JavaScript, keeps it without the description, the other stores or most of the screenshots, and with JSON-LD that lacks the fields they fill. The sentence about loading is not in that HTML. How often it happens has not been measured: before the budget six of thirty first opens took longer than 2.5 s, and every partial page writes a `[game]` line to the function log, which is where the share can be read.
+- A partial page's two retries ask RAWG again even when RAWG is refusing: one view of an indexed game can send nine requests to a RAWG answering 429 where it used to send three, bounded by the two attempts and the limiter's four requests a second per instance.
+- The Ukrainian description is waited for 1.5 s and never asked for again: when Steam is slower — or the request is still queued behind Steam's one request per 1.5 s per instance, as it is for the third cold game page in a row — that view shows RAWG's English text, is not marked partial, and gets the Ukrainian text only on a later view.
 - The upstream response caches are in memory per server instance, LRU-bounded at 500 entries each; there is no shared response cache. A cold function start adds 3–4.7 s to any page. A game page's own retry finds what its first request left running only when it reaches the same instance.
 - `/ask` answers in about 6 s at the median and 7.4 s at the 95th percentile ([second evaluation run](docs/llm/eval-2026-10-02-2.md)).
 - The `quality` CI job (bundle budget, Playwright, Lighthouse CI) runs on every pull request but is not a required check: only `verify` blocks a merge.
