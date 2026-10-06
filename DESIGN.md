@@ -455,7 +455,7 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   shrinks to 96 px beside the name and the reason, the facts and the price each run the full width
   under them. A game the endpoint sent without a reason (its rerank failed) has no reason line at
   all, not an empty one. Every row of an answer is in the document — nothing is paged, folded or
-  loaded later — and the count line is the length of the same list, so "Підібрали 8 ігор" is eight
+  loaded later — and the count line is the length of the same list, so "Підібрав 8 ігор" is eight
   rows on about two screens. (As cards, two to a row and 400 px tall under a taller form, the same
   eight were four screens of covers, and the first screen showed four of them.)
 - **Filters the catalog could not apply.** The answer's `ignoredFilters` strike the matching chips
@@ -476,7 +476,7 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   retry. All three failures are `role="alert"` inside his bubble, and he is `idle` beside them.
 - **Announcements and focus.** A `role="status"` region always says the current state ("Читаю
   запит…" once for the whole wait — the lines that follow on screen are not announced — then
-  "Підібрали 3 гри", the fallback note and count, or "Нічого не підібрали"); it is derived from
+  "Підібрав 3 гри", the fallback note and count, or "Нічого не підібрав"); it is derived from
   the answer, so the server and the hydrated client agree. Focus moves to the results heading when
   an answer the visitor just asked for lands; a page opened from a link moves no focus.
 - **Back and Forward.** Answers are remembered per tab, in memory and bounded, by locale and

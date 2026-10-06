@@ -85,7 +85,7 @@ describe('the ask page, idle', () => {
 
     const field = wrapper.get('textarea')
     const label = wrapper.get(`label[for="${field.attributes('id')}"]`)
-    expect(label.text()).toBe('Яку гру шукаєте?')
+    expect(label.text()).toBe('Яку гру шукаєш?')
     expect(field.attributes('maxlength')).toBe('200')
     const counter = wrapper.get(`#${field.attributes('aria-describedby')!.split(' ')[0]}`)
     expect(plain(counter.text())).toBe('0 із 200 символів')
@@ -130,7 +130,7 @@ describe('the ask page, idle', () => {
   it('names its search landmark by the field label', async () => {
     const wrapper = await renderAsk('/ask')
     const form = wrapper.get('form[role="search"]')
-    expect(wrapper.get(`#${form.attributes('aria-labelledby')}`).text()).toBe('Яку гру шукаєте?')
+    expect(wrapper.get(`#${form.attributes('aria-labelledby')}`).text()).toBe('Яку гру шукаєш?')
   })
 
   it('asks for a few words instead of sending an empty question', async () => {
@@ -141,7 +141,7 @@ describe('the ask page, idle', () => {
     const field = wrapper.get('textarea')
     expect(field.attributes('aria-invalid')).toBe('true')
     const message = wrapper.get('[data-test="ask-empty-question"]')
-    expect(message.text()).toBe('Напишіть кілька слів про гру, яку шукаєте.')
+    expect(message.text()).toBe('Напиши кілька слів про гру, яку шукаєш.')
     expect(field.attributes('aria-describedby')).toContain(message.attributes('id'))
     expect(document.activeElement).toBe(field.element)
   })
@@ -241,7 +241,7 @@ describe('the ask page, answered from the URL', () => {
       expect(row.attributes('hidden')).toBeUndefined()
       expect(row.classes()).not.toContain('hidden')
     }
-    expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe('Підібрали 8 ігор')
+    expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe('Підібрав 8 ігор')
   })
 
   it('keeps the form above the answer, with the question in it', async () => {
@@ -265,10 +265,10 @@ describe('the ask page, answered from the URL', () => {
 
   it('says how many games it picked, visibly and in a live region', async () => {
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
-    expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрали 3 гри')
+    expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрав 3 гри')
     const live = wrapper.get('[data-test="ask-live"]')
     expect(live.attributes('role')).toBe('status')
-    expect(plain(live.text())).toBe('Підібрали 3 гри')
+    expect(plain(live.text())).toBe('Підібрав 3 гри')
   })
 
   it('in fallback, says calmly that the AI part did not run and shows the plain search', async () => {
@@ -276,7 +276,7 @@ describe('the ask page, answered from the URL', () => {
     const note = wrapper.get('[data-test="ask-answer"] [data-test="ask-fallback-note"]')
     // Nothing of his to be pleased with.
     expect(wrapper.get('[data-test="ask-answer"] svg').attributes('data-mood')).toBe('idle')
-    expect(note.text()).toBe('ШІ-розбір зараз недоступний — показуємо звичайний пошук')
+    expect(note.text()).toBe('ШІ-розбір зараз недоступний — показую звичайний пошук')
     expect(note.attributes('role')).toBeUndefined()
     expect(wrapper.find('[data-test="ask-interpretation"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(2)
@@ -292,31 +292,29 @@ describe('the ask page, answered from the URL', () => {
     expect(href.pathname).toBe('/games')
     expect(Object.fromEntries(href.searchParams)).toEqual({ search: FALLBACK_QUERY })
     expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe(
-      'ШІ-розбір зараз недоступний — показуємо звичайний пошук. Знайшли 2 гри',
+      'ШІ-розбір зараз недоступний — показую звичайний пошук. Знайшов 2 гри',
     )
   })
 
   it('when nothing matched, says so and still offers the filter in the catalog', async () => {
     const wrapper = await renderAsk(askUrl(EMPTY_QUERY))
     const empty = wrapper.get('[data-test="ask-empty"]')
-    expect(empty.text()).toContain('Нічого не підібрали')
-    expect(empty.text()).toContain('Спробуйте описати інакше')
+    expect(empty.text()).toContain('Нічого не підібрав')
+    expect(empty.text()).toContain('Спробуй описати інакше')
     expect(wrapper.get('[data-test="ask-answer"] svg').attributes('data-mood')).toBe('idle')
     expect(wrapper.find('[data-test="ask-count"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="ask-item"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="ask-catalog-link"]').attributes('href')).toMatch(
       /^\/games\?search=/,
     )
-    expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe('Нічого не підібрали')
+    expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe('Нічого не підібрав')
   })
 
   it('when rate limited, explains when to try again', async () => {
     const wrapper = await renderAsk(askUrl(RATE_LIMITED_QUERY))
     const alert = wrapper.get('[data-test="ask-error"]')
     expect(alert.attributes('role')).toBe('alert')
-    expect(plain(alert.text())).toContain(
-      'Забагато запитів поспіль. Спробуйте ще раз за 42 секунди.',
-    )
+    expect(plain(alert.text())).toContain('Забагато запитів поспіль. Спробуй ще раз за 42 секунди.')
     expect(wrapper.find('[data-test="ask-item"]').exists()).toBe(false)
     // Gege says it, idle.
     const speech = wrapper.get('[data-test="ask-results"] [data-test="gege-speech"]')
@@ -327,7 +325,7 @@ describe('the ask page, answered from the URL', () => {
   it('when the answer failed, offers to try again, and trying again asks again', async () => {
     const wrapper = await renderAsk(askUrl(BROKEN_QUERY))
     const alert = wrapper.get('[data-test="ask-error"]')
-    expect(plain(alert.text())).toContain('Не вдалося підібрати ігри. Спробуйте ще раз.')
+    expect(plain(alert.text())).toContain('Не вдалося підібрати ігри. Спробуй ще раз.')
     expect(requests).toHaveLength(1)
     await alert.get('button').trigger('click')
     await flushPromises()
@@ -338,7 +336,7 @@ describe('the ask page, answered from the URL', () => {
     const wrapper = await renderAsk(askUrl('а'.repeat(201)))
     expect(requests).toHaveLength(1)
     expect(plain(wrapper.get('[data-test="ask-error"]').text())).toContain(
-      'Запит задовгий: щонайбільше 200 символів. Скоротіть його й спробуйте ще раз.',
+      'Запит задовгий: щонайбільше 200 символів. Скороти його й спробуй ще раз.',
     )
   })
 })
@@ -398,7 +396,7 @@ describe('the ask page, answers the catalog could not fully apply', () => {
       expect(item.element.children[0]!.getAttribute('data-test')).toBe('ask-row')
       expect(item.findAll('p').every((line) => line.text() !== '')).toBe(true)
     }
-    expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрали 3 гри')
+    expect(plain(wrapper.get('[data-test="ask-count"]').text())).toBe('Підібрав 3 гри')
   })
 })
 
@@ -415,15 +413,15 @@ describe('the ask page, answers with nothing the catalog can filter by', () => {
     const wrapper = await renderAsk(askUrl(NOTHING_QUERY))
     const empty = wrapper.get('[data-test="ask-empty"]')
     expect(empty.findAll('p').map((line) => plain(line.text()))).toEqual([
-      'Нічого не підібрали',
-      'Спробуйте описати інакше — конкретніше або менш суворо.',
+      'Нічого не підібрав',
+      'Спробуй описати інакше — конкретніше або менш суворо.',
     ])
     expect(wrapper.find('[data-test="ask-catalog-link"]').exists()).toBe(false)
   })
 
   it('keeps the link, and the hint that points to it, when there is a filter to open', async () => {
     const wrapper = await renderAsk(askUrl(EMPTY_QUERY))
-    expect(wrapper.get('[data-test="ask-empty"]').text()).toContain('відкрийте фільтр у каталозі')
+    expect(wrapper.get('[data-test="ask-empty"]').text()).toContain('відкрий фільтр у каталозі')
     expect(wrapper.find('[data-test="ask-catalog-link"]').exists()).toBe(true)
   })
 })

@@ -144,7 +144,7 @@ describe('the ask page on the server', async () => {
 
     expect(text(body)).toContain('Зрозумів так: Атмосферні горори з українською локалізацією')
     expect(text(body)).toContain('Зрозумілий фільтр: Українська: будь-яка')
-    expect(text(body)).toContain('Підібрали 3 гри')
+    expect(text(body)).toContain('Підібрав 3 гри')
     expect(text(body)).toContain(
       'Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
     )
@@ -168,14 +168,14 @@ describe('the ask page on the server', async () => {
     expect(text(body)).toContain(
       'Зрозумів так: Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
     )
-    expect(text(body)).toContain('Нічого не підібрали')
+    expect(text(body)).toContain('Нічого не підібрав')
     expect(body).not.toContain('data-test="ask-item"')
     expect(decode(body)).toContain('href="/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500"')
   })
 
   it('says calmly that the AI part did not run for a question it cannot read', async () => {
     const { body } = await page(askUrl(UNKNOWN))
-    expect(text(body)).toContain('ШІ-розбір зараз недоступний — показуємо звичайний пошук')
+    expect(text(body)).toContain('ШІ-розбір зараз недоступний — показую звичайний пошук')
     expect(text(body)).toContain(`Звичайний пошук: «${UNKNOWN}»`)
     expect(body).not.toContain('data-test="ask-interpretation"')
     expect(body).not.toContain('data-test="ask-reason"')
@@ -208,7 +208,7 @@ describe('the ask page on the server', async () => {
       expect(text(body)).toContain('ШІ-розбір')
     }
     expect(text((await page(askUrl(UNKNOWN), busy, '192.0.2.99')).body)).toMatch(
-      /Забагато запитів поспіль\. Спробуйте ще раз за \d+ секунд/,
+      /Забагато запитів поспіль\. Спробуй ще раз за \d+ секунд/,
     )
     // Another visitor is unaffected. Without the forwarded header both would be one address.
     expect(text((await page(askUrl(UNKNOWN), '203.0.113.11')).body)).toContain('ШІ-розбір')

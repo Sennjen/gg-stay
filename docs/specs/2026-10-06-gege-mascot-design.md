@@ -120,8 +120,12 @@ No behaviour of `/api/ask` changes. No model call is added anywhere.
 
 ## Copy
 
-All copy lives in `i18n/locales/{uk,en}.json`. The mascot addresses the visitor informally («ти»)
-in his own bubbles; the rest of the site's copy is not changed.
+All copy lives in `i18n/locales/{uk,en}.json`. On the ask page and in the greeter all copy is
+informal: Gege speaks in the first person and addresses the visitor as «ти» everywhere on `/ask` —
+his bubbles, the form's label, the example caption, the count line («Підібрав {count} …», in
+fallback «Знайшов {count} …»; English "Picked/Found {count} game(s)"), the privacy note, the empty
+state and every error text. The ask page's document title and `description` meta are not his
+speech and stay formal. The rest of the site's copy is not changed.
 
 ## Constraints
 

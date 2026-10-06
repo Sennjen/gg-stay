@@ -300,7 +300,7 @@
       "horror": "atmospheric horror in Ukrainian",
       "hades": "something like Hades, but shorter"
     },
-    "privacy": "Your question is sent to Anthropic to be read by a language model. We don't store questions together with IP addresses.",
+    "privacy": "Your question is sent to Anthropic to be read by a language model. I don't store questions together with IP addresses.",
     "results": "Results",
     "understood": "Here's how I read it: {interpretation}",
     "filterLabel": "Understood filter:",
