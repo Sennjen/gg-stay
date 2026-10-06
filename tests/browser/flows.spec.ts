@@ -1,4 +1,6 @@
-import type { Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import type { Page, Request } from '@playwright/test'
 import { expect, expectAccessible, test, waitForHydration } from './fixtures'
 
 /**
@@ -9,6 +11,21 @@ import { expect, expectAccessible, test, waitForHydration } from './fixtures'
  */
 
 const WITCHER = '/games/the-witcher-3-wild-hunt'
+
+/** The game page's own request to the BFF: the `Game` operation, sent from the browser. */
+function isGameQuery(request: Request): boolean {
+  if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/api/graphql') {
+    return false
+  }
+  const body = request.postDataJSON() as { query?: string } | null
+  return /\bquery Game\b/.test(body?.query ?? '')
+}
+
+/** The Ukrainian words of the game page, read from the locale file the page itself renders. */
+const copy = JSON.parse(readFileSync(resolve(process.cwd(), 'i18n/locales/uk.json'), 'utf-8')) as {
+  game: { stillLoading: string; about: string }
+  gallery: { heading: string }
+}
 
 /** The catalog's "Знайдено: N" / "Found: N" line, as a number. */
 async function resultTotal(page: Page): Promise<number> {
@@ -234,6 +251,128 @@ test('game page → screenshot lightbox opens, pages and closes from the keyboar
   await page.keyboard.press('Escape')
   await expect(lightbox).toBeHidden()
   await expect(firstThumbnail).toBeFocused()
+})
+
+test('catalog → a game: the answer to the page’s own request says where its time went', async ({
+  page,
+}) => {
+  await page.goto('/games')
+  await waitForHydration(page)
+
+  // Opened from the catalog, the page is rendered in the browser, so its request is one the
+  // network panel shows — the first render of a page asks on the server instead.
+  const answered = page.waitForResponse((response) => isGameQuery(response.request()))
+  await page.locator(`a[href="${WITCHER}"]`).first().click()
+  const response = await answered
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'The Witcher 3: Wild Hunt' }),
+  ).toBeVisible()
+
+  expect(response.status()).toBe(200)
+  // Fixture mode's upstreams are its recordings and its seeded index: RAWG's three answers about
+  // the page, Steam's Ukrainian description, and the index's reads for the page and its row of
+  // similar games. Names and numbers, and nothing of the request.
+  expect(response.headers()['server-timing']).toMatch(
+    /^rawg;dur=\d+;desc="RAWG x3", steam;dur=\d+;desc="Steam x1", index;dur=\d+;desc="Index x[1-9]\d*", total;dur=\d+$/,
+  )
+  // The policy of the endpoint is still beside it.
+  expect(response.headers()['content-security-policy']).toBe(
+    "default-src 'none'; frame-ancestors 'none'",
+  )
+
+  // And the browser reads it as server timing, which is what its network panel draws.
+  const metrics = await page.evaluate(() =>
+    (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
+      .filter((entry) => new URL(entry.name).pathname === '/api/graphql')
+      .flatMap((entry) => entry.serverTiming.map((metric) => metric.name)),
+  )
+  expect(metrics).toEqual(expect.arrayContaining(['rawg', 'steam', 'index', 'total']))
+})
+
+test('a game opened with a partial answer → one quiet line → the page asks again by itself → the whole page, and nothing above it has moved', async ({
+  page,
+}) => {
+  // The fixture build answers at once, so no answer of its own is ever partial. The first answer
+  // to the page's request is cut down on its way to the browser to what the server sends when
+  // RAWG is late — the page built from the index document — and every later one passes untouched.
+  let asked = 0
+  await page.route('**/api/graphql', async (route) => {
+    if (!isGameQuery(route.request())) return route.fallback()
+    asked += 1
+    if (asked > 1) return route.fallback()
+    const response = await route.fetch()
+    const body = (await response.json()) as {
+      data: { game: { screenshots: unknown[]; stores: { store: string }[] } }
+    }
+    const game = body.data.game
+    await route.fulfill({
+      response,
+      json: {
+        data: {
+          game: {
+            ...game,
+            partial: true,
+            localizedDescription: null,
+            website: null,
+            screenshots: game.screenshots.slice(0, 1),
+            platforms: [],
+            genres: [],
+            developers: [],
+            publishers: [],
+            stores: game.stores.filter((offer) => offer.store === 'steam'),
+          },
+        },
+      },
+    })
+  })
+  // The page's own clock, so its three seconds are moved rather than waited for.
+  await page.clock.install()
+
+  await page.goto('/games')
+  await waitForHydration(page)
+  await page.locator(`a[href="${WITCHER}"]`).first().click()
+
+  const title = page.getByRole('heading', { level: 1, name: 'The Witcher 3: Wild Hunt' })
+  await expect(title).toBeVisible()
+  const note = page.getByRole('status').filter({ hasText: copy.game.stillLoading })
+  await expect(note).toBeVisible()
+  await expect(note).toHaveText(copy.game.stillLoading)
+  await expect(page.getByRole('heading', { name: copy.game.about })).toHaveCount(0)
+  expect(asked).toBe(1)
+  await expectAccessible(page, 'game page with a partial answer')
+
+  // The line lies over the top of the cover and takes no room: it is inside the hero's box.
+  const hero = page.locator('article > div').first()
+  const scoreboard = page.locator('article dl').first()
+  const heroBox = (await hero.boundingBox())!
+  const noteBox = (await note.boundingBox())!
+  expect(noteBox.y).toBeGreaterThanOrEqual(heroBox.y)
+  expect(noteBox.y + noteBox.height).toBeLessThan((await title.boundingBox())!.y)
+  const before = {
+    hero: heroBox,
+    title: await title.boundingBox(),
+    scoreboard: await scoreboard.boundingBox(),
+    scrollY: await page.evaluate(() => window.scrollY),
+  }
+
+  // Three seconds on, the page asks again; the whole answer takes the partial one's place.
+  await page.clock.fastForward(3_000)
+  await expect(note).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: copy.game.about })).toBeVisible()
+  const gallery = page.getByRole('region', { name: copy.gallery.heading })
+  expect(await gallery.getByRole('button').count()).toBeGreaterThan(1)
+  expect(asked).toBe(2)
+
+  // What arrived went below; the cover, the title and the scoreboard are where they were.
+  expect(await hero.boundingBox()).toEqual(before.hero)
+  expect(await title.boundingBox()).toEqual(before.title)
+  expect(await scoreboard.boundingBox()).toEqual(before.scoreboard)
+  expect(await page.evaluate(() => window.scrollY)).toBe(before.scrollY)
+
+  // A whole page asks nothing more, however long it stays open.
+  await page.clock.fastForward(60_000)
+  expect(asked).toBe(2)
+  await expectAccessible(page, 'game page completed by its own second request')
 })
 
 test('the locale switch keeps the page, uk → en → uk', async ({ page }) => {
