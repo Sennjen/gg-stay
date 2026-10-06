@@ -33,8 +33,11 @@
     "language": "Language",
     "languageFooter": "Site language (footer)",
     "skipToContent": "Skip to content",
-    "primary": "Primary navigation",
-    "ask": "Ask"
+    "primary": "Primary navigation"
+  },
+  "gege": {
+    "name": "Gege",
+    "nav": "AI picks"
   },
   "search": {
     "label": "Search games",

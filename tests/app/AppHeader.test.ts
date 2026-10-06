@@ -23,8 +23,25 @@ describe('AppHeader', () => {
     const nav = wrapper.get('nav[aria-label="Основна навігація"]')
     expect(nav.findAll('a').map((link) => [link.text(), link.attributes('href')])).toEqual([
       ['Каталог', '/games'],
-      ['Запитати', '/ask'],
+      ['AI-підбір', '/ask'],
     ])
+  })
+
+  it('puts a still, decorative 20 px Gege face before the ask link text', async () => {
+    const wrapper = await mountSuspended(AppHeader, { route: '/games' })
+    const link = wrapper.get('nav[aria-label="Основна навігація"] a[href="/ask"]')
+    const face = link.get('svg')
+    expect(face.attributes('width')).toBe('20')
+    expect(face.attributes('aria-hidden')).toBe('true')
+    expect(face.classes()).not.toContain('gege--animated')
+    // The face comes first; the accessible name is the text, which the hidden drawing adds nothing to.
+    expect(link.element.firstElementChild).toBe(face.element)
+    expect(link.text()).toBe('AI-підбір')
+  })
+
+  it('names the ask link in English on the English site', async () => {
+    const wrapper = await mountSuspended(AppHeader, { route: '/en/games' })
+    expect(wrapper.get('a[href="/en/ask"]').text()).toBe('AI picks')
   })
 
   it('gives the header bar a fixed height, shared via --header-h with sections that must run underneath it', async () => {

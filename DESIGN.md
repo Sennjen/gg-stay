@@ -60,7 +60,8 @@ calls for.
 ### Motion
 
 Hover, apply and open transitions run 150–250 ms ease-out. The only loops are
-the hero video and the cover ring (both arrive in later PRs). A global
+the hero video, the cover ring and the mascot's idle, peek and thinking moods
+(see "Gege, the mascot"). A global
 `prefers-reduced-motion: reduce` rule in `main.css` collapses every
 transition and animation duration to near-zero and disables smooth
 scrolling, so no component needs its own reduced-motion branch for basic
@@ -112,6 +113,10 @@ package) provider, which does serve the full variable font file.
 - **Signal (`--color-signal`) is reserved** for live/ephemeral states: "now on
   screen" captions, "coming soon" labels, and the filter-drawer reset action.
   It is not a general-purpose highlight colour.
+- **The one exception is Gege, the mascot** (`GegeMascot`). He is the only illustration allowed to
+  use accent and signal outside calls to action and live states: his body is `accent`, his eyes are
+  `signal`, and his details are `ink` and `fg`. The exception covers his drawing and nothing around
+  it — see "Gege, the mascot" below.
 - **`fg-3` contrast note:** `fg-3` (`#6B7080`) on `ink` measures roughly
   3.9:1, below the 4.5:1 WCAG AA threshold for normal text. It is safe to use
   for large text (≥ 24px, or ≥ 18.66px bold) or for genuinely decorative
@@ -225,7 +230,8 @@ Status values: **exists** (unchanged since before the redesign),
 
 | Component                       | Status                                                                                                                                                                                                        |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AppHeader`                     | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9; "Запитати" link beside the catalog in week 3                                                                                      |
+| `AppHeader`                     | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9; "Запитати" link beside the catalog in week 3, renamed "AI-підбір" with Gege's face before it                                      |
+| `GegeMascot`                    | Done — the AI-picks mascot, an inline pixel-art SVG with four moods; see "Gege, the mascot" below                                                                                                             |
 | `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                                                                   |
 | `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
 | `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
@@ -452,5 +458,33 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   question; history navigation renders them without a request or a skeleton (every ask costs one of
   the visitor's ten a minute, and a fallback is never cached by the endpoint). A question sent from
   the form, and "Спробувати ще раз", always ask; failures are not remembered.
-- **Ways in.** "Запитати" sits beside "Каталог" in the header's primary navigation, and the
+- **Ways in.** "AI-підбір" (until Gege arrived, "Запитати") sits beside "Каталог" in the header's
+  primary navigation with Gege's face before it, and the
   catalog's empty state ends with "Не знаєте, які фільтри обрати? Опишіть словами".
+
+### Gege, the mascot
+
+**Ґеґе** (English: **Gege**, from "GG") is a living pixel-art gamepad and the face of the AI game
+picking. `GegeMascot` draws him as an inline SVG — no image file, no dependency — on a 20 × 13
+grid with `shape-rendering="crispEdges"`: a rounded top, two grips as legs, two eyes, a d-pad on
+the left, four face buttons on the right and a small mouth. He is decorative (`aria-hidden`, not
+focusable); the text beside him always carries the meaning.
+
+- **Colour.** Tokens only, and the documented exception to the accent and signal rules above: the
+  body is `accent`, the eyes `signal`, the pupils, mouth, d-pad and buttons `ink`, the glint in each
+  eye `fg`. The one highlight and the one darker amber are `color-mix()` of `accent` with `fg` and
+  with `ink`, so the drawing holds no colour value of its own. Nothing else may borrow this
+  exception: a bubble, a button or a caption near him follows the ordinary rules.
+- **Size.** `size` is his width in CSS pixels; the height follows the grid (13/20). The grid is 20
+  wide because the header shows him 20 px wide, one cell to one pixel. Multiples of 20 are
+  pixel-perfect; other widths stay crisp with cells that differ by a pixel.
+- **Moods.** `idle` — open eyes and a smile; he floats 3 px in whole-pixel steps and blinks every
+  few seconds. `peek` — the idle face tilted −8°, swaying to −3°. `thinking` — half-lidded eyes, a
+  flat mouth, and the four face buttons lighting up in `signal` one after another, clockwise.
+  `happy` — eyes as arcs, an open mouth and one short hop.
+- **Motion.** CSS keyframes only, held steps where it suits pixel art, and only with the
+  `animated` prop (default on). Under `prefers-reduced-motion: reduce` the component removes its
+  animations outright and each mood keeps its static pose: the tilt for `peek`, the first button
+  lit for `thinking`. `:animated="false"` gives the same still pose on request.
+- **In the header** he is a still 20 px face before the "AI-підбір" / "AI picks" link to `/ask`.
+  The link's accessible name is its text.
