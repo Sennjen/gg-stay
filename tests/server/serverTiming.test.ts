@@ -541,6 +541,46 @@ describe('a context whose upstream calls are timed', () => {
     expect(timing.header()).toBe('steam;dur=730;desc="Steam x1", total;dur=730')
   })
 
+  it('times a price read the port gains, without having to be told of it', async () => {
+    const clock = handClock()
+    const timing = createServerTiming(clock.now)
+    // A port with one read more than this suite knows by name, kept on the port's own state.
+    const port = {
+      ...noSteamPrices,
+      asked: [] as string[],
+      async fetchPrice(this: { asked: string[] }, appId: string) {
+        this.asked.push(appId)
+        clock.advance(410)
+        return { priceUah: 404, regularPriceUah: 1349, discountPercent: 70, isFree: false }
+      },
+    }
+    const timed = timedContext(
+      contextOf({ steamPrices: port as unknown as SteamPriceFetch }),
+      timing,
+    ).steamPrices as unknown as typeof port
+
+    expect(await timed.fetchPrice('292030')).toMatchObject({ priceUah: 404 })
+    expect(port.asked).toEqual(['292030'])
+    // What is not a read is handed on as it is.
+    expect(timed.asked).toBe(port.asked)
+    await settle()
+    expect(timing.header()).toBe('steam;dur=410;desc="Steam x1", total;dur=410')
+  })
+
+  it('leaves a price read’s failure to the resolver that made it', async () => {
+    const timing = createServerTiming(handClock().now)
+    const failure = new UpstreamError('STEAM', 'TIMEOUT')
+    const fetchPrices = vi.fn<SteamPriceFetch['fetchPrices']>(() => Promise.reject(failure))
+    const timed = timedContext(
+      contextOf({ steamPrices: { ...noSteamPrices, fetchPrices } }),
+      timing,
+    )
+
+    await expect(timed.steamPrices.fetchPrices(['292030'])).rejects.toBe(failure)
+    await settle()
+    expect(timing.header()).toBe('steam;dur=0;desc="Steam x1", total;dur=0')
+  })
+
   it('hands the refresh job’s language read on, unmeasured', async () => {
     const languages = { ukrainian: { text: true, audio: false }, isFree: false, price: null }
     const fetchAppLanguages = vi.fn(async () => languages)

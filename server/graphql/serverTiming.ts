@@ -1,3 +1,4 @@
+import type { SteamPriceFetch } from '../steam/steamPriceFetch'
 import type { GraphQLContext } from './context'
 
 /**
@@ -147,12 +148,7 @@ export function writeServerTiming(headers: Pick<Headers, 'set'>, timing: ServerT
  *
  * - `rawg` and `steam` are the cached transports, and are told apart from their caches through
  *   `onCached`.
- * - `steamPrices.fetchPrices` is the game page's live price read. It never reads a cache
- *   (`steamPriceFetch.ts`), so every call is a call; the resolver's own six-hour memory sits in
- *   front of it and is not an upstream.
- * - `steamPrices.fetchAppLanguages` belongs to the refresh job and no resolver calls it. It reads
- *   through the cached per-app transport without a way to say that the cache answered, so it is
- *   handed on unmeasured rather than counted wrongly.
+ * - `steamPrices` is the game page's live price read — see `timedSteamPrices`.
  * - Every read of the index is a call. The resolvers' own caches and once-per-request memos sit in
  *   front of the port, so what reaches it is what was asked. A read the circuit refuses
  *   (`server/index/index.ts`) shows as a call that took no time, which is what it cost.
@@ -165,10 +161,7 @@ export function timedContext(context: GraphQLContext, timing: ServerTiming): Gra
       timing.measure('rawg', (onCached) => rawg(path, params, { ...options, onCached })),
     steam: (appId, options) =>
       timing.measure('steam', (onCached) => steam(appId, { ...options, onCached })),
-    steamPrices: {
-      fetchPrices: (appIds) => timing.measure('steam', () => steamPrices.fetchPrices(appIds)),
-      fetchAppLanguages: (appId) => steamPrices.fetchAppLanguages(appId),
-    },
+    steamPrices: timedSteamPrices(steamPrices, timing),
     // Called as methods: an adapter may be a class, whose methods a spread would not copy.
     index: {
       search: (query) => timing.measure('index', () => index.search(query)),
@@ -179,4 +172,29 @@ export function timedContext(context: GraphQLContext, timing: ServerTiming): Gra
       allSlugs: () => timing.measure('index', () => index.allSlugs()),
     },
   }
+}
+
+/**
+ * The Steam price port, with its reads timed as calls to Steam.
+ *
+ * The reads are taken from the port as it is rather than from a list kept here, so that one added
+ * to it is timed from the day it is added, and cannot be handed to resolvers unmeasured — or not
+ * at all. That is right for this port because none of its price reads has a cache to answer from
+ * (`steamPriceFetch.ts`): every call asks Steam, so every call is a call. The resolver's own
+ * memory of a price sits in front of the port and is not an upstream.
+ *
+ * The one exception is named: `fetchAppLanguages` belongs to the refresh job and no resolver calls
+ * it. It reads through the cached per-app transport without a way to say that the cache answered,
+ * so it is handed on unmeasured rather than counted wrongly.
+ */
+function timedSteamPrices(steamPrices: SteamPriceFetch, timing: ServerTiming): SteamPriceFetch {
+  const timed = { ...steamPrices }
+  for (const [name, read] of Object.entries(steamPrices) as [string, unknown][]) {
+    if (name === 'fetchAppLanguages' || typeof read !== 'function') continue
+    Object.assign(timed, {
+      [name]: (...args: unknown[]) =>
+        timing.measure('steam', () => read.apply(steamPrices, args) as Promise<unknown>),
+    })
+  }
+  return timed
 }
