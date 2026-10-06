@@ -237,6 +237,39 @@ describe('createRawgFetch', () => {
     timeout.mockRestore()
   })
 
+  it('writes a line about a failed attempt that carries no URL, no query and no API key', async () => {
+    const log = vi.fn<(line: string) => void>()
+    const fetchJson = vi.fn().mockResolvedValue({ status: 500, body: null })
+    const { deps } = makeDeps({ fetchJson, log })
+    await expect(
+      createRawgFetch(deps)('games', { search: 'half life', page: 2 }, { maxAttempts: 1 }),
+    ).rejects.toMatchObject({ kind: 'ERROR' })
+
+    // The request itself carried all three...
+    const url = fetchJson.mock.calls[0]![0] as string
+    expect(url).toContain('https://api.rawg.io/api/games?')
+    expect(url).toContain('search=half+life')
+    expect(url).toContain('key=test-key')
+    // ...and the line about it names the path, and nothing else of it.
+    expect(log.mock.calls).toEqual([['[upstream] RAWG games attempt 1: 0 ms, ERROR (500)']])
+    for (const hidden of ['test-key', 'key=', 'api.rawg.io', 'https', 'search', 'half', 'page']) {
+      expect(log.mock.calls[0]![0]).not.toContain(hidden)
+    }
+  })
+
+  it('names the game a failed attempt was about, by its path', async () => {
+    const log = vi.fn<(line: string) => void>()
+    const fetchJson = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 502, body: null })
+      .mockResolvedValueOnce({ status: 200, body: { results: [] } })
+    const { deps } = makeDeps({ fetchJson, log })
+    await createRawgFetch(deps)('games/portal-2/stores')
+    expect(log.mock.calls).toEqual([
+      ['[upstream] RAWG games/portal-2/stores attempt 1: 0 ms, ERROR (502)'],
+    ])
+  })
+
   it('reads fixtures instead of fetching when fixture mode is on', async () => {
     const readFixture = vi.fn(async (name: string) => (name === 'genres' ? { results: [] } : null))
     const { deps } = makeDeps({ fixtures: true, readFixture })

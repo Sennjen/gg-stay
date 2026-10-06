@@ -26,6 +26,8 @@ export interface RawgDeps {
   }
   now: () => number
   sleep: (ms: number) => Promise<void>
+  /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
+  log?: (line: string) => void
 }
 
 export interface RawgFetchOptions {

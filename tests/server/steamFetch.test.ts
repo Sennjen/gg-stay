@@ -137,6 +137,17 @@ describe('createSteamFetch', () => {
     expect(waits).toEqual([1_500, 3_000])
   })
 
+  it('writes a line about a failed attempt that names the app, not the URL', async () => {
+    const log = vi.fn<(line: string) => void>()
+    const fetchJson = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 502, body: null })
+      .mockResolvedValueOnce({ status: 200, body: { '292030': { success: true } } })
+    const { deps } = makeDeps({ fetchJson, log })
+    await createSteamFetch(deps)('292030')
+    expect(log.mock.calls).toEqual([['[upstream] STEAM 292030 attempt 1: 0 ms, ERROR (502)']])
+  })
+
   it('reads fixtures instead of fetching when fixture mode is on', async () => {
     const readFixture = vi.fn(async (name: string) =>
       name === 'appdetails-292030' ? { '292030': { success: true } } : null,

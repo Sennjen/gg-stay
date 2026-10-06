@@ -153,6 +153,22 @@ describe('fetchPrices', () => {
     expect(fetchJson).toHaveBeenCalledTimes(2)
   })
 
+  it('writes a line about a failed price read, naming the apps it asked about', async () => {
+    const log = vi.fn<(line: string) => void>()
+    const fetchJson = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 429, body: null })
+      .mockResolvedValueOnce({ status: 200, body: {} })
+    const { deps } = makeDeps({ fetchJson, log })
+    const steamPrices = createSteamPriceFetch(deps)
+    await expect(steamPrices.fetchPrices(['292030', '620'])).rejects.toMatchObject({
+      kind: 'RATE_LIMITED',
+    })
+    expect(log.mock.calls).toEqual([
+      ['[upstream] STEAM 292030,620 attempt 1: 0 ms, RATE_LIMITED (429)'],
+    ])
+  })
+
   it('reads the single "prices" fixture asset instead of fetching, in fixture mode', async () => {
     const readFixture = vi.fn(async (name: string) =>
       name === 'prices'

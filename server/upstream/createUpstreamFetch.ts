@@ -13,8 +13,8 @@ import { UpstreamError, type UpstreamSource } from './errors'
  * Everything that differs between the two is a parameter: the source name, the throttle interval,
  * how a request becomes a URL, a cache key, a fixture name and a ttl, and an optional projection
  * applied before a payload is cached. Everything the caller must be able to substitute in a test
- * (fetch, fixtures, cache, clock, sleep) is injected, which is what lets the transport tests drive
- * throttling, retries and clock drift deterministically without a mock library.
+ * (fetch, fixtures, cache, clock, sleep, the log) is injected, which is what lets the transport
+ * tests drive throttling, retries and clock drift deterministically without a mock library.
  */
 
 export interface UpstreamCacheEntry {
@@ -33,6 +33,12 @@ export interface UpstreamRuntime {
   }
   now: () => number
   sleep: (ms: number) => Promise<void>
+  /**
+   * Where the line about an attempt that failed or was slow goes (see `SLOW_ATTEMPT_MS`).
+   * `console.info` when omitted; a test passes its own, to read the lines or to keep them out of
+   * its output.
+   */
+  log?: (line: string) => void
 }
 
 export interface UpstreamConfig<TRequest> {
@@ -59,6 +65,34 @@ export interface UpstreamLimits {
 }
 
 /**
+ * How long an attempt may take before it is logged even though it succeeded. RAWG answers most
+ * requests in well under a second; the ones that take two or more are the tail the game page's
+ * time budget exists for, and one line each is the evidence for deciding later whether a second,
+ * parallel attempt would have beaten them.
+ */
+export const SLOW_ATTEMPT_MS = 2_000
+
+/** The most of a cache key's path a log line carries: a key is as long as its caller makes it. */
+const MAX_LOGGED_PATH_LENGTH = 120
+
+/**
+ * What a log line may say about a request: the path of its cache key, and never the URL. The URL
+ * carries the API key; a cache key never does, and its query string — which can hold a search term
+ * a visitor typed — is left out too. Cut to a fixed length, so that a line stays a line whatever a
+ * caller put in the key.
+ */
+function loggedPath(key: string): string {
+  const path = key.split('?', 1)[0] ?? ''
+  return path.length > MAX_LOGGED_PATH_LENGTH ? `${path.slice(0, MAX_LOGGED_PATH_LENGTH)}…` : path
+}
+
+/** How an attempt ended, in the transport's own words: `OK`, or the error's kind and status. */
+function outcomeOf(error: UpstreamError | null): string {
+  if (!error) return 'OK'
+  return error.status === undefined ? error.kind : `${error.kind} (${error.status})`
+}
+
+/**
  * Whether a body may be kept. Every API behind this transport answers with a JSON object, so
  * anything else under a 200 — RAWG has been seen sending an empty body, which parses to `null` — is
  * a bad answer, not a result: it is handed to the caller once and forgotten. Cached, it would be
@@ -78,6 +112,9 @@ export function createUpstreamFetch<TRequest>(
   runtime: UpstreamRuntime,
 ): (request: TRequest) => Promise<unknown> {
   const project = config.project ?? ((value: unknown) => value)
+  // Read when a line is written, not when the transport is built, so the default follows whatever
+  // `console.info` is at that moment.
+  const log = runtime.log ?? ((line: string) => console.info(line))
   let nextSlot = 0
 
   /**
@@ -109,8 +146,8 @@ export function createUpstreamFetch<TRequest>(
     if (slot > now) await runtime.sleep(slot - now)
   }
 
-  async function attempt(url: string, now: number, timeoutMs: number): Promise<unknown> {
-    await throttle(now)
+  /** One request as the upstream answered it: its body, or the `UpstreamError` it stands for. */
+  async function send(url: string, timeoutMs: number): Promise<unknown> {
     let response: { status: number; body: unknown }
     try {
       response = await runtime.fetchJson(url, AbortSignal.timeout(timeoutMs))
@@ -125,6 +162,46 @@ export function createUpstreamFetch<TRequest>(
     return response.body
   }
 
+  /**
+   * One `console.info` line for an attempt worth knowing about: one that timed out, one that
+   * failed, and one that took `SLOW_ATTEMPT_MS` or longer whatever came of it. It names the
+   * source, the path of the cache key, which attempt it was, how long the upstream took, and how
+   * it ended — see `loggedPath` for what is deliberately not in it.
+   *
+   * The time is the upstream's own: it is measured from the moment the request is sent, after the
+   * limiter has let it through, because a line that included our own queue would say nothing
+   * about how slow RAWG was. A 404 is an answer rather than a failure, here as in the cache rule
+   * below, and is logged only when it was slow: anyone can ask for a game that does not exist,
+   * and a line per miss would hand the log to whoever does.
+   */
+  function report(path: string, number: number, startedAt: number, error: UpstreamError | null) {
+    const ms = Math.max(0, runtime.now() - startedAt)
+    const failed = error !== null && error.kind !== 'NOT_FOUND'
+    if (!failed && ms < SLOW_ATTEMPT_MS) return
+    log(`[upstream] ${config.source} ${path} attempt ${number}: ${ms} ms, ${outcomeOf(error)}`)
+  }
+
+  async function attempt(
+    url: string,
+    now: number,
+    timeoutMs: number,
+    path: string,
+    number: number,
+  ): Promise<unknown> {
+    await throttle(now)
+    const startedAt = runtime.now()
+    try {
+      const body = await send(url, timeoutMs)
+      report(path, number, startedAt, null)
+      return body
+    } catch (error) {
+      // `send` raises nothing but `UpstreamError`; anything else would be a bug of ours, and is
+      // passed on untouched rather than described.
+      if (error instanceof UpstreamError) report(path, number, startedAt, error)
+      throw error
+    }
+  }
+
   function isRetryable(error: unknown): boolean {
     if (!(error instanceof UpstreamError)) return false
     if (error.kind === 'TIMEOUT') return true
@@ -135,6 +212,7 @@ export function createUpstreamFetch<TRequest>(
     url: string,
     now: number,
     limits: Required<UpstreamLimits>,
+    path: string,
   ): Promise<unknown> {
     let lastError: unknown
     for (let i = 0; i < limits.maxAttempts; i++) {
@@ -146,7 +224,7 @@ export function createUpstreamFetch<TRequest>(
       // down retries and dragging real throughput under the target rate.
       const attemptNow = i === 0 ? now : runtime.now()
       try {
-        return await attempt(url, attemptNow, limits.timeoutMs)
+        return await attempt(url, attemptNow, limits.timeoutMs, path, i + 1)
       } catch (error) {
         lastError = error
         if (!isRetryable(error)) break
@@ -168,7 +246,7 @@ export function createUpstreamFetch<TRequest>(
     if (cached && cached.expiresAt > now) return cached.value
 
     try {
-      const body = await fetchWithRetry(config.buildUrl(request), now, limits)
+      const body = await fetchWithRetry(config.buildUrl(request), now, limits, loggedPath(key))
       const value = project(body)
       if (isJsonObject(body)) {
         await runtime.cache.set(key, { value, expiresAt: now + config.ttlFor(request) * 1000 })

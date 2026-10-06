@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createUpstreamFetch,
+  SLOW_ATTEMPT_MS,
   type UpstreamCacheEntry,
   type UpstreamConfig,
   type UpstreamRuntime,
@@ -9,12 +10,13 @@ import { UpstreamError } from '../../server/upstream/errors'
 
 /**
  * The shared transport on its own, for what neither RAWG's nor Steam's share of it decides: which
- * calls are one request. `rawgFetch.test.ts` and `steamFetch.test.ts` cover the rest through the
- * two transports built on it.
+ * calls are one request, and what it writes down about an attempt that failed or was slow.
+ * `rawgFetch.test.ts` and `steamFetch.test.ts` cover the rest through the two transports built on
+ * it.
  *
  * The network here answers when a test says so. A request stays on the wire until its entry in
  * `sent` is answered or failed, which is what lets a test make a second call while the first is
- * still running, without a timer and without a wait.
+ * still running — and move the clock while a request is out — without a timer and without a wait.
  */
 
 interface Request {
@@ -66,9 +68,17 @@ function makeRuntime(overrides: Partial<UpstreamRuntime> = {}) {
     },
     now: () => clock,
     sleep: vi.fn(async (ms: number) => void (clock += ms)),
+    log: vi.fn<(line: string) => void>(),
     ...overrides,
   } satisfies UpstreamRuntime
-  return { runtime, store, sent, advance: (ms: number) => void (clock += ms) }
+  return {
+    runtime,
+    store,
+    sent,
+    advance: (ms: number) => void (clock += ms),
+    /** Every line the transport has written so far, in order. */
+    lines: () => runtime.log.mock.calls.map(([line]) => line),
+  }
 }
 
 /**
@@ -281,5 +291,185 @@ describe('a request in flight that fails', () => {
 
     expect(await Promise.all(calls)).toEqual([{ stale: true }, { stale: true }])
     expect(runtime.fetchJson).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the line about an attempt', () => {
+  /** One call under `request`, whose attempts end as `steps` say, each after `takes` on the clock. */
+  async function run(
+    request: Request,
+    steps: { takes: number; status?: number; body?: unknown; error?: Error }[],
+  ) {
+    const made = makeRuntime()
+    const outcome = createUpstreamFetch(
+      config,
+      made.runtime,
+    )(request).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    )
+    for (const [position, step] of steps.entries()) {
+      await settle()
+      made.advance(step.takes)
+      if (step.error) made.sent[position]!.fail(step.error)
+      else made.sent[position]!.answer(step.status ?? 200, step.body ?? {})
+    }
+    return { ...made, outcome: await outcome }
+  }
+
+  it('is written for an attempt that timed out, and again for the retry that did', async () => {
+    const { lines, outcome } = await run({ key: 'games/portal-2' }, [
+      { takes: 5_000, error: timeoutError() },
+      { takes: 5_001, error: timeoutError() },
+    ])
+    expect(outcome).toMatchObject({ error: { kind: 'TIMEOUT' } })
+    expect(lines()).toEqual([
+      '[upstream] RAWG games/portal-2 attempt 1: 5000 ms, TIMEOUT',
+      '[upstream] RAWG games/portal-2 attempt 2: 5001 ms, TIMEOUT',
+    ])
+  })
+
+  it.each([
+    ['a 5xx', { takes: 40, status: 502 }, 'ERROR (502)'],
+    ['a rate limit', { takes: 12, status: 429 }, 'RATE_LIMITED (429)'],
+    ['a 4xx that is not a 404', { takes: 3, status: 403 }, 'ERROR (403)'],
+    ['a request that never got an answer', { takes: 7, error: new Error('ECONNRESET') }, 'ERROR'],
+  ])('is written for %s, however quickly it failed', async (_name, step, ending) => {
+    const { lines, outcome } = await run({ key: 'games', maxAttempts: 1 }, [step])
+    expect(outcome).toHaveProperty('error')
+    expect(lines()).toEqual([`[upstream] RAWG games attempt 1: ${step.takes} ms, ${ending}`])
+  })
+
+  it('is written for an answer that took two seconds, and not for one a millisecond faster', async () => {
+    const slow = await run({ key: 'games' }, [{ takes: SLOW_ATTEMPT_MS, body: { ok: true } }])
+    expect(slow.outcome).toEqual({ value: { ok: true } })
+    expect(slow.lines()).toEqual(['[upstream] RAWG games attempt 1: 2000 ms, OK'])
+
+    const brisk = await run({ key: 'games' }, [{ takes: SLOW_ATTEMPT_MS - 1, body: { ok: true } }])
+    expect(brisk.outcome).toEqual({ value: { ok: true } })
+    expect(brisk.lines()).toEqual([])
+  })
+
+  it('numbers the attempts of one call, so a slow retry reads as the second', async () => {
+    const { lines, outcome } = await run({ key: 'games/portal-2/stores' }, [
+      { takes: 30, status: 503 },
+      { takes: 2_400, body: { results: [] } },
+    ])
+    expect(outcome).toEqual({ value: { results: [] } })
+    expect(lines()).toEqual([
+      '[upstream] RAWG games/portal-2/stores attempt 1: 30 ms, ERROR (503)',
+      '[upstream] RAWG games/portal-2/stores attempt 2: 2400 ms, OK',
+    ])
+  })
+
+  it('is not written for a 404, which is an answer, unless the 404 itself was slow', async () => {
+    const quick = await run({ key: 'games/nope' }, [{ takes: 80, status: 404 }])
+    expect(quick.outcome).toMatchObject({ error: { kind: 'NOT_FOUND' } })
+    expect(quick.lines()).toEqual([])
+
+    const slow = await run({ key: 'games/nope' }, [{ takes: 2_300, status: 404 }])
+    expect(slow.lines()).toEqual(['[upstream] RAWG games/nope attempt 1: 2300 ms, NOT_FOUND (404)'])
+  })
+
+  it('times the upstream, not the wait for a slot in the limiter', async () => {
+    const { runtime, sent, advance, lines } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const first = fetchUpstream({ key: 'games/a' })
+    await settle()
+    sent[0]!.answer(200, {})
+    await first
+
+    // Asked for straight away, so the limiter holds this one back an interval before sending it.
+    const second = fetchUpstream({ key: 'games/b', maxAttempts: 1 }).catch(() => null)
+    await settle()
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250]])
+    advance(10)
+    sent[1]!.answer(500)
+    await second
+    expect(lines()).toEqual(['[upstream] RAWG games/b attempt 1: 10 ms, ERROR (500)'])
+  })
+
+  it('names the path of the cache key and leaves the rest of the request out', async () => {
+    const secretive: UpstreamConfig<Request> = {
+      ...config,
+      buildUrl: ({ key }) => `https://upstream.test/${key}&key=an-api-key`,
+    }
+    const { runtime, sent, lines } = makeRuntime()
+    const call = createUpstreamFetch(
+      secretive,
+      runtime,
+    )({
+      key: 'games?page=2&search=half%20life',
+      maxAttempts: 1,
+    }).catch(() => null)
+    await settle()
+    expect(sent[0]!.url).toBe(
+      'https://upstream.test/games?page=2&search=half%20life&key=an-api-key',
+    )
+    sent[0]!.answer(500)
+    await call
+
+    expect(lines()).toEqual(['[upstream] RAWG games attempt 1: 0 ms, ERROR (500)'])
+    for (const hidden of [
+      'an-api-key',
+      'key=',
+      'https://',
+      'upstream.test',
+      'search',
+      'half',
+      '?',
+    ]) {
+      expect(lines()[0]).not.toContain(hidden)
+    }
+  })
+
+  it('cuts a path of any length to a fixed one', async () => {
+    const { lines } = await run({ key: `games/${'x'.repeat(5_000)}?page=1`, maxAttempts: 1 }, [
+      { takes: 1, status: 500 },
+    ])
+    expect(lines()).toEqual([
+      `[upstream] RAWG games/${'x'.repeat(114)}… attempt 1: 1 ms, ERROR (500)`,
+    ])
+  })
+
+  it('is written once for a request several callers shared, and never for a cached answer', async () => {
+    const { runtime, sent, advance, lines } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const calls = [fetchUpstream({ key: 'games' }), fetchUpstream({ key: 'games' })]
+    await settle()
+    advance(3_000)
+    sent[0]!.answer(200, { ok: true })
+    await Promise.all(calls)
+    expect(lines()).toEqual(['[upstream] RAWG games attempt 1: 3000 ms, OK'])
+
+    // Still fresh in the cache: no request, so nothing to say, however long ago that was.
+    advance(60_000)
+    expect(await fetchUpstream({ key: 'games' })).toEqual({ ok: true })
+    expect(lines()).toHaveLength(1)
+  })
+
+  it('says which upstream it was', async () => {
+    const { runtime, sent, lines } = makeRuntime()
+    const steam = createUpstreamFetch({ ...config, source: 'STEAM' }, runtime)
+    const call = steam({ key: '292030', maxAttempts: 1 }).catch(() => null)
+    await settle()
+    sent[0]!.answer(502)
+    await call
+    expect(lines()).toEqual(['[upstream] STEAM 292030 attempt 1: 0 ms, ERROR (502)'])
+  })
+
+  it('goes to console.info when nothing else was asked for', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { runtime, sent } = makeRuntime({ log: undefined })
+    const call = createUpstreamFetch(
+      config,
+      runtime,
+    )({ key: 'games', maxAttempts: 1 }).catch(() => null)
+    await settle()
+    sent[0]!.answer(500)
+    await call
+    expect(info).toHaveBeenCalledExactlyOnceWith(
+      '[upstream] RAWG games attempt 1: 0 ms, ERROR (500)',
+    )
   })
 })

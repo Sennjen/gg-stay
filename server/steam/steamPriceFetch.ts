@@ -24,6 +24,8 @@ export interface SteamPriceFetchDeps {
   readFixture: (name: string) => Promise<unknown | null>
   now: () => number
   sleep: (ms: number) => Promise<void>
+  /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
+  log?: (line: string) => void
   /** The existing per-app, cached transport (server/steam/steamFetch.ts) — `fetchAppLanguages`
    *  reuses it instead of duplicating the transport for a single-app, unfiltered call. */
   steamFetch: SteamFetch
@@ -112,6 +114,7 @@ export function createSteamPriceFetch(deps: SteamPriceFetchDeps): SteamPriceFetc
       cache: NO_CACHE,
       now: deps.now,
       sleep: deps.sleep,
+      log: deps.log,
     },
   )
 
