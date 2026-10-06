@@ -68,8 +68,10 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * way, and the site never writes to Redis.
  *
  * Which app to ask about comes from the index document when the refresh job has published the
- * game's Steam app id there — the read then starts the moment the document is found, beside the
- * RAWG requests instead of behind them — and from RAWG's own store links otherwise, as before.
+ * game's Steam app id there, and from RAWG's own store links otherwise, as before. When the
+ * document also lists the game on Steam the read starts the moment the document is found, beside
+ * the RAWG requests instead of behind them; a document that names an app without listing Steam
+ * is not asked about ahead of RAWG, whose links are then what says whether the price has a place.
  *
  * The read goes through `fetchPrice(appId)`, on the only Steam transport in this project that
  * never caches (`steamPriceFetch.ts`'s `NO_CACHE`) — and the read that tells Steam having no
@@ -317,10 +319,9 @@ async function indexPage(
       : `[game] RAWG slower than ${GAME_DETAIL_HEDGE_MS} ms, answered from the index`,
   )
 
-  // The page offers Steam only when the document both names the app and lists Steam among the
-  // game's stores (`steamStorePageOf`). Without that offer there is nothing for a price to sit
-  // on, and so nothing to wait for.
-  const appId = steamStorePageOf(document) ? steamAppIdOf(document) : null
+  // Without a Steam offer on the page there is nothing for a price to sit on, and so nothing to
+  // wait for (`offeredSteamAppOf`).
+  const appId = offeredSteamAppOf(document)
   const live = appId ? await price.read(appId, document) : null
   if (live) return toGame(withLivePrice(document, live))
   return toGame(stale ? withoutPrice(document) : document)
@@ -392,6 +393,18 @@ function steamAppIdOf(entry: IndexedGame | null): string | null {
 }
 
 /**
+ * The Steam app whose price a page built from this document alone would show: the one the
+ * document names, when it also lists Steam among the game's stores (`steamStorePageOf`). That is
+ * the page's whole Steam offer, so it is also all that is worth asking Steam about on the
+ * document's word alone — a document that names an app without listing Steam is of a game RAWG
+ * has stopped listing there, or has not listed yet, and a price read for it would be shown
+ * nowhere unless RAWG's own store links say otherwise.
+ */
+function offeredSteamAppOf(document: IndexedGame): string | null {
+  return steamStorePageOf(document) ? steamAppIdOf(document) : null
+}
+
+/**
  * The live Steam price for the one app this page is about: asked for at most once per app, and
  * waited for `LIVE_PRICE_BUDGET_MS` from the moment it was asked — not from the moment the page
  * came to need it, so a read that started beside the RAWG requests has usually used its budget up
@@ -418,11 +431,14 @@ function livePrices(context: GraphQLContext, pending: Pending) {
   return {
     /**
      * Asks Steam as soon as the index document says which app to ask about, when its price is due
-     * a refresh. Does nothing once the answer has been given: a head start is all this is.
+     * a refresh — and when the document itself offers the game on Steam (`offeredSteamAppOf`):
+     * a head start is only worth a request for a price the page is known to have a place for.
+     * Any other game's price waits for RAWG's store links to say whether there is a Steam link to
+     * put it on. Does nothing once the answer has been given: a head start is all this is.
      */
     startEarly(document: IndexedGame): void {
       if (pending.released) return
-      const appId = steamAppIdOf(document)
+      const appId = offeredSteamAppOf(document)
       if (appId && needsRefresh(context, document)) ask(appId)
     },
 

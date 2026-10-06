@@ -1422,30 +1422,52 @@ describe('the live Steam price', () => {
     expect(inTime.data!.game).toEqual({ ...INDEX_PAGE, stores: [LIVE_PRICED] })
   })
 
-  it('is not waited for on an index-built page that has no Steam store to show it on', async () => {
+  it('is not asked for on an index-built page that has no Steam store to show it on', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => {})
-    // The app is named, so the read began with the document; but the index does not list the
-    // game on Steam, the page offers no Steam store, and a price would have nowhere to sit.
+    // The app is named and its price is long due, but the index does not list the game on Steam:
+    // the page offers no Steam store, and a price would have nowhere to sit.
     const index = await indexHolding({ ...DUE_A_REFRESH, stores: ['gog'] })
     const rawg = rawgAnswering({
       detail: { after: 300, fail: new UpstreamError('RAWG', 'ERROR', 502) },
-      stores: 50,
+      stores: { after: 50, body: { count: 0, results: [] } },
       screenshots: 50,
     })
+    const steamPrices = steamPricesTaking(700)
     const waitUntil = vi.fn()
 
-    // Out the moment the detail fails, not when Steam answers four tenths of a second later.
-    const { data, errors } = await pageAt(300, {
-      index,
-      rawg,
-      steamPrices: steamPricesTaking(700),
-      waitUntil,
-    })
+    // Out the moment the detail fails, with nothing asked of Steam and nothing left running.
+    const { data, errors } = await pageAt(300, { index, rawg, steamPrices, waitUntil })
 
     expect(errors).toBeUndefined()
     expect(data!.game).toEqual({ ...INDEX_PAGE, stores: [] })
-    // The read is left to finish, like any other the page does not wait out.
-    expect(waitUntil).toHaveBeenCalledTimes(1)
+    expect(steamPrices.calls).toEqual([])
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('is not asked for ahead of RAWG when the document names the app without listing the game on Steam', async () => {
+    // The app id comes from a permanent mapping and outlives a game's time on Steam. Whether
+    // there is a Steam link for a price to sit on is then RAWG's to say, so Steam is not asked
+    // before RAWG has said it: for most such games the price would be shown nowhere.
+    const index = await indexHolding({ ...DUE_A_REFRESH, stores: ['gog'] })
+    const rawg = rawgAnswering({ detail: 1_000, stores: 600, screenshots: 600 })
+    const steamPrices = steamPricesTaking(300)
+
+    const answer = runQuery({ index, rawg, steamPrices }, PAGE, WITCHER)
+    await advance(0)
+    expect(steamPrices.calls).toEqual([])
+    await advance(999)
+    expect(steamPrices.calls).toEqual([])
+
+    // RAWG does list the game on Steam here, and says which app: the price is read then, with
+    // its whole budget in front of it, and is on the page.
+    await advance(1)
+    expect(steamPrices.calls).toEqual(['292030'])
+    await advance(300)
+    const { data, errors } = await answer
+    expect(errors).toBeUndefined()
+    expect(data!.game).toEqual({ ...WHOLE_PAGE, stores: [LIVE_PRICED, GOG] })
+    expect(steamPrices.calls).toEqual(['292030'])
   })
 
   it('is not waited for when RAWG lists no Steam store to show it on', async () => {
