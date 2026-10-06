@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { attachAppIds, resolveAppIds } from '../../../scripts/index/appIds'
+import { appIdsForDocuments, attachAppIds, resolveAppIds } from '../../../scripts/index/appIds'
 import { collectCandidates } from '../../../scripts/index/candidates'
 import type { JobDeps } from '../../../scripts/index/deps'
 import { JOB_APP_IDS, JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
@@ -182,6 +182,77 @@ describe('attachAppIds', () => {
     const resolved = await resolveAppIds(nextRun.deps, games)
     expect(attachAppIds(games, resolved.appIds)).toBe(6)
     expect(games.find((game) => game.id === 106)!.steamAppId).toBe('416000')
+  })
+})
+
+describe('appIdsForDocuments', () => {
+  it('adds what the mapping holds for the games the stage did not answer for', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    // Resolved on an earlier night, when RAWG still listed these two on Steam: one has a page,
+    // the other is known to have none.
+    await harness.writer.setAppIds([
+      [103, '413000'],
+      [109, ''],
+    ])
+    const { appIds } = await resolveAppIds(harness.deps, games)
+    expect(appIds.has(103)).toBe(false)
+    expect(appIds.has(109)).toBe(false)
+
+    const forDocuments = await appIdsForDocuments(harness.deps, games, appIds)
+
+    expect(forDocuments.get(103)).toBe('413000')
+    expect(forDocuments.get(109)).toBe('')
+    // Everything the stage answered for is there as the stage answered it.
+    for (const [id, appId] of appIds) expect(forDocuments.get(id), `game ${id}`).toBe(appId)
+    expect(forDocuments.size).toBe(appIds.size + 2)
+    // And the stage's own map — what the price and language stages work from — is not touched.
+    expect(appIds.has(103)).toBe(false)
+    expect(appIds.has(109)).toBe(false)
+
+    expect(attachAppIds(games, forDocuments)).toBe(7)
+    expect(games.find((game) => game.id === 103)!.steamAppId).toBe('413000')
+    expect('steamAppId' in games.find((game) => game.id === 109)!).toBe(false)
+  })
+
+  it('reads the mapping once, for those games alone, and asks RAWG nothing', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    const { appIds } = await resolveAppIds(harness.deps, games)
+    harness.calls.length = 0
+    const getAppIds = vi.spyOn(harness.writer, 'getAppIds')
+
+    await appIdsForDocuments(harness.deps, games, appIds)
+
+    // 103 has no store at all and 109 is on Nintendo's alone: the two the stage never considered.
+    expect(getAppIds.mock.calls).toEqual([[[103, 109]]])
+    expect(harness.calls).toHaveLength(0)
+  })
+
+  it('reads for a game whose lookup failed tonight too, and finds nothing yet', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    harness.failNext((call) => call.path === 'games/amber-trail/stores')
+    const { appIds } = await resolveAppIds(harness.deps, games)
+    const getAppIds = vi.spyOn(harness.writer, 'getAppIds')
+
+    const forDocuments = await appIdsForDocuments(harness.deps, games, appIds)
+
+    expect(getAppIds.mock.calls).toEqual([[[103, 106, 109]]])
+    expect(forDocuments.has(106)).toBe(false)
+  })
+
+  it('reads nothing when the stage answered for every game', async () => {
+    const harness = createJobHarness()
+    const games = (await candidatesOf(harness)).filter((game) => game.stores.includes('steam'))
+    const { appIds } = await resolveAppIds(harness.deps, games)
+    const getAppIds = vi.spyOn(harness.writer, 'getAppIds')
+
+    const forDocuments = await appIdsForDocuments(harness.deps, games, appIds)
+
+    expect(getAppIds).not.toHaveBeenCalled()
+    expect(forDocuments).toEqual(appIds)
+    expect(forDocuments).not.toBe(appIds)
   })
 })
 

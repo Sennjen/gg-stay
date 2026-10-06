@@ -1,6 +1,6 @@
 import { appendFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
-import { attachAppIds, resolveAppIds, type AppIdMap } from './appIds'
+import { appIdsForDocuments, attachAppIds, resolveAppIds, type AppIdMap } from './appIds'
 import { carryPublishedForward, collectCandidates, DEFAULT_CANDIDATE_PAGES } from './candidates'
 import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
@@ -237,7 +237,10 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     await stage('tidying up', () => dropAbandonedCursors(deps))
 
     let games: IndexedGame[]
+    /** What the price and language stages work from: in a full run, tonight's Steam games. */
     let appIds: AppIdMap
+    /** What the documents repeat: the whole mapping for the run's games, in every mode. */
+    let documentAppIds: AppIdMap
 
     if (options.mode === 'full') {
       games = await stage('candidates', async () => {
@@ -277,8 +280,14 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
         appIdLookups: 0,
       }
 
-      const resolved = await stage('app ids', () => resolveAppIds(deps, games))
+      const resolved = await stage('app ids', async () => {
+        const answered = await resolveAppIds(deps, games)
+        // The stage answers for the games RAWG lists on Steam tonight. The documents repeat the
+        // whole mapping, so what it already holds for the others is read here, once.
+        return { ...answered, forDocuments: await appIdsForDocuments(deps, games, answered.appIds) }
+      })
       appIds = resolved.appIds
+      documentAppIds = resolved.forDocuments
       failures += resolved.failures
       const appended = new Set(found.appended.map((game) => game.id))
       studios.appIdLookups = resolved.asked.filter((id) => appended.has(id)).length
@@ -295,13 +304,15 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       appIds = await stage('published documents', () =>
         deps.writer.getAppIds(games.map((game) => game.id)),
       )
+      // Already the mapping for every published game: there is nothing more to read.
+      documentAppIds = appIds
     }
 
-    // Every mode holds the mapping by now — resolved above in a full run, read back for the
-    // published documents in the others — so every mode publishes it on the documents: the game
-    // page reads a game's Steam app id from its own document instead of waiting for RAWG's store
-    // links. After the studios stage on purpose, so the games it appended are covered too.
-    const withAppId = attachAppIds(games, appIds)
+    // One rule in every mode: a document carries its game's Steam app id whenever the permanent
+    // mapping holds one, so the game page can read it from the document instead of waiting for
+    // RAWG's store links — and finds the same thing there whichever run published last. After the
+    // studios stage on purpose, so the games it appended are covered too.
+    const withAppId = attachAppIds(games, documentAppIds)
     deps.log(`app ids: ${withAppId} of ${games.length} documents carry their Steam app id`)
 
     const published = await deps.writer.meta()

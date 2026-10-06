@@ -499,6 +499,81 @@ describe('runJob and the Steam app ids', () => {
     expect(appIdsOf(await later.writer.allGames())).toEqual(MAPPED)
   })
 
+  it('keeps the app id of a game RAWG stops listing on Steam, in every kind of run', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+    expect(await harness.writer.getOne(101)).toMatchObject({
+      stores: ['steam', 'gog'],
+      steamAppId: '411000',
+      priceUah: 675,
+      priceUpdatedAt: RUN_AT,
+      localisation: { text: true, audio: true, updatedAt: RUN_AT },
+    })
+
+    // A later night — late enough for every language record to be due again — RAWG's list entry
+    // for the game carries GOG alone. Nothing has said its Steam page is gone: the permanent
+    // mapping still names the app.
+    const laterNight = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-28T03:00:00.000Z',
+    })
+    const firstPage = jobGamesPage(1)
+    laterNight.answerNextWith(
+      (call) => call.path === 'games' && !call.params.developers && call.params.page === '1',
+      {
+        ...firstPage,
+        results: firstPage.results!.map((game) =>
+          game.id === 101
+            ? { ...game, stores: game.stores!.filter((entry) => entry.store?.slug !== 'steam') }
+            : game,
+        ),
+      },
+    )
+    const full = await runJob(laterNight.deps, FULL)
+
+    expect(full.outcome?.published).toBe(true)
+    const afterFull = await laterNight.writer.getOne(101)
+    expect(afterFull?.stores).toEqual(['gog'])
+    expect(afterFull?.steamAppId).toBe('411000')
+    // The document repeats the mapping; nothing else about the run changed for it. The game was
+    // not looked up again, and the price and language stages — which work from tonight's Steam
+    // games — asked Steam about the five others and not about this one, so it keeps the price
+    // and the language record it was published with.
+    expect(laterNight.storeCalls()).toHaveLength(0)
+    expect(laterNight.priceBatches).toEqual([['412000', '415000', '416000', '417000', '418000']])
+    expect(laterNight.languageCalls.map((call) => call.appId).sort()).toEqual([
+      '412000',
+      '415000',
+      '416000',
+      '417000',
+      '418000',
+    ])
+    expect(afterFull).toMatchObject({
+      priceUah: 675,
+      priceUpdatedAt: RUN_AT,
+      localisation: { text: true, audio: true, updatedAt: RUN_AT },
+    })
+    // Every other document is as the mapping has it, as on any night.
+    expect(appIdsOf(await laterNight.writer.allGames())).toEqual(MAPPED)
+
+    const morning = createJobHarness({ writer: harness.writer, start: '2026-09-28T09:15:00.000Z' })
+    await runJob(morning.deps, PRICES)
+
+    // The same id after both, so the game's page does not gain and lose its Steam offer with the
+    // hour of the day — and the prices run, which reads the mapping for every published game,
+    // goes on pricing it as it always did.
+    const afterPrices = await morning.writer.getOne(101)
+    expect(afterPrices?.steamAppId).toBe(afterFull?.steamAppId)
+    expect(morning.priceBatches.flat()).toContain('411000')
+    expect(afterPrices).toMatchObject({
+      stores: ['gog'],
+      steamAppId: '411000',
+      priceUah: 675,
+      priceUpdatedAt: '2026-09-28T09:15:00.000Z',
+    })
+    expect(appIdsOf(await morning.writer.allGames())).toEqual(MAPPED)
+  })
+
   it('keeps the app ids on the next full run, on re-appended studio games too', async () => {
     const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
     await runJob(harness.deps, FULL)

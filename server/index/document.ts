@@ -85,11 +85,21 @@ export interface IndexedGame {
   /** ISO timestamp of the last successful price read. */
   priceUpdatedAt: string | null
   /**
-   * The game's Steam app id, when the refresh job knows one. Every run — full, prices-only and
-   * languages alike — copies it from the permanent RAWG-id-to-app-id mapping it already holds
-   * (`appid:{rawgId}`), so the game page can ask Steam for a live price, and name the Steam store
-   * page, without waiting for RAWG's store links. Never the mapping's empty string: a game the
-   * job knows to have no Steam page, like one it has not resolved yet, simply has no `steamAppId`.
+   * The game's Steam app id, so the game page can ask Steam for a live price, and name the Steam
+   * store page, without waiting for RAWG's store links.
+   *
+   * One rule, whichever kind of run published the document: the field is there whenever the
+   * permanent RAWG-id-to-app-id mapping (`appid:{rawgId}`) holds an app id for the game, and only
+   * then. Every run copies it from that mapping — full, prices-only and languages alike — and a
+   * full run reads the mapping for the games RAWG does not list on Steam that night as well
+   * (`appIdsForDocuments`), so a game does not lose the field at night and regain it with the
+   * morning's prices. Never the mapping's empty string: a game the job knows to have no Steam
+   * page, like one it has not resolved yet, simply has no `steamAppId`.
+   *
+   * It says which Steam app the game is, not that RAWG lists the game on Steam today — `stores`
+   * says that — and it does not decide what a run prices: a full run still prices the games RAWG
+   * lists on Steam that night.
+   *
    * Optional: documents published before the job copied it have none, and the page then takes
    * the id from RAWG's store links, as it always has.
    */

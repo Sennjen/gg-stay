@@ -48,9 +48,37 @@ export interface AppIdsResult {
 export type AppIdMap = Map<number, string>
 
 /**
- * Writes each game's Steam app id onto its document (`steamAppId`), in place, from the mapping the
- * run already holds — the one this stage resolves in a full run and the one a prices or languages
- * run reads back for the published documents. It costs no request and no lookup of its own.
+ * The mapping as a full run's documents repeat it: what the stage has just answered for, plus
+ * whatever the permanent mapping already holds for the games the stage said nothing about — the
+ * ones RAWG does not list on Steam tonight, which `resolveAppIds` never considers.
+ *
+ * It is what makes `steamAppId` one rule in every kind of run. A prices or languages run reads
+ * the mapping for every published game; a full run's stage reads it only for tonight's Steam
+ * games. A game that has an `appid:` entry from a night when RAWG still listed it on Steam would
+ * therefore lose the field with the nightly run and get it back with the morning's prices, and
+ * its page would lose and regain its Steam offer with it. Nothing has said such a game's Steam
+ * page is gone, so its document goes on naming it.
+ *
+ * For the documents only, and a map of its own: `resolved` is not touched, because the price and
+ * language stages of a full run keep working from the stage's games exactly as before. One read
+ * of the mapping — an `MGET` per five hundred games, in one request — and no RAWG call. A game
+ * whose lookup failed tonight is read as well, and has nothing there yet.
+ */
+export async function appIdsForDocuments(
+  deps: JobDeps,
+  games: IndexedGame[],
+  resolved: AppIdMap,
+): Promise<AppIdMap> {
+  const unanswered = games.filter((game) => !resolved.has(game.id)).map((game) => game.id)
+  const kept: AppIdMap = unanswered.length > 0 ? await deps.writer.getAppIds(unanswered) : new Map()
+  return new Map([...kept, ...resolved])
+}
+
+/**
+ * Writes each game's Steam app id onto its document (`steamAppId`), in place, from the whole of
+ * the permanent mapping for the run's games — what a prices or languages run reads back for the
+ * published documents, and `appIdsForDocuments` in a full run. It costs no request and no lookup
+ * of its own.
  *
  * The mapping is the only source. A game it has no app id for — never resolved, or resolved to
  * the empty "has no Steam page" — is published without the field, even when its document arrived
