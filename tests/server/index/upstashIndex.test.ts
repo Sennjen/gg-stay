@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
 import { MAX_SLUG_LENGTH } from '../../../server/index/document'
 import { CURRENT_VERSION_KEY, namesKey, slugsKey, versionPrefix } from '../../../server/index/keys'
+import type { RedisBatch, RedisCommands } from '../../../server/index/redisCommands'
 import { commandBytes } from '../../../server/index/redisCommands'
 import type { SendCommands } from '../../../server/index/upstashIndex'
 import { createRedisCommands, createUpstashIndex } from '../../../server/index/upstashIndex'
@@ -151,6 +152,58 @@ function recordingTransport(): {
     })
   }
   return { send, sent, requests }
+}
+
+/**
+ * The same store, with a hand on one request: after `holdNextSlugRead()`, the next batch that
+ * reads a hash field is not sent until `release()` — which is how an answer arrives late, after
+ * other requests have come and gone, without a clock or a wait.
+ */
+function withHeldSlugRead(inner: RedisCommands): {
+  commands: RedisCommands
+  holdNextSlugRead: () => void
+  release: () => void
+} {
+  let held: Promise<void> | null = null
+  let open: () => void = () => undefined
+
+  const wrap = (batch: RedisBatch): RedisBatch => {
+    let readsSlug = false
+    return new Proxy(batch, {
+      get(target, property, receiver) {
+        if (property === 'hget') {
+          return (key: string, field: string) => {
+            readsSlug = true
+            return target.hget(key, field)
+          }
+        }
+        if (property === 'exec') {
+          return async () => {
+            const wait = readsSlug ? held : null
+            if (wait) {
+              held = null
+              await wait
+            }
+            return target.exec()
+          }
+        }
+        return Reflect.get(target, property, receiver) as unknown
+      },
+    })
+  }
+
+  return {
+    commands: {
+      pipeline: () => wrap(inner.pipeline()),
+      multi: () => wrap(inner.multi()),
+    },
+    holdNextSlugRead: () => {
+      held = new Promise<void>((resolve) => {
+        open = resolve
+      })
+    },
+    release: () => open(),
+  }
 }
 
 /** The fields one hash was written with, over however many commands it took. */
@@ -406,6 +459,207 @@ describe('upstashIndex', () => {
         await index.search({ genres: [genre] })
       }
       expect(index.cached().bytes).toBeLessThanOrEqual(600)
+    })
+  })
+
+  /**
+   * A game page looks its slug up on every view, and within a version a slug never leads anywhere
+   * else, so a slug that was found is kept with the version's sets and found again for nothing.
+   */
+  describe('what a slug lookup remembers', () => {
+    it('remembers a slug it found: a repeated lookup costs no command at all', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+
+      const first = redis.requests.length
+      expect(await index.idBySlug('kite-keep')).toBe(35)
+      expect(commandsSince(redis, first)).toEqual(['hget'])
+
+      const again = redis.requests.length
+      for (let view = 0; view < 5; view += 1) expect(await index.idBySlug('kite-keep')).toBe(35)
+      expect(redis.requests.length).toBe(again)
+
+      // Another game's page pays for its own slug, once.
+      expect(await index.idBySlug('jade-jungle')).toBe(34)
+      expect(await index.idBySlug('jade-jungle')).toBe(34)
+      expect(await index.idBySlug('kite-keep')).toBe(35)
+      expect(commandsSince(redis, again)).toEqual(['hget'])
+    })
+
+    it('does not remember a slug it did not find: every miss asks again', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+      await index.idBySlug('kite-keep')
+      const held = index.cached()
+
+      const before = redis.requests.length
+      for (let view = 0; view < 3; view += 1) {
+        expect(await index.idBySlug('no-such-game')).toBeNull()
+      }
+      // The slugs that are not in the index are whatever a visitor types: there is no end to
+      // them, so none of them is given room. Each costs what it always cost.
+      expect(commandsSince(redis, before)).toEqual(['hget', 'hget', 'hget'])
+      expect(index.cached()).toEqual(held)
+    })
+
+    it('charges what it remembers to the cache budget, as one entry', async () => {
+      const { redis, index } = makeAdapter()
+      const version = await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+
+      await index.idBySlug('kite-keep')
+      // 128 for the table; per slug, two bytes a character and the 80 a map entry is charged at.
+      expect(index.cached()).toEqual({ version, entries: 1, bytes: 128 + (9 * 2 + 80) })
+
+      await index.idBySlug('jade-jungle')
+      expect(index.cached()).toEqual({
+        version,
+        entries: 1,
+        bytes: 128 + (9 * 2 + 80) + (11 * 2 + 80),
+      })
+
+      // Found again, or not found at all: nothing more is held.
+      await index.idBySlug('kite-keep')
+      await index.idBySlug('no-such-game')
+      expect(index.cached().bytes).toBe(128 + (9 * 2 + 80) + (11 * 2 + 80))
+
+      // Beside the sets a query keeps, in the same budget.
+      await index.search({ genres: ['indie'] })
+      expect(index.cached().entries).toBe(3)
+      expect(index.cached().bytes).toBeGreaterThan(128 + (9 * 2 + 80) + (11 * 2 + 80))
+    })
+
+    it('gives the slugs up, like anything else it keeps, when the budget is spent', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, { cacheBytes: 400 })
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+
+      // Two slugs fit in four hundred bytes (328); the third (430) does not.
+      expect(await index.idBySlug('kite-keep')).toBe(35)
+      expect(await index.idBySlug('jade-jungle')).toBe(34)
+      expect(index.cached().bytes).toBe(328)
+      expect(await index.idBySlug('alpha-quest')).toBe(1)
+      expect(index.cached().bytes).toBeLessThanOrEqual(400)
+
+      // What was given up is asked for again, and answered as before: the cache never decides.
+      const before = redis.requests.length
+      expect(await index.idBySlug('kite-keep')).toBe(35)
+      expect(commandsSince(redis, before)).toEqual(['hget'])
+      for (const game of FIXTURE_GAMES) {
+        expect(await index.idBySlug(game.slug), game.slug).toBe(game.id)
+        expect(index.cached().bytes).toBeLessThanOrEqual(400)
+      }
+    })
+
+    it('remembers nothing when it has no budget, and still answers', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, { cacheBytes: 0 })
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+
+      const before = redis.requests.length
+      expect(await index.idBySlug('kite-keep')).toBe(35)
+      expect(await index.idBySlug('kite-keep')).toBe(35)
+      expect(commandsSince(redis, before)).toEqual(['hget', 'hget'])
+      expect(index.cached()).toMatchObject({ entries: 0, bytes: 0 })
+    })
+
+    it('keeps both slugs when two lookups are out at once', async () => {
+      const { redis, index } = makeAdapter()
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
+
+      expect(
+        await Promise.all([index.idBySlug('alpha-quest'), index.idBySlug('beta-run')]),
+      ).toEqual([1, 2])
+
+      // Each answer was added to the table as it stood when the answer arrived, so the second to
+      // land did not throw the first one's away.
+      const before = redis.requests.length
+      expect(await index.idBySlug('alpha-quest')).toBe(1)
+      expect(await index.idBySlug('beta-run')).toBe(2)
+      expect(redis.requests.length).toBe(before)
+    })
+
+    it('forgets the slugs of a version when the pointer moves', async () => {
+      const { redis, index } = makeAdapter()
+      const adapter = adapterFor(index, redis)
+      await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      expect(await index.idBySlug('alpha-quest')).toBe(1)
+      expect(await index.idBySlug('beta-run')).toBe(2)
+
+      // The next version keeps one of those games and drops the other.
+      const next = await publishGames(adapter, FIXTURE_GAMES.slice(1, 4))
+
+      const before = redis.requests.length
+      // Not the id it remembered: that game is not in the version readers are on now.
+      expect(await index.idBySlug('alpha-quest')).toBeNull()
+      // And a game that stayed is looked up afresh, in the new version's own hash.
+      expect(await index.idBySlug('beta-run')).toBe(2)
+      expect(commandsSince(redis, before)).toEqual(['hget', 'hget'])
+      expect(index.cached()).toEqual({ version: next, entries: 1, bytes: 128 + (8 * 2 + 80) })
+    })
+
+    it('reads the version its pointer names until the pointer is due, slugs included', async () => {
+      let clock = 1_000
+      const redis = createFakeRedis()
+      const writer = createUpstashIndex(redis, { runId: 'the-run', now: () => clock })
+      const reader = createUpstashIndex(redis.readOnly(), { now: () => clock })
+      const adapter = adapterFor(writer, redis)
+      const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      expect(await reader.idBySlug('alpha-quest')).toBe(1)
+
+      const second = await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
+
+      // Inside its pointer's minute the reader is still on the version it replaced, which is kept
+      // whole for exactly this: what the reader remembers and what it has to ask for agree.
+      const stale = redis.requests.length
+      expect(await reader.idBySlug('alpha-quest')).toBe(1)
+      expect(await reader.idBySlug('beta-run')).toBe(2)
+      expect(await reader.idBySlug('delta-force')).toBeNull()
+      expect(commandsSince(redis, stale)).toEqual(['hget', 'hget'])
+      expect(reader.cached().version).toBe(first)
+
+      clock += 60_001
+      const due = redis.requests.length
+      expect(await reader.idBySlug('alpha-quest')).toBeNull()
+      expect(await reader.idBySlug('delta-force')).toBe(4)
+      expect(redis.requests.slice(due).map((request) => request.commands)).toEqual([
+        ['get'],
+        ['hget'],
+        ['hget'],
+      ])
+      expect(reader.cached().version).toBe(second)
+    })
+
+    it('does not file a late answer under a version it was not asked of', async () => {
+      let clock = 1_000
+      const redis = createFakeRedis()
+      const store = withHeldSlugRead(redis)
+      const writer = createUpstashIndex(redis, { runId: 'the-run', now: () => clock })
+      const reader = createUpstashIndex(store.commands, { now: () => clock })
+      const adapter = adapterFor(writer, redis)
+      await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
+      await reader.currentVersion()
+
+      // A lookup leaves for the first version and is still out…
+      store.holdNextSlugRead()
+      const late = reader.idBySlug('alpha-quest')
+      await Promise.resolve()
+
+      // …when a publication replaces that version and the reader's pointer catches up with it.
+      const second = await publishGames(adapter, FIXTURE_GAMES.slice(3, 6))
+      clock += 60_001
+      expect(await reader.idBySlug('delta-force')).toBe(4)
+      expect(reader.cached()).toEqual({ version: second, entries: 1, bytes: 128 + (11 * 2 + 80) })
+
+      // The late answer is still the right one for the version it was asked of.
+      store.release()
+      expect(await late).toBe(1)
+
+      // But it is nobody's fact about the version readers are on: it must not be remembered
+      // there, and it must not bring the replaced version's cache back.
+      expect(reader.cached()).toEqual({ version: second, entries: 1, bytes: 128 + (11 * 2 + 80) })
+      const before = redis.requests.length
+      expect(await reader.idBySlug('alpha-quest')).toBeNull()
+      expect(commandsSince(redis, before)).toEqual(['hget'])
     })
   })
 

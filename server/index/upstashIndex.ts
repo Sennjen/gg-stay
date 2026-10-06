@@ -47,6 +47,12 @@ import { commandBytes, createRedisResult, withKeyPrefix, withUsage } from './red
  * starts inside that window is served by the version the pointer named when it was last read — the
  * same window the port already allows between `search` and `getMany`.
  *
+ * The slugs `idBySlug` has found are kept in that cache too, as one table in the same budget: a
+ * game page looks its slug up on every view, and within a version a slug never leads anywhere
+ * else, so the second view of a page pays nothing for it. Only the slugs that were found — see
+ * `idBySlug` for why a miss is asked about every time. The documents are not kept: a page still
+ * reads its own with one `MGET`.
+ *
  * **A version is written by one run at a time.** `beginVersion` takes `idx:lock` with `SET … NX
  * EX`, which is atomic, so two runs can never both begin a version; it also writes `idx:draft`
  * (the version it is building) and `idx:lock:at` (when it took the lock), and a long
@@ -131,12 +137,16 @@ export interface UpstashIndexOptions {
    * stay well under `forceAfterMs`, or a live run could be mistaken for a dead one.
    */
   renewIntervalMs?: number
-  /** How many sets of one version are kept in this process. */
+  /**
+   * How many sets of one version are kept in this process. The slugs a version's lookups have
+   * found are one entry among them, however many there are.
+   */
   cacheEntries?: number
   /**
    * How much of them is kept, in bytes, charged at deliberately generous per-element rates (see
    * `bytesOf`). The default of 8 MB is therefore worth roughly 8–16 MB of real heap per instance,
-   * not a fraction of it.
+   * not a fraction of it. The remembered slugs are charged here as well: a few hundred kilobytes
+   * once every game of the version has been asked about.
    */
   cacheBytes?: number
   /**
@@ -212,11 +222,16 @@ interface QueuedCommand {
   bytes: number
 }
 
-/** A set a query read, kept for the life of the version it belongs to. */
+/**
+ * A set a query read, kept for the life of the version it belongs to — or, for `slugs`, the table
+ * of every slug a lookup of that version has found so far, which grows as pages are asked for and
+ * can never hold more than one entry per game.
+ */
 type CachedRead =
   | { kind: 'order'; ids: number[] }
   | { kind: 'members'; ids: Set<number> }
   | { kind: 'names'; names: Map<number, string> }
+  | { kind: 'slugs'; ids: Map<string, number> }
 
 /**
  * What an entry costs on the heap, deliberately over-estimated. A V8 `Set` of small integers runs
@@ -232,8 +247,10 @@ const BYTES_PER_MAP_ENTRY = 80
 function bytesOf(cached: CachedRead): number {
   if (cached.kind === 'order') return cached.ids.length * BYTES_PER_ARRAY_ELEMENT + 128
   if (cached.kind === 'members') return cached.ids.size * BYTES_PER_SET_MEMBER + 128
+  // Both maps hold one string a game: its name as the value, or its slug as the key.
+  const strings = cached.kind === 'slugs' ? cached.ids.keys() : cached.names.values()
   let total = 128
-  for (const name of cached.names.values()) total += name.length * 2 + BYTES_PER_MAP_ENTRY
+  for (const text of strings) total += text.length * 2 + BYTES_PER_MAP_ENTRY
   return total
 }
 
@@ -510,13 +527,42 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
    * saying so costs no request. Megabytes of "slug" uploaded as a hash field would be a refused
    * or a slow request, and either one counts against the index for every other page
    * (`withCircuit`).
+   *
+   * **A slug that was found is remembered** for the life of its version, in the version's read
+   * cache: a game page asks on every view, the answer cannot change while the version stands, and
+   * the second view then costs no command at all. **A slug that was not found is not**, and
+   * staleness is not the reason — a miss, too, stays true for as long as the version does. The
+   * reason is that the two sets are not the same size. The slugs that are in a version are one a
+   * game, a few hundred kilobytes when every one of them has been asked about. The slugs that are
+   * not are whatever a visitor types: remembering them would hand the budget — and with it the
+   * sets every catalog page keeps here — to anyone with a list of made-up addresses. So a miss
+   * costs one `HGET` each time, which is what every lookup cost before.
    */
   async idBySlug(slug: string): Promise<number | null> {
     if (!isIndexableSlug(slug)) return null
     const version = await this.currentVersion()
     if (version === null) return null
-    const id = await this.read((batch) => batch.hget(slugsKey(version), slug))
-    return id === null ? null : Number(id)
+
+    // This version's cache, taken once: by the time the store answers, `idx:current` may have
+    // moved and the adapter may be on the next version's cache, where this answer does not belong.
+    const reads = this.readsFor(version)
+    const tableKey = `s|${slugsKey(version)}`
+    const remembered = reads.get(tableKey)
+    const known = remembered?.kind === 'slugs' ? remembered.ids.get(slug) : undefined
+    if (known !== undefined) return known
+
+    const found = await this.read((batch) => batch.hget(slugsKey(version), slug))
+    if (found === null) return null
+    const id = Number(found)
+
+    // The table as it stands now, not as it stood before the request: another lookup may have
+    // started it, added to it or seen it evicted in the meantime. Setting it again is what
+    // charges the new slug to the budget, and what lets the budget take the table back.
+    const table = reads.get(tableKey)
+    const ids = table?.kind === 'slugs' ? table.ids : new Map<string, number>()
+    ids.set(slug, id)
+    reads.set(tableKey, { kind: 'slugs', ids })
+    return id
   }
 
   async meta(): Promise<IndexMeta | null> {

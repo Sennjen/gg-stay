@@ -123,8 +123,10 @@ export interface GameIndex {
    *
    * Like `search` and `getMany`, it is served by the version `idx:current` names when it starts,
    * so the id it returns can already be gone by the time `getOne` asks for it; a missing document
-   * means what it always means. One read command, like every other read: the site's token is
-   * read-only.
+   * means what it always means. At most one read command, like every other read — the site's
+   * token is read-only — and none for a slug an adapter has already found in the version it is
+   * serving: a page asks on every view, and a version's answer cannot change. A slug that is not
+   * in the index is asked about each time (see the Upstash adapter for why misses are not kept).
    */
   idBySlug(slug: string): Promise<number | null>
   meta(): Promise<IndexMeta | null>
