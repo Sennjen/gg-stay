@@ -364,4 +364,25 @@ describe('a server render', () => {
     await advance(60_000)
     expect(request).not.toHaveBeenCalled()
   })
+
+  it('is where the wait begins once its page has hydrated in the browser', async () => {
+    await renderToString(createSSRApp(defineComponent({ render: () => h('p') })))
+    const { request, Page } = harness(partialAnswer(), [wholeAnswer()])
+    const container = document.createElement('div')
+    container.innerHTML = await renderToString(createSSRApp(Page))
+    const before = vi.getTimerCount()
+
+    // The same page, mounted over the server's markup: this is when its three seconds start.
+    const app = createSSRApp(Page)
+    app.mount(container)
+    try {
+      expect(vi.getTimerCount()).toBe(before + 1)
+      await advance(FIRST_WAIT - 1)
+      expect(request).not.toHaveBeenCalled()
+      await advance(1)
+      expect(request).toHaveBeenCalledTimes(1)
+    } finally {
+      app.unmount()
+    }
+  })
 })
