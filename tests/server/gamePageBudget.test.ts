@@ -1089,6 +1089,53 @@ describe('the store links and the screenshots', () => {
     expect(waitUntil).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    [
+      'the store links',
+      { stores: 5_000, screenshots: 200 },
+      '[game] RAWG store links slower than 1500 ms, answered without them',
+    ],
+    [
+      'the screenshots',
+      { stores: 200, screenshots: 5_000 },
+      '[game] RAWG screenshots slower than 1500 ms, answered without them',
+    ],
+    [
+      'both',
+      { stores: 5_000, screenshots: 6_000 },
+      '[game] RAWG store links and screenshots slower than 1500 ms, answered without them',
+    ],
+  ])(
+    'are named in one line of the log when the page goes out without %s',
+    async (_name, replies, line) => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const index = await indexHolding(DOCUMENT)
+
+      const { data } = await pageAt(GAME_EXTRAS_BUDGET_MS, { index, rawg: rawgAnswering(replies) })
+
+      // The line is how the share of such pages is read from the runtime logs, as the line about
+      // a page answered from the index is.
+      expect(data!.game.partial).toBe(true)
+      expect(info).toHaveBeenCalledExactlyOnceWith(line)
+    },
+  )
+
+  it('write no such line for a page that had them in time, nor for one of them that failed', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await indexHolding(DOCUMENT)
+    const inTime = rawgAnswering({ stores: GAME_EXTRAS_BUDGET_MS - 1, screenshots: 200 })
+    const failed = rawgAnswering({
+      stores: { after: 200, fail: new UpstreamError('RAWG', 'ERROR', 500) },
+    })
+
+    const whole = await pageAt(GAME_EXTRAS_BUDGET_MS - 1, { index, rawg: inTime })
+    const without = await pageAt(200, { index, rawg: failed })
+
+    expect(whole.data!.game.partial).toBe(false)
+    expect(without.data!.game.partial).toBe(false)
+    expect(info).not.toHaveBeenCalled()
+  })
+
   it('are not waited for at all once their budget is spent: a later detail takes what has arrived', async () => {
     const index = await indexHolding(DOCUMENT)
     const DETAIL_MS = 2_000

@@ -337,6 +337,10 @@ function kindOf(reason: unknown): string {
  * The store links and the screenshots are waited for until their budget is spent — which, for a
  * detail that itself arrived after it, is no time at all — and the page says `partial` when one
  * of them had still not settled. The index entry is read by the id RAWG gave.
+ *
+ * One `console.info` line per page that goes out partial this way, naming what it went out
+ * without, as the page answered from the index writes one (`indexPage`): together the two lines
+ * are how the share of partial pages is read from the runtime logs.
  */
 async function rawgPage(
   context: GraphQLContext,
@@ -350,7 +354,7 @@ async function rawgPage(
   ])
   const links = valueOf(extras.storeLinks)?.results ?? []
   const mapped = mapGame(detail, links, valueOf(extras.screenshots)?.results ?? [])
-  const partial = isPending(extras.storeLinks) || isPending(extras.screenshots)
+  const late = lateExtras(extras)
 
   const id = Number(mapped.id)
   const entry = Number.isFinite(id) ? await indexEntry(context, id) : null
@@ -368,6 +372,11 @@ async function rawgPage(
   // how old its price is. A page the index answers on its own withholds a stale one (`indexPage`).
   const priced = appId && live ? withLivePrice(entry ?? emptyEntryFor(appId), live) : entry
 
+  if (late.length > 0) {
+    console.info(
+      `[game] RAWG ${late.join(' and ')} slower than ${GAME_EXTRAS_BUDGET_MS} ms, answered without them`,
+    )
+  }
   return {
     ...mapped,
     stores: withSteamPrice(mapped.stores, priced),
@@ -375,8 +384,16 @@ async function rawgPage(
     madeInUkraine:
       isMadeInUkraine(mapped.developers.map((developer) => developer.slug)) ||
       (entry?.madeInUkraine ?? false),
-    partial,
+    partial: late.length > 0,
   }
+}
+
+/** Which of RAWG's two enhancements had not answered when the page was put together, by name. */
+function lateExtras(extras: Extras): string[] {
+  return [
+    ...(isPending(extras.storeLinks) ? ['store links'] : []),
+    ...(isPending(extras.screenshots) ? ['screenshots'] : []),
+  ]
 }
 
 function isPending(request: Observed<unknown>): boolean {
