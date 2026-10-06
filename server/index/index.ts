@@ -175,6 +175,9 @@ export function withDeadline(
     idBySlug: (slug) => race(() => index.idBySlug(slug)),
     meta: () => race(() => index.meta()),
     allSlugs: () => race(() => index.allSlugs(), bulkTimeoutMs),
+    // Not a call to race: what the adapter has sent so far, passed on because the circuit is
+    // wrapped around this and has to see it. An index that does not count says nothing here.
+    ...(index.storeRequests ? { storeRequests: () => index.storeRequests!() } : {}),
   }
 }
 
@@ -189,6 +192,14 @@ export function withDeadline(
  * page would keep paying for an enhancement it is not getting in time. Three *consecutive* slow
  * answers, rather than three anywhere, is what keeps a single slow call during normal traffic
  * from closing the index: one fast answer puts the count back to zero.
+ *
+ * Only an answer the store gave is such an answer. An adapter can answer without asking — the
+ * Upstash one remembers the slugs it has found and refuses the ones it cannot hold — and a game
+ * page asks for its slug between its metadata and its document: taken for a fast answer, that
+ * would wipe the count out twice a page, and a store that crawled would never be skipped. So when
+ * the index says how many requests it has sent (`storeRequests`), a call that sent none is left
+ * out of the count altogether: not a strike, and not a clean slate. An index that does not say is
+ * taken at its word, as before.
  *
  * Deliberately tiny otherwise: no half-open state, no failure rate. The index is an enhancement,
  * the cost of skipping it for thirty seconds is a page without prices, and the cost of not
@@ -224,6 +235,7 @@ export function withCircuit(
       throw new IndexUnavailableError('it failed recently and is being skipped')
     }
     const startedAt = now()
+    const sentBefore = index.storeRequests?.()
     let value: T
     try {
       value = await call()
@@ -231,6 +243,10 @@ export function withCircuit(
       open('failed')
       throw error as Error
     }
+    // Answered without asking the store: no evidence about the store, either way. Another call
+    // sending a request in the same instant makes this one look as if it had, and it is then
+    // counted as the fast answer it would always have been — the harmless direction to be wrong.
+    if (sentBefore !== undefined && index.storeRequests?.() === sentBefore) return value
     if (now() - startedAt <= slowMs) {
       strikes = 0
       return value

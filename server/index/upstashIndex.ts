@@ -926,6 +926,15 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     return this.usage()
   }
 
+  /**
+   * The requests among them, for the circuit: a slug this adapter remembers and a slug it refuses
+   * to look up are answered without one, and an answer that sent nothing is no evidence about the
+   * store, fast though it is.
+   */
+  storeRequests(): number {
+    return this.usage().requests
+  }
+
   async getAppIds(ids: number[]): Promise<Map<number, string>> {
     const found = new Map<number, string>()
     if (ids.length === 0) return found

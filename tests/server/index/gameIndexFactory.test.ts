@@ -13,8 +13,13 @@ import {
   withCircuit,
   withDeadline,
 } from '../../../server/index/index'
+import type { RedisBatch, RedisCommands } from '../../../server/index/redisCommands'
+import { createUpstashIndex } from '../../../server/index/upstashIndex'
 import { INDEX_STALE_AFTER_MS } from '../../../server/graphql/indexPath'
+import { FIXTURE_GAMES } from '../../fixtures/index/games'
 import published from '../../fixtures/index/published.json' with { type: 'json' }
+import { FIXTURE_META } from './contract'
+import { createFakeRedis } from './fakeRedis'
 
 /**
  * The factory the site reads the index through. Its whole job is that a page never fails because
@@ -322,6 +327,13 @@ describe('withDeadline', () => {
     expect(cleared).toEqual(['handle', 'handle'])
   })
 
+  it('passes on how many requests the index has sent, for the circuit around it to read', () => {
+    // The circuit wraps the deadline, so what an adapter says about its store has to come
+    // through here; an index with no store to count says nothing, and neither does this.
+    expect(withDeadline({ ...hung, storeRequests: () => 7 }).storeRequests?.()).toBe(7)
+    expect(withDeadline(hung).storeRequests).toBeUndefined()
+  })
+
   it('keeps the original failure rather than replacing it with a deadline', async () => {
     const failing: GameIndex = {
       ...hung,
@@ -468,6 +480,145 @@ describe('withCircuit', () => {
     expect(await index.idBySlug('portal-2')).toBeNull()
     await expect(index.search({})).rejects.toBeInstanceOf(IndexUnavailableError)
     await expect(index.idBySlug('portal-2')).rejects.toBeInstanceOf(IndexUnavailableError)
+  })
+
+  /**
+   * A game page asks for its slug between its metadata and its document, and a slug the adapter
+   * remembers — or refuses to look up — is answered without a request. Such an answer says
+   * nothing about the store. Counted as a fast one it would wipe the strikes out twice a page,
+   * and a store that crawled would never be skipped again.
+   */
+  it('takes no notice of an answer the store was not asked for', async () => {
+    let now = 1_000
+    let sent = 0
+    const fromStore = <T>(value: T, takes: number) => {
+      sent += 1
+      now += takes
+      return Promise.resolve(value)
+    }
+    const index = withCircuit(
+      {
+        ...broken,
+        meta: () => fromStore(null, 1_400),
+        getOne: () => fromStore(null, 1_400),
+        // From memory: no request, and no time to speak of.
+        idBySlug: async () => 4200,
+        storeRequests: () => sent,
+      },
+      { slowMs: 700, strikes: 3, now: () => now },
+    )
+
+    // Neither a strike nor a clean slate: the two slow answers around each one still add up.
+    expect(await index.meta()).toBeNull()
+    expect(await index.idBySlug('portal-2')).toBe(4200)
+    expect(await index.getOne(4200)).toBeNull()
+    expect(await index.idBySlug('portal-2')).toBe(4200)
+    // The third slow answer from the store, with two answers from memory in between.
+    expect(await index.meta()).toBeNull()
+    await expect(index.getOne(4200)).rejects.toThrow(/skipped/)
+    await expect(index.idBySlug('portal-2')).rejects.toThrow(/skipped/)
+  })
+
+  it('does not call such an answer slow either, however long it took', async () => {
+    let now = 1_000
+    const index = withCircuit(
+      {
+        ...broken,
+        // Late, but not because of the store: nothing was sent.
+        idBySlug: async () => {
+          now += 5_000
+          return 4200
+        },
+        storeRequests: () => 0,
+      },
+      { slowMs: 700, strikes: 1, now: () => now },
+    )
+    expect(await index.idBySlug('portal-2')).toBe(4200)
+    expect(await index.idBySlug('portal-2')).toBe(4200)
+  })
+
+  it('still lets a fast answer from the store put the count back', async () => {
+    let now = 1_000
+    let sent = 0
+    let takes = 1_400
+    const index = withCircuit(
+      {
+        ...broken,
+        meta: async () => {
+          sent += 1
+          now += takes
+          return null
+        },
+        storeRequests: () => sent,
+      },
+      { slowMs: 700, strikes: 3, now: () => now },
+    )
+    await index.meta()
+    await index.meta()
+    takes = 100
+    await index.meta()
+    takes = 1_400
+    await index.meta()
+    await index.meta()
+    // Two slow, one fast, two slow: the index is still being asked.
+    expect(await index.meta()).toBeNull()
+    await expect(index.meta()).rejects.toThrow(/skipped/)
+  })
+
+  it('still finds a slow store slow once the adapter remembers the slug', async () => {
+    // The whole arrangement, on the real adapter: a store that takes 1.4 s a request, behind the
+    // deadline and the circuit, and a page that asks for its metadata, its slug and its document.
+    let now = 1_000
+    const redis = createFakeRedis()
+    const slowly = (batch: RedisBatch): RedisBatch =>
+      new Proxy(batch, {
+        get(target, property, receiver) {
+          if (property !== 'exec') return Reflect.get(target, property, receiver) as unknown
+          return async () => {
+            if (target.size > 0) now += 1_400
+            return target.exec()
+          }
+        },
+      })
+    const slowStore: RedisCommands = {
+      pipeline: () => slowly(redis.pipeline()),
+      multi: () => slowly(redis.multi()),
+    }
+    const writer = createUpstashIndex(redis, { runId: 'the-run' })
+    const version = await writer.beginVersion()
+    await writer.writeVersion(version, FIXTURE_GAMES)
+    await writer.publish(version, { ...FIXTURE_META, version, gameCount: FIXTURE_GAMES.length })
+
+    const adapter = createUpstashIndex(slowStore, {
+      now: () => now,
+      currentVersionTtlMs: 60 * 60_000,
+    })
+    const index = withCircuit(
+      withDeadline(adapter, { setTimer: { setTimeout: () => 0, clearTimeout: () => {} } }),
+      { slowMs: 700, strikes: 3, openMs: 30_000, now: () => now },
+    )
+    const view = async () => {
+      await index.meta()
+      const id = await index.idBySlug('kite-keep')
+      return index.getOne(id!)
+    }
+
+    // The first view pays for all three, slowly, and the third closes the index behind it.
+    expect((await view())?.slug).toBe('kite-keep')
+    await expect(index.meta()).rejects.toThrow(/skipped/)
+
+    // Half a minute later the slug is remembered. Its answer costs nothing and says nothing: the
+    // two reads around it are the first and second strike, and the next page's first read is
+    // the third — where a count that took the remembered slug for a fast answer would start
+    // again from nothing on every page and never get there.
+    now += 30_000
+    const sent = adapter.stats().requests
+    expect((await view())?.slug).toBe('kite-keep')
+    expect(adapter.stats().requests - sent).toBe(2)
+    // A slug that is refused before it is sent is no more of an answer from the store.
+    expect(await index.idBySlug('x'.repeat(10_000))).toBeNull()
+    expect(await index.meta()).not.toBeNull()
+    await expect(index.getOne(35)).rejects.toThrow(/skipped/)
   })
 
   it('keeps the sitemap read out of an open circuit, without letting it open or feed one', async () => {

@@ -137,6 +137,15 @@ export interface GameIndex {
    * and the site gives it a longer deadline than a page read (`withDeadline`).
    */
   allSlugs(): Promise<IndexedSlug[]>
+  /**
+   * How many requests this index has sent to its store so far, for an index that has a store and
+   * counts. The circuit around the site's index reads it before and after a call (`withCircuit`),
+   * to tell an answer the store gave from one that never left the process — a slug the adapter
+   * remembers, a slug it refuses to look up — which says nothing about how the store is doing.
+   * Optional: an index with no store to ask, like the in-memory one, does not implement it, and
+   * every answer it gives is then taken at face value.
+   */
+  storeRequests?(): number
 }
 
 /**
