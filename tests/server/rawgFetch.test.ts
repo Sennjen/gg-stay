@@ -88,6 +88,28 @@ describe('createRawgFetch', () => {
     expect(deps.fetchJson).toHaveBeenCalledTimes(1)
   })
 
+  it('tells a caller that asked to know when the cache answered, and only then', async () => {
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    const onCached = vi.fn()
+
+    // RAWG is asked the first time; the second answer was already here.
+    await rawg('games', { page: 1 }, { onCached })
+    expect(onCached).not.toHaveBeenCalled()
+    expect(await rawg('games', { page: 1 }, { onCached })).toEqual({ ok: true })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares one request and one cache entry between a call that asks to know and one that does not', async () => {
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    await Promise.all([rawg('games', { page: 1 }), rawg('games', { page: 1 }, { onCached() {} })])
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+    await rawg('games', { page: 1 })
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
   it('refetches after the ttl expires', async () => {
     const { deps, advance } = makeDeps()
     const rawg = createRawgFetch(deps)

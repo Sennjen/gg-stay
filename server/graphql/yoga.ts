@@ -9,6 +9,7 @@ import {
 } from './queryLimits'
 import { resolvers } from './resolvers'
 import { typeDefs } from './schema'
+import { createServerTiming, writeServerTiming, type ServerTiming } from './serverTiming'
 
 const schema = createSchema<GraphQLContext>({ typeDefs, resolvers })
 
@@ -77,11 +78,47 @@ const queryLimitsPlugin: Plugin<GraphQLContext> = {
   },
 }
 
-export function createYogaApp(contextFactory: () => GraphQLContext | Promise<GraphQLContext>) {
+/**
+ * Says on every answer where its time went (`server/graphql/serverTiming.ts`).
+ *
+ * The timing starts when the request arrives and the header is written when its answer is ready,
+ * so `total` covers everything this endpoint did for it: building the context, parsing, the
+ * resolvers. It is on every answer the endpoint gives — an error inside an HTTP 200 and a refused
+ * operation as much as a page — and on those it simply names fewer upstreams, down to none.
+ *
+ * The request is what ties the two ends together, and the context factory to both: yoga hands the
+ * same `Request` to every hook of one request, and nothing else here is per request. A request
+ * these hooks never saw has no entry, and its answer no header.
+ *
+ * Neither hook can throw. The server adapter does not catch what these two raise, and an answer
+ * must never be lost to its own timing.
+ */
+function serverTimingPlugin(timings: WeakMap<Request, ServerTiming>): Plugin<GraphQLContext> {
+  return {
+    onRequest({ request }) {
+      timings.set(request, createServerTiming())
+    },
+    onResponse({ request, response }) {
+      const timing = timings.get(request)
+      if (timing) writeServerTiming(response.headers, timing)
+    },
+  }
+}
+
+/**
+ * The GraphQL endpoint below HTTP. `contextFactory` builds the context one request's resolvers run
+ * in, and is handed that request's timing: a factory that wants its upstream calls named in the
+ * answer's `Server-Timing` header wraps its context with it (`timedContext`), and one that does
+ * not gets a header with the total alone.
+ */
+export function createYogaApp(
+  contextFactory: (timing: ServerTiming) => GraphQLContext | Promise<GraphQLContext>,
+) {
+  const timings = new WeakMap<Request, ServerTiming>()
   return createYoga({
     schema,
     graphqlEndpoint: '/api/graphql',
-    context: contextFactory,
+    context: ({ request }) => contextFactory(timings.get(request) ?? createServerTiming()),
     // GraphiQL and introspection are separate switches in graphql-yoga: turning the UI off still
     // leaves the SDL readable. `queryLimitsPlugin` closes the second half in production.
     graphiql: !isProduction(),
@@ -90,6 +127,6 @@ export function createYogaApp(contextFactory: () => GraphQLContext | Promise<Gra
     cors: false,
     // Array request bodies (query batching) are rejected by graphql-yoga itself with HTTP 400;
     // leaving `batching` unset keeps that default, so one request can never fan out into many.
-    plugins: [queryLimitsPlugin],
+    plugins: [queryLimitsPlugin, serverTimingPlugin(timings)],
   })
 }

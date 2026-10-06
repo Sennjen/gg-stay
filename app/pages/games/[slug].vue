@@ -11,10 +11,11 @@ const localePath = useLocalePath()
 const store = useFiltersStore()
 
 const slug = computed(() => String(route.params.slug))
-const { data, errorCode, refresh } = await useGql(GameDocument, () => ({
+const gameQuery = await useGql(GameDocument, () => ({
   slug: slug.value,
   locale: locale.value,
 }))
+const { data, errorCode, refresh } = gameQuery
 
 if (errorCode.value === 'NOT_FOUND') {
   // Real HTTP 404 during SSR; renders app/error.vue, which sets noindex. Checked once, in setup:
@@ -23,6 +24,12 @@ if (errorCode.value === 'NOT_FOUND') {
   // hydration would replace the whole app with the error page for a stale tab.
   throw createError({ statusCode: 404, statusMessage: 'Game not found', fatal: true })
 }
+
+// The server answers inside a time budget, with what it has: a `partial` game is one RAWG had not
+// finished answering about (`server/graphql/resolvers/game.ts`). The page says so in one line and
+// asks again by itself, in the browser, until the answer is whole or two attempts are spent — the
+// whole answer then takes the place of the partial one, and nothing else on the page moves.
+useRetryWhilePartial(gameQuery, (answer) => answer?.game?.partial)
 
 const game = computed(() => data.value?.game ?? null)
 // Defence in depth: the mapper already refuses a non-http(s) `website`, but the check belongs
@@ -106,7 +113,20 @@ useHead({
 
     <StatesErrorState v-if="errorCode" class="mt-6" :code="errorCode" @retry="refresh()" />
 
-    <article v-else-if="game" class="mt-4">
+    <article v-else-if="game" class="relative mt-4">
+      <!-- Over the top corner of the cover, out of the flow, so the page is laid out exactly as it
+           is without it: nothing moves when it appears, and nothing when the whole answer takes
+           it away. A status region that lasts as long as the answer is partial — it is not
+           rebuilt or reworded by the attempts in between, so it is announced once. -->
+      <p
+        v-if="game.partial"
+        data-test="game-partial-note"
+        role="status"
+        class="absolute left-0 top-3 z-20 max-w-full rounded-card border border-line bg-ink/85 px-2.5 py-1 text-xs text-fg-2"
+      >
+        {{ t('game.stillLoading') }}
+      </p>
+
       <GameHero :name="game.name" :cover-url="game.cover?.url ?? null">
         <GameScoreboard :game="game" :now="now" />
       </GameHero>

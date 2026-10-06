@@ -1,7 +1,10 @@
+import { timedContext } from '../graphql/serverTiming'
 import { createYogaApp } from '../graphql/yoga'
 import { API_CONTENT_SECURITY_POLICY, CSP_HEADER } from '../security/headers'
 
-const yoga = createYogaApp(createGraphQLContext)
+// Every upstream call a resolver makes goes through the request's timing, so the answer can say
+// where its time went. Only here: `/api/ask` builds the same context and reports its own steps.
+const yoga = createYogaApp(async (timing) => timedContext(await createGraphQLContext(), timing))
 
 export default defineEventHandler(async (event) => {
   const url = getRequestURL(event)

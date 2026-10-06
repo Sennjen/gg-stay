@@ -343,6 +343,127 @@ describe('a request in flight that fails', () => {
   })
 })
 
+describe('a caller that asks to be told when its answer came from the cache', () => {
+  /** Answers every request that is out, so a call that reached the upstream can settle. */
+  const answerAll = async (sent: SentRequest[], status = 200, body: unknown = { ok: true }) => {
+    await settle()
+    for (const request of sent.splice(0)) request.answer(status, body)
+  }
+
+  it('is told when a fresh entry answered, and the upstream was not asked for it', async () => {
+    const { runtime, sent } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const first = fetchUpstream({ key: 'games' })
+    await answerAll(sent)
+    await first
+
+    const onCached = vi.fn()
+    expect(await fetchUpstream({ key: 'games' }, onCached)).toEqual({ ok: true })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(runtime.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
+  it('has been told by the time its answer arrives', async () => {
+    const { runtime, sent } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const first = fetchUpstream({ key: 'games' })
+    await answerAll(sent)
+    await first
+
+    // Whoever measures a call decides what it was in the handler its answer arrives in.
+    const onCached = vi.fn()
+    const told = fetchUpstream({ key: 'games' }, onCached).then(() => onCached.mock.calls.length)
+    expect(await told).toBe(1)
+  })
+
+  it('is not told about an answer the upstream gave', async () => {
+    const { runtime, sent } = makeRuntime()
+    const onCached = vi.fn()
+    const call = createUpstreamFetch(config, runtime)({ key: 'games' }, onCached)
+    await answerAll(sent)
+    expect(await call).toEqual({ ok: true })
+    expect(onCached).not.toHaveBeenCalled()
+  })
+
+  it('is not told when the entry had expired and the upstream was asked again', async () => {
+    const { runtime, sent, advance } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const first = fetchUpstream({ key: 'games' })
+    await answerAll(sent)
+    await first
+
+    advance(601_000)
+    const onCached = vi.fn()
+    const second = fetchUpstream({ key: 'games' }, onCached)
+    await answerAll(sent, 200, { ok: 'again' })
+    expect(await second).toEqual({ ok: 'again' })
+    expect(onCached).not.toHaveBeenCalled()
+  })
+
+  it('is not told when the upstream failed and a stale entry stood in for it', async () => {
+    const { runtime, sent, store } = makeRuntime()
+    store.set('games', { value: { stale: true }, expiresAt: 0 })
+    const onCached = vi.fn()
+    const call = createUpstreamFetch(config, runtime)({ key: 'games', maxAttempts: 1 }, onCached)
+    await answerAll(sent, 500)
+
+    // The answer is the cache's, but the caller waited for the upstream to fail first.
+    expect(await call).toEqual({ stale: true })
+    expect(onCached).not.toHaveBeenCalled()
+  })
+
+  it('is not told when the call fails', async () => {
+    const { runtime, sent } = makeRuntime()
+    const onCached = vi.fn()
+    const call = createUpstreamFetch(config, runtime)({ key: 'games', maxAttempts: 1 }, onCached)
+    await answerAll(sent, 503)
+    await expect(call).rejects.toMatchObject({ kind: 'ERROR', status: 503 })
+    expect(onCached).not.toHaveBeenCalled()
+  })
+
+  it('is told, as is every caller that shared the same read of the cache', async () => {
+    const { runtime, sent } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const first = fetchUpstream({ key: 'games' })
+    await answerAll(sent)
+    await first
+
+    // Made in one turn of the event loop, so the second joins the first while it reads the cache.
+    const told = [vi.fn(), vi.fn()]
+    const calls = told.map((onCached) => fetchUpstream({ key: 'games' }, onCached))
+    expect(await Promise.all(calls)).toEqual([{ ok: true }, { ok: true }])
+    expect(told.map((onCached) => onCached.mock.calls.length)).toEqual([1, 1])
+    expect(runtime.cache.get).toHaveBeenCalledTimes(2)
+    expect(runtime.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
+  it('is not told when it joined a request that was already on its way to the upstream', async () => {
+    const { runtime, sent } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const started = vi.fn()
+    const joined = vi.fn()
+    const first = fetchUpstream({ key: 'games' }, started)
+    await settle()
+    const second = fetchUpstream({ key: 'games' }, joined)
+    await answerAll(sent)
+
+    // One request, two callers that both waited for it: neither answer was already here.
+    expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }])
+    expect(runtime.fetchJson).toHaveBeenCalledTimes(1)
+    expect(started).not.toHaveBeenCalled()
+    expect(joined).not.toHaveBeenCalled()
+  })
+
+  it('is not told about a recorded fixture, which is the upstream of fixture mode', async () => {
+    const { runtime } = makeRuntime({ fixtures: true, readFixture: vi.fn(async () => ({ id: 1 })) })
+    const onCached = vi.fn()
+    expect(await createUpstreamFetch(config, runtime)({ key: 'games' }, onCached)).toEqual({
+      id: 1,
+    })
+    expect(onCached).not.toHaveBeenCalled()
+  })
+})
+
 describe('the line about an attempt', () => {
   /** One call under `request`, whose attempts end as `steps` say, each after `takes` on the clock. */
   async function run(

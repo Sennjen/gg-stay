@@ -579,6 +579,43 @@ describe('server-side rendering', async () => {
     expect(response.headers.get('x-content-type-options')).toBe('nosniff')
   })
 
+  it('says on a GraphQL answer where its time went, beside the endpoint’s own policy', async () => {
+    // Written by yoga onto its own Response, which `sendWebResponse` hands to the client with its
+    // headers; the route's policy is set beside it and must still be there.
+    const response = await fetch('/api/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: `query Page($slug: String!, $locale: String!) {
+          game(slug: $slug) { name partial localizedDescription(locale: $locale) { source } }
+        }`,
+        variables: { slug: 'the-witcher-3-wild-hunt', locale: 'uk' },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { data: { game: { partial: boolean } } }
+    expect(body.data.game.partial).toBe(false)
+    // Fixture mode's upstreams are its recordings and its seeded index: RAWG's three answers about
+    // the page, Steam's Ukrainian description, and the index's metadata, slug and document.
+    expect(response.headers.get('server-timing')).toMatch(
+      /^rawg;dur=\d+;desc="RAWG x3", steam;dur=\d+;desc="Steam x1", index;dur=\d+;desc="Index x3", total;dur=\d+$/,
+    )
+    expect(response.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    )
+
+    // An answer that asked one thing names one upstream, once.
+    const genres = await fetch('/api/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '{ genres { id } }' }),
+    })
+    expect(genres.headers.get('server-timing')).toMatch(
+      /^rawg;dur=\d+;desc="RAWG x1", total;dur=\d+$/,
+    )
+  })
+
   it('sends the security headers on every page, with an exact-hash script-src', async () => {
     let handlerCount = 0
     for (const path of ['/', '/en', '/games', '/games/the-witcher-3-wild-hunt']) {

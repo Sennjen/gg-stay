@@ -54,6 +54,19 @@ describe('createSteamFetch', () => {
     expect(deps.fetchJson).toHaveBeenCalledTimes(1)
   })
 
+  it('tells a caller that asked to know when the cache answered, and only then', async () => {
+    const { deps } = makeDeps()
+    const steam = createSteamFetch(deps)
+    const onCached = vi.fn()
+
+    // Steam is asked the first time; the second answer was already here.
+    await steam('292030', { onCached })
+    expect(onCached).not.toHaveBeenCalled()
+    expect(await steam('292030', { ttl: 60, onCached })).toEqual({ '292030': { success: true } })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
   it('refetches after the ttl expires', async () => {
     const { deps, advance } = makeDeps()
     const steam = createSteamFetch(deps)
