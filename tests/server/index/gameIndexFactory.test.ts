@@ -159,6 +159,11 @@ describe('createGameIndex', () => {
     expect(onError).not.toHaveBeenCalled()
   })
 
+  it('does not say how many requests the seeded index has sent: it has no store, and is taken at its word', async () => {
+    const index = await createGameIndex(sources())
+    expect(index.storeRequests).toBeUndefined()
+  })
+
   it('fails a slug lookup exactly as it fails a document read', async () => {
     // Every deadline fires at once, which is what a store that has gone quiet looks like.
     const immediate = {
@@ -237,6 +242,17 @@ describe('an unavailable index', () => {
     // Quietly, like `getOne`: nothing failed, the index simply holds no such game.
     expect(await index.idBySlug('portal-2')).toBeNull()
     expect(await index.allSlugs()).toEqual([])
+  })
+
+  it('says that it asks no store, before and after every answer it gives', async () => {
+    // Whoever counts a request's calls to the index reads this around each of them
+    // (`timedContext`): an index with nothing behind it has called nobody.
+    const index = unavailableGameIndex('nothing is configured')
+    expect(index.storeRequests?.()).toBe(0)
+    await index.meta()
+    await index.idBySlug('portal-2')
+    await index.search({}).catch(() => undefined)
+    expect(index.storeRequests?.()).toBe(0)
   })
 })
 
@@ -652,6 +668,37 @@ describe('withCircuit', () => {
     await expect(failing.allSlugs()).rejects.toBeInstanceOf(IndexUnavailableError)
   })
 
+  it('passes on how many requests the index has sent, for whoever reads the index through it', () => {
+    // The circuit reads the count for itself; the request's timing reads it from outside, to
+    // leave out a read that reached no store — a refusal of the circuit's own among them.
+    let sent = 7
+    const index = withCircuit({ ...broken, storeRequests: () => sent })
+    expect(index.storeRequests?.()).toBe(7)
+    sent = 9
+    expect(index.storeRequests?.()).toBe(9)
+    expect(withCircuit(broken).storeRequests).toBeUndefined()
+  })
+
+  it('sends nothing for a read it refuses while it is open, and the count shows it', async () => {
+    let now = 1_000
+    let sent = 0
+    const failing: GameIndex = {
+      ...broken,
+      meta: () => {
+        sent += 1
+        return Promise.reject(new Error('ECONNRESET'))
+      },
+      storeRequests: () => sent,
+    }
+    const index = withCircuit(failing, { openMs: 30_000, now: () => now })
+
+    await expect(index.meta()).rejects.toThrow('ECONNRESET')
+    expect(index.storeRequests?.()).toBe(1)
+    now += 1_000
+    await expect(index.meta()).rejects.toThrow(/skipped/)
+    expect(index.storeRequests?.()).toBe(1)
+  })
+
   it('leaves a healthy index alone', async () => {
     const index = withCircuit(await createGameIndex(sources()))
     expect((await index.getOne(4200))?.name).toBe('Portal 2')
@@ -703,6 +750,36 @@ describe('degradeOnFailure', () => {
       }),
     )
     await expect(index.meta()).rejects.toThrow(/within 1500ms/)
+  })
+
+  it('passes on how many requests the index has sent: it is the layer the site holds', () => {
+    let sent = 3
+    const index = degradeOnFailure({ ...broken, storeRequests: () => sent })
+    expect(index.storeRequests?.()).toBe(3)
+    sent = 4
+    expect(index.storeRequests?.()).toBe(4)
+    expect(degradeOnFailure(broken).storeRequests).toBeUndefined()
+  })
+
+  it('carries the adapter’s own count through all three layers, as the site stacks them', async () => {
+    const redis = createFakeRedis()
+    const writer = createUpstashIndex(redis, { runId: 'the-run' })
+    const version = await writer.beginVersion()
+    await writer.writeVersion(version, FIXTURE_GAMES)
+    await writer.publish(version, { ...FIXTURE_META, version, gameCount: FIXTURE_GAMES.length })
+
+    const adapter = createUpstashIndex(redis)
+    const index = degradeOnFailure(withCircuit(withDeadline(adapter)))
+    const before = index.storeRequests!()
+    expect(before).toBe(adapter.stats().requests)
+
+    // The first lookup of a slug asks the store; the second is answered from what the adapter
+    // remembers, and the count the site can see says so.
+    expect(await index.idBySlug('kite-keep')).not.toBeNull()
+    const afterFirst = index.storeRequests!()
+    expect(afterFirst).toBeGreaterThan(before)
+    expect(await index.idBySlug('kite-keep')).not.toBeNull()
+    expect(index.storeRequests!()).toBe(afterFirst)
   })
 
   it('passes a working index through untouched', async () => {

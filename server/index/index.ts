@@ -53,6 +53,9 @@ export function unavailableGameIndex(reason: string): GameIndex {
     idBySlug: async (): Promise<number | null> => null,
     meta: async (): Promise<IndexMeta | null> => null,
     allSlugs: async (): Promise<IndexedSlug[]> => [],
+    // There is no store behind it, and it says so rather than saying nothing: none of its
+    // answers is a call to anything, which is what whoever counts a request's calls reads here.
+    storeRequests: () => 0,
   }
 }
 
@@ -90,7 +93,21 @@ export function degradeOnFailure(
     idBySlug: (slug: string) => attempt(() => index.idBySlug(slug)),
     meta: () => attempt(() => index.meta()),
     allSlugs: () => attempt(() => index.allSlugs()),
+    ...forwardStoreRequests(index),
   }
+}
+
+/**
+ * `storeRequests` of the index a wrapper stands in front of, to be spread into the wrapper — or
+ * nothing, for an index that does not count: a wrapper must not invent a count its index does
+ * not keep, because a missing one means "take every answer at face value" (`GameIndex`).
+ *
+ * Every layer passes it on. The circuit needs it from the adapter through the deadline, and the
+ * request's timing reads it on the outermost layer — the index a resolver holds — to leave out of
+ * the `Server-Timing` header a read that reached no store (`server/graphql/serverTiming.ts`).
+ */
+function forwardStoreRequests(index: GameIndex): Pick<GameIndex, 'storeRequests'> {
+  return index.storeRequests ? { storeRequests: () => index.storeRequests!() } : {}
 }
 
 /**
@@ -177,7 +194,7 @@ export function withDeadline(
     allSlugs: () => race(() => index.allSlugs(), bulkTimeoutMs),
     // Not a call to race: what the adapter has sent so far, passed on because the circuit is
     // wrapped around this and has to see it. An index that does not count says nothing here.
-    ...(index.storeRequests ? { storeRequests: () => index.storeRequests!() } : {}),
+    ...forwardStoreRequests(index),
   }
 }
 
@@ -276,6 +293,9 @@ export function withCircuit(
       }
       return index.allSlugs()
     },
+    // A read the open circuit turns away sends nothing, and this is how that can be seen from
+    // outside: the count stands still across it.
+    ...forwardStoreRequests(index),
   }
 }
 

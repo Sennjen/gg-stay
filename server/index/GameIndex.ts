@@ -142,8 +142,13 @@ export interface GameIndex {
    * counts. The circuit around the site's index reads it before and after a call (`withCircuit`),
    * to tell an answer the store gave from one that never left the process — a slug the adapter
    * remembers, a slug it refuses to look up — which says nothing about how the store is doing.
-   * Optional: an index with no store to ask, like the in-memory one, does not implement it, and
-   * every answer it gives is then taken at face value.
+   * The timing of a request reads it the same way, on the index a resolver holds, so that a read
+   * which reached no store is not named as a call in the answer's `Server-Timing` header
+   * (`timedContext` in `server/graphql/serverTiming.ts`); every wrapper passes it on for that.
+   *
+   * Optional: the in-memory index stands in for a store without being one, does not implement
+   * it, and every answer it gives is then taken at face value. The index that is configured to
+   * know nothing has no store at all, and says so with a count that stays at zero.
    */
   storeRequests?(): number
 }
