@@ -4,6 +4,8 @@ import {
   EMPTY_QUERY,
   FALLBACK_ANSWER,
   FALLBACK_QUERY,
+  FULL_ANSWER,
+  FULL_QUERY,
   LIKE_ANSWER,
   LIKE_QUERY,
   MARKUP_ANSWER,
@@ -52,6 +54,7 @@ export function askStubResponse(body: unknown): StubResponse {
   }
   if (query === BROKEN_QUERY) return { status: 500, body: { error: 'INTERNAL' } }
   if (query === STRUCTURED_QUERY) return { status: 200, body: STRUCTURED_ANSWER }
+  if (query === FULL_QUERY) return { status: 200, body: FULL_ANSWER }
   if (query === EMPTY_QUERY) return { status: 200, body: EMPTY_ANSWER }
   if (query === FALLBACK_QUERY) return { status: 200, body: FALLBACK_ANSWER }
   if (query === PRICE_ONLY_QUERY) return { status: 200, body: PRICE_ONLY_ANSWER }

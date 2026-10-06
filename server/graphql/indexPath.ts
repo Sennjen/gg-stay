@@ -63,6 +63,8 @@ interface RequestState {
   index?: Promise<IndexState>
   /** Documents read by id in this request, so the game page and its similar row share one read. */
   entries?: Map<number, Promise<IndexedGame | null>>
+  /** Answers worked out once per request, by name (`oncePerRequest`). */
+  once?: Map<string, Promise<unknown>>
   warned: boolean
   failed: boolean
 }
@@ -99,6 +101,26 @@ export function warnIndexOnce(context: GraphQLContext, what: string, error: unkn
  */
 export function indexFailed(context: GraphQLContext): boolean {
   return requestState(context).failed
+}
+
+/**
+ * `work`, run at most once per request under `name`: every later caller in the same request gets
+ * the first one's promise. For a root field that costs an index read and takes no arguments, so
+ * repeating it under aliases cannot multiply that read.
+ */
+export function oncePerRequest<T>(
+  context: GraphQLContext,
+  name: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const state = requestState(context)
+  state.once ??= new Map()
+  let answer = state.once.get(name) as Promise<T> | undefined
+  if (!answer) {
+    answer = work()
+    state.once.set(name, answer)
+  }
+  return answer
 }
 
 /** The index metadata, read once per request. An index that cannot answer is simply not stale. */

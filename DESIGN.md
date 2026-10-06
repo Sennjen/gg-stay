@@ -60,7 +60,8 @@ calls for.
 ### Motion
 
 Hover, apply and open transitions run 150–250 ms ease-out. The only loops are
-the hero video and the cover ring (both arrive in later PRs). A global
+the hero video, the cover ring and the mascot's idle, peek and thinking moods
+(see "Gege, the mascot"). A global
 `prefers-reduced-motion: reduce` rule in `main.css` collapses every
 transition and animation duration to near-zero and disables smooth
 scrolling, so no component needs its own reduced-motion branch for basic
@@ -112,6 +113,10 @@ package) provider, which does serve the full variable font file.
 - **Signal (`--color-signal`) is reserved** for live/ephemeral states: "now on
   screen" captions, "coming soon" labels, and the filter-drawer reset action.
   It is not a general-purpose highlight colour.
+- **The one exception is Gege, the mascot** (`GegeMascot`). He is the only illustration allowed to
+  use accent and signal outside calls to action and live states: his body is `accent`, his eyes are
+  `signal`, and his details are `ink` and `fg`. The exception covers his drawing and nothing around
+  it — see "Gege, the mascot" below.
 - **`fg-3` contrast note:** `fg-3` (`#6B7080`) on `ink` measures roughly
   3.9:1, below the 4.5:1 WCAG AA threshold for normal text. It is safe to use
   for large text (≥ 24px, or ≥ 18.66px bold) or for genuinely decorative
@@ -225,7 +230,10 @@ Status values: **exists** (unchanged since before the redesign),
 
 | Component                       | Status                                                                                                                                                                                                        |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AppHeader`                     | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9; "Запитати" link beside the catalog in week 3                                                                                      |
+| `AppHeader`                     | Added in PR 1; skip link and a labelled primary nav landmark added in PR 9; "Запитати" link beside the catalog in week 3, renamed "AI-підбір" with Gege's face before it                                      |
+| `GegeMascot`                    | Done — the AI-picks mascot, an inline pixel-art SVG with four moods; see "Gege, the mascot" below                                                                                                             |
+| `GegeGreeter`                   | Done — the landing page's greeting: Gege rises from the corner with the deal of the day; see "Gege, the mascot" below                                                                                         |
+| `GegeSpeech`                    | Done — Gege beside a speech bubble in the page's flow (the greeter's bubble look); used by the ask page                                                                                                       |
 | `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                                                                   |
 | `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
 | `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
@@ -270,7 +278,9 @@ Status values: **exists** (unchanged since before the redesign),
 | `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
 | `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8; "Схожі ігри" row below the store links in week 2B                                                                                                             |
-| `pages/ask.vue`                 | Done — week 3 — natural-language search; see "Ask page" below                                                                                                                                                 |
+| `pages/ask.vue`                 | Done — week 3 — natural-language search; rebuilt around Gege, with the games as rows; see "Ask page" below                                                                                                    |
+| `ask/AskResultRow`              | Done — one game of an answer as a row, the reason as its primary line; see "Ask page" below                                                                                                                   |
+| `ask/AskWaiting`                | Done — Gege thinking, a line that changes with the clock, and the outline of the rows; see "Ask page" below                                                                                                   |
 
 ### Footer (PR 9)
 
@@ -405,52 +415,127 @@ lives in the URL as `q`: the form only navigates, the server renders the answer,
 link that can be shared. With `q` the page is `noindex, follow` and its canonical is the plain
 `/ask`; without it the page is indexable.
 
-- **Form.** A visible label ("Яку гру шукаєте?") over a `surface-1` textarea, limited to 200
-  characters, with a counter under it ("40 із 200 символів", numbers in `.font-numeric` through an
-  `<i18n-t>` slot) that the field names in `aria-describedby`. Enter sends, Shift+Enter breaks the
-  line. An empty question is answered with a sentence under the field and `aria-invalid`, never a
-  disabled button. The submit button is the form's one accent element (a retry button in a failure
-  state is the other accent on screen). The form is a `search` landmark named by its label. Three
-  example questions are `surface-1` chip buttons under a "Або спробуйте приклад:" caption and send
-  at once. A one-line note in `fg-2` says who reads the question and that it is not stored with an
-  IP.
-- **Answer.** Under an `h2` "Результати": the interpretation line ("Як ми зрозуміли запит:" in
-  `fg-2`, the sentence in `fg`); the understood filter as `ReadonlyFilterChips` under a visible
-  "Зрозумілий фільтр:" caption ("Звичайний пошук:" in fallback, where nothing was understood);
-  "Відкрити в каталозі" as a plain underlined link — not a chip, so it does not read as one more
-  filter value — whose query is re-validated through the catalog's own URL layer, shown only when
-  that query is not empty (a "like X" answer or one with nothing understood has no filter to open,
-  and the whole catalog would show none of its games); the count; then the cards, one column on
-  phones, two from 640 px, three from 1024 px. Each card has its reason under it, "Чому підходить:"
-  in `fg-2` before the reason in `fg`. Each item spans two rows of a subgrid, so the cards of a row
-  share one height and their reasons start on one line. The covers use `ASK_CARD_IMAGE_SIZES`. A
-  card the endpoint sent without a reason (its rerank failed) has no reason line at all, not an
-  empty one. The interpretation and the reasons are model-written: rendered by text interpolation
-  only, held to 200 and 120 characters, and allowed to break inside a long word. The search chip —
-  in fallback, the whole question — wraps, clamped to two lines with the full text still in the DOM
-  and its `title` (`rounded-card` rather than `rounded-chip` once it can take two lines); value
-  chips stay on one line. Nothing on the page scrolls sideways at 375 px.
+- **Gege.** The page is his (see "Gege, the mascot"): `GegeSpeech` puts him beside a speech bubble
+  in the page's flow, and everything the page says about an answer is said in that bubble. The
+  column is `max-w-3xl`, centred. Without a question he opens the page, 100 px wide and `idle`,
+  beside a bubble whose title is the page's one `h1` — "Опиши гру, як сказав би другові" — over a
+  line in `fg-2` on what to write; on a phone he stands on top of the bubble. With a question the
+  `h1` stays as a plain line above the form and he moves down to the answer, so there is one Gege
+  on screen at a time and the form and the answer share the first screen.
+- **Form.** It never leaves the page: with an answer on screen the question is still in the field
+  above it and can be edited and sent again. A visible label ("Яку гру шукаєш?") over one
+  `surface-1` box that holds the textarea (200 characters at most, growing with its text), the
+  counter ("40 із 200 символів", numbers in `.font-numeric` through an `<i18n-t>` slot, named in the
+  field's `aria-describedby`) and the "Підібрати" button. The box wears the focus ring for the field
+  inside it. Enter sends, Shift+Enter breaks the line. An empty question is answered with a
+  sentence under the box and `aria-invalid`, never a disabled button. The submit button is the
+  form's one accent element (a retry button in a failure state is the other accent on screen). The
+  form is a `search` landmark named by its label. Three example questions — his suggestions, with
+  his still 20 px face before the caption — are `surface-1` chip buttons, 44 px tall, shown while
+  there is no question yet; each sends at once. A one-line note in `fg-2` says who reads the
+  question and that it is not stored with an IP.
+- **Answer.** Under an `h2` "Результати", Gege (60 px, 40 px on a phone) and his bubble: the
+  interpretation in his voice ("Зрозумів так:" in `fg-2`, the sentence in `fg`); the understood
+  filter as `ReadonlyFilterChips` under a visible "Зрозумілий фільтр:" caption ("Звичайний пошук:"
+  in fallback, where nothing was understood); "Відкрити в каталозі" as a plain underlined link —
+  not a chip, so it does not read as one more filter value — whose query is re-validated through
+  the catalog's own URL layer, shown only when that query is not empty (a "like X" answer or one
+  with nothing understood has no filter to open, and the whole catalog would show none of its
+  games); the count; and the catalog's index note. He is `happy` for a moment when an answer he
+  picked is rendered, then `idle`. The interpretation and the reasons are model-written: rendered
+  by text interpolation only, held to 200 and 120 characters, and allowed to break inside a long
+  word. The search chip — in fallback, the whole question — wraps, clamped to two lines with the
+  full text still in the DOM and its `title` (`rounded-card` rather than `rounded-chip` once it can
+  take two lines); value chips stay on one line. Nothing on the page scrolls sideways at 375 px.
+- **Rows.** The games are rows (`ask/AskResultRow`), not catalog cards: a 160 px cover
+  (`ASK_ROW_IMAGE_SIZES`), the name as an `h3` and the row's one link (stretched over the row,
+  which draws the focus ring), **the reason as the primary line under the name** — `fg` at the body
+  size, no caption before it — then year, platforms, the Metacritic chip and "Зроблено в Україні",
+  with the price, its discount and the localisation badge on the right. On a phone the cover
+  shrinks to 96 px beside the name and the reason, the facts and the price each run the full width
+  under them. A game the endpoint sent without a reason (its rerank failed) has no reason line at
+  all, not an empty one. Every row of an answer is in the document — nothing is paged, folded or
+  loaded later — and the count line is the length of the same list, so "Підібрав 8 ігор" is eight
+  rows on about two screens. (As cards, two to a row and 400 px tall under a taller form, the same
+  eight were four screens of covers, and the first screen showed four of them.)
 - **Filters the catalog could not apply.** The answer's `ignoredFilters` strike the matching chips
   through with the catalog's reason beside them in words (`ignoredFilterReason`, shared with
   `ActiveFilterChips`), a declined sort is named as the catalog names it ("«Спочатку дешевші» не
   застосовано"), and when stale prices are the reason the catalog's `CatalogStaleBanner` sits above
   the answer. Whether the prices were stale comes from the answer's own `indexStale` (the catalog
   page its cards came from), because a declined price filter alone fits a silent index too.
-- **States.** Loading: a skeleton of the interpretation, the chips and three cards, the section
-  `aria-busy`. Fallback: a calm `surface-1` note, no colour and no alert role — "ШІ-розбір зараз
-  недоступний — показуємо звичайний пошук" — above the plain search's cards. Empty: a dashed panel
-  that suggests rephrasing, and opening the filter in the catalog only when there is one. Rate
-  limited: "спробуйте ще раз за N секунд" from `Retry-After` (read on the server and carried in the
-  payload, never computed from a clock), or "за хвилину" without one. Failed: a sentence and a retry
-  button. Too long (the endpoint's 400): "Запит задовгий…", with no retry. All three are
-  `role="alert"`.
-- **Announcements and focus.** A `role="status"` region always says the current state ("Підбираємо
-  ігри…", "Підібрали 3 гри", the fallback note and count, "Нічого не підібрали"); it is derived from
+- **States.** Every one is Gege beside a bubble. Waiting (`ask/AskWaiting`): he is `thinking` and
+  the bubble's line changes with the clock — "Читаю запит…", "Шукаю ігри…" after 2 s, "Пояснюю
+  вибір…" after 4 s — over the outline of three rows, the section `aria-busy`. The lines are timed,
+  not reported by the endpoint. Fallback: he says the calm sentence, no colour and no alert role —
+  "ШІ-розбір зараз недоступний — показую звичайний пошук" — above the plain search's rows, and
+  stays `idle`. Empty: the bubble suggests rephrasing, and opening the filter in the catalog only
+  when there is one. Rate limited: "Спробуй ще раз за N секунд" from `Retry-After` (read on the
+  server and carried in the payload, never computed from a clock), or "за хвилину" without one.
+  Failed: a sentence and a retry button. Too long (the endpoint's 400): "Запит задовгий…", with no
+  retry. All three failures are `role="alert"` inside his bubble, and he is `idle` beside them.
+- **Announcements and focus.** A `role="status"` region always says the current state ("Читаю
+  запит…" once for the whole wait — the lines that follow on screen are not announced — then
+  "Підібрав 3 гри", the fallback note and count, or "Нічого не підібрав"); it is derived from
   the answer, so the server and the hydrated client agree. Focus moves to the results heading when
   an answer the visitor just asked for lands; a page opened from a link moves no focus.
 - **Back and Forward.** Answers are remembered per tab, in memory and bounded, by locale and
   question; history navigation renders them without a request or a skeleton (every ask costs one of
   the visitor's ten a minute, and a fallback is never cached by the endpoint). A question sent from
   the form, and "Спробувати ще раз", always ask; failures are not remembered.
-- **Ways in.** "Запитати" sits beside "Каталог" in the header's primary navigation, and the
+- **Ways in.** "AI-підбір" (until Gege arrived, "Запитати") sits beside "Каталог" in the header's
+  primary navigation with Gege's face before it, and the
   catalog's empty state ends with "Не знаєте, які фільтри обрати? Опишіть словами".
+
+### Gege, the mascot
+
+**Ґеґе** (English: **Gege**, from "GG") is a living pixel-art gamepad and the face of the AI game
+picking. `GegeMascot` draws him as an inline SVG — no image file, no dependency — on a 20 × 13
+grid with `shape-rendering="crispEdges"`: a rounded top, two grips as legs, two eyes, a d-pad on
+the left, four face buttons on the right and a small mouth. He is decorative (`aria-hidden`, not
+focusable); the text beside him always carries the meaning.
+
+- **Colour.** Tokens only, and the documented exception to the accent and signal rules above: the
+  body is `accent`, the eyes `signal`, the pupils, mouth, d-pad and buttons `ink`, the glint in each
+  eye `fg`. The one highlight and the one darker amber are `color-mix()` of `accent` with `fg` and
+  with `ink`, so the drawing holds no colour value of its own. Nothing else may borrow this
+  exception: a bubble, a button or a caption near him follows the ordinary rules.
+- **Size.** `size` is his width in CSS pixels; the height follows the grid (13/20). The grid is 20
+  wide because the header shows him 20 px wide, one cell to one pixel. Multiples of 20 are
+  pixel-perfect; other widths stay crisp with cells that differ by a pixel.
+- **Moods.** `idle` — open eyes and a smile; he floats 3 px in whole-pixel steps and blinks every
+  few seconds. `peek` — the idle face tilted −8°, swaying to −3°. `thinking` — half-lidded eyes, a
+  flat mouth, and the four face buttons lighting up in `signal` one after another, clockwise.
+  `happy` — eyes as arcs, an open mouth and one short hop.
+- **Motion.** CSS keyframes only, held steps where it suits pixel art, and only with the
+  `animated` prop (default on). Under `prefers-reduced-motion: reduce` the component removes its
+  animations outright and each mood keeps its static pose: the tilt for `peek`, the first button
+  lit for `thinking`. `:animated="false"` gives the same still pose on request.
+- **In the header** he is a still 20 px face before the "AI-підбір" / "AI picks" link to `/ask`.
+  The link's accessible name is its text. A narrow bar has no room for him, and the logo never
+  wraps to make some: the face is left out below 360 px, and below 400 px on the English site,
+  whose locale switcher ("Українська") is the widest. The label may wrap below 360 px (375 px in
+  English).
+- **On `/ask`** `GegeSpeech` stands him to the left of a bubble with the same look as the
+  greeter's — `surface-2`, a 1 px `accent` border, `rounded-card`, a tail pointing at him. `lead`
+  is the page's opening line (100 px, level with the middle of the bubble; above it on a phone);
+  `reply` is a line in the conversation (60 px at the bubble's top corner, resized to 40 px on a
+  phone by a rule, so the server render needs no viewport). He is `idle` at the start and beside
+  an empty answer or a failure, `thinking` during the wait, and `happy` for a moment over an answer
+  he picked.
+- **On the landing page** `GegeGreeter` brings him up from the bottom-right corner (`peek`, 120 px
+  wide, 80 px on a phone) two seconds after the page is interactive and the tab is on screen, with
+  a speech bubble: `surface-2`, a 1 px `accent` border, `rounded-card`, body copy in the interface
+  face and only his name in Tektur. The bubble sits beside him on a wide screen. On a phone the
+  hero's actions are where the bubble would be, so he comes up with one line beside him instead —
+  a 44 px button in the bubble's look, on the strip under the hero's actions — and a tap on it or
+  on him opens the bubble above him; left alone for eight seconds he dives by himself. Above him,
+  the bubble and he take the bottom third of the small viewport; past that the copy scrolls inside
+  the bubble, above the buttons, in a box that takes keyboard focus and fades its last visible
+  line while there is more below. A third of a short screen cannot hold the copy, so the copy
+  keeps up to 8 rem wherever there is room for it under the header. The discount is the ordinary
+  `sale` chip, the call to action the ordinary `accent` button: the colour exception stays with
+  his drawing. Dismissed, he dives head first and leaves one grip in the corner, a 56 × 44 px
+  button that opens the bubble again. He rises by himself once per browser session. The greeter is fixed, teleported to `<body>`, a labelled `<aside>` that never
+  takes focus by itself, and is mounted in the browser only, after idle. The rise and the dive run
+  250 ms ease-out; with reduced motion he is simply there.

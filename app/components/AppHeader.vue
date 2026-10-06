@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const route = useRoute()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const localePath = useLocalePath()
 
 // Transparent only over the hero on the landing page, and only before the
@@ -25,6 +25,16 @@ onMounted(() => {
 onBeforeUnmount(() => window.removeEventListener('scroll', updateScrolled))
 
 const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
+
+// The ask link on a narrow bar. Gege's face needs 24 px the narrowest bars do not have, and the
+// English bar is the tighter one — its locale switcher shows the Ukrainian locale's name — so it gives the face up
+// sooner (below 400 px, not 360) and lets the label wrap sooner (below 375 px, not 360). The logo
+// must never wrap to make room for a decoration. Whole class names, so Tailwind sees them.
+const askLinkNarrow = computed(() =>
+  locale.value === 'en'
+    ? { face: 'max-[400px]:hidden', label: 'min-[375px]:whitespace-nowrap' }
+    : { face: 'max-[360px]:hidden', label: 'min-[360px]:whitespace-nowrap' },
+)
 </script>
 
 <template>
@@ -37,7 +47,7 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
     "
   >
     <div
-      class="relative mx-auto flex h-[var(--header-h)] max-w-6xl items-center justify-between gap-4 px-4"
+      class="relative mx-auto flex h-[var(--header-h)] max-w-6xl items-center justify-between gap-3 px-4 sm:gap-4"
     >
       <NuxtLink
         :to="localePath('/')"
@@ -46,8 +56,8 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
         GG Stay
       </NuxtLink>
 
-      <div class="flex flex-1 items-center justify-end gap-4">
-        <nav :aria-label="t('nav.primary')" class="flex items-center gap-3 sm:gap-4">
+      <div class="flex flex-1 items-center justify-end gap-3 sm:gap-4">
+        <nav :aria-label="t('nav.primary')" class="flex items-center gap-2.5 sm:gap-4">
           <NuxtLink
             :to="localePath('/games')"
             class="text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
@@ -56,9 +66,13 @@ const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
           </NuxtLink>
           <NuxtLink
             :to="localePath('/ask')"
-            class="text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2"
+            class="inline-flex items-center gap-1 text-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2 sm:gap-1.5"
+            :class="askLinkNarrow.label"
           >
-            {{ t('nav.ask') }}
+            <!-- Gege's face, still: decorative, so the link's accessible name is its text alone.
+                 On the narrowest bars there is no room for it and the label may wrap. -->
+            <GegeMascot :size="20" :animated="false" :class="askLinkNarrow.face" />
+            {{ t('gege.nav') }}
           </NuxtLink>
         </nav>
         <HeaderSearch class="md:max-w-[360px] md:flex-none" />

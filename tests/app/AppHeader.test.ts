@@ -23,9 +23,49 @@ describe('AppHeader', () => {
     const nav = wrapper.get('nav[aria-label="Основна навігація"]')
     expect(nav.findAll('a').map((link) => [link.text(), link.attributes('href')])).toEqual([
       ['Каталог', '/games'],
-      ['Запитати', '/ask'],
+      ['AI-підбір', '/ask'],
     ])
   })
+
+  it('puts a still, decorative 20 px Gege face before the ask link text', async () => {
+    const wrapper = await mountSuspended(AppHeader, { route: '/games' })
+    const link = wrapper.get('nav[aria-label="Основна навігація"] a[href="/ask"]')
+    const face = link.get('svg')
+    expect(face.attributes('width')).toBe('20')
+    expect(face.attributes('aria-hidden')).toBe('true')
+    expect(face.classes()).not.toContain('gege--animated')
+    // The face comes first; the accessible name is the text, which the hidden drawing adds nothing to.
+    expect(link.element.firstElementChild).toBe(face.element)
+    expect(link.text()).toBe('AI-підбір')
+  })
+
+  it('names the ask link in English on the English site', async () => {
+    const wrapper = await mountSuspended(AppHeader, { route: '/en/games' })
+    expect(wrapper.get('a[href="/en/ask"]').text()).toBe('AI picks')
+  })
+
+  // The English bar is the tighter one (its locale switcher reads "Українська"), so it gives the
+  // face up and lets the label wrap at wider bars than the Ukrainian one. The logo wrapping is
+  // what these breakpoints prevent; the widths themselves are checked in a real browser.
+  it.each([
+    ['/games', '/ask', 'max-[360px]:hidden', 'min-[360px]:whitespace-nowrap'],
+    ['/en/games', '/en/ask', 'max-[400px]:hidden', 'min-[375px]:whitespace-nowrap'],
+  ])(
+    'on %s hides the face and frees the label at its own widths',
+    async (route, href, face, label) => {
+      const wrapper = await mountSuspended(AppHeader, { route })
+      const link = wrapper.get(`a[href="${href}"]`)
+      expect(link.classes()).toContain(label)
+      expect(link.get('svg').classes()).toContain(face)
+      expect(link.classes().filter((name) => name.endsWith('whitespace-nowrap'))).toHaveLength(1)
+      expect(
+        link
+          .get('svg')
+          .classes()
+          .filter((name) => name.endsWith(':hidden')),
+      ).toHaveLength(1)
+    },
+  )
 
   it('gives the header bar a fixed height, shared via --header-h with sections that must run underneath it', async () => {
     const wrapper = await mountSuspended(AppHeader, { route: '/games' })

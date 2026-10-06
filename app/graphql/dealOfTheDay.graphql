@@ -1,0 +1,16 @@
+# The landing greeter's one game: just enough to name it, link it and state its price.
+query DealOfTheDay {
+  dealOfTheDay {
+    id
+    slug
+    name
+    cover {
+      url
+    }
+    price {
+      bestUah
+      regularUah
+      discountPercent
+    }
+  }
+}

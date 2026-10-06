@@ -11,6 +11,12 @@ export const typeDefs = /* GraphQL */ `
     platforms: [Taxonomy!]!
     developers(search: String!): [Taxonomy!]!
     landing: Landing!
+    """
+    One well-reviewed game at half price or better, the same for every visitor all UTC day.
+    Answered from the index only; null when the index is unavailable, its prices are stale or
+    nothing qualifies.
+    """
+    dealOfTheDay: GameCard
   }
 
   input GameFilter {

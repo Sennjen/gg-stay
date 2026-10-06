@@ -33,8 +33,22 @@
     "language": "Language",
     "languageFooter": "Site language (footer)",
     "skipToContent": "Skip to content",
-    "primary": "Primary navigation",
-    "ask": "Ask"
+    "primary": "Primary navigation"
+  },
+  "gege": {
+    "name": "Gege",
+    "nav": "AI picks",
+    "greeter": {
+      "label": "Gege, the game-picking helper",
+      "toggle": "Gege: AI picks",
+      "compact": "Hi! Want me to pick a game?",
+      "hello": "Hi, I'm {name}!",
+      "deal": "Today {name} is {discount} at {price}.",
+      "pitch": "I can pick many more games for you — without a long search through the catalog.",
+      "accept": "Let's go",
+      "decline": "Not now",
+      "close": "Close"
+    }
   },
   "search": {
     "label": "Search games",
@@ -273,10 +287,13 @@
     "title": "Describe a game in your own words",
     "titleQuery": "“{query}” — game picks",
     "description": "Describe the game you're after — genre, platform, price, who you play with — and GG Stay picks games from the catalog and says why each one fits.",
-    "lead": "Genre, platform, price, who you play with — write it the way you'd tell a friend. We'll pick games from the catalog and say why each one fits.",
+    "intro": {
+      "title": "Describe the game the way you'd tell a friend",
+      "text": "Genre, mood, who you play with, how much you'd spend. I'll find the games and say why these ones."
+    },
     "label": "What game are you looking for?",
     "counter": "{count} of {max} characters",
-    "submit": "Find games",
+    "submit": "Pick games",
     "emptyQuestion": "Write a few words about the game you're looking for.",
     "examplesLabel": "Or try an example:",
     "examples": {
@@ -286,15 +303,18 @@
     },
     "privacy": "Your question is sent to Anthropic to be read by a language model. We don't store questions together with IP addresses.",
     "results": "Results",
-    "interpretation": "How we read it:",
+    "understood": "Here's how I read it: {interpretation}",
     "filterLabel": "Understood filter:",
     "searchLabel": "Plain search:",
     "openInCatalog": "Open in the catalog",
     "picked": "Picked {count} game | Picked {count} games",
     "found": "Found {count} game | Found {count} games",
-    "reason": "Why it fits:",
     "fallbackNote": "AI matching isn't available right now — showing a plain search instead",
-    "loading": "Finding games…",
+    "waiting": {
+      "reading": "Reading your request…",
+      "searching": "Looking for games…",
+      "explaining": "Explaining the picks…"
+    },
     "emptyTitle": "Nothing matched",
     "emptyHint": "Try describing it differently or less strictly — or open the filter in the catalog and adjust it by hand.",
     "emptyHintNoFilter": "Try describing it differently — more specifically, or less strictly.",

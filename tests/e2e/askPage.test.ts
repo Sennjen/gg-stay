@@ -129,6 +129,7 @@ describe('the ask page on the server', async () => {
       expect(head.robots).toBe(INDEXABLE)
       expect(head.canonical).toBe(canonical)
       expect(body).toMatch(/<textarea[^>]*maxlength="200"/)
+      expect(body).toMatch(/data-test="ask-intro"[\s\S]*?data-mood="idle"/)
       expect(body).not.toContain('data-test="ask-results"')
     }
   })
@@ -141,15 +142,18 @@ describe('the ask page on the server', async () => {
     expect(head.canonical).toBe(`${SITE}/ask`)
     expect(head.title).toBe(`«${HORROR}» — підбір ігор — GG Stay`)
 
-    expect(text(body)).toContain(
-      'Як ми зрозуміли запит: Атмосферні горори з українською локалізацією',
-    )
+    expect(text(body)).toContain('Зрозумів так: Атмосферні горори з українською локалізацією')
     expect(text(body)).toContain('Зрозумілий фільтр: Українська: будь-яка')
-    expect(text(body)).toContain('Підібрали 3 гри')
+    expect(text(body)).toContain('Підібрав 3 гри')
     expect(text(body)).toContain(
-      'Чому підходить: Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
+      'Сіті 17 під окупацією: гнітючі вулиці, хедкраби й тиша перед бурею',
     )
+    // The count is the number of rows in the HTML, each with its reason.
+    expect((body.match(/data-test="ask-item"/g) ?? []).length).toBe(3)
     expect((body.match(/data-test="ask-reason"/g) ?? []).length).toBe(3)
+    // Gege presents the answer, and the form with the question is above it.
+    expect(body).toMatch(/data-test="ask-answer"[\s\S]*?data-mood="happy"/)
+    expect(body.indexOf('<textarea')).toBeLessThan(body.indexOf('data-test="ask-results"'))
     // Answered from the index, so the page says what that covers, as the catalog does.
     expect(body).toContain('data-test="index-note"')
     expect(text(body)).toMatch(/Пошук серед 3\s000 найпопулярніших ігор/)
@@ -162,16 +166,16 @@ describe('the ask page on the server', async () => {
   it('shows what it understood and the empty state when the catalog has nothing for it', async () => {
     const { body } = await page(askUrl(COOP))
     expect(text(body)).toContain(
-      'Як ми зрозуміли запит: Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
+      'Зрозумів так: Кооперативні ігри для двох на Nintendo Switch до 500 ₴',
     )
-    expect(text(body)).toContain('Нічого не підібрали')
+    expect(text(body)).toContain('Нічого не підібрав')
     expect(body).not.toContain('data-test="ask-item"')
     expect(decode(body)).toContain('href="/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500"')
   })
 
   it('says calmly that the AI part did not run for a question it cannot read', async () => {
     const { body } = await page(askUrl(UNKNOWN))
-    expect(text(body)).toContain('ШІ-розбір зараз недоступний — показуємо звичайний пошук')
+    expect(text(body)).toContain('ШІ-розбір зараз недоступний — показую звичайний пошук')
     expect(text(body)).toContain(`Звичайний пошук: «${UNKNOWN}»`)
     expect(body).not.toContain('data-test="ask-interpretation"')
     expect(body).not.toContain('data-test="ask-reason"')
@@ -187,7 +191,7 @@ describe('the ask page on the server', async () => {
   it('asks in English on the English page, and links the English catalog', async () => {
     const { html, body } = await page(askUrl(COOP_EN, '/en'))
     expect(html).toMatch(/<html[^>]*lang="en-US"/)
-    expect(text(body)).toContain('How we read it: Co-op games for two on Nintendo')
+    expect(text(body)).toContain("Here's how I read it: Co-op games for two on Nintendo")
     expect(text(body)).toContain('Nothing matched')
     expect(decode(body)).toContain(
       'href="/en/games?platforms=7&gameModes=LOCAL_COOP&priceMaxUah=500"',
@@ -204,7 +208,7 @@ describe('the ask page on the server', async () => {
       expect(text(body)).toContain('ШІ-розбір')
     }
     expect(text((await page(askUrl(UNKNOWN), busy, '192.0.2.99')).body)).toMatch(
-      /Забагато запитів поспіль\. Спробуйте ще раз за \d+ секунд/,
+      /Забагато запитів поспіль\. Спробуй ще раз за \d+ секунд/,
     )
     // Another visitor is unaffected. Without the forwarded header both would be one address.
     expect(text((await page(askUrl(UNKNOWN), '203.0.113.11')).body)).toContain('ШІ-розбір')

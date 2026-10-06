@@ -33,6 +33,138 @@ test('landing → the "Усі ігри" link of a shelf → the catalog it names
   await expectAccessible(page, 'catalog filtered by a shelf')
 })
 
+test('landing → Gege rises with the deal → dismissed to a grip → reopened → «Давай» opens the ask page', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForHydration(page)
+  // He is no part of the server HTML or of the hydrated page: he comes later, by himself.
+  const greeter = page.getByRole('complementary', { name: 'Ґеґе, помічник із підбору ігор' })
+  await expect(greeter).toHaveCount(0)
+
+  // Two seconds on screen, up to three more for a slow deal, plus idle and his chunk.
+  const bubble = page.locator('[data-test="gege-bubble"]')
+  await expect(bubble).toBeVisible({ timeout: 15_000 })
+  // Appearing must not move focus: it is still where a fresh page leaves it.
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+  // The fixture index has one game that qualifies as the deal of the day.
+  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toHaveAttribute(
+    'href',
+    '/games/portal-2',
+  )
+  await expect(bubble).toContainText('−75%')
+  // He fades in; axe reads a half-faded bubble as low contrast.
+  await expect(bubble).toHaveCSS('opacity', '1')
+  await expectAccessible(page, 'landing with the greeter open')
+
+  // Escape with focus inside dismisses him, and focus follows to the grip he leaves behind.
+  await bubble.getByRole('button', { name: 'Не зараз' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(bubble).toBeHidden()
+  const grip = greeter.getByRole('button', { name: 'Ґеґе: AI-підбір' })
+  await expect(grip).toBeFocused()
+  await expect(grip).toHaveAttribute('aria-expanded', 'false')
+  await expectAccessible(page, 'landing with the greeter dismissed')
+
+  // The grip opens the bubble again from the keyboard, and Tab walks on into it.
+  await page.keyboard.press('Enter')
+  await expect(bubble).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(bubble.getByRole('link', { name: 'Давай' })).toBeFocused()
+
+  await bubble.getByRole('button', { name: 'Не зараз' }).click()
+  await expect(bubble).toBeHidden()
+
+  // Dismissed once, he does not rise by himself again in this session: only the grip is back.
+  await page.reload()
+  await waitForHydration(page)
+  await expect(grip).toBeVisible()
+  await page.waitForTimeout(3500)
+  await expect(bubble).toBeHidden()
+
+  await grip.click()
+  await bubble.getByRole('link', { name: 'Давай' }).click()
+  await expect(page).toHaveURL(/\/ask$/)
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(greeter).toHaveCount(0)
+})
+
+/** Whether two boxes on the page share any pixel. */
+function overlap(
+  a: { x: number; y: number; width: number; height: number } | null,
+  b: { x: number; y: number; width: number; height: number } | null,
+): boolean {
+  if (!a || !b) throw new Error('an element to compare has no box')
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+test('landing on a phone → Gege rises with one line clear of the hero → a tap opens the bubble → left alone on a return, he stays down', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+  await waitForHydration(page)
+
+  const greeter = page.getByRole('complementary', { name: 'Ґеґе, помічник із підбору ігор' })
+  const line = greeter.getByRole('button', { name: 'Привіт! Підібрати гру?' })
+  const bubble = page.locator('[data-test="gege-bubble"]')
+  await expect(line).toBeVisible({ timeout: 15_000 })
+  await expect(bubble).toHaveCount(0)
+  await expect(line).toHaveCSS('opacity', '1')
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+  // Left alone the line sinks after eight seconds, and the checks below must not race it: he
+  // stays up while keyboard focus is on the line.
+  await line.focus()
+
+  // The line and Gege keep off the hero's headline and its two actions, and the line is a
+  // comfortable target.
+  const hero = page.locator('main section').first()
+  const lineBox = await line.boundingBox()
+  const gegeBox = await page.locator('[data-test="gege-toggle"]').boundingBox()
+  expect(lineBox!.height).toBeGreaterThanOrEqual(44)
+  for (const part of [
+    hero.getByRole('heading', { level: 1 }),
+    hero.getByRole('link', { name: 'Відкрити каталог' }),
+    hero.getByRole('link', { name: 'Нові релізи' }),
+  ]) {
+    const box = await part.boundingBox()
+    expect(overlap(lineBox, box)).toBe(false)
+    expect(overlap(gegeBox, box)).toBe(false)
+  }
+  await expectAccessible(page, 'phone landing with the greeter line')
+
+  await line.click()
+  await expect(bubble).toBeVisible()
+  await expect(line).toHaveCount(0)
+  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toBeVisible()
+  await expect(bubble.getByRole('link', { name: 'Давай' })).toBeVisible()
+  await expect(bubble.getByRole('button', { name: 'Не зараз' })).toBeVisible()
+  await expect(bubble).toHaveCSS('opacity', '1')
+  await expectAccessible(page, 'phone landing with the greeter bubble open')
+
+  // A short screen cannot hold the copy: it scrolls in a box the keyboard can reach, under the
+  // header, with the buttons still on screen.
+  await page.setViewportSize({ width: 320, height: 256 })
+  const copy = bubble.locator('[data-test="gege-copy"]')
+  await expect(copy).toHaveAttribute('tabindex', '0')
+  const header = await page.locator('header').first().boundingBox()
+  const bubbleBox = await bubble.boundingBox()
+  expect(bubbleBox!.y).toBeGreaterThanOrEqual(header!.y + header!.height)
+  await expect(bubble.getByRole('link', { name: 'Давай' })).toBeInViewport()
+  await expectAccessible(page, 'short phone landing with the greeter bubble scrolling')
+
+  // He rose once this session without being dismissed; back on the landing he stays down.
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.reload()
+  await waitForHydration(page)
+  await expect(greeter.getByRole('button', { name: 'Ґеґе: AI-підбір' })).toBeVisible()
+  await page.waitForTimeout(3500)
+  await expect(line).toHaveCount(0)
+  await expect(bubble).toHaveCount(0)
+})
+
 test('catalog → filter drawer → price and localisation change the count → a game', async ({
   page,
 }) => {
@@ -158,19 +290,39 @@ test('ask at 375 px → a recorded question → a long one that falls back → B
 
   await page.goto('/ask')
   await waitForHydration(page)
+  // Gege opens the page, and the bubble's title is the page's heading.
+  await expect(page.locator('[data-test="ask-intro"] svg[data-mood="idle"]')).toBeVisible()
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Опиши гру, як сказав би другові' }),
+  ).toBeVisible()
   await expectAccessible(page, 'ask page')
 
   await page.getByRole('button', { name: 'атмосферний горор українською' }).click()
   await expect(page.getByRole('heading', { level: 2, name: 'Результати' })).toBeFocused()
-  await expect(page.getByText('Чому підходить:').first()).toBeVisible()
+  await expect(page.locator('[data-test="ask-interpretation"]')).toContainText('Зрозумів так:')
+  await expect(page.locator('[data-test="ask-reason"]').first()).toBeVisible()
+  // The number in the count line is the number of rows a visitor can scroll to: every row is in
+  // the document and takes up room on the page.
+  const rows = page.locator('[data-test="ask-item"]')
+  const counted = Number(/\d+/.exec(await page.locator('[data-test="ask-count"]').innerText())![0])
+  await expect(rows).toHaveCount(counted)
+  for (const row of await rows.all()) {
+    await row.scrollIntoViewIfNeeded()
+    await expect(row).toBeVisible()
+  }
+  // The form is still there, above the answer, with the question in it.
+  await expect(page.getByRole('textbox', { name: 'Яку гру шукаєш?' })).toHaveValue(
+    'атмосферний горор українською',
+  )
+  expect(await pageWidth()).toBeLessThanOrEqual(375)
   await expectAccessible(page, 'ask answer')
 
   // Unrecorded in fixture mode, so the endpoint falls back and the whole question becomes the
   // search chip — which must wrap inside the 375 px column, not push the page sideways.
   const long =
     'хочу атмосферну гру з гарним сюжетом про подорож у часі для двох гравців на дивані ввечері'
-  await page.getByRole('textbox', { name: 'Яку гру шукаєте?' }).fill(long)
-  await page.getByRole('button', { name: 'Підібрати ігри' }).click()
+  await page.getByRole('textbox', { name: 'Яку гру шукаєш?' }).fill(long)
+  await page.getByRole('button', { name: 'Підібрати', exact: true }).click()
   await expect(page.locator('[data-test="ask-fallback-note"]')).toBeVisible()
   expect(await pageWidth()).toBeLessThanOrEqual(375)
   await expectAccessible(page, 'ask fallback')
@@ -178,7 +330,7 @@ test('ask at 375 px → a recorded question → a long one that falls back → B
 
   // Back renders the answer this tab already has: no new question, no skeleton.
   await page.goBack()
-  await expect(page.getByText('Чому підходить:').first()).toBeVisible()
+  await expect(page.locator('[data-test="ask-reason"]').first()).toBeVisible()
   await page.goForward()
   await expect(page.locator('[data-test="ask-fallback-note"]')).toBeVisible()
   expect(asked).toHaveLength(2)
