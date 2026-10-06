@@ -134,6 +134,25 @@ describe('fetchPrices', () => {
     expect(fetchJson).toHaveBeenCalledTimes(2)
   })
 
+  it('shares a read that is already in flight, and still keeps nothing afterwards', async () => {
+    const fetchJson = vi.fn(async () => ({
+      status: 200,
+      body: { '1': { success: true, data: { is_free: true } } },
+    }))
+    const { deps } = makeDeps({ fetchJson })
+    const steamPrices = createSteamPriceFetch(deps)
+    // Two readers of the same game page at the same moment are one request to Steam...
+    const [first, second] = await Promise.all([
+      steamPrices.fetchPrices(['1']),
+      steamPrices.fetchPrices(['1']),
+    ])
+    expect(fetchJson).toHaveBeenCalledTimes(1)
+    expect(first.get('1')).toEqual(second.get('1'))
+    // ...and the answer is gone the moment it has been given: the next reader asks again.
+    await steamPrices.fetchPrices(['1'])
+    expect(fetchJson).toHaveBeenCalledTimes(2)
+  })
+
   it('reads the single "prices" fixture asset instead of fetching, in fixture mode', async () => {
     const readFixture = vi.fn(async (name: string) =>
       name === 'prices'

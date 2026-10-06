@@ -198,6 +198,45 @@ describe('createRawgFetch', () => {
     expect(waits).toEqual([250, 500])
   })
 
+  it('sends one request for two calls for the same list made at the same time', async () => {
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    // The same key however the params are ordered, and whatever empty ones ride along.
+    const [first, second] = await Promise.all([
+      rawg('games', { genres: 'rpg', page: 1 }),
+      rawg('games', { page: 1, search: '', genres: 'rpg' }),
+    ])
+    expect(first).toEqual({ ok: true })
+    expect(second).toBe(first)
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+    expect(deps.sleep).not.toHaveBeenCalled()
+  })
+
+  it('shares a request between calls that differ only in how long they would cache it', async () => {
+    // The landing keeps a list for a day and the catalog for ten minutes. Asked for at the same
+    // moment it is one request, cached for as long as the call that started it asked.
+    const { deps, store } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    await Promise.all([rawg('games', { page: 1 }, { ttl: 86_400 }), rawg('games', { page: 1 })])
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+    expect(store.get('games?page=1')?.expiresAt).toBe(1_000_000 + 86_400_000)
+  })
+
+  it('keeps a call with tighter limits out of a request made with the defaults', async () => {
+    // What `/api/ask` asks for: its single short attempt must not sit through the two long ones
+    // a catalog page is prepared to wait for, nor the other way round.
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    await Promise.all([
+      rawg('games', { search: 'x' }),
+      rawg('games', { search: 'x' }, { timeoutMs: 4_000, maxAttempts: 1 }),
+    ])
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([5_000, 4_000])
+    timeout.mockRestore()
+  })
+
   it('reads fixtures instead of fetching when fixture mode is on', async () => {
     const readFixture = vi.fn(async (name: string) => (name === 'genres' ? { results: [] } : null))
     const { deps } = makeDeps({ fixtures: true, readFixture })
