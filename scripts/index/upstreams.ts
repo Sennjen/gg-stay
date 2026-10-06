@@ -42,6 +42,21 @@ async function fetchJson(url: string, signal: AbortSignal) {
   return { status: response.status, body }
 }
 
+/**
+ * The transports' own line about an attempt that failed or was slow (`createUpstreamFetch`) is
+ * not written by the job.
+ *
+ * A stage already says what an upstream failure cost it, in its own words and through `JobLog`:
+ * "prices: a chunk of 100 app ids failed, keeping their current prices", "languages: app 292030
+ * failed, leaving its record as it was", "app ids: portal-2 could not be resolved, leaving it for
+ * the next run". It counts each one against the failure budget, the run summary totals them, and
+ * a failure it cannot work around ends the run with the upstream's own error. The attempt line is
+ * evidence for the site's page budget — how long RAWG takes over one visitor's request — and here
+ * it would only say the same thing again, once per attempt, straight to stdout and past the job's
+ * log. So the job's transports are given a log that keeps nothing.
+ */
+const noAttemptLines = (): void => {}
+
 export interface UpstreamOptions {
   apiKey: string
   /** Serve the recorded fixtures instead of the network, as `RAWG_FIXTURES=1` does for the app. */
@@ -62,6 +77,7 @@ export function createJobRawg(options: UpstreamOptions): RawgFetch {
     cache: createMemoryCache(),
     now: options.clock.now,
     sleep: options.clock.sleep,
+    log: noAttemptLines,
   })
   if (!options.fixtures) return rawg
 
@@ -85,6 +101,7 @@ export function createJobSteam(options: UpstreamOptions): SteamPriceFetch {
     readFixture,
     now: options.clock.now,
     sleep: options.clock.sleep,
+    log: noAttemptLines,
   }
   return createSteamPriceFetch({
     ...shared,
