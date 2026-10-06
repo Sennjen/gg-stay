@@ -35,7 +35,10 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  *   that sense: the page renders without it and is complete, exactly as it was.
  * - **The live Steam price** (below) is waited for `LIVE_PRICE_BUDGET_MS` from the moment it was
  *   asked for. Past that the index price stands, under its own true timestamp. That is not a
- *   reason for `partial`: the page has a price, and says how old it is.
+ *   reason for `partial`: the page has a price, and says how old it is. A Steam game the index
+ *   does not hold has no such price to fall back on — the page goes out with the Steam link and
+ *   nothing on it — so there a price that is still on its way does make the page `partial`: the
+ *   read is left running, and the page's own second request finds its answer in the cache.
  *
  * Nothing the page stops waiting for is cancelled. Every request keeps running so that its answer
  * reaches the cache it was headed for, and `Pending.release` hands whatever is still running to
@@ -338,6 +341,9 @@ function kindOf(reason: unknown): string {
  * detail that itself arrived after it, is no time at all — and the page says `partial` when one
  * of them had still not settled. The index entry is read by the id RAWG gave.
  *
+ * The live price is the other thing such a page can go out without, for a game the index does
+ * not hold (the header says why that one case counts and no other).
+ *
  * One `console.info` line per page that goes out partial this way, naming what it went out
  * without, as the page answered from the index writes one (`indexPage`): together the two lines
  * are how the share of partial pages is read from the runtime logs.
@@ -371,12 +377,13 @@ async function rawgPage(
   // (`GameScoreboard`), so an old price is an honest one here, where a card has no room to say
   // how old its price is. A page the index answers on its own withholds a stale one (`indexPage`).
   const priced = appId && live ? withLivePrice(entry ?? emptyEntryFor(appId), live) : entry
+  // With no index entry there is no price to stand in for one that is still on its way: the
+  // Steam link goes out bare, which is something left out for the page to ask for again. An
+  // answer inside the budget — a price, Steam's "none", a failure — leaves nothing to collect.
+  const priceLate = appId !== null && entry === null && price.isOut(appId)
 
-  if (late.length > 0) {
-    console.info(
-      `[game] RAWG ${late.join(' and ')} slower than ${GAME_EXTRAS_BUDGET_MS} ms, answered without them`,
-    )
-  }
+  const partial = late.length > 0 || priceLate
+  if (partial) console.info(partialLine(late, priceLate))
   return {
     ...mapped,
     stores: withSteamPrice(mapped.stores, priced),
@@ -384,7 +391,7 @@ async function rawgPage(
     madeInUkraine:
       isMadeInUkraine(mapped.developers.map((developer) => developer.slug)) ||
       (entry?.madeInUkraine ?? false),
-    partial: late.length > 0,
+    partial,
   }
 }
 
@@ -394,6 +401,20 @@ function lateExtras(extras: Extras): string[] {
     ...(isPending(extras.storeLinks) ? ['store links'] : []),
     ...(isPending(extras.screenshots) ? ['screenshots'] : []),
   ]
+}
+
+/**
+ * The line about a page RAWG answered that went out partial: what it went out without, each with
+ * the budget it missed. In the shape of the line about a page answered from the index.
+ */
+function partialLine(late: readonly string[], priceLate: boolean): string {
+  const missed = [
+    ...(late.length > 0
+      ? [`RAWG ${late.join(' and ')} slower than ${GAME_EXTRAS_BUDGET_MS} ms`]
+      : []),
+    ...(priceLate ? [`Steam price slower than ${LIVE_PRICE_BUDGET_MS} ms`] : []),
+  ]
+  return `[game] ${missed.join(' and ')}, answered without ${late.length > 0 ? 'them' : 'it'}`
 }
 
 function isPending(request: Observed<unknown>): boolean {
@@ -469,6 +490,14 @@ function livePrices(context: GraphQLContext, pending: Pending) {
       const { price, budget } = ask(appId)
       await Promise.race([price.settled, budget])
       return valueOf(price) ?? null
+    },
+
+    /**
+     * Whether the read for `appId` is still out: asked for, and neither answered nor failed. What
+     * a caller that got `null` from `read` asks to tell "not in yet" from every other `null`.
+     */
+    isOut(appId: string): boolean {
+      return asked?.appId === appId && isPending(asked.price)
     },
   }
 }

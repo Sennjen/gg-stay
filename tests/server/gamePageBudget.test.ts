@@ -1625,6 +1625,155 @@ describe('the live Steam price', () => {
   })
 })
 
+describe('the live Steam price of a game the index does not hold', () => {
+  /** The page RAWG answers for a game outside the index: no languages, and a price only from Steam. */
+  const OUTSIDE = { ...WHOLE_PAGE, localisation: null }
+  const NO_PRICE_YET = [{ store: 'steam', url: STEAM_URL, ...UNPRICED }, GOG]
+
+  /** An index that is published and does not hold The Witcher 3. */
+  const withoutTheGame = () => indexHolding(...FIXTURE_GAMES)
+
+  it('leaves the page partial when it is not in: no index price stands in, and the page’s second request collects it', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await withoutTheGame()
+    const STEAM_MS = 3_000
+    const steamPrices = steamPricesTaking(STEAM_MS)
+    const cache = createTestCache()
+    const waitUntil = vi.fn<(work: Promise<unknown>) => void>()
+
+    // RAWG's links name the app at 100 ms; the price has its second from there, and no more.
+    const { data, errors } = await pageAt(PROMPT_MS + LIVE_PRICE_BUDGET_MS, {
+      index,
+      rawg: rawgAnswering(),
+      steamPrices,
+      cache,
+      waitUntil,
+    })
+
+    expect(errors).toBeUndefined()
+    // Everything RAWG has, the Steam link among it — and nothing on that link, said as partial.
+    expect(data!.game).toEqual({ ...OUTSIDE, stores: NO_PRICE_YET, partial: true })
+    expect(info).toHaveBeenCalledExactlyOnceWith(
+      '[game] Steam price slower than 1000 ms, answered without it',
+    )
+
+    // The read was handed over and ends in the cache...
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    await advance(STEAM_MS - LIVE_PRICE_BUDGET_MS)
+    expect(cache.writes).toEqual([['steam-price:292030', 21_600]])
+    expect(vi.getTimerCount()).toBe(0)
+
+    // ...where the page's own second request finds it: the whole page, and Steam not asked again.
+    const again = await pageAt(PROMPT_MS, { index, rawg: rawgAnswering(), steamPrices, cache })
+    expect(again.data!.game).toEqual({ ...OUTSIDE, stores: [LIVE_PRICED, GOG], partial: false })
+    expect(steamPrices.calls).toEqual(['292030'])
+    expect(info).toHaveBeenCalledTimes(1)
+  })
+
+  it('is whole a millisecond inside the budget', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await withoutTheGame()
+    const steamPrices = steamPricesTaking(LIVE_PRICE_BUDGET_MS - 1)
+
+    const { data } = await pageAt(PROMPT_MS + LIVE_PRICE_BUDGET_MS - 1, {
+      index,
+      rawg: rawgAnswering(),
+      steamPrices,
+    })
+
+    expect(data!.game).toEqual({ ...OUTSIDE, stores: [LIVE_PRICED, GOG], partial: false })
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['Steam says it has no price for the game', null],
+    ['the read fails', new UpstreamError('STEAM', 'ERROR', 502)],
+  ])('is not what a page is partial for when %s inside the budget', async (_what, answer) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await withoutTheGame()
+    const steamPrices = steamPricesTaking(300, answer)
+
+    // An answer and a failure are both the end of the read: there is nothing a second request
+    // would be waiting to collect.
+    const { data } = await pageAt(PROMPT_MS + 300, { index, rawg: rawgAnswering(), steamPrices })
+
+    expect(data!.game).toEqual({ ...OUTSIDE, stores: NO_PRICE_YET, partial: false })
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('leaves the page partial just the same when there is no index to ask at all', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const steamPrices = steamPricesTaking(3_000)
+
+    const { data } = await pageAt(PROMPT_MS + LIVE_PRICE_BUDGET_MS, {
+      index: unavailableGameIndex('not configured'),
+      rawg: rawgAnswering(),
+      steamPrices,
+    })
+
+    expect(data!.game).toEqual({ ...OUTSIDE, stores: NO_PRICE_YET, partial: true })
+  })
+
+  it('is named in the same line as screenshots the page also went out without', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await withoutTheGame()
+    // The page is put together when the screenshots' budget runs out. That is when the links,
+    // long in, are read for the app, and the price's own second starts there.
+    const rawg = rawgAnswering({ stores: 1_400, screenshots: 9_000 })
+
+    const { data } = await pageAt(GAME_EXTRAS_BUDGET_MS + LIVE_PRICE_BUDGET_MS, {
+      index,
+      rawg,
+      steamPrices: steamPricesTaking(9_000),
+    })
+
+    expect(data!.game).toEqual({
+      ...OUTSIDE,
+      stores: NO_PRICE_YET,
+      screenshots: [],
+      partial: true,
+    })
+    expect(info).toHaveBeenCalledExactlyOnceWith(
+      '[game] RAWG screenshots slower than 1500 ms and Steam price slower than 1000 ms, answered without them',
+    )
+  })
+
+  it('does not make a page partial whose game the index holds: there the index price stands', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await indexHolding(DUE_A_REFRESH)
+
+    const { data } = await pageAt(LIVE_PRICE_BUDGET_MS, {
+      index,
+      rawg: rawgAnswering(),
+      steamPrices: steamPricesTaking(3_000),
+    })
+
+    expect(data!.game).toEqual({
+      ...WHOLE_PAGE,
+      stores: [{ ...INDEX_PRICED, updatedAt: DUE_A_REFRESH.priceUpdatedAt }, GOG],
+      partial: false,
+    })
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('does not make a page partial whose game the index holds without a price, either', async () => {
+    // The index knows the game and has never priced it. That is still the index's word about
+    // the game, and the rule is drawn at whether the index holds it.
+    const unpriced = { ...DOCUMENT, priceUah: null, regularPriceUah: null, priceUpdatedAt: null }
+    const index = await indexHolding(unpriced)
+
+    const { data } = await pageAt(LIVE_PRICE_BUDGET_MS, {
+      index,
+      rawg: rawgAnswering(),
+      steamPrices: steamPricesTaking(3_000),
+    })
+
+    expect(data!.game.partial).toBe(false)
+    expect(steamOffer({ data })).toMatchObject({ store: 'steam', priceUah: null })
+  })
+})
+
 describe('one request for a game', () => {
   it('reads the game’s index document once, however many times it asks for the game', async () => {
     const others = FIXTURE_GAMES.slice(0, 5)
