@@ -19,7 +19,7 @@ const atLeast = (minScore) => ['error', { minScore, aggregationMethod: 'median' 
 module.exports = {
   ci: {
     collect: {
-      url: [page('/'), page('/games'), page('/games/the-witcher-3-wild-hunt')],
+      url: [page('/'), page('/games'), page('/games/the-witcher-3-wild-hunt'), page('/ask')],
       numberOfRuns: 3,
       settings: {
         // The runner is a throwaway container; Chrome's sandbox needs privileges it may not have.
@@ -52,6 +52,8 @@ module.exports = {
           assertions: { 'categories:performance': atLeast(0.7) },
         },
         { matchingUrlPattern: '/games$', assertions: { 'categories:performance': atLeast(0.85) } },
+        // The ask page before a question: Gege, the form and three examples, no request to wait for.
+        { matchingUrlPattern: '/ask$', assertions: { 'categories:performance': atLeast(0.85) } },
         // The game page measured 89 locally against this build. On shared CI runners ±5 points
         // from run to run is normal noise, and 85 would leave the gate flapping on noise rather
         // than catching regressions; 80 still fails on a real one. Production numbers: docs/perf.

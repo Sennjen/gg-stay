@@ -423,7 +423,7 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   `h1` stays as a plain line above the form and he moves down to the answer, so there is one Gege
   on screen at a time and the form and the answer share the first screen.
 - **Form.** It never leaves the page: with an answer on screen the question is still in the field
-  above it and can be edited and sent again. A visible label ("Яку гру шукаєте?") over one
+  above it and can be edited and sent again. A visible label ("Яку гру шукаєш?") over one
   `surface-1` box that holds the textarea (200 characters at most, growing with its text), the
   counter ("40 із 200 символів", numbers in `.font-numeric` through an `<i18n-t>` slot, named in the
   field's `aria-describedby`) and the "Підібрати" button. The box wears the focus ring for the field
@@ -468,9 +468,9 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   the bubble's line changes with the clock — "Читаю запит…", "Шукаю ігри…" after 2 s, "Пояснюю
   вибір…" after 4 s — over the outline of three rows, the section `aria-busy`. The lines are timed,
   not reported by the endpoint. Fallback: he says the calm sentence, no colour and no alert role —
-  "ШІ-розбір зараз недоступний — показуємо звичайний пошук" — above the plain search's rows, and
+  "ШІ-розбір зараз недоступний — показую звичайний пошук" — above the plain search's rows, and
   stays `idle`. Empty: the bubble suggests rephrasing, and opening the filter in the catalog only
-  when there is one. Rate limited: "спробуйте ще раз за N секунд" from `Retry-After` (read on the
+  when there is one. Rate limited: "Спробуй ще раз за N секунд" from `Retry-After` (read on the
   server and carried in the payload, never computed from a clock), or "за хвилину" without one.
   Failed: a sentence and a retry button. Too long (the endpoint's 400): "Запит задовгий…", with no
   retry. All three failures are `role="alert"` inside his bubble, and he is `idle` beside them.

@@ -27,7 +27,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', updateScrolled))
 const isTransparent = computed(() => isLandingRoute.value && !scrolled.value)
 
 // The ask link on a narrow bar. Gege's face needs 24 px the narrowest bars do not have, and the
-// English bar is the tighter one — its locale switcher reads "Українська" — so it gives the face up
+// English bar is the tighter one — its locale switcher shows the Ukrainian locale's name — so it gives the face up
 // sooner (below 400 px, not 360) and lets the label wrap sooner (below 375 px, not 360). The logo
 // must never wrap to make room for a decoration. Whole class names, so Tailwind sees them.
 const askLinkNarrow = computed(() =>

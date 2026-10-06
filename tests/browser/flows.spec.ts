@@ -114,6 +114,9 @@ test('landing on a phone → Gege rises with one line clear of the hero → a ta
   await expect(bubble).toHaveCount(0)
   await expect(line).toHaveCSS('opacity', '1')
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+  // Left alone the line sinks after eight seconds, and the checks below must not race it: he
+  // stays up while keyboard focus is on the line.
+  await line.focus()
 
   // The line and Gege keep off the hero's headline and its two actions, and the line is a
   // comfortable target.

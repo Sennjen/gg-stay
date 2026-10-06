@@ -103,22 +103,44 @@ const counterId = useId()
 const privacyId = useId()
 const emptyQuestionId = useId()
 const resultsHeadingId = useId()
+const outcomeId = useId()
+const fallbackNoteId = useId()
 const fieldRef = ref<HTMLTextAreaElement | null>(null)
 const resultsHeadingRef = ref<HTMLHeadingElement | null>(null)
+const examplesRef = ref<HTMLElement | null>(null)
 const emptyQuestion = ref(false)
 const describedBy = computed(() =>
   [counterId, emptyQuestion.value ? emptyQuestionId : null, privacyId].filter(Boolean).join(' '),
 )
 
 // Set by a submit, cleared once the answer it asked for has landed and focus has moved to it. A
-// first load from a shared URL never moves focus: the visitor did not just ask anything.
+// first load from a shared URL never moves focus: the visitor did not just ask anything. Neither
+// does history: a visitor who leaves for the plain page while waiting has dropped the question, and
+// an answer they page back to later is not one they just asked for.
 const focusResultsWhenReady = ref(false)
 watch(view, async (next) => {
-  if (!focusResultsWhenReady.value || next === 'loading' || next === 'idle') return
+  if (next === 'idle') focusResultsWhenReady.value = false
+  if (!focusResultsWhenReady.value || next === 'loading') return
   focusResultsWhenReady.value = false
   await nextTick()
   resultsHeadingRef.value?.focus()
 })
+
+// Moving focus cuts off whatever a screen reader was about to say politely, and the status region
+// changes in the same breath as the focus move. So the outcome — the count, with the plain-search
+// note before it, or the empty answer — is also the heading's description, by the ids of the
+// lines that show it: it is read with the
+// heading that takes focus, and the visitor hears "Results, picked 8 games" whichever of the two
+// the screen reader lets through. A failure needs none: its block is an alert, which is spoken
+// over a focus change.
+const outcomeDescribes = computed(() => {
+  if (view.value !== 'results' && view.value !== 'empty') return undefined
+  return isFallback.value ? `${fallbackNoteId} ${outcomeId}` : outcomeId
+})
+
+// Counts the questions sent from this page. The waiting lines are keyed by it, so a question sent
+// while another is still being answered starts its own wait from the first line.
+const asked = ref(0)
 
 // Gege is pleased once per answer he picked himself: when it is rendered, and again when another
 // takes its place. A plain search, an empty answer and a failure leave him as he was.
@@ -143,7 +165,7 @@ onBeforeUnmount(() => {
   if (pleasedTimer !== null) clearTimeout(pleasedTimer)
 })
 
-async function submit(text: string = draft.value) {
+async function submit(text: string = draft.value, event?: MouseEvent) {
   const question = text.trim()
   if (!question) {
     emptyQuestion.value = true
@@ -153,6 +175,15 @@ async function submit(text: string = draft.value) {
   emptyQuestion.value = false
   draft.value = question
   focusResultsWhenReady.value = true
+  asked.value += 1
+  // The examples leave the page with the first question, and a chip pressed from the keyboard
+  // would take focus with it, down to the document, for the whole wait. The field now holds that
+  // question, so focus goes there. A tap or a mouse click (`detail` counts the clicks; the
+  // keyboard's is 0) is left alone: focusing the field would only raise a phone's keyboard over
+  // the answer.
+  if (event?.detail === 0 && examplesRef.value?.contains(document.activeElement)) {
+    fieldRef.value?.focus()
+  }
   // A question sent from the form is asked again even if this tab has its answer; only history
   // navigation renders from memory.
   ask.forget(question)
@@ -231,7 +262,7 @@ useSeoMeta({
           ref="fieldRef"
           v-model="draft"
           name="q"
-          rows="2"
+          rows="3"
           :maxlength="ASK_MAX_LENGTH"
           :aria-describedby="describedBy"
           :aria-invalid="emptyQuestion ? 'true' : undefined"
@@ -273,7 +304,7 @@ useSeoMeta({
     </form>
 
     <!-- His suggestions, offered while there is nothing on the page yet; each one asks at once. -->
-    <div v-if="view === 'idle'" data-test="ask-examples" class="mt-5">
+    <div v-if="view === 'idle'" ref="examplesRef" data-test="ask-examples" class="mt-5">
       <p :id="`${fieldId}-examples`" class="flex items-center gap-2 text-sm text-fg-2">
         <GegeMascot :size="20" :animated="false" />
         {{ t('ask.examplesLabel') }}
@@ -283,7 +314,7 @@ useSeoMeta({
           <button
             type="button"
             class="min-h-11 cursor-pointer rounded-chip border border-line bg-surface-1 px-4 py-2 text-left text-sm text-fg transition-colors duration-150 ease-out hover:border-fg-2 hover:bg-surface-2 focus-visible:outline-2"
-            @click="submit(t(`ask.examples.${key}`))"
+            @click="submit(t(`ask.examples.${key}`), $event)"
           >
             {{ t(`ask.examples.${key}`) }}
           </button>
@@ -306,12 +337,13 @@ useSeoMeta({
         :id="resultsHeadingId"
         ref="resultsHeadingRef"
         tabindex="-1"
+        :aria-describedby="outcomeDescribes"
         class="w-fit font-display-heading text-lg text-fg focus-visible:outline-2"
       >
         {{ t('ask.results') }}
       </h2>
 
-      <AskWaiting v-if="view === 'loading'" class="mt-4" />
+      <AskWaiting v-if="view === 'loading'" :key="asked" class="mt-4" />
 
       <GegeSpeech v-else-if="view === 'error' && failure" class="mt-4">
         <div data-test="ask-error" role="alert" class="p-4 text-fg">
@@ -349,7 +381,7 @@ useSeoMeta({
              a new line of his, with its own moment of being pleased. -->
         <GegeSpeech :key="ask.query.value" :mood="answerMood" class="mt-4" data-test="ask-answer">
           <div class="space-y-3 p-4">
-            <p v-if="isFallback" data-test="ask-fallback-note" class="text-fg">
+            <p v-if="isFallback" :id="fallbackNoteId" data-test="ask-fallback-note" class="text-fg">
               {{ t('ask.fallbackNote') }}
             </p>
             <i18n-t
@@ -394,7 +426,7 @@ useSeoMeta({
             </div>
 
             <div v-if="view === 'empty'" data-test="ask-empty">
-              <p class="font-semibold text-fg">{{ t('ask.emptyTitle') }}</p>
+              <p :id="outcomeId" class="font-semibold text-fg">{{ t('ask.emptyTitle') }}</p>
               <p class="mt-1 text-fg-2">
                 {{ catalogLink ? t('ask.emptyHint') : t('ask.emptyHintNoFilter') }}
               </p>
@@ -404,6 +436,7 @@ useSeoMeta({
               v-else
               :keypath="countKey"
               tag="p"
+              :id="outcomeId"
               :plural="results.length"
               data-test="ask-count"
               class="font-semibold text-fg"
@@ -420,7 +453,7 @@ useSeoMeta({
 
         <!-- One row per game and every row in the document: nothing is paged, folded or left to
              load later, so the count above is what the visitor finds by scrolling. -->
-        <ul v-if="results.length" class="mt-4 space-y-3" :aria-labelledby="resultsHeadingId">
+        <ul v-if="results.length" class="mt-4 space-y-3">
           <li v-for="(item, index) in results" :key="item.card.id" data-test="ask-item">
             <AskResultRow :item="item" :eager="index < EAGER_COVERS" />
           </li>

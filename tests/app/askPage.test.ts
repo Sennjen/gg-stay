@@ -70,6 +70,7 @@ const askUrl = (query: string) => `/ask?q=${encodeURIComponent(query)}`
 const plain = (text: string) => text.replace(/\s+/g, ' ').trim()
 
 afterEach(() => {
+  vi.useRealTimers()
   for (const wrapper of mounted.splice(0)) wrapper.unmount()
   requests.length = 0
   graphql.length = 0
@@ -257,10 +258,15 @@ describe('the ask page, answered from the URL', () => {
   })
 
   it('has Gege pleased with his picks for a moment, then idle again', async () => {
+    // Only the timeouts are faked, and from before the mount: the moment starts when he is mounted.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
     const mood = () => wrapper.get('[data-test="ask-answer"] svg').attributes('data-mood')
     expect(mood()).toBe('happy')
-    await vi.waitFor(() => expect(mood()).toBe('idle'), { timeout: 3000, interval: 50 })
+    await vi.advanceTimersByTimeAsync(1499)
+    expect(mood()).toBe('happy')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mood()).toBe('idle')
   })
 
   it('says how many games it picked, visibly and in a live region', async () => {
@@ -453,6 +459,20 @@ describe('the ask page, text written by the model', () => {
 /** The route the app's router is on: the page navigates it, so this is where `q` lands. */
 const currentQuery = () => useRouter().currentRoute.value.query.q
 
+/**
+ * Lets the page work until `done` holds without letting any time pass: for the tests that count
+ * the waiting lines on a fake clock, which a polling wait would move.
+ */
+async function turns(done: () => boolean) {
+  for (let turn = 0; turn < 200 && !done(); turn += 1) {
+    // A real turn of the event loop (`setImmediate` is not faked) and whatever is due at once.
+    await new Promise((resolve) => setImmediate(resolve))
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+  }
+  expect(done()).toBe(true)
+}
+
 /** Waits until `check` holds, then lets the page settle. */
 async function settle(check: () => void) {
   await vi.waitFor(check, { timeout: 2000, interval: 20 })
@@ -521,8 +541,11 @@ describe('the ask page, asked from the form', () => {
     try {
       const wrapper = await renderAsk('/ask')
       await wrapper.get('textarea').setValue(STRUCTURED_QUERY)
+      // The lines are counted on a fake clock, to the millisecond; only the timeouts are faked, so
+      // the navigation and the request still run.
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
       await wrapper.get('form').trigger('submit')
-      await settle(() => expect(wrapper.find('[data-test="ask-loading"]').exists()).toBe(true))
+      await turns(() => wrapper.find('[data-test="ask-loading"]').exists())
 
       const results = wrapper.get('[data-test="ask-results"]')
       expect(results.attributes('aria-busy')).toBe('true')
@@ -541,23 +564,143 @@ describe('the ask page, asked from the form', () => {
       expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe(STRUCTURED_QUERY)
 
       // The line follows the clock, and the announcement does not follow the line.
-      await vi.waitFor(
-        () => expect(results.get('[data-test="ask-waiting-line"]').text()).toBe('Шукаю ігри…'),
-        { timeout: 3000, interval: 50 },
-      )
+      const line = () => wrapper.get('[data-test="ask-waiting-line"]').text()
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(line()).toBe('Читаю запит…')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(line()).toBe('Шукаю ігри…')
       expect(live.text()).toBe('Читаю запит…')
-      await vi.waitFor(
-        () => expect(results.get('[data-test="ask-waiting-line"]').text()).toBe('Пояснюю вибір…'),
-        { timeout: 3000, interval: 50 },
-      )
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(line()).toBe('Пояснюю вибір…')
 
+      // A second question sent during the wait starts its own: the lines begin again.
+      await wrapper.get('textarea').setValue(FULL_QUERY)
+      await wrapper.get('form').trigger('submit')
+      await turns(() => currentQuery() === FULL_QUERY)
+      expect(line()).toBe('Читаю запит…')
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(line()).toBe('Шукаю ігри…')
+
+      vi.useRealTimers()
       release()
-      await settle(() => expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(3))
+      await settle(() => expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(8))
       expect(wrapper.get('[data-test="ask-results"]').attributes('aria-busy')).toBeUndefined()
     } finally {
       release()
       registerEndpoint('/api/ask', { method: 'POST', handler: stub })
     }
+  })
+
+  it('drops the focus move when the visitor leaves for the plain page during the wait', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    registerEndpoint('/api/ask', {
+      method: 'POST',
+      handler: async (event) => {
+        await gate
+        return stub(event)
+      },
+    })
+    try {
+      const wrapper = await renderAsk('/ask')
+      await wrapper.get('textarea').setValue(STRUCTURED_QUERY)
+      await wrapper.get('form').trigger('submit')
+      await settle(() => expect(wrapper.find('[data-test="ask-loading"]').exists()).toBe(true))
+
+      await useRouter().push('/ask')
+      await settle(() => expect(wrapper.find('[data-test="ask-intro"]').exists()).toBe(true))
+      release()
+      await flushPromises()
+
+      // An answer reached through history afterwards is not one the visitor just asked for.
+      await useRouter().push(askUrl(STRUCTURED_QUERY))
+      await settle(() => expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(3))
+      expect(document.activeElement?.tagName).not.toBe('H2')
+    } finally {
+      release()
+      registerEndpoint('/api/ask', { method: 'POST', handler: stub })
+    }
+  })
+
+  it('reads the outcome with the heading that takes focus', async () => {
+    const wrapper = await renderAsk('/ask')
+    const described = () =>
+      (wrapper.get('[data-test="ask-results"] h2').attributes('aria-describedby') ?? '')
+        .split(' ')
+        .filter(Boolean)
+        .map((id) => plain(document.getElementById(id)!.textContent!))
+
+    await wrapper.get('textarea').setValue(STRUCTURED_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(document.activeElement?.tagName).toBe('H2'))
+    expect(described()).toEqual(['Підібрав 3 гри'])
+    // The list is in the section the heading names; it does not repeat the name.
+    expect(
+      wrapper.get('[data-test="ask-item"]').element.parentElement!.hasAttribute('aria-labelledby'),
+    ).toBe(false)
+
+    await wrapper.get('textarea').setValue(FALLBACK_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(wrapper.find('[data-test="ask-fallback-note"]').exists()).toBe(true))
+    expect(described()).toEqual([
+      'ШІ-розбір зараз недоступний — показую звичайний пошук',
+      'Знайшов 2 гри',
+    ])
+
+    await wrapper.get('textarea').setValue(EMPTY_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(wrapper.find('[data-test="ask-empty"]').exists()).toBe(true))
+    expect(described()).toEqual(['Нічого не підібрав'])
+
+    // A failure is an alert, spoken by itself.
+    await wrapper.get('textarea').setValue(BROKEN_QUERY)
+    await wrapper.get('form').trigger('submit')
+    await settle(() => expect(wrapper.find('[data-test="ask-error"]').exists()).toBe(true))
+    expect(
+      wrapper.get('[data-test="ask-results"] h2').attributes('aria-describedby'),
+    ).toBeUndefined()
+  })
+
+  it('keeps keyboard focus on the page when an example is pressed from the keyboard', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    registerEndpoint('/api/ask', {
+      method: 'POST',
+      handler: async (event) => {
+        await gate
+        return stub(event)
+      },
+    })
+    try {
+      const wrapper = await renderAsk('/ask')
+      const example = wrapper.get('[data-test="ask-examples"]').findAll('button')[0]!
+      ;(example.element as HTMLButtonElement).focus()
+      // A click with no pointer behind it: Enter or Space on the button.
+      await example.trigger('click', { detail: 0 })
+      await settle(() => expect(wrapper.find('[data-test="ask-loading"]').exists()).toBe(true))
+
+      // The chips are gone; focus is in the field, which holds the example's question.
+      expect(wrapper.find('[data-test="ask-examples"]').exists()).toBe(false)
+      const field = wrapper.get('textarea').element as HTMLTextAreaElement
+      expect(document.activeElement).toBe(field)
+      expect(field.value).toBe('кооператив для двох на Switch до 500 грн')
+    } finally {
+      release()
+      registerEndpoint('/api/ask', { method: 'POST', handler: stub })
+    }
+  })
+
+  it('does not raise the field for an example that was tapped or clicked', async () => {
+    const wrapper = await renderAsk('/ask')
+    const example = wrapper.get('[data-test="ask-examples"]').findAll('button')[0]!
+    ;(example.element as HTMLButtonElement).focus()
+    await example.trigger('click', { detail: 1 })
+    await flushPromises()
+    expect(document.activeElement).not.toBe(wrapper.get('textarea').element)
   })
 })
 
