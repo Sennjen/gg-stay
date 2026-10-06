@@ -74,15 +74,29 @@ No behaviour of `/api/ask` changes. No model call is added anywhere.
   - English: "Hi, I'm Gege! Today **{name}** is −{percent}% at {price} ₴." / "I can pick many more
     games for you — without a long search through the catalog."
   - buttons: **«Давай»** (accent, links to `/ask`, locale-aware) and **«Не зараз»**.
+- **On a phone** (below the `sm` breakpoint) he does not open the full bubble by himself: the
+  hero's headline and its two calls to action sit where it would be. After the same 2 s he rises
+  with a compact one-line bubble beside him — «Привіт! Підібрати гру?» (en: "Hi! Want me to pick a
+  game?") — which is a single button, at least 44 px tall, named by its text, and covers neither
+  the hero's headline nor its two calls to action (checked at 375 × 667 and 390 × 844). A tap on
+  it, or on Gege, expands the full bubble (deal of the day, second line, «Давай» / «Не зараз»,
+  close). Left untouched for about 8 s he sinks back by himself and leaves the grip; the compact
+  bubble has no close control of its own. He stays up while keyboard focus is on him or on the
+  line.
 - «Не зараз», Escape while focus is inside, or the close control hides the bubble; he sinks until
-  only one grip shows in the corner as a small button («Ґеґе: AI-підбір»), which opens the bubble
-  again. He does not rise by himself again in that browser session (`sessionStorage`, wrapped in
-  try/catch; without storage he simply behaves as on a first visit).
+  only one grip shows in the corner as a small button («Ґеґе: AI-підбір»), which opens the full
+  bubble again. He rises by himself once per browser session: the rise itself is remembered — the
+  compact one on a phone included, and whether or not he was dismissed — so a return to the
+  landing after «Давай» starts with the grip (`sessionStorage`, wrapped in try/catch; without
+  storage he simply behaves as on a first visit).
 - Accessibility: the bubble is a non-modal region (`role="complementary"` or a labelled `aside`),
   never steals focus, is reachable in tab order after the main content, is not announced as an
   alert; buttons are real `<a>`/`<button>` with visible focus; touch targets ≥ 44 px; text contrast
-  AA. On a phone the bubble sits above him and never covers more than the bottom third of the
-  screen; it must not overlap the Vercel-injected or footer controls badly.
+  AA. On a phone the full bubble sits above him and, with him, takes at most the bottom third of
+  the small viewport (`svh`); where a third cannot hold the copy (short or narrow screens,
+  landscape, 400 % zoom) the copy keeps room for about six lines, as far as the screen below the
+  header allows, and scrolls inside the bubble in a keyboard-focusable region above the buttons.
+  It must not overlap the Vercel-injected or footer controls badly.
 - Reduced motion: he appears without the rise or sway.
 - Bubble style: `surface-2` background, 1 px accent border, radius from the design tokens, Tektur
   only for his name if at all; body copy in the interface face.

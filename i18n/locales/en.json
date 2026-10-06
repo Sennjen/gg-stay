@@ -41,6 +41,7 @@
     "greeter": {
       "label": "Gege, the game-picking helper",
       "toggle": "Gege: AI picks",
+      "compact": "Hi! Want me to pick a game?",
       "hello": "Hi, I'm {name}!",
       "deal": "Today {name} is {discount} at {price}.",
       "pitch": "I can pick many more games for you — without a long search through the catalog.",

@@ -526,11 +526,16 @@ focusable); the text beside him always carries the meaning.
 - **On the landing page** `GegeGreeter` brings him up from the bottom-right corner (`peek`, 120 px
   wide, 80 px on a phone) two seconds after the page is interactive and the tab is on screen, with
   a speech bubble: `surface-2`, a 1 px `accent` border, `rounded-card`, body copy in the interface
-  face and only his name in Tektur. The bubble sits beside him on a wide screen and above him on a
-  phone, where the two together never cover more than the bottom third of the screen — past that
-  the copy scrolls inside the bubble, above the buttons. The discount is the ordinary `sale` chip,
-  the call to action the ordinary `accent` button: the colour exception stays with his drawing.
-  Dismissed, he dives head first and leaves one grip in the corner, a 56 × 44 px button that opens
-  the bubble again. The greeter is fixed, teleported to `<body>`, a labelled `<aside>` that never
+  face and only his name in Tektur. The bubble sits beside him on a wide screen. On a phone the
+  hero's actions are where the bubble would be, so he comes up with one line beside him instead —
+  a 44 px button in the bubble's look, on the strip under the hero's actions — and a tap on it or
+  on him opens the bubble above him; left alone for eight seconds he dives by himself. Above him,
+  the bubble and he take the bottom third of the small viewport; past that the copy scrolls inside
+  the bubble, above the buttons, in a box that takes keyboard focus and fades its last visible
+  line while there is more below. A third of a short screen cannot hold the copy, so the copy
+  keeps up to 8 rem wherever there is room for it under the header. The discount is the ordinary
+  `sale` chip, the call to action the ordinary `accent` button: the colour exception stays with
+  his drawing. Dismissed, he dives head first and leaves one grip in the corner, a 56 × 44 px
+  button that opens the bubble again. He rises by himself once per browser session. The greeter is fixed, teleported to `<body>`, a labelled `<aside>` that never
   takes focus by itself, and is mounted in the browser only, after idle. The rise and the dive run
   250 ms ease-out; with reduced motion he is simply there.

@@ -2,17 +2,19 @@
 /**
  * Gege's greeting on the landing page: two seconds after the page is interactive and the tab is
  * on screen he rises out of the bottom-right corner with a speech bubble — the deal of the day
- * when there is one, and an invitation to let him pick more games.
+ * when there is one, and an invitation to let him pick more games. On a phone the hero's actions
+ * sit where that bubble would be, so there he comes up with one short line beside him, a button
+ * that opens the whole bubble, and sinks back by himself if it is left alone.
  *
  * The page mounts this component on the client only, after the browser has gone idle (see
  * `pages/index.vue`), so none of it is in the server HTML and nothing here runs before hydration.
  * Everything is `position: fixed` and teleported to `<body>`: no layout shifts, and the region is
  * a top-level landmark after the page's content rather than one nested in `<main>`.
  *
- * Gege himself is the toggle. Dismissed — «Не зараз», Escape, the close control or a click on
- * him — he dives back under the corner and leaves one grip sticking out as a small button that
- * opens the bubble again. A dismissal is remembered for the browser session; after it he never
- * rises by himself.
+ * Gege himself is the toggle. Dismissed — the decline button, Escape, the close control or a
+ * click on him — he dives back under the corner and leaves one grip sticking out as a small
+ * button that opens the bubble again. The rise is remembered for the browser session: he comes up
+ * by himself once, and after that the page starts with the grip.
  */
 import { DealOfTheDayDocument } from '~/graphql/__generated__/operations'
 import type { DealOfTheDayQuery } from '~/graphql/__generated__/operations'
@@ -27,7 +29,10 @@ const RISE_DELAY_MS = 2000
  */
 const DEAL_GRACE_MS = 3000
 
-const DISMISSED_KEY = 'gege:greeter:dismissed'
+/** How long the short line stays up on a phone when nobody touches it. */
+const COMPACT_STAY_MS = 8000
+
+const GREETED_KEY = 'gege:greeter:greeted'
 
 /** Below Tailwind's `sm` the bubble sits above him instead of beside him, and he is smaller. */
 const PHONE_QUERY = '(max-width: 639px)'
@@ -44,9 +49,12 @@ const { formatUah } = useFormatters()
 const localePath = useLocalePath()
 const bubbleId = useId()
 
-/** `waiting` renders nothing at all; `open` is Gege with his bubble; `grip` is the small button. */
-const phase = ref<'waiting' | 'open' | 'grip'>('waiting')
-/** Set only when he came up by himself: a visitor who dismissed him earlier gets no entrance. */
+/**
+ * `waiting` renders nothing at all; `compact` is Gege with the one-line button (phones only);
+ * `open` is Gege with his bubble; `grip` is the small button.
+ */
+const phase = ref<'waiting' | 'compact' | 'open' | 'grip'>('waiting')
+/** Set only when he came up by himself: a visitor he has already greeted gets no entrance. */
 const rose = ref(false)
 const isPhone = ref(false)
 
@@ -56,12 +64,21 @@ const shownDeal = shallowRef<PricedDeal | null>(null)
 const delayPassed = ref(false)
 const dealSettled = ref(false)
 
+const regionRef = ref<HTMLElement>()
 const toggleRef = ref<HTMLButtonElement>()
 const bubbleRef = ref<HTMLElement>()
+const compactRef = ref<HTMLButtonElement>()
+const copyRef = ref<HTMLElement>()
+/** The copy is taller than the room a small screen leaves it, so it scrolls. */
+const copyOverflows = ref(false)
+/** There is copy below what shows: the cue that the box scrolls. */
+const copyHasMore = ref(false)
 
 let riseTimer: ReturnType<typeof setTimeout> | null = null
 let graceTimer: ReturnType<typeof setTimeout> | null = null
+let sinkTimer: ReturnType<typeof setTimeout> | null = null
 let phoneMedia: MediaQueryList | null = null
+let copyObserver: ResizeObserver | null = null
 
 const isOpen = computed(() => phase.value === 'open')
 const mascotSize = computed(() => (isPhone.value ? SIZE_PHONE : SIZE_DESKTOP))
@@ -91,17 +108,17 @@ if (import.meta.client) {
 
 // Storage can be missing or refuse access (blocked site data, some private windows). Without it
 // he behaves as on a first visit, which is the right failure: a greeting, not an error.
-function wasDismissed(): boolean {
+function wasGreeted(): boolean {
   try {
-    return window.sessionStorage.getItem(DISMISSED_KEY) === '1'
+    return window.sessionStorage.getItem(GREETED_KEY) === '1'
   } catch {
     return false
   }
 }
 
-function rememberDismissed() {
+function rememberGreeted() {
   try {
-    window.sessionStorage.setItem(DISMISSED_KEY, '1')
+    window.sessionStorage.setItem(GREETED_KEY, '1')
   } catch {
     // Nothing to remember it in; he will greet again on the next visit.
   }
@@ -112,6 +129,12 @@ function clearTimers() {
   if (graceTimer !== null) clearTimeout(graceTimer)
   riseTimer = null
   graceTimer = null
+  clearSinkTimer()
+}
+
+function clearSinkTimer() {
+  if (sinkTimer !== null) clearTimeout(sinkTimer)
+  sinkTimer = null
 }
 
 /** Starts the two seconds over whenever the tab comes back; a hidden tab counts nothing. */
@@ -134,11 +157,31 @@ function armRiseTimer() {
 }
 
 function riseWhenReady() {
-  if (phase.value !== 'waiting' || !delayPassed.value || !dealSettled.value) return
+  if (phase.value !== 'waiting' || !delayPassed.value) return
+  // The short line on a phone states no deal, so only the whole bubble waits for the answer.
+  if (!isPhone.value && !dealSettled.value) return
   // He rises in front of the visitor, not behind a hidden tab; `onVisibilityChange` calls back.
   if (document.visibilityState !== 'visible') return
   rose.value = true
-  open()
+  // The rise itself is what happens once a session, whatever the visitor does with it.
+  rememberGreeted()
+  if (isPhone.value) showCompact()
+  else open()
+}
+
+function showCompact() {
+  phase.value = 'compact'
+  armSinkTimer()
+}
+
+function armSinkTimer() {
+  clearSinkTimer()
+  sinkTimer = setTimeout(() => {
+    sinkTimer = null
+    // Never from under a keyboard: while focus is on him or on his line, he stays.
+    if (regionRef.value?.contains(document.activeElement)) armSinkTimer()
+    else void dismiss()
+  }, COMPACT_STAY_MS)
 }
 
 function onVisibilityChange() {
@@ -148,20 +191,32 @@ function onVisibilityChange() {
 }
 
 function open() {
+  clearSinkTimer()
   shownDeal.value = deal.value
   phase.value = 'open'
 }
 
-async function dismiss() {
-  if (phase.value !== 'open') return
-  // The control that had focus is about to leave the page; the grip is where the bubble went.
-  const focusWasInBubble = bubbleRef.value?.contains(document.activeElement) ?? false
+/** The control that had focus is about to leave the page; Gege is where it went. */
+async function moveFocusToToggle(from: HTMLElement | undefined) {
+  if (!from?.contains(document.activeElement)) return
+  await nextTick()
+  toggleRef.value?.focus()
+}
+
+/** The short line opens the whole bubble; Tab from Gege then walks into it. */
+function expand() {
+  if (phase.value !== 'compact') return
+  const line = compactRef.value
+  open()
+  void moveFocusToToggle(line)
+}
+
+function dismiss() {
+  if (phase.value !== 'open' && phase.value !== 'compact') return
+  const leaving = bubbleRef.value ?? compactRef.value
+  clearSinkTimer()
   phase.value = 'grip'
-  rememberDismissed()
-  if (focusWasInBubble) {
-    await nextTick()
-    toggleRef.value?.focus()
-  }
+  return moveFocusToToggle(leaving)
 }
 
 function toggle() {
@@ -171,7 +226,34 @@ function toggle() {
 
 function onPhoneChange(event: MediaQueryListEvent) {
   isPhone.value = event.matches
+  // The short line belongs to the phone layout; on a wide screen he says the whole thing.
+  if (!event.matches && phase.value === 'compact') open()
 }
+
+function measureCopy() {
+  const copy = copyRef.value
+  if (!copy) return
+  copyOverflows.value = copy.scrollHeight > copy.clientHeight + 1
+  copyHasMore.value =
+    copyOverflows.value && copy.scrollTop + copy.clientHeight < copy.scrollHeight - 1
+}
+
+// Measured when the bubble opens and whenever the room it is given changes (a turned phone, a
+// zoom step). The copy itself never changes under an open bubble.
+watch(
+  copyRef,
+  (copy) => {
+    copyObserver?.disconnect()
+    copyObserver = null
+    if (!copy) return
+    measureCopy()
+    if (typeof ResizeObserver === 'function') {
+      copyObserver = new ResizeObserver(measureCopy)
+      copyObserver.observe(copy)
+    }
+  },
+  { flush: 'post' },
+)
 
 onMounted(() => {
   if (typeof window.matchMedia === 'function') {
@@ -179,7 +261,7 @@ onMounted(() => {
     isPhone.value = phoneMedia.matches
     phoneMedia.addEventListener('change', onPhoneChange)
   }
-  if (wasDismissed()) {
+  if (wasGreeted()) {
     phase.value = 'grip'
     return
   }
@@ -191,6 +273,7 @@ onBeforeUnmount(() => {
   clearTimers()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   phoneMedia?.removeEventListener('change', onPhoneChange)
+  copyObserver?.disconnect()
 })
 </script>
 
@@ -200,6 +283,7 @@ onBeforeUnmount(() => {
          itself. The box is empty and lets clicks through; only Gege and his bubble are targets. -->
     <aside
       v-if="phase !== 'waiting'"
+      ref="regionRef"
       data-test="gege-greeter"
       :data-phase="phase"
       :aria-label="t('gege.greeter.label')"
@@ -207,8 +291,8 @@ onBeforeUnmount(() => {
       :class="{ 'gege-greeter--rose': rose, 'gege-greeter--phone': isPhone }"
       @keydown.esc="dismiss"
     >
-      <!-- The button's box is what stays on screen in each state: all of him while the bubble is
-           open, the corner his grip sticks out of once he has dived. The sprite inside moves. -->
+      <!-- The button's box is what stays on screen in each state: all of him while he is up, the
+           corner his grip sticks out of once he has dived. The sprite inside moves. -->
       <button
         ref="toggleRef"
         type="button"
@@ -220,9 +304,25 @@ onBeforeUnmount(() => {
         @click="toggle"
       >
         <span class="gege-greeter__sprite">
-          <GegeMascot mood="peek" :size="mascotSize" :animated="isOpen" />
+          <GegeMascot mood="peek" :size="mascotSize" :animated="phase !== 'grip'" />
         </span>
       </button>
+
+      <!-- On a phone he comes up with this one line, beside him and below the hero's actions. It
+           is a button: the whole bubble is one tap away, on it or on him. -->
+      <Transition name="gege-bubble">
+        <button
+          v-if="phase === 'compact'"
+          ref="compactRef"
+          type="button"
+          data-test="gege-compact"
+          class="gege-greeter__compact pointer-events-auto absolute inline-flex min-h-11 cursor-pointer items-center rounded-card border border-accent bg-surface-2 px-3.5 py-2 text-left text-sm font-medium text-fg focus-visible:outline-2"
+          @click="expand"
+        >
+          {{ t('gege.greeter.compact') }}
+          <span aria-hidden="true" class="gege-greeter__tail border-accent bg-surface-2" />
+        </button>
+      </Transition>
 
       <Transition name="gege-bubble">
         <div
@@ -233,8 +333,16 @@ onBeforeUnmount(() => {
           class="gege-greeter__bubble pointer-events-auto absolute rounded-card border border-accent bg-surface-2 text-sm text-fg"
         >
           <!-- Only the copy scrolls if a small screen leaves the bubble too little room: the
-               buttons, the close control and the tail stay where they are. -->
-          <div class="gege-greeter__copy">
+               buttons, the close control and the tail stay where they are. A box that scrolls
+               takes keyboard focus, so it can be read without a pointer. -->
+          <div
+            ref="copyRef"
+            data-test="gege-copy"
+            class="gege-greeter__copy focus-visible:outline-2"
+            :class="{ 'gege-greeter__copy--more': copyHasMore }"
+            :tabindex="copyOverflows ? 0 : undefined"
+            @scroll.passive="measureCopy"
+          >
             <p class="pr-8">
               <i18n-t keypath="gege.greeter.hello" tag="span" scope="global">
                 <template #name>
@@ -381,9 +489,21 @@ onBeforeUnmount(() => {
   transform: rotate(45deg);
 }
 
-/* Above him on a phone, as wide as the screen allows, and with him never taller than the bottom
-   third of the screen: past that the copy scrolls inside the bubble, above the buttons, rather
-   than covering more of the page. The 68px are the row of buttons and its padding. */
+/* The one line he comes up with on a phone: beside him, on the strip of the screen under the
+   hero's actions, and no wider than the room to his left. */
+.gege-greeter__compact {
+  right: calc(var(--gege-cell) * 20 + var(--gege-inset) + 10px);
+  bottom: 6px;
+  max-width: calc(100% - var(--gege-cell) * 20 - var(--gege-inset) * 2 - 10px);
+}
+
+/* Above him on a phone, as wide as the screen allows. With him it takes the bottom third of the
+   screen — of the small viewport, the one that is left with the browser's bars showing — and
+   past that the copy scrolls inside the bubble, above the buttons, rather than covering more of
+   the page. A third of a short screen cannot hold the copy, so the copy keeps room for six
+   lines wherever the screen has it between Gege and the header: 122px are Gege, the gap, the
+   border and the row of buttons (68px with its padding), 130px the same with a margin above
+   the bubble. */
 .gege-greeter--phone .gege-greeter__bubble {
   right: var(--gege-inset);
   bottom: calc(var(--gege-cell) * 12 + 4px);
@@ -392,9 +512,23 @@ onBeforeUnmount(() => {
 }
 
 .gege-greeter--phone .gege-greeter__copy {
-  max-height: calc(100vh / 3 - var(--gege-cell) * 12 - 6px - 68px);
+  max-height: max(min(8rem, calc(100vh - var(--header-h) - 130px)), calc(100vh / 3 - 122px));
+  max-height: max(min(8rem, calc(100svh - var(--header-h) - 130px)), calc(100svh / 3 - 122px));
   padding: 12px 12px 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* More copy below: the last line that shows fades out instead of being cut through. */
+.gege-greeter__copy--more::after {
+  content: '';
+  position: sticky;
+  bottom: 0;
+  display: block;
+  height: 24px;
+  margin-top: -24px;
+  background: linear-gradient(to top, var(--color-surface-2), transparent);
+  pointer-events: none;
 }
 
 .gege-greeter--phone .gege-greeter__actions {
@@ -406,6 +540,13 @@ onBeforeUnmount(() => {
   bottom: -6.5px;
   border-top-width: 0;
   border-bottom-width: 1px;
+}
+
+.gege-greeter .gege-greeter__compact .gege-greeter__tail {
+  right: -6.5px;
+  bottom: calc(50% - 6px);
+  border-top-width: 1px;
+  border-bottom-width: 0;
 }
 
 .gege-bubble-enter-active,

@@ -42,8 +42,9 @@ test('landing → Gege rises with the deal → dismissed to a grip → reopened 
   const greeter = page.getByRole('complementary', { name: 'Ґеґе, помічник із підбору ігор' })
   await expect(greeter).toHaveCount(0)
 
+  // Two seconds on screen, up to three more for a slow deal, plus idle and his chunk.
   const bubble = page.locator('[data-test="gege-bubble"]')
-  await expect(bubble).toBeVisible()
+  await expect(bubble).toBeVisible({ timeout: 15_000 })
   // Appearing must not move focus: it is still where a fresh page leaves it.
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
   // The fixture index has one game that qualifies as the deal of the day.
@@ -52,6 +53,8 @@ test('landing → Gege rises with the deal → dismissed to a grip → reopened 
     '/games/portal-2',
   )
   await expect(bubble).toContainText('−75%')
+  // He fades in; axe reads a half-faded bubble as low contrast.
+  await expect(bubble).toHaveCSS('opacity', '1')
   await expectAccessible(page, 'landing with the greeter open')
 
   // Escape with focus inside dismisses him, and focus follows to the grip he leaves behind.
@@ -78,7 +81,7 @@ test('landing → Gege rises with the deal → dismissed to a grip → reopened 
   await page.reload()
   await waitForHydration(page)
   await expect(grip).toBeVisible()
-  await page.waitForTimeout(2500)
+  await page.waitForTimeout(3500)
   await expect(bubble).toBeHidden()
 
   await grip.click()
@@ -86,6 +89,77 @@ test('landing → Gege rises with the deal → dismissed to a grip → reopened 
   await expect(page).toHaveURL(/\/ask$/)
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   await expect(greeter).toHaveCount(0)
+})
+
+/** Whether two boxes on the page share any pixel. */
+function overlap(
+  a: { x: number; y: number; width: number; height: number } | null,
+  b: { x: number; y: number; width: number; height: number } | null,
+): boolean {
+  if (!a || !b) throw new Error('an element to compare has no box')
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+test('landing on a phone → Gege rises with one line clear of the hero → a tap opens the bubble → left alone on a return, he stays down', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+  await waitForHydration(page)
+
+  const greeter = page.getByRole('complementary', { name: 'Ґеґе, помічник із підбору ігор' })
+  const line = greeter.getByRole('button', { name: 'Привіт! Підібрати гру?' })
+  const bubble = page.locator('[data-test="gege-bubble"]')
+  await expect(line).toBeVisible({ timeout: 15_000 })
+  await expect(bubble).toHaveCount(0)
+  await expect(line).toHaveCSS('opacity', '1')
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+
+  // The line and Gege keep off the hero's headline and its two actions, and the line is a
+  // comfortable target.
+  const hero = page.locator('main section').first()
+  const lineBox = await line.boundingBox()
+  const gegeBox = await page.locator('[data-test="gege-toggle"]').boundingBox()
+  expect(lineBox!.height).toBeGreaterThanOrEqual(44)
+  for (const part of [
+    hero.getByRole('heading', { level: 1 }),
+    hero.getByRole('link', { name: 'Відкрити каталог' }),
+    hero.getByRole('link', { name: 'Нові релізи' }),
+  ]) {
+    const box = await part.boundingBox()
+    expect(overlap(lineBox, box)).toBe(false)
+    expect(overlap(gegeBox, box)).toBe(false)
+  }
+  await expectAccessible(page, 'phone landing with the greeter line')
+
+  await line.click()
+  await expect(bubble).toBeVisible()
+  await expect(line).toHaveCount(0)
+  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toBeVisible()
+  await expect(bubble.getByRole('link', { name: 'Давай' })).toBeVisible()
+  await expect(bubble.getByRole('button', { name: 'Не зараз' })).toBeVisible()
+  await expect(bubble).toHaveCSS('opacity', '1')
+  await expectAccessible(page, 'phone landing with the greeter bubble open')
+
+  // A short screen cannot hold the copy: it scrolls in a box the keyboard can reach, under the
+  // header, with the buttons still on screen.
+  await page.setViewportSize({ width: 320, height: 256 })
+  const copy = bubble.locator('[data-test="gege-copy"]')
+  await expect(copy).toHaveAttribute('tabindex', '0')
+  const header = await page.locator('header').first().boundingBox()
+  const bubbleBox = await bubble.boundingBox()
+  expect(bubbleBox!.y).toBeGreaterThanOrEqual(header!.y + header!.height)
+  await expect(bubble.getByRole('link', { name: 'Давай' })).toBeInViewport()
+  await expectAccessible(page, 'short phone landing with the greeter bubble scrolling')
+
+  // He rose once this session without being dismissed; back on the landing he stays down.
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.reload()
+  await waitForHydration(page)
+  await expect(greeter.getByRole('button', { name: 'Ґеґе: AI-підбір' })).toBeVisible()
+  await page.waitForTimeout(3500)
+  await expect(line).toHaveCount(0)
+  await expect(bubble).toHaveCount(0)
 })
 
 test('catalog → filter drawer → price and localisation change the count → a game', async ({
