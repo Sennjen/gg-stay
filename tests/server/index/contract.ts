@@ -577,6 +577,28 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(await adapter.index.idBySlug('hasOwnProperty')).toBeNull()
       })
 
+      it('hands back a Steam app id on the documents that have one, and none on the rest', async () => {
+        const adapter = await fresh()
+        const onSteam = { ...FIXTURE_GAMES[0]!, steamAppId: '292030' }
+        // As every document was before the refresh job copied app ids: the field is not there.
+        const legacy = FIXTURE_GAMES[1]!
+        expect('steamAppId' in legacy).toBe(false)
+        await publishGames(adapter, [onSteam, legacy])
+
+        expect(await adapter.index.getOne(1)).toEqual(onSteam)
+        expect((await adapter.index.getMany([1])).get(1)?.steamAppId).toBe('292030')
+        const read = await adapter.index.getOne(2)
+        expect(read).toEqual(legacy)
+        expect(read && 'steamAppId' in read).toBe(false)
+
+        // The same from every read that hands documents out, the job's included.
+        const page = await adapter.index.search({})
+        expect(page.games.map((game) => game.steamAppId)).toEqual(['292030', undefined])
+        const published = await adapter.writer.allGames()
+        expect(published.find((game) => game.id === 1)?.steamAppId).toBe('292030')
+        expect('steamAppId' in published.find((game) => game.id === 2)!).toBe(false)
+      })
+
       it('files a slug two games claim under the more popular one, then the lower id', async () => {
         const adapter = await fresh()
         const claim = (id: number, slug: string, popularity: number) => ({

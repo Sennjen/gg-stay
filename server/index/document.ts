@@ -85,6 +85,16 @@ export interface IndexedGame {
   /** ISO timestamp of the last successful price read. */
   priceUpdatedAt: string | null
   /**
+   * The game's Steam app id, when the refresh job knows one. Every run — full, prices-only and
+   * languages alike — copies it from the permanent RAWG-id-to-app-id mapping it already holds
+   * (`appid:{rawgId}`), so the game page can ask Steam for a live price, and name the Steam store
+   * page, without waiting for RAWG's store links. Never the mapping's empty string: a game the
+   * job knows to have no Steam page, like one it has not resolved yet, simply has no `steamAppId`.
+   * Optional: documents published before the job copied it have none, and the page then takes
+   * the id from RAWG's store links, as it always has.
+   */
+  steamAppId?: string
+  /**
    * The ids of the games most like this one, best first, all of them in the same version: the
    * refresh job's full run ranks them over the whole index (`scripts/index/similarity.ts`) and the
    * other runs carry them forward. The game page reads them with one `getMany`. Optional:

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { resolveAppIds } from '../../../scripts/index/appIds'
+import { attachAppIds, resolveAppIds } from '../../../scripts/index/appIds'
 import { collectCandidates } from '../../../scripts/index/candidates'
 import type { JobDeps } from '../../../scripts/index/deps'
-import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
+import { JOB_APP_IDS, JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
 import { createJobHarness, type JobHarness } from './harness'
 
 async function candidatesOf(harness: JobHarness) {
@@ -108,6 +108,80 @@ describe('resolveAppIds', () => {
     const { appIds } = await resolveAppIds(deps, [unknown])
 
     expect(appIds.get(999)).toBe('')
+  })
+})
+
+describe('attachAppIds', () => {
+  it('writes the app id of every game the mapping has one for, and of nobody else', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    const { appIds } = await resolveAppIds(harness.deps, games)
+
+    const attached = attachAppIds(games, appIds)
+
+    // Six games with a Steam page; 104 is resolved to "has none", 103 and 109 are not on Steam.
+    expect(attached).toBe(6)
+    expect(Object.fromEntries(games.map((game) => [game.id, game.steamAppId]))).toEqual({
+      101: '411000',
+      102: '412000',
+      103: undefined,
+      104: undefined,
+      105: '415000',
+      106: '416000',
+      107: '417000',
+      108: '418000',
+      109: undefined,
+    })
+    for (const game of games) {
+      // The field is left out, not written empty: the mapping's "" never reaches a document.
+      expect('steamAppId' in game, `game ${game.id}`).toBe(Boolean(JOB_APP_IDS[game.id]))
+    }
+  })
+
+  it('asks nobody anything: the mapping the run already holds is all it reads', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    const { appIds } = await resolveAppIds(harness.deps, games)
+    harness.calls.length = 0
+    const getAppIds = vi.spyOn(harness.writer, 'getAppIds')
+
+    attachAppIds(games, appIds)
+
+    expect(harness.calls).toHaveLength(0)
+    expect(getAppIds).not.toHaveBeenCalled()
+  })
+
+  it('takes the mapping over whatever a document arrived carrying', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    const { appIds } = await resolveAppIds(harness.deps, games)
+    const byId = (id: number) => games.find((game) => game.id === id)!
+    // What a published document can bring into a run: an id the mapping has since corrected, one
+    // for a game the mapping says has no Steam page, and one for a game it does not know at all.
+    byId(101).steamAppId = '999999'
+    byId(104).steamAppId = '888888'
+    byId(109).steamAppId = '777777'
+
+    attachAppIds(games, appIds)
+
+    expect(byId(101).steamAppId).toBe('411000')
+    expect('steamAppId' in byId(104)).toBe(false)
+    expect('steamAppId' in byId(109)).toBe(false)
+  })
+
+  it('leaves a game whose lookup failed without an id, for the next run to fill', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    harness.failNext((call) => call.path === 'games/amber-trail/stores')
+    const { appIds } = await resolveAppIds(harness.deps, games)
+
+    expect(attachAppIds(games, appIds)).toBe(5)
+    expect('steamAppId' in games.find((game) => game.id === 106)!).toBe(false)
+
+    const nextRun = createJobHarness({ writer: harness.writer })
+    const resolved = await resolveAppIds(nextRun.deps, games)
+    expect(attachAppIds(games, resolved.appIds)).toBe(6)
+    expect(games.find((game) => game.id === 106)!.steamAppId).toBe('416000')
   })
 })
 

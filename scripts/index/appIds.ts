@@ -47,6 +47,31 @@ export interface AppIdsResult {
 /** RAWG id to Steam app id, the empty string meaning "this game has no Steam page". */
 export type AppIdMap = Map<number, string>
 
+/**
+ * Writes each game's Steam app id onto its document (`steamAppId`), in place, from the mapping the
+ * run already holds — the one this stage resolves in a full run and the one a prices or languages
+ * run reads back for the published documents. It costs no request and no lookup of its own.
+ *
+ * The mapping is the only source. A game it has no app id for — never resolved, or resolved to
+ * the empty "has no Steam page" — is published without the field, even when its document arrived
+ * carrying one: the documents of a prices run are the published ones, and a full run re-appends
+ * published studio games whole, so a value left alone here would be republished for ever on
+ * nobody's authority. Returns how many documents carry an app id.
+ */
+export function attachAppIds(games: IndexedGame[], appIds: AppIdMap): number {
+  let attached = 0
+  for (const game of games) {
+    const appId = appIds.get(game.id)
+    if (appId) {
+      game.steamAppId = appId
+      attached += 1
+    } else {
+      delete game.steamAppId
+    }
+  }
+  return attached
+}
+
 export async function resolveAppIds(
   deps: JobDeps,
   games: IndexedGame[],

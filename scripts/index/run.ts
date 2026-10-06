@@ -1,6 +1,6 @@
 import { appendFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
-import { resolveAppIds, type AppIdMap } from './appIds'
+import { attachAppIds, resolveAppIds, type AppIdMap } from './appIds'
 import { carryPublishedForward, collectCandidates, DEFAULT_CANDIDATE_PAGES } from './candidates'
 import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
@@ -296,6 +296,13 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
         deps.writer.getAppIds(games.map((game) => game.id)),
       )
     }
+
+    // Every mode holds the mapping by now — resolved above in a full run, read back for the
+    // published documents in the others — so every mode publishes it on the documents: the game
+    // page reads a game's Steam app id from its own document instead of waiting for RAWG's store
+    // links. After the studios stage on purpose, so the games it appended are covered too.
+    const withAppId = attachAppIds(games, appIds)
+    deps.log(`app ids: ${withAppId} of ${games.length} documents carry their Steam app id`)
 
     const published = await deps.writer.meta()
     let pricesUpdatedAt = published?.pricesUpdatedAt ?? null
