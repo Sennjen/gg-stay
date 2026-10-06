@@ -1,3 +1,4 @@
+import type { GameIndex } from '../index/GameIndex'
 import type { SteamPriceFetch } from '../steam/steamPriceFetch'
 import type { GraphQLContext } from './context'
 
@@ -23,9 +24,10 @@ import type { GraphQLContext } from './context'
  *   after its budget whether RAWG has answered or not (`resolvers/game.ts`); the header is written
  *   at that moment, and a call that is still out has cost the answer exactly the time until then.
  * - **A cached answer is not a call.** The transport says when the cache answered and nobody was
- *   asked (`onCached`), and such a call is left out altogether. Everything else is a call: an
- *   answer the upstream gave, a failure, a request another caller had already sent — and, in
- *   fixture mode, a recorded fixture and the seeded index, which are that mode's upstreams.
+ *   asked (`onCached`), and such a call is left out altogether; so is a read of the index that
+ *   sent its store nothing (`timedIndex`). Everything else is a call: an answer the upstream
+ *   gave, a failure, a request another caller had already sent — and, in fixture mode, a
+ *   recorded fixture and the seeded index, which are that mode's upstreams.
  *
  * The header is made of fixed names and numbers and of nothing that came with the request: no URL,
  * no key, no query, no slug. And it is an extra: nothing here can fail a call or an answer — when
@@ -149,9 +151,7 @@ export function writeServerTiming(headers: Pick<Headers, 'set'>, timing: ServerT
  * - `rawg` and `steam` are the cached transports, and are told apart from their caches through
  *   `onCached`.
  * - `steamPrices` is the game page's live price read — see `timedSteamPrices`.
- * - Every read of the index is a call. The resolvers' own caches and once-per-request memos sit in
- *   front of the port, so what reaches it is what was asked. A read the circuit refuses
- *   (`server/index/index.ts`) shows as a call that took no time, which is what it cost.
+ * - `index` is the six reads of the index port — see `timedIndex`.
  */
 export function timedContext(context: GraphQLContext, timing: ServerTiming): GraphQLContext {
   const { rawg, steam, steamPrices, index } = context
@@ -162,15 +162,65 @@ export function timedContext(context: GraphQLContext, timing: ServerTiming): Gra
     steam: (appId, options) =>
       timing.measure('steam', (onCached) => steam(appId, { ...options, onCached })),
     steamPrices: timedSteamPrices(steamPrices, timing),
-    // Called as methods: an adapter may be a class, whose methods a spread would not copy.
-    index: {
-      search: (query) => timing.measure('index', () => index.search(query)),
-      getMany: (ids) => timing.measure('index', () => index.getMany(ids)),
-      getOne: (id) => timing.measure('index', () => index.getOne(id)),
-      idBySlug: (slug) => timing.measure('index', () => index.idBySlug(slug)),
-      meta: () => timing.measure('index', () => index.meta()),
-      allSlugs: () => timing.measure('index', () => index.allSlugs()),
-    },
+    index: timedIndex(index, timing),
+  }
+}
+
+/**
+ * The index, with its reads timed as calls to its store — the ones that were calls.
+ *
+ * A read of the port is not always a request. The resolvers' own caches and once-per-request
+ * memos sit in front of the port and never reach it; behind it, the Upstash adapter answers a
+ * slug it has already found from memory and refuses one it could not hold without asking, and
+ * the circuit turns a read away while it is open (`server/index/index.ts`). None of those waited
+ * for anybody, and a header that named them would say `Index x3` of a page that asked the store
+ * twice. So when the index counts the requests it sends (`GameIndex.storeRequests`, passed on by
+ * every layer around the adapter), the count is read before a read and after it, and a read that
+ * left it where it was is left out, exactly as a cached RAWG answer is.
+ *
+ * The count is one for the whole index, not one per read, so a read that sent nothing looks as
+ * if it had when another read sent a request before it settled. It is then named, with the
+ * little time it took: the harmless way to be wrong, and the same one the circuit accepts. The
+ * other way round is rarer still and is accepted too — a read that sent nothing of its own but
+ * waited for a request another read had sent is left out, though it did wait.
+ *
+ * An index that does not count is taken at its word, and every read of it is a call: the seeded
+ * in-memory index of fixture mode is that mode's upstream, like a recorded fixture. An index
+ * that is not configured counts, and its count never moves.
+ */
+function timedIndex(index: GameIndex, timing: ServerTiming): GameIndex {
+  /** The requests sent so far, when the index counts them and the count can be read. */
+  const sent = (): number | undefined => {
+    try {
+      return index.storeRequests?.()
+    } catch {
+      return undefined
+    }
+  }
+
+  const read = <T>(call: () => Promise<T>): Promise<T> =>
+    timing.measure('index', (onCached) => {
+      const before = sent()
+      const answer = call()
+      if (before !== undefined) {
+        // Registered before the timing's own handler, so the read is known for what it was by
+        // the time it is timed; and on a branch of its own, like that one.
+        const tell = () => {
+          if (sent() === before) onCached()
+        }
+        Promise.resolve(answer).then(tell, tell)
+      }
+      return answer
+    })
+
+  // Called as methods: an adapter may be a class, whose methods a spread would not copy.
+  return {
+    search: (query) => read(() => index.search(query)),
+    getMany: (ids) => read(() => index.getMany(ids)),
+    getOne: (id) => read(() => index.getOne(id)),
+    idBySlug: (slug) => read(() => index.idBySlug(slug)),
+    meta: () => read(() => index.meta()),
+    allSlugs: () => read(() => index.allSlugs()),
   }
 }
 

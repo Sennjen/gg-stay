@@ -10,11 +10,21 @@ import {
 } from '../../server/graphql/serverTiming'
 import { createYogaApp } from '../../server/graphql/yoga'
 import type { GameIndex } from '../../server/index/GameIndex'
+import {
+  degradeOnFailure,
+  unavailableGameIndex,
+  withCircuit,
+  withDeadline,
+} from '../../server/index/index'
+import { createUpstashIndex } from '../../server/index/upstashIndex'
 import { createRawgFetch, type CacheEntry, type RawgFetch } from '../../server/rawg/rawgFetch'
 import { createSteamFetch, type SteamFetch } from '../../server/steam/steamFetch'
 import type { SteamPriceFetch } from '../../server/steam/steamPriceFetch'
 import { UpstreamError } from '../../server/upstream/errors'
 import { DEV_FIXTURE_GAMES } from '../fixtures/index/devGames'
+import { FIXTURE_GAMES } from '../fixtures/index/games'
+import { FIXTURE_META } from './index/contract'
+import { createFakeRedis } from './index/fakeRedis'
 import {
   fixtureRawg,
   fixtureSteam,
@@ -629,6 +639,167 @@ describe('a context whose upstream calls are timed', () => {
     await expect(timedContext(contextOf({ index }), timing).index.meta()).rejects.toBe(down)
     await settle()
     expect(timing.header()).toBe('index;dur=1500;desc="Index x1", total;dur=1500')
+  })
+
+  /** An index with a store that counts what it sends: `meta` and `getOne` ask it, `idBySlug` does not. */
+  function countingIndex(clock: ReturnType<typeof handClock>) {
+    let sent = 0
+    const fromStore = async <T>(value: T, takes: number): Promise<T> => {
+      sent += 1
+      clock.advance(takes)
+      return value
+    }
+    const index = {
+      meta: () => fromStore(null, 40),
+      getOne: () => fromStore(null, 25),
+      // From what the adapter remembers: no request, and no time to speak of.
+      idBySlug: async () => 3328,
+      storeRequests: () => sent,
+    } as unknown as GameIndex
+    return { index, sent: () => sent }
+  }
+
+  it('leaves out an index read that sent the store nothing, like a slug the adapter remembers', async () => {
+    const clock = handClock()
+    const timing = createServerTiming(clock.now)
+    const { index, sent } = countingIndex(clock)
+    const timed = timedContext(contextOf({ index }), timing)
+
+    await timed.index.meta()
+    expect(await timed.index.idBySlug(SLUG)).toBe(3328)
+    await timed.index.getOne(3328)
+    await settle()
+
+    // Three reads of the port, two requests to the store: the header names the two.
+    expect(sent()).toBe(2)
+    expect(timing.header()).toBe('index;dur=40;desc="Index x2", total;dur=65')
+  })
+
+  it('names no index at all when every read of it was answered without the store', async () => {
+    const clock = handClock()
+    const timing = createServerTiming(clock.now)
+    const { index } = countingIndex(clock)
+    const timed = timedContext(contextOf({ index }), timing)
+
+    await timed.index.idBySlug(SLUG)
+    await timed.index.idBySlug(SLUG)
+    await settle()
+
+    expect(timing.header()).toBe('total;dur=0')
+  })
+
+  it('counts a read that failed after asking the store, and leaves out one that was refused before', async () => {
+    const clock = handClock()
+    let sent = 0
+    const down = new Error('ECONNRESET')
+    const failing = {
+      meta: async () => {
+        sent += 1
+        clock.advance(120)
+        throw down
+      },
+      storeRequests: () => sent,
+    } as unknown as GameIndex
+    // The site's own layers around it: the first failure opens the circuit, which then turns
+    // the next read away without a word to the store.
+    const index = degradeOnFailure(withCircuit(failing, { now: clock.now }))
+
+    const first = createServerTiming(clock.now)
+    await expect(timedContext(contextOf({ index }), first).index.meta()).rejects.toThrow(
+      /did not answer/,
+    )
+    await settle()
+    expect(first.header()).toBe('index;dur=120;desc="Index x1", total;dur=120')
+
+    const second = createServerTiming(clock.now)
+    await expect(timedContext(contextOf({ index }), second).index.meta()).rejects.toThrow(/skipped/)
+    await settle()
+    expect(sent).toBe(1)
+    expect(second.header()).toBe('total;dur=0')
+  })
+
+  it('counts a read that sent nothing when another read asked the store in the same moment', async () => {
+    // What is read is one count for the whole index, so a read from memory that overlaps a read
+    // from the store looks as if it had asked. It is then named, with the little time it took:
+    // the harmless way to be wrong, and the circuit around the index reads the count the same way.
+    const clock = handClock()
+    const timing = createServerTiming(clock.now)
+    let sent = 0
+    const remembered = deferred<number>()
+    const index = {
+      idBySlug: () => remembered.promise,
+      getOne: async () => {
+        sent += 1
+        return null
+      },
+      storeRequests: () => sent,
+    } as unknown as GameIndex
+    const timed = timedContext(contextOf({ index }), timing)
+
+    const lookup = timed.index.idBySlug(SLUG)
+    await timed.index.getOne(3328)
+    remembered.resolve(3328)
+    await lookup
+    await settle()
+
+    expect(timing.header()).toBe('index;dur=0;desc="Index x2", total;dur=0')
+  })
+
+  it('leaves the read alone when the count itself cannot be read', async () => {
+    const timing = createServerTiming(handClock().now)
+    const index = {
+      meta: async () => null,
+      storeRequests: () => {
+        throw new Error('no count')
+      },
+    } as unknown as GameIndex
+
+    // Counting is the header's business; the read is the resolver's, and is answered as ever.
+    expect(await timedContext(contextOf({ index }), timing).index.meta()).toBeNull()
+    await settle()
+    expect(timing.header()).toBe('index;dur=0;desc="Index x1", total;dur=0')
+  })
+
+  it('names nothing for an index that is not configured: it has no store to call', async () => {
+    const timing = createServerTiming(handClock().now)
+    const timed = timedContext(contextOf({ index: unavailableGameIndex('not configured') }), timing)
+
+    expect(await timed.index.meta()).toBeNull()
+    expect(await timed.index.idBySlug(SLUG)).toBeNull()
+    await settle()
+    expect(timing.header()).toBe('total;dur=0')
+  })
+
+  it('names two index reads, not three, for a page whose slug the real adapter remembers', async () => {
+    // The adapter over a store, behind the three layers the site puts around it.
+    const redis = createFakeRedis()
+    const writer = createUpstashIndex(redis, { runId: 'the-run' })
+    const version = await writer.beginVersion()
+    await writer.writeVersion(version, FIXTURE_GAMES)
+    await writer.publish(version, { ...FIXTURE_META, version, gameCount: FIXTURE_GAMES.length })
+    const index = degradeOnFailure(withCircuit(withDeadline(createUpstashIndex(redis))))
+    const clock = handClock()
+
+    /** What a game page asks the index, in the order it asks it. */
+    const view = async () => {
+      const timing = createServerTiming(clock.now)
+      const timed = timedContext(contextOf({ index }), timing)
+      await timed.index.meta()
+      const id = await timed.index.idBySlug('kite-keep')
+      await timed.index.getOne(id!)
+      await settle()
+      return timing.header()
+    }
+
+    // The first view of the game on this instance looks its slug up in the store...
+    expect(await view()).toBe('index;dur=0;desc="Index x3", total;dur=0')
+    // ...and every view after it is answered that much from memory.
+    expect(await view()).toBe('index;dur=0;desc="Index x2", total;dur=0')
+    // A slug that is not in the index is asked about every time, and counted every time.
+    const miss = createServerTiming(clock.now)
+    await timedContext(contextOf({ index }), miss).index.idBySlug('no-such-game')
+    await settle()
+    expect(miss.header()).toBe('index;dur=0;desc="Index x1", total;dur=0')
   })
 
   it('leaves everything else on the context as it was', () => {
