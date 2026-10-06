@@ -8,9 +8,7 @@ import { UpstreamError, type UpstreamSource } from './errors'
  * Steam transport ended up throwing errors that said "RAWG".
  *
  * A call for something another call is already fetching joins that request instead of sending a
- * second one — see `inFlight` below for exactly which calls count as the same. And a caller that
- * wants to know is told when its answer was already in the cache, so nobody was asked for it — see
- * `UpstreamFetch`.
+ * second one — see `inFlight` below for exactly which calls count as the same.
  *
  * Everything that differs between the two is a parameter: the source name, the throttle interval,
  * how a request becomes a URL, a cache key, a fixture name and a ttl, and an optional projection
@@ -154,11 +152,10 @@ export function createUpstreamFetch<TRequest>(
    * first, instead of collecting the first one's answer the moment it lands.
    *
    * Everyone who joins gets exactly what the first caller gets: the body, the stale entry it fell
-   * back to, or its error — and the same word on whether the cache alone supplied it. A failure is
-   * shared only with the callers that were already waiting for it. The entry is removed before the
-   * outcome can be observed, so a call made after a failure always sends a request of its own. And
-   * an entry cannot linger: every attempt carries its own abort timeout, so a call ends after at
-   * most `maxAttempts` of them however the upstream behaves.
+   * back to, or its error. A failure is shared only with the callers that were already waiting for
+   * it. The entry is removed before the outcome can be observed, so a call made after a failure
+   * always sends a request of its own. And an entry cannot linger: every attempt carries its own
+   * abort timeout, so a call ends after at most `maxAttempts` of them however the upstream behaves.
    */
   const inFlight = new Map<string, Promise<Loaded>>()
 
@@ -290,6 +287,7 @@ export function createUpstreamFetch<TRequest>(
   /**
    * What `call` ended with, for one of the callers waiting on it — who is told first, when the
    * cache alone supplied it, so the caller knows what its call was by the time it has the answer.
+   * Callers that share a call share that word as they share its answer: each of them is told.
    */
   async function answerOf(call: Promise<Loaded>, onCached?: () => void): Promise<unknown> {
     const { value, cached } = await call
