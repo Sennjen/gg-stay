@@ -111,6 +111,22 @@ export function toGameCard(game: IndexedGame): GameCard {
 }
 
 /**
+ * The address of the game's Steam store page, when a page built from the document may offer it;
+ * `null` when it may not.
+ *
+ * It takes both of two things. The document has to name the game's Steam app, because there is no
+ * address without it. And it has to list Steam among the stores RAWG has the game on: the app id
+ * says which Steam app the game is, not that the game is on Steam today — the refresh job keeps it
+ * from a permanent mapping (`IndexedGame.steamAppId`) — while a page RAWG answers shows a Steam
+ * link only when RAWG lists one. Asking for both keeps the two pages of one game from disagreeing
+ * about where it is sold: the page built from the index never shows a Steam link that the page
+ * built from RAWG would not.
+ */
+export function steamStorePageOf(game: IndexedGame): string | null {
+  return game.stores.includes(PRICE_SOURCE_STORE) ? steamStoreUrl(game.steamAppId) : null
+}
+
+/**
  * The whole game page, for a page the index answers on its own — which it does when RAWG's own
  * answer about the game is late or has failed (`server/graphql/resolvers/game.ts`).
  *
@@ -120,10 +136,10 @@ export function toGameCard(game: IndexedGame): GameCard {
  * `ratingsCount` reads zero as unknown, as the RAWG mapper does, so the two pages agree about a
  * game nobody has rated. `screenshots` is the one preview the document keeps, or nothing.
  *
- * `stores` is a single Steam offer when the refresh job has published the game's Steam app id —
- * the address of the store page is built from it, and the price fields are `toSteamOffer`'s — and
- * empty otherwise: the document names its other stores by slug, and a store without an address
- * is not a link.
+ * `stores` is a single Steam offer when the document both names the game's Steam app and lists
+ * Steam among its stores (`steamStorePageOf`) — the address of the store page is built from the
+ * app id, and the price fields are `toSteamOffer`'s — and empty otherwise: the document names its
+ * other stores by slug, and a store without an address is not a link.
  *
  * What only RAWG has is left empty rather than guessed: `description` and `website` are null,
  * and the platform, genre, tag, developer and publisher lists are empty, because the document
@@ -132,7 +148,7 @@ export function toGameCard(game: IndexedGame): GameCard {
  * its field resolver's to fill, as it is on a page RAWG answered.
  */
 export function toGame(game: IndexedGame): Game {
-  const storePage = steamStoreUrl(game.steamAppId)
+  const storePage = steamStorePageOf(game)
   return {
     id: String(game.id),
     slug: game.slug,

@@ -1,6 +1,6 @@
 import { isMadeInUkraine } from '../../../shared/ukrainianStudios'
 import type { IndexedGame } from '../../index/document'
-import { toGame, toLocalisationInfo, toSteamOffer } from '../../index/toGraphql'
+import { steamStorePageOf, toGame, toLocalisationInfo, toSteamOffer } from '../../index/toGraphql'
 import { mapGame } from '../../rawg/mappers'
 import type { RawgGameDetail, RawgList, RawgScreenshot, RawgStoreLink } from '../../rawg/types'
 import type { SteamPrice } from '../../steam/price'
@@ -310,8 +310,10 @@ async function indexPage(
       : `[game] RAWG slower than ${GAME_DETAIL_HEDGE_MS} ms, answered from the index`,
   )
 
-  // Without an app id there is no Steam offer on this page, and so nothing for a price to sit on.
-  const appId = steamAppIdOf(document)
+  // The page offers Steam only when the document both names the app and lists Steam among the
+  // game's stores (`steamStorePageOf`). Without that offer there is nothing for a price to sit
+  // on, and so nothing to wait for.
+  const appId = steamStorePageOf(document) ? steamAppIdOf(document) : null
   const live = appId ? await price.read(appId, document) : null
   if (live) return toGame(withLivePrice(document, live))
   return toGame(stale ? withoutPrice(document) : document)

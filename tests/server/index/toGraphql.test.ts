@@ -3,6 +3,7 @@ import type { IndexedGame } from '../../../server/index/document'
 import type { GameCard } from '../../../server/graphql/__generated__/resolvers-types'
 import {
   RAWG_ONLY_CARD_FIELDS,
+  steamStorePageOf,
   toGame,
   toGameCard,
   toLocalisationInfo,
@@ -254,7 +255,33 @@ describe('toGame', () => {
   })
 
   it('offers no store for a document that does not know the game’s Steam app', () => {
+    // Steam is among its stores, but there is no address to send anyone to.
+    expect(onSale.stores).toContain('steam')
     expect(toGame(onSale).stores).toEqual([])
+  })
+
+  it.each([
+    [['gog'], 'on another store only'],
+    [['gog', 'epic-games'], 'on two other stores'],
+    [[], 'on no store the index knows of'],
+  ])(
+    'offers no Steam store for a document that knows the app but lists the game %j (%s)',
+    (stores, _where) => {
+      // The app id says which Steam app the game is, not that RAWG lists the game on Steam: a page
+      // RAWG answers would show no Steam link for this game, so neither does this one.
+      const document = indexed({ ...onSale, steamAppId: '292030', stores })
+      expect(toGame(document).stores).toEqual([])
+      expect(steamStorePageOf(document)).toBeNull()
+    },
+  )
+
+  it('offers the Steam store when the document has both: the app id and Steam among its stores', () => {
+    const document = indexed({ ...onSale, steamAppId: '292030', stores: ['gog', 'steam'] })
+    expect(steamStorePageOf(document)).toBe('https://store.steampowered.com/app/292030/')
+    // One offer, Steam's: the document names its other stores by slug and has no address for them.
+    expect(toGame(document).stores.map((offer) => [offer.store, offer.url])).toEqual([
+      ['steam', 'https://store.steampowered.com/app/292030/'],
+    ])
   })
 
   it('offers the Steam page without a price when the index has none for the game', () => {

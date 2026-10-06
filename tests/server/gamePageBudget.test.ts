@@ -474,6 +474,19 @@ describe('a game the index holds, when RAWG’s detail is late', () => {
     expect(data!.game).toEqual({ ...INDEX_PAGE, stores: [] })
   })
 
+  it('offers no Steam store when the document names the app but does not list the game on Steam', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    // The refresh job keeps the app id from a permanent mapping, so a game RAWG has stopped
+    // listing on Steam still carries one. The page RAWG answers would show no Steam link for it.
+    const index = await indexHolding({ ...DOCUMENT, stores: ['gog'] })
+    const rawg = rawgAnswering({ detail: RAWG_SLOW_MS })
+
+    const { data, errors } = await pageAt(GAME_DETAIL_HEDGE_MS, { index, rawg })
+
+    expect(errors).toBeUndefined()
+    expect(data!.game).toEqual({ ...INDEX_PAGE, stores: [] })
+  })
+
   it('has no screenshot to show when the document kept no preview', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => {})
     const index = await indexHolding({ ...DOCUMENT, preview: null })
@@ -1355,6 +1368,32 @@ describe('the live Steam price', () => {
     // The detail failed at 300 ms; the price that was already being read arrived at 700.
     const inTime = await pageAt(700, { index, rawg, steamPrices: steamPricesTaking(700) })
     expect(inTime.data!.game).toEqual({ ...INDEX_PAGE, stores: [LIVE_PRICED] })
+  })
+
+  it('is not waited for on an index-built page that has no Steam store to show it on', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    // The app is named, so the read began with the document; but the index does not list the
+    // game on Steam, the page offers no Steam store, and a price would have nowhere to sit.
+    const index = await indexHolding({ ...DUE_A_REFRESH, stores: ['gog'] })
+    const rawg = rawgAnswering({
+      detail: { after: 300, fail: new UpstreamError('RAWG', 'ERROR', 502) },
+      stores: 50,
+      screenshots: 50,
+    })
+    const waitUntil = vi.fn()
+
+    // Out the moment the detail fails, not when Steam answers four tenths of a second later.
+    const { data, errors } = await pageAt(300, {
+      index,
+      rawg,
+      steamPrices: steamPricesTaking(700),
+      waitUntil,
+    })
+
+    expect(errors).toBeUndefined()
+    expect(data!.game).toEqual({ ...INDEX_PAGE, stores: [] })
+    // The read is left to finish, like any other the page does not wait out.
+    expect(waitUntil).toHaveBeenCalledTimes(1)
   })
 
   it('is not waited for when RAWG lists no Steam store to show it on', async () => {

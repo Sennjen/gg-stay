@@ -38,7 +38,7 @@ Constants (exported, used by tests): `GAME_DETAIL_HEDGE_MS = 2_500`, `GAME_EXTRA
 
 ### 3. A page built from the index document
 
-`id`, `slug`, `name`, `cover`, `released`, `rating`, `ratingsCount`, `metacritic`, `playtime`, `ageRating`, `gameModes`, `platformFamilies`, `localisation`, `madeInUkraine` from the document; `screenshots` is the document's preview image or empty; `stores` is one Steam offer when the document has `steamAppId` (`https://store.steampowered.com/app/{id}/`, price fields as `toSteamOffer` gives them), otherwise empty; `description`, `website` are `null`; `platforms`, `genres`, `tags`, `developers`, `publishers` are empty. Stale index prices are stripped as everywhere else.
+`id`, `slug`, `name`, `cover`, `released`, `rating`, `ratingsCount`, `metacritic`, `playtime`, `ageRating`, `gameModes`, `platformFamilies`, `localisation`, `madeInUkraine` from the document; `screenshots` is the document's preview image or empty; `stores` is one Steam offer when the document has `steamAppId` and lists Steam among its `stores` (`https://store.steampowered.com/app/{id}/`, price fields as `toSteamOffer` gives them), otherwise empty — the app id says which Steam app the game is, not that RAWG lists the game on Steam, and this page must never show a Steam link the RAWG-built page of the same game would not; `description`, `website` are `null`; `platforms`, `genres`, `tags`, `developers`, `publishers` are empty. Stale index prices are stripped as everywhere else.
 
 ### 4. `Game.partial: Boolean!`
 
