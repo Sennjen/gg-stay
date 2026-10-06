@@ -407,8 +407,9 @@ than Steam and the genres, developer and publisher of the facts panel — or, fo
 index does not hold, only its price. Every section is simply absent until it has data — no
 skeleton, no placeholder — exactly as it is for a game that has none.
 
-- **The line.** One sentence says so — "The description and screenshots are still loading…" on
-  the English page, `game.stillLoading` in both locale files. It lies over the top-left corner of
+- **The line.** One sentence says so — "Some of this page is still loading…" on the English page
+  (it names no section, because what is missing may be the description and the screenshots, the
+  store links, or only a Steam price), `game.stillLoading` in both locale files. It lies over the top-left corner of
   the cover, level with the title's left edge: 12px `fg-2` on `ink` at 85 % with a `line` border,
   `rounded-card` — a chip on one line, and still a sound shape on the two lines the English takes
   at 320 px. It is over the cover rather than in the flow for the reason the made-in-Ukraine label
@@ -430,8 +431,8 @@ skeleton, no placeholder — exactly as it is for a game that has none.
   back). A second partial answer is not shown, and neither is a failure: the page a visitor is
   reading only ever changes for the whole one.
 - **When the rest does not come.** After two attempts nothing more is asked, and the line stops
-  saying that something is loading: "The description and screenshots didn't load. Try reloading
-  the page later." (`game.notLoaded`), in the same place and the same chip — one line from about
+  saying that something is loading: "Some of this page didn't load. Try reloading it later."
+  (`game.notLoaded`), in the same place and the same chip — one line from about
   500 px up, two at 375 and at 320 px in both languages, still clear of the title. It stays until
   the visitor reloads or leaves; the page under it is as it was.
 - **Not in the server's markup.** The line follows what the page is doing, and a page does

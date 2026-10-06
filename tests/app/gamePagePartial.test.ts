@@ -236,7 +236,7 @@ afterEach(() => {
 })
 
 describe('a game page whose answer is partial', () => {
-  it('says in one quiet line that the description and the screenshots are still loading', async () => {
+  it('says in one quiet line that some of the page is still loading', async () => {
     const wrapper = await renderGame([PARTIAL])
     const region = wrapper.get(REGION)
     const note = wrapper.get(NOTE)
@@ -255,8 +255,8 @@ describe('a game page whose answer is partial', () => {
 
   it('says it in English on the English page', async () => {
     const wrapper = await renderGame([PARTIAL], `/en${ROUTE}`)
-    expect(wrapper.get(NOTE).text()).toBe('The description and screenshots are still loading…')
-    expect(en.game.stillLoading).toBe('The description and screenshots are still loading…')
+    expect(wrapper.get(NOTE).text()).toBe('Some of this page is still loading…')
+    expect(en.game.stillLoading).toBe('Some of this page is still loading…')
     expect(asked).toEqual([{ slug: SLUG, locale: 'en' }])
   })
 
@@ -354,7 +354,7 @@ describe('a game page whose answer is partial', () => {
     // the same region, with new words: a second announcement, and the last.
     expect(wrapper.get(NOTE).text()).toBe(uk.game.notLoaded)
     expect(uk.game.notLoaded).toBe(
-      'Опис і скріншоти не завантажилися. Спробуйте оновити сторінку пізніше.',
+      'Частина даних не завантажилася. Спробуйте оновити сторінку пізніше.',
     )
     expect(wrapper.get(NOTE).element).toBe(note)
     expect(wrapper.get(REGION).element).toBe(region)
@@ -373,12 +373,8 @@ describe('a game page whose answer is partial', () => {
     const wrapper = await renderGame([PARTIAL, PARTIAL, PARTIAL], `/en${ROUTE}`)
     await advance(3_000)
     await advance(6_000)
-    expect(wrapper.get(NOTE).text()).toBe(
-      "The description and screenshots didn't load. Try reloading the page later.",
-    )
-    expect(en.game.notLoaded).toBe(
-      "The description and screenshots didn't load. Try reloading the page later.",
-    )
+    expect(wrapper.get(NOTE).text()).toBe("Some of this page didn't load. Try reloading it later.")
+    expect(en.game.notLoaded).toBe("Some of this page didn't load. Try reloading it later.")
   })
 
   it.each([
