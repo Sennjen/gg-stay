@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickTrailer, steamAppIdFromUrl } from '../../server/steam/steam'
+import { pickTrailer, steamAppIdFromUrl, steamStoreUrl } from '../../server/steam/steam'
 
 describe('steamAppIdFromUrl', () => {
   it.each([
@@ -23,6 +23,30 @@ describe('steamAppIdFromUrl', () => {
     [undefined, 'undefined'],
   ])('returns null for %s (%s)', (url) => {
     expect(steamAppIdFromUrl(url)).toBeNull()
+  })
+})
+
+describe('steamStoreUrl', () => {
+  it('is the store page of the app', () => {
+    expect(steamStoreUrl('292030')).toBe('https://store.steampowered.com/app/292030/')
+  })
+
+  it('is an address the app id can be read back from', () => {
+    expect(steamAppIdFromUrl(steamStoreUrl('3764200'))).toBe('3764200')
+  })
+
+  it.each([
+    ['', 'an empty string'],
+    ['292030/../../login', 'a path'],
+    ['292030?snr=1', 'a query'],
+    [' 292030', 'a padded id'],
+    ['29 2030', 'two numbers'],
+    ['tf2', 'a name'],
+    ['２９２０３０', 'digits that are not ASCII'],
+    [null, 'null'],
+    [undefined, 'undefined'],
+  ])('builds no address from %j (%s)', (appId) => {
+    expect(steamStoreUrl(appId)).toBeNull()
   })
 })
 

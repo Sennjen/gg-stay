@@ -1,12 +1,14 @@
 import type {
+  Game,
   GameCard,
   Image,
   LocalisationInfo,
   PriceSummary,
   StoreOffer,
 } from '../graphql/__generated__/resolvers-types'
-import { mapCover } from '../rawg/mappers'
+import { mapCover, positive } from '../rawg/mappers'
 import { platformFamiliesFromIds } from '../rawg/lookups'
+import { steamStoreUrl } from '../steam/steam'
 import type { IndexedGame } from './document'
 
 /**
@@ -105,5 +107,57 @@ export function toGameCard(game: IndexedGame): GameCard {
     price: toPriceSummary(game),
     localisation: toLocalisationInfo(game),
     madeInUkraine: game.madeInUkraine,
+  }
+}
+
+/**
+ * The whole game page, for a page the index answers on its own — which it does when RAWG's own
+ * answer about the game is late or has failed (`server/graphql/resolvers/game.ts`).
+ *
+ * It is the page the document can honestly fill. What the document carries is served as it
+ * stands: the identity, the cover, the release date, the scores, the playtime, the age rating,
+ * the game modes, the platform families, the language list and the made-in-Ukraine flag.
+ * `ratingsCount` reads zero as unknown, as the RAWG mapper does, so the two pages agree about a
+ * game nobody has rated. `screenshots` is the one preview the document keeps, or nothing.
+ *
+ * `stores` is a single Steam offer when the refresh job has published the game's Steam app id —
+ * the address of the store page is built from it, and the price fields are `toSteamOffer`'s — and
+ * empty otherwise: the document names its other stores by slug, and a store without an address
+ * is not a link.
+ *
+ * What only RAWG has is left empty rather than guessed: `description` and `website` are null,
+ * and the platform, genre, tag, developer and publisher lists are empty, because the document
+ * keeps ids and slugs where the page shows names. That is why `partial` is always true here — a
+ * page built from the document is, by construction, one RAWG has more to say about. `similar` is
+ * its field resolver's to fill, as it is on a page RAWG answered.
+ */
+export function toGame(game: IndexedGame): Game {
+  const storePage = steamStoreUrl(game.steamAppId)
+  return {
+    id: String(game.id),
+    slug: game.slug,
+    name: game.name,
+    description: null,
+    released: game.released,
+    rating: game.rating,
+    ratingsCount: positive(game.ratingsCount),
+    metacritic: game.metacritic,
+    playtime: game.playtime,
+    ageRating: game.ageRating,
+    gameModes: game.gameModes,
+    cover: mapCover(game.cover),
+    screenshots: previewImages(game.preview),
+    platformFamilies: platformFamiliesFromIds(game.platforms),
+    platforms: [],
+    genres: [],
+    tags: [],
+    developers: [],
+    publishers: [],
+    website: null,
+    stores: storePage ? [toSteamOffer(game, storePage)] : [],
+    localisation: toLocalisationInfo(game),
+    madeInUkraine: game.madeInUkraine,
+    similar: [],
+    partial: true,
   }
 }

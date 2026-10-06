@@ -13,6 +13,18 @@ export function steamAppIdFromUrl(url: string | null | undefined): string | null
   return match?.[1] ?? null
 }
 
+const STEAM_APP_ID = /^\d+$/
+
+/**
+ * The store page of a Steam app, e.g. "292030" -> "https://store.steampowered.com/app/292030/":
+ * `steamAppIdFromUrl` the other way round, for a page that knows the app and has no store link to
+ * read it from. Returns null for anything that is not a bare run of digits — the value ends up
+ * in an `href`, and an app id is the only thing this may put there.
+ */
+export function steamStoreUrl(appId: string | null | undefined): string | null {
+  return appId && STEAM_APP_ID.test(appId) ? `https://store.steampowered.com/app/${appId}/` : null
+}
+
 /**
  * Picks a trailer from Steam's `movies` list: the first one marked `highlight`, else the first
  * one, else null when the list is empty.
