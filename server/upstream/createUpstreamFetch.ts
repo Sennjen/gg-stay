@@ -308,10 +308,19 @@ export function createUpstreamFetch<TRequest>(
    * What `call` ended with, for one of the callers waiting on it — who is told first, when the
    * cache alone supplied it, so the caller knows what its call was by the time it has the answer.
    * Callers that share a call share that word as they share its answer: each of them is told.
+   *
+   * Telling is no part of the call. Whoever listens is measuring it, and a listener that throws
+   * has failed at its own work: the answer is handed over all the same.
    */
   async function answerOf(call: Promise<Loaded>, onCached?: () => void): Promise<unknown> {
     const { value, cached } = await call
-    if (cached) onCached?.()
+    if (cached) {
+      try {
+        onCached?.()
+      } catch {
+        // Nothing of the listener's reaches the caller.
+      }
+    }
     return value
   }
 

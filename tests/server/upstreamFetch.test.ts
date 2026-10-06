@@ -462,6 +462,27 @@ describe('a caller that asks to be told when its answer came from the cache', ()
     })
     expect(onCached).not.toHaveBeenCalled()
   })
+
+  it('gets its answer whatever its own listener does with the news', async () => {
+    const { runtime, sent } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(config, runtime)
+    const first = fetchUpstream({ key: 'games' })
+    await answerAll(sent)
+    await first
+
+    // The listener measures the call; it is no part of it. One that throws has failed at its own
+    // work, and the call it was told about is answered as if nobody had been listening — for the
+    // caller that brought the listener, and for the one that shares its read of the cache.
+    const broken = vi.fn(() => {
+      throw new Error('the collector failed')
+    })
+    const beside = vi.fn()
+    const calls = [fetchUpstream({ key: 'games' }, broken), fetchUpstream({ key: 'games' }, beside)]
+    expect(await Promise.all(calls)).toEqual([{ ok: true }, { ok: true }])
+    expect(broken).toHaveBeenCalledTimes(1)
+    expect(beside).toHaveBeenCalledTimes(1)
+    expect(runtime.fetchJson).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('the line about an attempt', () => {
