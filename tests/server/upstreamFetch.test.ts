@@ -48,6 +48,7 @@ interface SentRequest {
 function makeRuntime(overrides: Partial<UpstreamRuntime> = {}) {
   const store = new Map<string, UpstreamCacheEntry>()
   const sent: SentRequest[] = []
+  const log = vi.fn<(line: string) => void>()
   let clock = 1_000_000
   const runtime = {
     fixtures: false,
@@ -68,7 +69,7 @@ function makeRuntime(overrides: Partial<UpstreamRuntime> = {}) {
     },
     now: () => clock,
     sleep: vi.fn(async (ms: number) => void (clock += ms)),
-    log: vi.fn<(line: string) => void>(),
+    log,
     ...overrides,
   } satisfies UpstreamRuntime
   return {
@@ -77,7 +78,7 @@ function makeRuntime(overrides: Partial<UpstreamRuntime> = {}) {
     sent,
     advance: (ms: number) => void (clock += ms),
     /** Every line the transport has written so far, in order. */
-    lines: () => runtime.log.mock.calls.map(([line]) => line),
+    lines: () => log.mock.calls.map(([line]) => line),
   }
 }
 

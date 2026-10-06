@@ -45,7 +45,7 @@ describe('steamStoreUrl', () => {
     ['２９２０３０', 'digits that are not ASCII'],
     [null, 'null'],
     [undefined, 'undefined'],
-  ])('builds no address from %j (%s)', (appId) => {
+  ])('builds no address from %j (%s)', (appId, _what) => {
     expect(steamStoreUrl(appId)).toBeNull()
   })
 })
