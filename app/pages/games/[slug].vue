@@ -28,8 +28,8 @@ if (errorCode.value === 'NOT_FOUND') {
 // The server answers inside a time budget, with what it has: a `partial` game is one it had not
 // finished collecting the answers about (`server/graphql/resolvers/game.ts`). The page says so in
 // one line and asks again by itself, in the browser, until the answer is whole or two attempts are
-// spent — the whole answer then takes the place of the partial one, and nothing above what
-// arrives moves.
+// spent — the whole answer then takes the place of the partial one in one step. What that step
+// may move on the page is in DESIGN.md, "A game page answered in part".
 const { state: asking } = useRetryWhilePartial(gameQuery, (answer) => answer?.game?.partial)
 
 /**
