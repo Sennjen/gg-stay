@@ -128,6 +128,31 @@ async function expectLineOverTheCover(page: Page, note: Locator): Promise<void> 
 }
 
 /** The catalog's "Знайдено: N" / "Found: N" line, as a number. */
+interface Deal {
+  name: string
+  slug: string
+  discountPercent: number
+}
+
+/**
+ * Today's deal, as the server picks it. Two games of the fixture index qualify (Portal 2 and The
+ * Witcher 3) and the pick turns with the UTC date, so a flow that named one of them passed on
+ * even days and failed on odd ones. The flows ask instead, and hold the bubble to the answer.
+ */
+async function dealOfTheDay(page: Page): Promise<Deal> {
+  const response = await page.request.post('/api/graphql', {
+    data: { query: '{ dealOfTheDay { name slug price { discountPercent } } }' },
+  })
+  const body = (await response.json()) as {
+    data?: {
+      dealOfTheDay: { name: string; slug: string; price: { discountPercent: number } } | null
+    }
+  }
+  const deal = body.data?.dealOfTheDay ?? null
+  if (!deal) throw new Error('The fixture index offers a deal every day, and the server named none')
+  return { name: deal.name, slug: deal.slug, discountPercent: deal.price.discountPercent }
+}
+
 async function resultTotal(page: Page): Promise<number> {
   const text = await page.locator('main p[aria-live="polite"]').first().innerText()
   return Number(text.replace(/\D/g, ''))
@@ -164,12 +189,13 @@ test('landing → Gege rises with the deal → dismissed to a grip → reopened 
   await expect(bubble).toBeVisible({ timeout: 15_000 })
   // Appearing must not move focus: it is still where a fresh page leaves it.
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
-  // The fixture index has one game that qualifies as the deal of the day.
-  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toHaveAttribute(
+  // Whichever of the fixture's two qualifying games the server offers today.
+  const deal = await dealOfTheDay(page)
+  await expect(bubble.getByRole('link', { name: deal.name })).toHaveAttribute(
     'href',
-    '/games/portal-2',
+    `/games/${deal.slug}`,
   )
-  await expect(bubble).toContainText('−75%')
+  await expect(bubble).toContainText(`−${deal.discountPercent}%`)
   // He fades in; axe reads a half-faded bubble as low contrast.
   await expect(bubble).toHaveCSS('opacity', '1')
   await expectAccessible(page, 'landing with the greeter open')
@@ -187,7 +213,7 @@ test('landing → Gege rises with the deal → dismissed to a grip → reopened 
   await page.keyboard.press('Enter')
   await expect(bubble).toBeVisible()
   await page.keyboard.press('Tab')
-  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toBeFocused()
+  await expect(bubble.getByRole('link', { name: deal.name })).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(bubble.getByRole('link', { name: 'Давай' })).toBeFocused()
 
@@ -255,7 +281,7 @@ test('landing on a phone → Gege rises with one line clear of the hero → a ta
   await line.click()
   await expect(bubble).toBeVisible()
   await expect(line).toHaveCount(0)
-  await expect(bubble.getByRole('link', { name: 'Portal 2' })).toBeVisible()
+  await expect(bubble.getByRole('link', { name: (await dealOfTheDay(page)).name })).toBeVisible()
   await expect(bubble.getByRole('link', { name: 'Давай' })).toBeVisible()
   await expect(bubble.getByRole('button', { name: 'Не зараз' })).toBeVisible()
   await expect(bubble).toHaveCSS('opacity', '1')
