@@ -411,8 +411,8 @@ skeleton, no placeholder — exactly as it is for a game that has none.
   (it names no section, because what is missing may be the description and the screenshots, the
   store links, or only a Steam price), `game.stillLoading` in both locale files. It lies over the top-left corner of
   the cover, level with the title's left edge: 12px `fg-2` on `ink` at 85 % with a `line` border,
-  `rounded-card` — a chip on one line, and still a sound shape on the two lines the English takes
-  at 320 px. It is over the cover rather than in the flow for the reason the made-in-Ukraine label
+  `rounded-card` — a chip on one line, and still a sound shape when a narrow phone wraps it onto
+  two. It is over the cover rather than in the flow for the reason the made-in-Ukraine label
   is over a card's: the page with it is laid out exactly as the page without it, so nothing moves
   when it appears and nothing when it goes. It uses no accent, signal or sale colour and no
   motion: it is not an action, a live state or a price, and a spinner would promise more than a
@@ -432,8 +432,8 @@ skeleton, no placeholder — exactly as it is for a game that has none.
   reading only ever changes for the whole one.
 - **When the rest does not come.** After two attempts nothing more is asked, and the line stops
   saying that something is loading: "Some of this page didn't load. Try reloading it later."
-  (`game.notLoaded`), in the same place and the same chip — one line from about
-  500 px up, two at 375 and at 320 px in both languages, still clear of the title. It stays until
+  (`game.notLoaded`), in the same place and the same chip — one line on a wide screen, two where
+  a phone is too narrow for it, still clear of the title. It stays until
   the visitor reloads or leaves; the page under it is as it was.
 - **Not in the server's markup.** The line follows what the page is doing, and a page does
   nothing until it is mounted in a browser. So the HTML the server sends for a partial page has
