@@ -272,6 +272,28 @@ describe('the caches of a function on Vercel', () => {
       '[shared-cache] a read failed (Error: the cache is down); left alone for 30 s',
     )
   })
+  it('go on reading, and say so once, when the platform refuses writes', async () => {
+    const vercel = platform()
+    // Another instance's entry is there to be read; this instance's own writes are refused.
+    const earlier = await instance({ vercel, upstream: () => ({ version: 1 }) })
+    await earlier.rawg('games/portal-2')
+    await settle(vercel.kept)
+    vercel.cache.set.mockRejectedValue(new Error('quota exceeded'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const { rawg, steam, cache } = await instance({ vercel, upstream: () => ({ version: 2 }) })
+    expect(await rawg('games/half-life')).toEqual({ version: 2 })
+    expect(await steam('620')).toEqual(steamPage('{"version":2}'))
+    await cache.set('steam-price:620', { price: null }, 3_600)
+    await settle(vercel.kept)
+
+    // Three writes were refused, and one line says so.
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[shared-cache] a write failed (Error: quota exceeded); reads go on, not reported again for 30 s',
+    )
+    // Reads were never paused: what the other instance left is still found.
+    expect(await rawg('games/portal-2')).toEqual({ version: 1 })
+  })
 })
 
 describe('the caches anywhere else', () => {

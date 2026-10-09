@@ -18,8 +18,10 @@ import type { SharedRead } from './createUpstreamFetch'
  *   miss, and the shared level is then left alone for `SHARED_CACHE_PAUSE_MS`, with one warning:
  *   a store that is down costs a request one deadline, not one for every upstream call it makes.
  * - **A write is never waited for.** Memory is written first, as it always was; the shared write
- *   is handed to the request's keep-alive with its failure already swallowed, so it can neither
- *   delay an answer nor fail one.
+ *   is handed to the request's keep-alive with its failure already handled, so it can neither
+ *   delay an answer nor fail one. A write that fails pauses nothing — a store may refuse writes
+ *   and still answer reads — but it is said, in one line for the length of a pause, so that a
+ *   store over its quota does not go on refusing every write without a word.
  * - **What is shared is kept longer than it is fresh** (`sharedTtlSeconds`), under a key that names
  *   this project, the shape of what is stored, the source and a hash of the caller's key
  *   (`SHARED_CACHE_SCHEMA`) — and an entry too large for the store stays in memory alone.
@@ -91,7 +93,10 @@ export interface SharedLevelRuntime {
    * Keeps a write running after the answer has gone out. What it is handed cannot reject.
    */
   keepAlive: (work: Promise<unknown>) => void
-  /** Where the one line about a pause goes; `console.warn` when omitted. */
+  /**
+   * Where the line about a pause, or about a write that failed, goes; `console.warn` when
+   * omitted.
+   */
   warn?: (line: string) => void
 }
 
@@ -108,7 +113,10 @@ export interface SharedLevel {
    * a read that failed or ran out of time is a read that found nothing.
    */
   read: (key: string) => Promise<{ ms: number; value: unknown } | null>
-  /** Starts a write and returns at once. Never throws; a write that fails is nobody's failure. */
+  /**
+   * Starts a write and returns at once. Never throws. A write that fails is nobody's failure: it
+   * pauses nothing and is said in one line, at most once for the length of a pause.
+   */
   write: (key: string, value: unknown, ttlSeconds: number) => void
 }
 
@@ -154,9 +162,22 @@ function reasonOf(error: unknown): string {
 }
 
 export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntime): SharedLevel {
-  // Read when a line is written, like the transport's log, so the default follows `console.warn`.
-  const warn = runtime.warn ?? ((line: string) => console.warn(line))
+  /**
+   * One line at warn level. Read when it is written, like the transport's log, so the default
+   * follows `console.warn`; and a logger that fails has failed at its own work — neither a read
+   * nor what is handed to the keep-alive may reject over a line.
+   */
+  function warn(line: string): void {
+    try {
+      if (runtime.warn) runtime.warn(line)
+      else console.warn(line)
+    } catch {
+      // Nothing to do, and nowhere to say so.
+    }
+  }
+
   let pausedUntil = 0
+  let writesQuietUntil = 0
 
   const paused = () => runtime.now() < pausedUntil
 
@@ -169,6 +190,33 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
     if (paused()) return
     pausedUntil = runtime.now() + SHARED_CACHE_PAUSE_MS
     warn(`[shared-cache] ${what}; left alone for ${SHARED_CACHE_PAUSE_MS / 1000} s`)
+  }
+
+  /**
+   * A write went wrong. Nothing is paused for it: reads are what an answer gains from, and a
+   * store can refuse writes — over its quota, say — while it still answers them. But it is said,
+   * once for the length of a pause, or every write could fail for days and the only sign would
+   * be a hit rate that never moves. Not while the store is being left alone, though: the line
+   * about that has been written, and a write that was out when the pause began adds nothing.
+   */
+  function writeFailed(error: unknown): void {
+    const at = runtime.now()
+    if (at < pausedUntil || at < writesQuietUntil) return
+    writesQuietUntil = at + SHARED_CACHE_PAUSE_MS
+    const quiet = `not reported again for ${SHARED_CACHE_PAUSE_MS / 1000} s`
+    warn(`[shared-cache] a write failed (${reasonOf(error)}); reads go on, ${quiet}`)
+  }
+
+  /** A write as it is handed to the keep-alive: it cannot reject, however the store fails. */
+  function written(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+    let writing: Promise<unknown>
+    try {
+      writing = Promise.resolve(store.set(key, value, ttlSeconds))
+    } catch (error) {
+      // A store that throws instead of rejecting has failed all the same.
+      writing = Promise.reject(error)
+    }
+    return writing.then(() => undefined, writeFailed)
   }
 
   return {
@@ -191,14 +239,10 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
         // Left alone means left alone: a store that is down is not handed writes to hang on to.
         if (paused()) return
         if (Buffer.byteLength(JSON.stringify(value)) > SHARED_CACHE_MAX_BYTES) return
-        const settled = Promise.resolve(store.set(key, value, ttlSeconds)).then(
-          () => undefined,
-          () => undefined,
-        )
-        runtime.keepAlive(settled)
+        runtime.keepAlive(written(key, value, ttlSeconds))
       } catch {
-        // A value that cannot be serialised, a store that throws, a keep-alive that will not take
-        // the work: the answer this write follows has memory's copy, and is owed nothing more.
+        // A value that cannot be serialised, a keep-alive that will not take the work: the answer
+        // this write follows has memory's copy, and is owed nothing more.
       }
     },
   }

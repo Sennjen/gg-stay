@@ -348,22 +348,6 @@ describe('a write', () => {
     expect(memory.held.has('games')).toBe(true)
   })
 
-  it('pauses nothing and says nothing when it fails', async () => {
-    const store = createFakeSharedStore()
-    const { level, warn } = levelOver({
-      get: store.get,
-      set: () => Promise.reject(new Error('the store is down')),
-    })
-    const { cache } = cacheOver(level)
-
-    await cache.set('games', entryOf({ ok: true }))
-    await settle()
-
-    expect(warn).not.toHaveBeenCalled()
-    await cache.get('games/portal-2')
-    expect(store.reads).toHaveLength(1)
-  })
-
   it('keeps an entry that does not say when it was stored in memory alone', async () => {
     const { cache, memory, store } = setup()
     const entry: Entry = { value: { id: 1 }, expiresAt: Date.now() + 600_000 }
@@ -733,6 +717,166 @@ describe('a shared store that fails', () => {
     expect(warn).toHaveBeenCalledExactlyOnceWith(
       '[shared-cache] a read failed (Error: the store is down); left alone for 30 s',
     )
+  })
+})
+
+describe('a shared store that refuses writes', () => {
+  const WRITE_LINE =
+    '[shared-cache] a write failed (Error: quota exceeded); reads go on, not reported again for 30 s'
+
+  /** A shared store that answers reads from a map and refuses every write, until a case lets it. */
+  function refusing(how: 'rejects' | 'throws' = 'rejects') {
+    const store = createFakeSharedStore()
+    const state = { refuses: true }
+    const set = vi.fn((key: string, value: unknown, ttlSeconds: number) => {
+      if (!state.refuses) return store.set(key, value, ttlSeconds)
+      if (how === 'throws') throw new Error('quota exceeded')
+      return Promise.reject(new Error('quota exceeded'))
+    })
+    const shared = levelOver({ get: store.get, set })
+    return { store, state, set, ...shared, ...cacheOver(shared.level) }
+  }
+
+  it.each(['rejects', 'throws'] as const)(
+    'says so in one line when its write %s, and is read as before',
+    async (how) => {
+      const { cache, store, set, lines, kept } = refusing(how)
+      shareEntry(store, 'games/portal-2', entryOf({ id: 4200 }))
+
+      await cache.set('games', entryOf({ list: true }))
+      await settle()
+
+      expect(lines()).toEqual([WRITE_LINE])
+      // What was handed to the keep-alive ended without a failure of its own.
+      await expect(kept[0]).resolves.toBeUndefined()
+
+      // Nothing is paused: the next read asks the store, and is answered by it…
+      expect(await cache.get('games/portal-2')).toMatchObject({ value: { id: 4200 } })
+      expect(store.reads).toHaveLength(1)
+      // …and the next write is tried.
+      await cache.set('genres', entryOf({ genres: [] }))
+      await settle()
+      expect(set).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it('says so once for thirty seconds of refused writes, and once more for the thirty after', async () => {
+    const { cache, set, lines } = refusing()
+    const write = async (key: string) => {
+      await cache.set(key, entryOf({ key }))
+      await settle()
+    }
+
+    for (const key of ['games/a', 'games/b', 'games/c']) await write(key)
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_PAUSE_MS - 1)
+    await write('games/d')
+    expect(set).toHaveBeenCalledTimes(4)
+    expect(lines()).toEqual([WRITE_LINE])
+
+    await vi.advanceTimersByTimeAsync(1)
+    await write('games/e')
+    await write('games/f')
+    expect(lines()).toEqual([WRITE_LINE, WRITE_LINE])
+  })
+
+  it('says nothing once the store takes writes again', async () => {
+    const { cache, store, state, lines } = refusing()
+
+    await cache.set('games/a', entryOf({ id: 1 }))
+    await settle()
+    state.refuses = false
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_PAUSE_MS)
+    await cache.set('games/b', entryOf({ id: 2 }))
+    await settle()
+
+    expect(lines()).toEqual([WRITE_LINE])
+    expect(store.writes).toHaveLength(1)
+  })
+
+  it('says nothing of a write that fails while the store is already being left alone', async () => {
+    const writing = deferred<undefined>()
+    const state = { down: false }
+    const { level, lines } = levelOver({
+      get: () =>
+        state.down ? Promise.reject(new Error('the store is down')) : Promise.resolve(null),
+      set: () => writing.promise,
+    })
+    const { cache } = cacheOver(level)
+
+    // A write is out when a read finds the store down; then the write fails too.
+    await cache.set('games/a', entryOf({ id: 1 }))
+    state.down = true
+    await cache.get('games/b')
+    writing.reject(new Error('the store is down'))
+    await settle()
+
+    // One line: the store is being left alone, and that has been said.
+    expect(lines()).toEqual([
+      '[shared-cache] a read failed (Error: the store is down); left alone for 30 s',
+    ])
+  })
+
+  it('says nothing of an entry it was never asked to take: one too large, one that cannot be written', async () => {
+    const { cache, set, warn } = refusing()
+
+    await cache.set('games/huge', entryOf('я'.repeat(SHARED_CACHE_MAX_BYTES)))
+    await cache.set('games/odd', entryOf(10n))
+    await settle()
+
+    expect(set).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('keeps the write and the read whole when the line itself cannot be written', async () => {
+    const store = createFakeSharedStore()
+    const kept: Promise<unknown>[] = []
+    const level = createSharedLevel(
+      {
+        get: () => Promise.reject(new Error('the store is down')),
+        set: () => Promise.reject(new Error('quota exceeded')),
+      },
+      {
+        now: () => Date.now(),
+        keepAlive: (work) => void kept.push(work),
+        warn: () => {
+          throw new Error('the log is closed')
+        },
+      },
+    )
+    const { cache } = cacheOver(level)
+
+    await expect(cache.set('games/a', entryOf({ id: 1 }))).resolves.toBeUndefined()
+    // The platform's keep-alive does not catch: what it holds must not reject over a line.
+    await expect(kept[0]).resolves.toBeUndefined()
+    await expect(cache.get('games/b')).resolves.toBeNull()
+    expect(store.writes).toEqual([])
+  })
+
+  it('goes to console.warn when nothing else was asked for', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const level = createSharedLevel(
+      { get: async () => null, set: () => Promise.reject(new Error('quota exceeded')) },
+      { now: () => Date.now(), keepAlive: () => {} },
+    )
+
+    await cacheOver(level).cache.set('games/a', entryOf({ id: 1 }))
+    await settle()
+
+    expect(warn).toHaveBeenCalledExactlyOnceWith(WRITE_LINE)
+  })
+
+  it('is one voice for every cache built on the level, whatever each of them keeps', async () => {
+    const { level, lines } = levelOver({
+      get: async () => null,
+      set: () => Promise.reject(new Error('quota exceeded')),
+    })
+
+    await cacheOver(level, 'RAWG').cache.set('games/a', entryOf({ id: 1 }))
+    await cacheOver(level, 'STEAM').cache.set('620', entryOf({ id: 2 }))
+    await cacheOver(level, 'STEAM_PRICE').cache.set('steam-price:620', entryOf({ price: null }))
+    await settle()
+
+    expect(lines()).toEqual([WRITE_LINE])
   })
 })
 
