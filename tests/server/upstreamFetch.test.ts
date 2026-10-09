@@ -1757,3 +1757,299 @@ describe('a request that follows a slow read of the cache', () => {
     expect(store.get('games/c')).toMatchObject({ storedAt: 1_000_000 })
   })
 })
+
+describe('a limiter with a burst allowance', () => {
+  const INTERVAL = config.minIntervalMs
+  const PAGE = ['games/portal-2', 'games/portal-2/stores', 'games/portal-2/screenshots']
+  const pathOf = (request: SentRequest) => request.url.replace('https://upstream.test/', '')
+
+  /**
+   * A transport whose limiter is given `burst`, on a clock only the case moves and over a cache
+   * that is a map: a wait at the limiter ends when the clock reaches it, and every request is
+   * answered at once and recorded with the moment it went out, counted from the start of the case.
+   */
+  function paced(burst?: number) {
+    const START = 60_000
+    let clock = START
+    let asked = 0
+    const waits: { until: number; wake: () => void }[] = []
+    const store = new Map<string, UpstreamCacheEntry>()
+    const wentOut: [path: string, at: number][] = []
+    const runtime: UpstreamRuntime = {
+      fixtures: false,
+      fetchJson: async (url) => {
+        wentOut.push([url.replace('https://upstream.test/', ''), clock - START])
+        return { status: 200, body: { ok: true } }
+      },
+      readFixture: async () => null,
+      cache: {
+        get: async (key) => store.get(key) ?? null,
+        set: async (key, entry) => void store.set(key, entry),
+      },
+      now: () => clock,
+      sleep: (ms) =>
+        new Promise((resolve) => {
+          waits.push({ until: clock + ms, wake: resolve })
+        }),
+      log: () => {},
+    }
+    const fetchUpstream = createUpstreamFetch({ ...config, burst }, runtime)
+    return {
+      wentOut,
+      /** The moments the requests went out at, in the order they went. */
+      times: () => wentOut.map(([, at]) => at),
+      /** Makes `count` calls in one turn of the event loop, each for a game of its own. */
+      ask: (count: number) =>
+        Array.from({ length: count }, () => fetchUpstream({ key: `games/${++asked}` })),
+      /** Moves the clock to `time`, ending on the way every wait that falls due, in order. */
+      async at(time: number) {
+        for (;;) {
+          await settle()
+          const due = waits
+            .filter((wait) => wait.until <= START + time)
+            .sort((a, b) => a.until - b.until)[0]
+          if (!due) break
+          waits.splice(waits.indexOf(due), 1)
+          clock = Math.max(clock, due.until)
+          due.wake()
+        }
+        clock = START + time
+        await settle()
+      },
+    }
+  }
+
+  it.each([
+    ['is given no burst', undefined],
+    ['is given a burst of one', 1],
+    ['is given a burst of none', 0],
+    ['is given a burst of less than none', -2],
+    ['is given a burst that is no number', Number.NaN],
+    ['is given a burst without end', Number.POSITIVE_INFINITY],
+  ])(
+    'is not there for an upstream that %s: a request per interval, as ever',
+    async (_what, burst) => {
+      const { ask, at, wentOut } = paced(burst)
+      const calls = ask(5)
+      await at(4 * INTERVAL)
+      await Promise.all(calls)
+
+      expect(wentOut).toEqual([
+        ['games/1', 0],
+        ['games/2', 250],
+        ['games/3', 500],
+        ['games/4', 750],
+        ['games/5', 1_000],
+      ])
+    },
+  )
+
+  it('lets three leave at once after a pause, the fourth an interval behind them and the fifth two', async () => {
+    const { ask, at, wentOut } = paced(3)
+    const calls = ask(5)
+    await at(2 * INTERVAL)
+    await Promise.all(calls)
+
+    expect(wentOut).toEqual([
+      ['games/1', 0],
+      ['games/2', 0],
+      ['games/3', 0],
+      ['games/4', 250],
+      ['games/5', 500],
+    ])
+  })
+
+  it.each([
+    // A quarter of a second after a burst the allowance holds one request; after three quarters,
+    // all three.
+    [250, [250, 500, 750, 1_000]],
+    [500, [500, 500, 750, 1_000]],
+    [750, [750, 750, 750, 1_000]],
+    // And never more than the burst, however long nothing was asked.
+    [60_000, [60_000, 60_000, 60_000, 60_250]],
+  ])('comes back at one request per interval: %i ms after a burst', async (pause, expected) => {
+    const { ask, at, times } = paced(3)
+    await Promise.all(ask(3))
+    await at(pause)
+
+    const calls = ask(4)
+    await at(pause + 4 * INTERVAL)
+    await Promise.all(calls)
+
+    expect(times()).toEqual([0, 0, 0, ...expected])
+  })
+
+  it('leaves the rate what it was: twenty requests asked for at once take seventeen intervals', async () => {
+    const { ask, at, times } = paced(3)
+    const calls = ask(20)
+    await at(20 * INTERVAL)
+    await Promise.all(calls)
+
+    const sent = times()
+    expect(sent).toEqual([0, 0, 0, ...Array.from({ length: 17 }, (_, n) => (n + 1) * INTERVAL)])
+    // Whatever stretch of it is looked at holds a request per interval and, at the most, the
+    // burst on top: no window is busier than the first.
+    for (const [first, from] of sent.entries()) {
+      for (const [last, to] of sent.entries()) {
+        if (last >= first) expect(last - first + 1).toBeLessThanOrEqual(3 + (to - from) / INTERVAL)
+      }
+    }
+  })
+
+  it('keeps the order the calls were made in, whatever order their cache reads come back in', async () => {
+    const { runtime, sent } = makeRuntime()
+    const reads = new Map<string, () => void>()
+    vi.mocked(runtime.cache.get).mockImplementation(
+      (key) =>
+        new Promise((resolve) => {
+          reads.set(key, () => resolve(null))
+        }),
+    )
+    const fetchUpstream = createUpstreamFetch({ ...config, burst: 3 }, runtime)
+
+    // The game page, whose three reads come back in reverse.
+    const calls = PAGE.map((key) => fetchUpstream({ key }))
+    await settle()
+    reads.get('games/portal-2/screenshots')!()
+    await settle()
+    reads.get('games/portal-2/stores')!()
+    await settle()
+    expect(sent).toHaveLength(0)
+
+    reads.get('games/portal-2')!()
+    await settle()
+    // All three are out, the game first, and none of them waited for a slot.
+    expect(sent.map(pathOf)).toEqual(PAGE)
+    expect(runtime.sleep).not.toHaveBeenCalled()
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('gives a retry the next request of the allowance, and a wait when the burst has spent it', async () => {
+    // One request that fails at once: its retry is the second of three, and waits for nothing.
+    const alone = makeRuntime()
+    const single = createUpstreamFetch({ ...config, burst: 3 }, alone.runtime)({ key: 'games/a' })
+    await settle()
+    alone.sent[0]!.answer(502)
+    await settle()
+    expect(alone.sent).toHaveLength(2)
+    expect(alone.runtime.sleep).not.toHaveBeenCalled()
+    alone.sent[1]!.answer(200, {})
+    await single
+
+    // A page's three spend the allowance: the retry of the first is a fourth request, an
+    // interval behind them.
+    const { runtime, sent } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch({ ...config, burst: 3 }, runtime)
+    const calls = PAGE.map((key) => fetchUpstream({ key }))
+    await settle()
+    expect(sent).toHaveLength(3)
+    sent[0]!.answer(502)
+    await settle()
+    expect(sent.map(pathOf)).toEqual([...PAGE, 'games/portal-2'])
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250]])
+
+    for (const request of sent.slice(1)) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('is counted from the moment the burst left, behind a slow read of the cache', async () => {
+    const made = makeRuntime()
+    // The game's read goes to a second level and takes 100 ms of the clock over finding nothing.
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, options) => {
+      if (key === 'games/portal-2') {
+        made.advance(100)
+        options?.onSharedRead?.({ ms: 100, hit: false })
+      }
+      return made.store.get(key) ?? null
+    })
+    const fetchUpstream = createUpstreamFetch({ ...config, burst: 3 }, made.runtime)
+
+    const calls = PAGE.map((key) => fetchUpstream({ key }))
+    await settle()
+    // The three went out together, 100 ms after the game was asked for.
+    expect(made.sent.map(pathOf)).toEqual(PAGE)
+    expect(made.runtime.sleep).not.toHaveBeenCalled()
+
+    // A fourth request, asked for the moment they left, is an interval behind them. Counted from
+    // the moment the game was asked for, it would have been let out after 150 ms.
+    calls.push(fetchUpstream({ key: 'games/next' }))
+    await settle()
+    expect(vi.mocked(made.runtime.sleep).mock.calls).toEqual([[250]])
+
+    for (const request of made.sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  describe('behind stale answers', () => {
+    /**
+     * A transport with a burst of three whose cache already holds `count` stale pages, on a
+     * runtime that keeps a refresh running. The limiter's waits end at once without moving the
+     * clock, so `sleep` records how long each request that was given a slot would have waited.
+     */
+    function holdingStale(count: number) {
+      const kept: Promise<unknown>[] = []
+      const made = makeRuntime({
+        keepAlive: (work) => void kept.push(work),
+        sleep: vi.fn(async () => {}),
+      })
+      const keys = Array.from({ length: count }, (_, position) => `games/stale-${position}`)
+      const now = made.runtime.now()
+      for (const key of keys) {
+        made.store.set(key, {
+          value: { version: 1 },
+          expiresAt: now - 1,
+          storedAt: now - 90_000_000,
+        })
+      }
+      const fetchUpstream = createUpstreamFetch(
+        {
+          ...config,
+          burst: 3,
+          ttlFor: () => 86_400,
+          staleFor: () => STALE_WHILE_REVALIDATE_SECONDS,
+        },
+        made.runtime,
+      )
+      return { ...made, fetchUpstream, kept, keys }
+    }
+
+    it('measures the wait the next request would have, so a burst of refreshes is no backlog', async () => {
+      const { fetchUpstream, runtime, sent, kept, keys } = holdingStale(14)
+
+      const answers = await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+      expect(answers).toEqual(Array(14).fill({ version: 1 }))
+
+      // Eleven refreshes are started: three at once, and eight an interval apart behind them, the
+      // last of which waits exactly the two seconds. The twelfth would have waited longer.
+      expect(sent.map(pathOf)).toEqual(keys.slice(0, 11))
+      expect(vi.mocked(runtime.sleep).mock.calls).toEqual(
+        Array.from({ length: 8 }, (_, n) => [(n + 1) * INTERVAL]),
+      )
+      await expect(Promise.all(kept.slice(11))).resolves.toEqual([undefined, undefined, undefined])
+
+      for (const request of sent) request.answer(200, { version: 2 })
+      await Promise.all(kept)
+    })
+
+    it('leaves a request somebody is waiting for the same two seconds of refreshes in front of it', async () => {
+      const { fetchUpstream, runtime, sent, kept, keys } = holdingStale(14)
+      await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+
+      // A cold page, asked for behind the fourteen: an interval behind the last refresh started.
+      const cold = fetchUpstream({ key: 'games/cold' })
+      await settle()
+
+      expect(pathOf(sent.at(-1)!)).toBe('games/cold')
+      expect(vi.mocked(runtime.sleep).mock.calls.at(-1)).toEqual([
+        REFRESH_BACKLOG_LIMIT_MS + INTERVAL,
+      ])
+      for (const request of sent) request.answer(200, { version: 2 })
+      await cold
+      await Promise.all(kept)
+    })
+  })
+})

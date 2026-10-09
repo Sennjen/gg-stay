@@ -200,8 +200,9 @@ export const game: QueryResolvers['game'] = (_parent, { slug }, context) =>
 async function gamePage(context: GraphQLContext, slug: string, pending: Pending): Promise<Game> {
   const path = `games/${encodeURIComponent(slug)}`
 
-  // Sent before anything is awaited, the detail first: the transport spaces its requests, and the
-  // detail is the one the page cannot be built without.
+  // Sent before anything is awaited, the detail first: the transport sends its requests in the
+  // order they were asked for — together while its limiter has a burst to give, an interval apart
+  // once it has not — and the detail is the one the page cannot be built without.
   const detail = pending.observe(context.rawg(path).then(detailOrThrow))
   const extras: Extras = {
     // Store links are an enhancement: the page still renders without them.

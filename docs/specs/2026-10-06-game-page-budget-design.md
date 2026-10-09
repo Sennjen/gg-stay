@@ -10,7 +10,7 @@ Measured on production on 2026-10-06 (one client in Europe, the `game` query as 
 - the same pages again, answered from the instance's memory: median 0.57 s;
 - nineteen console exclusives with no Steam page show the same tail (8.6 s and 3.9 s), so the tail is RAWG, not Steam.
 
-The cause is in `server/graphql/resolvers/game.ts`. The page asks RAWG three things (the detail, the store links, the screenshots). The transport sends them 250 ms apart, gives each 5 s and one retry, and the resolver awaits all three — the two optional ones included — so one slow answer holds the page for up to 10 s. After RAWG it reads the index, then may ask Steam for a live price (5 s, one retry), and the Ukrainian description asks Steam again (5 s, one retry). Nothing bounds the whole. The catalog got its 2.5 s hedge in #66; the game page never did.
+The cause is in `server/graphql/resolvers/game.ts`. The page asks RAWG three things (the detail, the store links, the screenshots). The transport sends them 250 ms apart (as it did then: since 2026-10-09 the site's limiter has a burst of three, `RAWG_BURST` in `server/utils/rawg.ts`, and the three leave together), gives each 5 s and one retry, and the resolver awaits all three — the two optional ones included — so one slow answer holds the page for up to 10 s. After RAWG it reads the index, then may ask Steam for a live price (5 s, one retry), and the Ukrainian description asks Steam again (5 s, one retry). Nothing bounds the whole. The catalog got its 2.5 s hedge in #66; the game page never did.
 
 ## What
 
