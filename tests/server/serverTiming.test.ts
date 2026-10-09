@@ -294,12 +294,12 @@ describe('the timing of one request', () => {
     const served = createServerTiming(clock.now)
     for (const ms of [9, 14, 11]) served.sharedRead({ ms, hit: true })
     const missed = createServerTiming(clock.now)
-    missed.sharedRead({ ms: 150, hit: false })
+    missed.sharedRead({ ms: 300, hit: false })
     clock.advance(14)
 
     // A first open that another instance's work answered: no upstream is named at all.
     expect(served.header()).toBe('cache;dur=14;desc="Cache 3 of 3", total;dur=14')
-    expect(missed.header()).toBe('cache;dur=150;desc="Cache 0 of 1", total;dur=14')
+    expect(missed.header()).toBe('cache;dur=300;desc="Cache 0 of 1", total;dur=14')
   })
 
   it('names no shared cache for a request that read none: an answer out of memory is no read', async () => {

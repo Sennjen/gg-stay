@@ -544,8 +544,8 @@ describe('the deadline of a shared read', () => {
     return { reading, get, ...shared, ...cacheOver(shared.level) }
   }
 
-  it('is 150 ms', () => {
-    expect(SHARED_CACHE_DEADLINE_MS).toBe(150)
+  it('is 300 ms', () => {
+    expect(SHARED_CACHE_DEADLINE_MS).toBe(300)
   })
 
   it('takes an answer that arrives a millisecond inside it', async () => {
@@ -561,7 +561,7 @@ describe('the deadline of a shared read', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('is a miss at 150 ms and not a moment later, whatever the store goes on to answer', async () => {
+  it('is a miss at 300 ms and not a moment later, whatever the store goes on to answer', async () => {
     const { cache, memory, reading } = slowStore()
     const local = entryOf({ page: 'mine' }, { age: 700_000 })
     memory.held.set('games', local)
@@ -593,14 +593,14 @@ describe('the deadline of a shared read', () => {
 
     const read = cache.get('games/portal-2', { onSharedRead: told })
     await settle()
-    // The store answered after 40 ms, but the loop was busy for 200 — a page being rendered —
+    // The store answered after 40 ms, but the loop was busy for 400 — a page being rendered —
     // so the deadline's timer and the answer are both due in the same turn, and timers run first.
-    vi.advanceTimersByTime(200)
+    vi.advanceTimersByTime(400)
     reading.resolve(remote)
 
     // The answer is taken: it was there before anyone looked.
     expect(await read).toEqual(remote)
-    expect(told).toHaveBeenCalledExactlyOnceWith({ ms: 200, hit: true })
+    expect(told).toHaveBeenCalledExactlyOnceWith({ ms: 400, hit: true })
     expect(warn).not.toHaveBeenCalled()
     // And nothing is paused, nor left scheduled: the next read asks the store.
     await cache.get('games/another')
@@ -613,12 +613,12 @@ describe('the deadline of a shared read', () => {
 
     const read = cache.get('games/portal-2')
     await settle()
-    vi.advanceTimersByTime(200)
+    vi.advanceTimersByTime(400)
     await settle()
     reading.resolve(entryOf({ id: 4200 }))
 
     expect(await read).toBeNull()
-    expect(lines()).toEqual(['[shared-cache] a read took longer than 150 ms; left alone for 30 s'])
+    expect(lines()).toEqual(['[shared-cache] a read took longer than 300 ms; left alone for 30 s'])
   })
 
   it('leaves no timer behind an answer in time, a failure, or a store that throws', async () => {
@@ -771,7 +771,7 @@ describe('a shared store that fails', () => {
 
     expect(await Promise.all(reads)).toEqual([null, null, null])
     expect(get).toHaveBeenCalledTimes(3)
-    expect(lines()).toEqual(['[shared-cache] a read took longer than 150 ms; left alone for 30 s'])
+    expect(lines()).toEqual(['[shared-cache] a read took longer than 300 ms; left alone for 30 s'])
   })
 
   it('says so again for the next pause, when it is still down after the first', async () => {

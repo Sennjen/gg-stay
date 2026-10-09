@@ -36,8 +36,19 @@ import type { CacheReadOptions, CacheWriteOptions } from './createUpstreamFetch'
  * cache is the memory it was given and nothing else.
  */
 
-/** How long a read of the shared level may take before it counts as a miss. */
-export const SHARED_CACHE_DEADLINE_MS = 150
+/**
+ * How long a read of the shared level may take before it counts as a miss: 300 ms.
+ *
+ * Measured on a preview of this change on 2026-10-09, in `fra1`: on an instance that had just
+ * started — which is where the shared level earns its keep, since a new instance has nothing in
+ * memory — the slowest read of a game page took 63, 68 and 106 ms in three samples. The 150 ms
+ * this began with left that too little room: a read that misses its deadline is not only a miss,
+ * it leaves the store alone for a whole pause on an instance that has nothing else to answer
+ * from. 300 ms is about three times the slowest read seen, and still well inside the shortest
+ * wait a page allows an upstream (one second, for the live price). It is also the most a request
+ * can wait in the limiter's line for a read in front of it (`takePlace`).
+ */
+export const SHARED_CACHE_DEADLINE_MS = 300
 
 /** How long the shared level is left alone after a read of it failed or ran past its deadline. */
 export const SHARED_CACHE_PAUSE_MS = 30_000
