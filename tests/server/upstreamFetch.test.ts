@@ -1824,8 +1824,10 @@ describe('a limiter with a burst allowance', () => {
     ['is given a burst of one', 1],
     ['is given a burst of none', 0],
     ['is given a burst of less than none', -2],
+    ['is given a burst of one and a half', 1.5],
     ['is given a burst that is no number', Number.NaN],
     ['is given a burst without end', Number.POSITIVE_INFINITY],
+    ['is given a burst too large to count a wait from', Number.MAX_VALUE],
   ])(
     'is not there for an upstream that %s: a request per interval, as ever',
     async (_what, burst) => {
@@ -1857,6 +1859,15 @@ describe('a limiter with a burst allowance', () => {
       ['games/4', 250],
       ['games/5', 500],
     ])
+  })
+
+  it('is a whole number of requests: of two and nine tenths, two leave together', async () => {
+    const { ask, at, times } = paced(2.9)
+    const calls = ask(4)
+    await at(2 * INTERVAL)
+    await Promise.all(calls)
+
+    expect(times()).toEqual([0, 0, 250, 500])
   })
 
   it.each([
@@ -1975,6 +1986,50 @@ describe('a limiter with a burst allowance', () => {
     // A fourth request, asked for the moment they left, is an interval behind them. Counted from
     // the moment the game was asked for, it would have been let out after 150 ms.
     calls.push(fetchUpstream({ key: 'games/next' }))
+    await settle()
+    expect(vi.mocked(made.runtime.sleep).mock.calls).toEqual([[250]])
+
+    for (const request of made.sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('is counted from the moment it left for calls that stood behind another call’s slow read', async () => {
+    const made = makeRuntime()
+    const reads = new Map<string, { end: () => void; told?: (read: SharedRead) => void }>()
+    vi.mocked(made.runtime.cache.get).mockImplementation(
+      (key, options) =>
+        new Promise((resolve) => {
+          const entry = key === 'genres' ? { value: { genres: [] }, expiresAt: 2_000_000 } : null
+          reads.set(key, { end: () => resolve(entry), told: options?.onSharedRead })
+        }),
+    )
+    const fetchUpstream = createUpstreamFetch({ ...config, burst: 3 }, made.runtime)
+
+    // A taxonomy the shared level holds, and three lists asked for with it, which read memory
+    // alone and stand in the line behind it.
+    const taxonomy = fetchUpstream({ key: 'genres' })
+    const lists = ['games?page=1', 'games?page=2', 'games?page=3']
+    const calls = lists.map((key) => fetchUpstream({ key }))
+    await settle()
+    for (const key of lists) reads.get(key)!.end()
+    await settle()
+    expect(made.sent).toHaveLength(0)
+
+    // The shared read takes 120 ms to find the taxonomy, which takes no slot; the three lists
+    // then leave together, 120 ms after they were asked for.
+    made.advance(120)
+    reads.get('genres')!.told?.({ ms: 120, hit: true })
+    reads.get('genres')!.end()
+    expect(await taxonomy).toEqual({ genres: [] })
+    await settle()
+    expect(made.sent.map(pathOf)).toEqual(lists)
+    expect(made.runtime.sleep).not.toHaveBeenCalled()
+
+    // A fourth list, asked for as they leave, is an interval behind them. Had the burst been
+    // counted from the moment the three were asked for, it would have waited 130 ms.
+    calls.push(fetchUpstream({ key: 'games?page=4' }))
+    await settle()
+    reads.get('games?page=4')!.end()
     await settle()
     expect(vi.mocked(made.runtime.sleep).mock.calls).toEqual([[250]])
 

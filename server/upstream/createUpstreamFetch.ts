@@ -205,8 +205,9 @@ export interface UpstreamConfig<TRequest> {
    * request per interval and at the most `n` on top — and only the first requests after a pause
    * are sooner.
    *
-   * Anything but a number above one counts as one: a limiter is not switched off by a value it
-   * cannot read.
+   * It is a whole number of requests: a fraction is dropped, so two and a half is two. Anything
+   * else — less than two, no number at all, or a number too large to count a wait from — counts
+   * as one: a limiter is not switched off by a value it cannot read.
    */
   burst?: number
   timeoutMs: number
@@ -343,12 +344,14 @@ function isTimeout(error: unknown): boolean {
 
 /**
  * How far ahead of its slot a request may leave, for a limiter given this burst: an interval for
- * every request of the burst past the first, and nothing for a burst of one or for a value that
- * is no burst at all (`UpstreamConfig.burst`).
+ * every whole request of the burst past the first, and nothing for a burst of one or for a value
+ * that is no burst at all (`UpstreamConfig.burst`). A tolerance that is not a finite number would
+ * let every request out at once, so that is nothing too.
  */
 function burstToleranceMs(burst: number | undefined, minIntervalMs: number): number {
-  const requests = burst !== undefined && Number.isFinite(burst) && burst > 1 ? burst : 1
-  return (requests - 1) * minIntervalMs
+  const requests = burst !== undefined && burst > 1 ? Math.floor(burst) : 1
+  const tolerance = (requests - 1) * minIntervalMs
+  return Number.isFinite(tolerance) ? tolerance : 0
 }
 
 export function createUpstreamFetch<TRequest>(
@@ -370,6 +373,12 @@ export function createUpstreamFetch<TRequest>(
    * further ahead than that and leave at once, and the fourth waits out the first interval. Each
    * of them moved the slot on by an interval, so the allowance comes back at one request per
    * interval and no faster.
+   *
+   * Every request is counted here and by the same rule, whoever it is for: a first attempt, a
+   * retry, a refresh behind a stale answer. So a retry takes the next request of the allowance
+   * like any other — behind a spent burst it waits an interval, and after a request that failed
+   * alone and quickly it leaves at once, where a limiter without a burst holds it back to the
+   * interval — and the refreshes of one stale page leave together as its requests would.
    *
    * With a burst of one the tolerance is nothing, and a request leaves at its slot, as it always
    * did.
@@ -473,8 +482,9 @@ export function createUpstreamFetch<TRequest>(
    * like. The reads themselves are not queued — every call's is out at once — so the line is as
    * slow as its slowest read and no slower, and the cache bounds that.
    *
-   * It holds only first attempts. A retry takes the next slot when it is ready for one, as it
-   * always did; it was first in line once already.
+   * It holds only first attempts. A retry does not stand here: it goes to the limiter when it is
+   * ready for a slot, as it always did, and is counted there like any request (see the limiter);
+   * it was first in line once already.
    *
    * A place must be left, whatever becomes of its call: a place nobody leaves holds up every
    * request behind it for good. `leave` may be called more than once, and `load` and
