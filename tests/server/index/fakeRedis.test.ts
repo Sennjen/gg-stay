@@ -189,6 +189,32 @@ describe('fakeRedis', () => {
     expect(absent.value).toEqual({})
   })
 
+  it('reads one hash field, and null for a field or a hash that is not there', async () => {
+    const redis = createFakeRedis()
+    const batch = redis.pipeline()
+    batch.hset('slugs', { 'kite-keep': '35', 'Kite-Keep': '36' })
+    const found = batch.hget('slugs', 'kite-keep')
+    // A field is matched byte for byte, as Redis matches it: another case is another field.
+    const otherCase = batch.hget('slugs', 'Kite-Keep')
+    const unknownCase = batch.hget('slugs', 'KITE-KEEP')
+    const noField = batch.hget('slugs', 'nomad-nest')
+    const noHash = batch.hget('nothing', 'kite-keep')
+    await batch.exec()
+    expect(found.value).toBe('35')
+    expect(otherCase.value).toBe('36')
+    expect(unknownCase.value).toBeNull()
+    expect(noField.value).toBeNull()
+    expect(noHash.value).toBeNull()
+  })
+
+  it('refuses to read a hash field from a key that is not a hash', async () => {
+    const redis = createFakeRedis()
+    const batch = redis.pipeline()
+    batch.set('pointer', '7')
+    batch.hget('pointer', 'kite-keep')
+    await expect(batch.exec()).rejects.toThrow(/WRONGTYPE/)
+  })
+
   it('runs every command of a batch and undoes none of them, as Redis does', async () => {
     const redis = createFakeRedis()
     const seed = redis.pipeline()
@@ -270,6 +296,7 @@ describe('fakeRedis', () => {
       const union = batch.sunion(['facet', 'other'])
       const order = batch.zrangeAll('order')
       const range = batch.zrangebyscore('order', '-inf', '+inf')
+      const name = batch.hget('names', '1')
       const names = batch.hgetall('names')
       await batch.exec()
 
@@ -279,6 +306,7 @@ describe('fakeRedis', () => {
       expect([...union.value].sort()).toEqual(['1', '2', '3'])
       expect(order.value).toEqual(['1'])
       expect(range.value).toEqual(['1'])
+      expect(name.value).toBe('alpha')
       expect(names.value).toEqual({ '1': 'alpha' })
     })
   })

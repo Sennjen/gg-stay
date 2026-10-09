@@ -12,8 +12,8 @@ import { createUpstashCommands, createUpstashIndex } from './upstashIndex'
  * matters:
  *
  * - **Configured to know nothing** (`unavailableGameIndex`) answers quietly: `meta()` is `null`,
- *   `getMany` and `getOne` find nothing, only `search` rejects. Nothing failed, so nothing is
- *   logged and no page reports the index as stale.
+ *   `getMany`, `getOne` and `idBySlug` find nothing, only `search` rejects. Nothing failed, so
+ *   nothing is logged and no page reports the index as stale.
  * - **Something went wrong** — a rejection, or a call that passed its deadline —
  *   (`degradeOnFailure`) rejects from *every* method with `IndexUnavailableError`. A caller has to
  *   be able to tell "this index holds nothing" from "this index just let me down", because a
@@ -49,15 +49,21 @@ export function unavailableGameIndex(reason: string): GameIndex {
     search: (): Promise<IndexSearchResult> => Promise.reject(new IndexUnavailableError(reason)),
     getMany: async (): Promise<Map<number, IndexedGame>> => new Map(),
     getOne: async (): Promise<IndexedGame | null> => null,
+    // "This index holds no such game", which is what a slug outside the index answers as well.
+    idBySlug: async (): Promise<number | null> => null,
     meta: async (): Promise<IndexMeta | null> => null,
     allSlugs: async (): Promise<IndexedSlug[]> => [],
+    // There is no store behind it, and it says so rather than saying nothing: none of its
+    // answers is a call to anything, which is what whoever counts a request's calls reads here.
+    storeRequests: () => 0,
   }
 }
 
 /**
  * The same index, with whatever the transport raised turned into one `IndexUnavailableError`.
  *
- * Every method rejects, including the three that could answer "nothing" instead. The difference
+ * Every method rejects, including the ones that could answer "nothing" instead — `idBySlug` among
+ * them, for which `null` already means "the index does not hold this game". The difference
  * between "this index holds nothing" and "this index just failed" is one a caller has to be able
  * to see: a request that has been let down once stops asking for the rest of its life (see
  * `indexFailed` in `server/graphql/indexPath.ts`), and a quiet empty answer would hide that and
@@ -84,9 +90,24 @@ export function degradeOnFailure(
     search: (query: IndexQuery) => attempt(() => index.search(query)),
     getMany: (ids: number[]) => attempt(() => index.getMany(ids)),
     getOne: (id: number) => attempt(() => index.getOne(id)),
+    idBySlug: (slug: string) => attempt(() => index.idBySlug(slug)),
     meta: () => attempt(() => index.meta()),
     allSlugs: () => attempt(() => index.allSlugs()),
+    ...forwardStoreRequests(index),
   }
+}
+
+/**
+ * `storeRequests` of the index a wrapper stands in front of, to be spread into the wrapper — or
+ * nothing, for an index that does not count: a wrapper must not invent a count its index does
+ * not keep, because a missing one means "take every answer at face value" (`GameIndex`).
+ *
+ * Every layer passes it on. The circuit needs it from the adapter through the deadline, and the
+ * request's timing reads it on the outermost layer — the index a resolver holds — to leave out of
+ * the `Server-Timing` header a read that reached no store (`server/graphql/serverTiming.ts`).
+ */
+function forwardStoreRequests(index: GameIndex): Pick<GameIndex, 'storeRequests'> {
+  return index.storeRequests ? { storeRequests: () => index.storeRequests!() } : {}
 }
 
 /**
@@ -168,8 +189,12 @@ export function withDeadline(
     search: (query) => race(() => index.search(query)),
     getMany: (ids) => race(() => index.getMany(ids)),
     getOne: (id) => race(() => index.getOne(id)),
+    idBySlug: (slug) => race(() => index.idBySlug(slug)),
     meta: () => race(() => index.meta()),
     allSlugs: () => race(() => index.allSlugs(), bulkTimeoutMs),
+    // Not a call to race: what the adapter has sent so far, passed on because the circuit is
+    // wrapped around this and has to see it. An index that does not count says nothing here.
+    ...forwardStoreRequests(index),
   }
 }
 
@@ -184,6 +209,14 @@ export function withDeadline(
  * page would keep paying for an enhancement it is not getting in time. Three *consecutive* slow
  * answers, rather than three anywhere, is what keeps a single slow call during normal traffic
  * from closing the index: one fast answer puts the count back to zero.
+ *
+ * Only an answer the store gave is such an answer. An adapter can answer without asking — the
+ * Upstash one remembers the slugs it has found and refuses the ones it cannot hold — and a game
+ * page asks for its slug between its metadata and its document: taken for a fast answer, that
+ * would wipe the count out twice a page, and a store that crawled would never be skipped. So when
+ * the index says how many requests it has sent (`storeRequests`), a call that sent none is left
+ * out of the count altogether: not a strike, and not a clean slate. An index that does not say is
+ * taken at its word, as before.
  *
  * Deliberately tiny otherwise: no half-open state, no failure rate. The index is an enhancement,
  * the cost of skipping it for thirty seconds is a page without prices, and the cost of not
@@ -219,6 +252,7 @@ export function withCircuit(
       throw new IndexUnavailableError('it failed recently and is being skipped')
     }
     const startedAt = now()
+    const sentBefore = index.storeRequests?.()
     let value: T
     try {
       value = await call()
@@ -226,6 +260,10 @@ export function withCircuit(
       open('failed')
       throw error as Error
     }
+    // Answered without asking the store: no evidence about the store, either way. Another call
+    // sending a request in the same instant makes this one look as if it had, and it is then
+    // counted as the fast answer it would always have been — the harmless direction to be wrong.
+    if (sentBefore !== undefined && index.storeRequests?.() === sentBefore) return value
     if (now() - startedAt <= slowMs) {
       strikes = 0
       return value
@@ -241,6 +279,9 @@ export function withCircuit(
     search: (query) => through(() => index.search(query)),
     getMany: (ids) => through(() => index.getMany(ids)),
     getOne: (id) => through(() => index.getOne(id)),
+    // A page read like `getOne`, and judged like one: a slug lookup that fails or crawls says the
+    // same about the store as a document read that does.
+    idBySlug: (slug) => through(() => index.idBySlug(slug)),
     meta: () => through(() => index.meta()),
     // The sitemap read respects an open circuit — a store the pages have given up on is not asked
     // for its whole version — but never feeds it: reading thousands of documents is slow by
@@ -252,6 +293,9 @@ export function withCircuit(
       }
       return index.allSlugs()
     },
+    // A read the open circuit turns away sends nothing, and this is how that can be seen from
+    // outside: the count stands still across it.
+    ...forwardStoreRequests(index),
   }
 }
 

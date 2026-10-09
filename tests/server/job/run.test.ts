@@ -15,9 +15,16 @@ import {
   INDEX_FORCE_AFTER_MS,
   INDEX_LOCK_TTL_SECONDS,
 } from '../../../scripts/index/writer'
-import { JOB_PAGE_COUNT, JOB_STUDIO_GAMES, jobGamesPage } from '../../fixtures/index/jobCatalog'
+import {
+  JOB_APP_IDS,
+  JOB_PAGE_COUNT,
+  JOB_STUDIO_GAMES,
+  jobGamesPage,
+} from '../../fixtures/index/jobCatalog'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../../shared/ukrainianStudios'
-import { RedisBatchError } from '../../../server/index/upstashIndex'
+import type { IndexedGame } from '../../../server/index/document'
+import { createUpstashIndex, RedisBatchError } from '../../../server/index/upstashIndex'
+import { createFakeRedis } from '../index/fakeRedis'
 import { createJobHarness, type RawgCall } from './harness'
 
 const RUN_AT = '2026-09-20T03:00:00.000Z'
@@ -377,6 +384,302 @@ describe('runJob and the similar games', () => {
     })
     await runJob(weekLater.deps, { mode: 'languages', pages: 1, forceUnlock: false })
     expect((await weekLater.writer.getOne(101))?.similar).toEqual(published!.similar)
+  })
+})
+
+describe('runJob and the Steam app ids', () => {
+  const PRICES = { mode: 'prices', pages: 1, forceUnlock: false } as const
+  const LANGUAGES = { mode: 'languages', pages: 1, forceUnlock: false } as const
+
+  /** What every published document says about its Steam app, by RAWG id. */
+  const appIdsOf = (documents: IndexedGame[]) =>
+    Object.fromEntries(documents.map((game) => [game.id, game.steamAppId]))
+
+  /** The mapping the job keeps, as the documents should repeat it: no empty "has none" marker. */
+  const MAPPED = {
+    101: '411000',
+    102: '412000',
+    103: undefined,
+    104: undefined,
+    105: '415000',
+    106: '416000',
+    107: '417000',
+    108: '418000',
+    109: undefined,
+  }
+
+  /** Republishes the live version as a build that knew nothing of `steamAppId` would have. */
+  async function republishWithoutAppIds(writer: ReturnType<typeof createJobHarness>['writer']) {
+    const legacy = (await writer.allGames()).map(({ steamAppId: _appId, ...game }) => game)
+    const version = await writer.beginVersion()
+    await writer.writeVersion(version, legacy)
+    await writer.publish(version, { ...(await writer.meta())!, version })
+  }
+
+  it('publishes the app id on every document of a full run that has one', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+
+    await runJob(harness.deps, FULL)
+
+    const documents = await harness.writer.allGames()
+    expect(documents).toHaveLength(10)
+    // The studio game appended after the candidates gets its id exactly as a candidate does.
+    expect(appIdsOf(documents)).toEqual({ ...MAPPED, 110: '420000' })
+    for (const game of documents) {
+      // Left out, not written empty: 104 is known to have no Steam page, 103 and 109 are not on
+      // Steam at all.
+      expect('steamAppId' in game, `game ${game.id}`).toBe(Boolean(JOB_APP_IDS[game.id]))
+    }
+    expect(harness.logs).toContain('app ids: 7 of 10 documents carry their Steam app id')
+  })
+
+  it('publishes it again on every document of a prices-only run', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+
+    const later = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    const report = await runJob(later.deps, PRICES)
+
+    expect(report.outcome?.meta.version).toBe(2)
+    expect(appIdsOf(await later.writer.allGames())).toEqual(MAPPED)
+    expect(later.logs).toContain('app ids: 6 of 9 documents carry their Steam app id')
+  })
+
+  it('gives documents published without one their app id on the next prices-only run', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+    await republishWithoutAppIds(harness.writer)
+    expect(appIdsOf(await harness.writer.allGames())).toEqual(
+      Object.fromEntries(Object.keys(MAPPED).map((id) => [id, undefined])),
+    )
+
+    const later = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    const report = await runJob(later.deps, PRICES)
+
+    // From the permanent mapping alone: the run that fills the documents in asks RAWG nothing.
+    expect(report.outcome?.published).toBe(true)
+    expect(later.calls).toHaveLength(0)
+    expect(appIdsOf(await later.writer.allGames())).toEqual(MAPPED)
+    expect(await later.writer.getOne(101)).toMatchObject({ steamAppId: '411000', priceUah: 675 })
+  })
+
+  it('gives them their app id on a languages run as well', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+    await republishWithoutAppIds(harness.writer)
+
+    const weekLater = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-28T03:00:00.000Z',
+    })
+    await runJob(weekLater.deps, LANGUAGES)
+
+    expect(weekLater.calls).toHaveLength(0)
+    expect(appIdsOf(await weekLater.writer.allGames())).toEqual(MAPPED)
+  })
+
+  it('republishes the mapping, not what the published documents happened to carry', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+    // A published version whose documents disagree with the mapping: a wrong id, an id on a game
+    // the mapping says has no Steam page, and one on a game that was never on Steam.
+    const wrong = (await harness.writer.allGames()).map((game) => ({
+      ...game,
+      ...(game.id === 101 ? { steamAppId: '999999' } : {}),
+      ...(game.id === 104 ? { steamAppId: '888888' } : {}),
+      ...(game.id === 109 ? { steamAppId: '777777' } : {}),
+    }))
+    const version = await harness.writer.beginVersion()
+    await harness.writer.writeVersion(version, wrong)
+    await harness.writer.publish(version, { ...(await harness.writer.meta())!, version })
+
+    const later = createJobHarness({ writer: harness.writer, start: '2026-09-20T09:00:00.000Z' })
+    await runJob(later.deps, PRICES)
+
+    expect(appIdsOf(await later.writer.allGames())).toEqual(MAPPED)
+  })
+
+  it('keeps the app id of a game RAWG stops listing on Steam, in every kind of run', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+    expect(await harness.writer.getOne(101)).toMatchObject({
+      stores: ['steam', 'gog'],
+      steamAppId: '411000',
+      priceUah: 675,
+      priceUpdatedAt: RUN_AT,
+      localisation: { text: true, audio: true, updatedAt: RUN_AT },
+    })
+
+    // A later night — late enough for every language record to be due again — RAWG's list entry
+    // for the game carries GOG alone. Nothing has said its Steam page is gone: the permanent
+    // mapping still names the app.
+    const laterNight = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-28T03:00:00.000Z',
+    })
+    const firstPage = jobGamesPage(1)
+    laterNight.answerNextWith(
+      (call) => call.path === 'games' && !call.params.developers && call.params.page === '1',
+      {
+        ...firstPage,
+        results: firstPage.results!.map((game) =>
+          game.id === 101
+            ? { ...game, stores: game.stores!.filter((entry) => entry.store?.slug !== 'steam') }
+            : game,
+        ),
+      },
+    )
+    const full = await runJob(laterNight.deps, FULL)
+
+    expect(full.outcome?.published).toBe(true)
+    const afterFull = await laterNight.writer.getOne(101)
+    expect(afterFull?.stores).toEqual(['gog'])
+    expect(afterFull?.steamAppId).toBe('411000')
+    // The document repeats the mapping; nothing else about the run changed for it. The game was
+    // not looked up again, and the price and language stages — which work from tonight's Steam
+    // games — asked Steam about the five others and not about this one, so it keeps the price
+    // and the language record it was published with.
+    expect(laterNight.storeCalls()).toHaveLength(0)
+    expect(laterNight.priceBatches).toEqual([['412000', '415000', '416000', '417000', '418000']])
+    expect(laterNight.languageCalls.map((call) => call.appId).sort()).toEqual([
+      '412000',
+      '415000',
+      '416000',
+      '417000',
+      '418000',
+    ])
+    expect(afterFull).toMatchObject({
+      priceUah: 675,
+      priceUpdatedAt: RUN_AT,
+      localisation: { text: true, audio: true, updatedAt: RUN_AT },
+    })
+    // Every other document is as the mapping has it, as on any night.
+    expect(appIdsOf(await laterNight.writer.allGames())).toEqual(MAPPED)
+
+    const morning = createJobHarness({ writer: harness.writer, start: '2026-09-28T09:15:00.000Z' })
+    await runJob(morning.deps, PRICES)
+
+    // The same id after both, so the game's page does not gain and lose its Steam offer with the
+    // hour of the day — and the prices run, which reads the mapping for every published game,
+    // goes on pricing it as it always did.
+    const afterPrices = await morning.writer.getOne(101)
+    expect(afterPrices?.steamAppId).toBe(afterFull?.steamAppId)
+    expect(morning.priceBatches.flat()).toContain('411000')
+    expect(afterPrices).toMatchObject({
+      stores: ['gog'],
+      steamAppId: '411000',
+      priceUah: 675,
+      priceUpdatedAt: '2026-09-28T09:15:00.000Z',
+    })
+    expect(appIdsOf(await morning.writer.allGames())).toEqual(MAPPED)
+  })
+
+  it('keeps the app ids on the next full run, on re-appended studio games too', async () => {
+    const harness = createJobHarness({ start: RUN_AT, studios: JOB_STUDIO_GAMES })
+    await runJob(harness.deps, FULL)
+
+    // Tonight one studio lists nothing, so its published game is re-appended whole — with the
+    // app id it was published with, which the mapping then confirms.
+    const nextNight = createJobHarness({
+      writer: harness.writer,
+      start: '2026-09-21T03:00:00.000Z',
+      studios: { frogwares: JOB_STUDIO_GAMES.frogwares! },
+    })
+    const report = await runJob(nextNight.deps, FULL)
+
+    expect(report.studios).toMatchObject({ kept: 1 })
+    expect(appIdsOf(await nextNight.writer.allGames())).toEqual({ ...MAPPED, 110: '420000' })
+  })
+})
+
+/**
+ * The job against the adapter production writes through, over the fake store, and a reader that
+ * holds what the site holds: a read-only token. What the game page will ask — "which game is this
+ * slug, and what is its Steam app" — has to be answerable from what either kind of run published.
+ */
+describe('runJob through the Upstash adapter', () => {
+  const PRICES = { mode: 'prices', pages: 1, forceUnlock: false } as const
+
+  it('publishes slugs and app ids a read-only reader finds, in both kinds of run', async () => {
+    const redis = createFakeRedis()
+    const reader = createUpstashIndex(redis.readOnly(), { currentVersionTtlMs: 0 })
+    expect(await reader.idBySlug('hollow-cradle')).toBeNull()
+
+    const night = createJobHarness({
+      start: RUN_AT,
+      writer: createUpstashIndex(redis, { runId: 'the-full-run' }),
+    })
+    const full = await runJob(night.deps, FULL)
+
+    expect(full.outcome?.meta.version).toBe(1)
+    expect(await reader.idBySlug('hollow-cradle')).toBe(101)
+    expect(await reader.getOne(101)).toMatchObject({ slug: 'hollow-cradle', steamAppId: '411000' })
+    // On Steam's list at RAWG, but with no Steam page: found by its slug, and no app id on it.
+    expect(await reader.idBySlug('frost-relay')).toBe(104)
+    expect('steamAppId' in (await reader.getOne(104))!).toBe(false)
+    expect(redis.keys()).toContain('idx:v1:slugs')
+
+    const morning = createJobHarness({
+      start: '2026-09-20T09:00:00.000Z',
+      writer: createUpstashIndex(redis, { runId: 'the-prices-run' }),
+    })
+    const prices = await runJob(morning.deps, PRICES)
+
+    // A new version, with a slug hash and app ids of its own: nothing is borrowed from the one it
+    // replaced, which stays whole behind it for a reader still on the old pointer.
+    expect(prices.outcome?.meta.version).toBe(2)
+    expect(morning.calls).toHaveLength(0)
+    expect(redis.keys()).toContain('idx:v2:slugs')
+    expect(redis.keys()).toContain('idx:v1:slugs')
+    for (const [slug, id] of [
+      ['hollow-cradle', 101],
+      ['amber-trail', 106],
+      ['lost-canton', 109],
+    ] as const) {
+      expect(await reader.idBySlug(slug), slug).toBe(id)
+      expect((await reader.getOne(id))?.steamAppId, slug).toBe(JOB_APP_IDS[id] || undefined)
+    }
+    expect((await reader.meta())?.version).toBe(2)
+  })
+
+  it('reports the traffic the store actually saw, the slug hash included', async () => {
+    const redis = createFakeRedis()
+    const seen = () => ({
+      requests: redis.requests.length,
+      commands: redis.requests.reduce((total, request) => total + request.commands.length, 0),
+    })
+    const hashWrites = () =>
+      redis.requests.flatMap((request) => request.commands).filter((name) => name === 'hset').length
+
+    const night = createJobHarness({
+      start: RUN_AT,
+      writer: createUpstashIndex(redis, { runId: 'the-full-run' }),
+    })
+    const full = await runJob(night.deps, FULL)
+
+    // Nine games: one `HSET` each for the names and the slugs while the version is written, and
+    // the publication's own for the metadata. Nothing the run sent is missing from its report.
+    expect(hashWrites()).toBe(3)
+    expect(full.writes).toMatchObject(seen())
+    expect(formatSummary(full)).toContain(
+      `| Index traffic | ${seen().requests} requests, ${seen().commands} commands, `,
+    )
+
+    const before = seen()
+    const beforeHashWrites = hashWrites()
+    const morning = createJobHarness({
+      start: '2026-09-20T09:00:00.000Z',
+      writer: createUpstashIndex(redis, { runId: 'the-prices-run' }),
+    })
+    const prices = await runJob(morning.deps, PRICES)
+
+    // A prices-only run writes a whole version too, so it pays for the slug hash as well.
+    expect(hashWrites() - beforeHashWrites).toBe(3)
+    expect(prices.writes).toMatchObject({
+      requests: seen().requests - before.requests,
+      commands: seen().commands - before.commands,
+    })
+    expect(prices.writes!.bytes).toBeGreaterThan(0)
   })
 })
 

@@ -246,7 +246,9 @@
     "localisationNone": "None",
     "origin": "Origin",
     "madeInUkraine": "Made in Ukraine",
-    "similar": "Similar games"
+    "similar": "Similar games",
+    "stillLoading": "Some of this page is still loading…",
+    "notLoaded": "Some of this page didn't load. Try reloading it later."
   },
   "gallery": {
     "heading": "Screenshots",

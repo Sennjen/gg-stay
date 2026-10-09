@@ -174,6 +174,10 @@ export function createFakeSteam(clock: JobClock): FakeSteam {
       }
       return new Map(appIds.map((id) => [id, parseSteamPrice(steamPrices[id])]))
     },
+    // The game page's read of one app. The job prices in batches and never asks this way.
+    fetchPrice: async () => {
+      throw new Error("the refresh job was not expected to read one app's price")
+    },
     fetchAppLanguages: async (appId): Promise<SteamAppLanguages> => {
       languageCalls.push({ appId, at: clock.now() })
       if (failures.has(appId)) {

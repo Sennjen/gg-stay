@@ -2,6 +2,7 @@ import type { GameIndex, IndexQuery } from '../../../server/index/GameIndex'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex, type MemoryGameIndex } from '../../../server/index/memoryIndex'
 import type { GraphQLContext, ResolverCache } from '../../../server/graphql/context'
+import { timedContext } from '../../../server/graphql/serverTiming'
 import { createYogaApp } from '../../../server/graphql/yoga'
 import type { RawgFetch } from '../../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../../server/steam/steamFetch'
@@ -59,13 +60,19 @@ const notExpected = (what: string) => () => {
 
 /** A Steam price transport that answers nothing, for the paths that must not call one. */
 export const noSteamPrices: SteamPriceFetch = {
-  fetchPrices: notExpected('price'),
+  fetchPrices: notExpected('batched price'),
+  fetchPrice: notExpected('price'),
   fetchAppLanguages: notExpected('language'),
 }
 
 /**
- * The live price path the game page uses. It calls `fetchPrices`, never `fetchAppLanguages` — the
- * former is the uncached read, and a test that let the latter answer would hide that.
+ * The live price path the game page uses. It calls `fetchPrice` — the uncached read of one app,
+ * the one that tells "Steam has no price" from an answer that is not one — and never the batched
+ * `fetchPrices`, which is the refresh job's, nor `fetchAppLanguages`, which is cached for a day; a
+ * test that let either of those answer would hide that.
+ *
+ * `price` answers as `fetchPrice` does: a price, `null` for "Steam has none for this app", or a
+ * throw for a read that failed. `calls` is every app that was asked about, in order.
  */
 export function steamPricesReturning(
   price: (appId: string) => Promise<SteamPrice | null> | SteamPrice | null,
@@ -73,14 +80,11 @@ export function steamPricesReturning(
   const calls: string[] = []
   return {
     calls,
+    fetchPrices: notExpected('batched price'),
     fetchAppLanguages: notExpected('language'),
-    fetchPrices: async (appIds) => {
-      const answers = new Map<string, SteamPrice | null>()
-      for (const appId of appIds) {
-        calls.push(appId)
-        answers.set(appId, await price(appId))
-      }
-      return answers
+    fetchPrice: async (appId) => {
+      calls.push(appId)
+      return price(appId)
     },
   }
 }
@@ -117,12 +121,24 @@ export function createTestCache(): CountingCache {
 }
 
 export interface CountingIndex extends GameIndex {
-  readonly calls: { search: IndexQuery[]; getMany: number[][]; getOne: number[]; meta: number }
+  readonly calls: {
+    search: IndexQuery[]
+    getMany: number[][]
+    getOne: number[]
+    idBySlug: string[]
+    meta: number
+  }
 }
 
 /** The same index, with every call recorded, so a test can pin "exactly one `getMany`". */
 export function countCalls(index: GameIndex): CountingIndex {
-  const calls: CountingIndex['calls'] = { search: [], getMany: [], getOne: [], meta: 0 }
+  const calls: CountingIndex['calls'] = {
+    search: [],
+    getMany: [],
+    getOne: [],
+    idBySlug: [],
+    meta: 0,
+  }
   return {
     calls,
     search: (query) => {
@@ -136,6 +152,10 @@ export function countCalls(index: GameIndex): CountingIndex {
     getOne: (id) => {
       calls.getOne.push(id)
       return index.getOne(id)
+    },
+    idBySlug: (slug) => {
+      calls.idBySlug.push(slug)
+      return index.idBySlug(slug)
     },
     meta: () => {
       calls.meta += 1
@@ -173,6 +193,7 @@ export function overriding(index: GameIndex, overrides: Partial<GameIndex>): Gam
     search: (query) => (overrides.search ?? index.search.bind(index))(query),
     getMany: (ids) => (overrides.getMany ?? index.getMany.bind(index))(ids),
     getOne: (id) => (overrides.getOne ?? index.getOne.bind(index))(id),
+    idBySlug: (slug) => (overrides.idBySlug ?? index.idBySlug.bind(index))(slug),
     meta: () => (overrides.meta ?? index.meta.bind(index))(),
     allSlugs: () => (overrides.allSlugs ?? index.allSlugs.bind(index))(),
   }
@@ -189,12 +210,9 @@ export interface QueryResult {
   errors?: { message: string; extensions?: { code?: string } }[]
 }
 
-export async function runQuery(
-  context: TestContext,
-  query: string,
-  variables: Record<string, unknown> = {},
-): Promise<QueryResult> {
-  const yoga = createYogaApp(() => ({
+/** The context a suite's resolvers run in: the doubles above, and whatever the suite replaces. */
+function testContext(context: TestContext): GraphQLContext {
+  return {
     rawg: fixtureRawg,
     steam: fixtureSteam,
     today: TEST_TODAY,
@@ -203,13 +221,37 @@ export async function runQuery(
     steamPrices: noSteamPrices,
     cache: noCache,
     ...context,
-  }))
-  const response = await yoga.fetch('http://test/api/graphql', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  })
+  }
+}
+
+const post = (query: string, variables: Record<string, unknown>): RequestInit => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ query, variables }),
+})
+
+export async function runQuery(
+  context: TestContext,
+  query: string,
+  variables: Record<string, unknown> = {},
+): Promise<QueryResult> {
+  const yoga = createYogaApp(() => testContext(context))
+  const response = await yoga.fetch('http://test/api/graphql', post(query, variables))
   return (await response.json()) as QueryResult
+}
+
+/**
+ * The same operation, answered with the HTTP response rather than its body, and through a context
+ * whose upstream calls are timed — the way the site's own endpoint builds one
+ * (`server/api/graphql.ts`) — so the response carries the `Server-Timing` header the site sends.
+ */
+export function postQuery(
+  context: TestContext,
+  query: string,
+  variables: Record<string, unknown> = {},
+): Promise<Response> {
+  const yoga = createYogaApp((timing) => timedContext(testContext(context), timing))
+  return Promise.resolve(yoga.fetch('http://test/api/graphql', post(query, variables)))
 }
 
 /** An index that was built but never published: the shape a fresh deployment starts in. */

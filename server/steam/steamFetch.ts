@@ -21,10 +21,14 @@ export interface SteamDeps {
   }
   now: () => number
   sleep: (ms: number) => Promise<void>
+  /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
+  log?: (line: string) => void
 }
 
 export interface SteamFetchOptions {
   ttl?: number
+  /** Called when this call was answered from the cache and Steam was not asked — see `UpstreamFetch`. */
+  onCached?: () => void
 }
 
 export type SteamFetch = (appId: string, options?: SteamFetchOptions) => Promise<unknown>
@@ -72,5 +76,5 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
     deps,
   )
 
-  return (appId, options) => fetchUpstream({ appId, options })
+  return (appId, options) => fetchUpstream({ appId, options }, options?.onCached)
 }

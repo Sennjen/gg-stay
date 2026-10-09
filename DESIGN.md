@@ -277,7 +277,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `LocaleSwitcher`                | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
 | `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
-| `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8; "Схожі ігри" row below the store links in week 2B                                                                                                             |
+| `pages/games/[slug].vue`        | Full restyle (scoreboard row, gallery) in PR 8; "Схожі ігри" row below the store links in week 2B; the "still loading" line over the cover of a page answered in part — see "A game page answered in part"    |
 | `pages/ask.vue`                 | Done — week 3 — natural-language search; rebuilt around Gege, with the games as rows; see "Ask page" below                                                                                                    |
 | `ask/AskResultRow`              | Done — one game of an answer as a row, the reason as its primary line; see "Ask page" below                                                                                                                   |
 | `ask/AskWaiting`                | Done — Gege thinking, a line that changes with the clock, and the outline of the rows; see "Ask page" below                                                                                                   |
@@ -397,6 +397,54 @@ off.
   explanation under it in `fg-2`. It writes `madeInUkraine=1`, has its own chip, counts in the
   badge, and stays while the prices are stale, because it reads no price. The index note now reads
   "3 000 найпопулярніших ігор і всіх ігор українських студій".
+
+### A game page answered in part
+
+The server answers a game page inside a time budget, with what it has by then
+(`docs/specs/2026-10-06-game-page-budget-design.md`). When not everything about the game had
+arrived, the page is `partial`: it may lack its description, RAWG's screenshots, the stores other
+than Steam and the genres, developer and publisher of the facts panel — or, for a Steam game the
+index does not hold, only its price. Every section is simply absent until it has data — no
+skeleton, no placeholder — exactly as it is for a game that has none.
+
+- **The line.** One sentence says so — "Some of this page is still loading…" on the English page
+  (it names no section, because what is missing may be the description and the screenshots, the
+  store links, or only a Steam price), `game.stillLoading` in both locale files. It lies over the top-left corner of
+  the cover, level with the title's left edge: 12px `fg-2` on `ink` at 85 % with a `line` border,
+  `rounded-card` — a chip on one line, and still a sound shape when a narrow phone wraps it onto
+  two. It is over the cover rather than in the flow for the reason the made-in-Ukraine label
+  is over a card's: the page with it is laid out exactly as the page without it, so nothing moves
+  when it appears and nothing when it goes. It uses no accent, signal or sale colour and no
+  motion: it is not an action, a live state or a price, and a spinner would promise more than a
+  page that may stay as it is. `fg-2` on that backdrop is 5.45:1 over a pure white cover, the
+  lightest it can be, and 8.13:1 over `ink`.
+- **What happens next.** In the browser, and only there, the page asks again by itself: three
+  seconds after the answer it has, and six seconds after the next one if that is partial too
+  (`useRetryWhilePartial`). A whole answer takes the place of the partial one in one step — the
+  line goes, the sections that now have data appear where they belong, and the cover, the title
+  and the scoreboard stay where they were; what arrives may push what is below it down. The one
+  thing that arrives inside the scoreboard is the Steam price of a game the index does not hold.
+  It takes its own cell there, and the scoreboard grows by a line or a row where the cell needs
+  one: on a phone, where the hero is as tall as its content, that pushes down what is below; from
+  640 px up, where the hero is held at its minimum height with its content on its bottom edge, it
+  lifts the title instead (by 13 to 67 px on the Witcher's page, measured with its price held
+  back). A second partial answer is not shown, and neither is a failure: the page a visitor is
+  reading only ever changes for the whole one.
+- **When the rest does not come.** After two attempts nothing more is asked, and the line stops
+  saying that something is loading: "Some of this page didn't load. Try reloading it later."
+  (`game.notLoaded`), in the same place and the same chip — one line on a wide screen, two where
+  a phone is too narrow for it, still clear of the title. It stays until
+  the visitor reloads or leaves; the page under it is as it was.
+- **Not in the server's markup.** The line follows what the page is doing, and a page does
+  nothing until it is mounted in a browser. So the HTML the server sends for a partial page has
+  the place for the line and no sentence in it: a crawler, or a browser that runs no scripts,
+  keeps the partial page but is not told in its text that anything is still loading.
+- **Announcement.** The line's place is a `role="status"` region that every game page has from
+  its first render, empty and with no box of its own. The sentence is put into it once the page
+  is mounted — a region that is there first and then gets its words is what a screen reader
+  announces, as on the ask page. The attempts in between neither rebuild nor reword the line, so
+  it is announced once; the final sentence takes the first one's place in the same element and is
+  announced once too. What arrives is not announced.
 
 ### Share card (week 2C)
 

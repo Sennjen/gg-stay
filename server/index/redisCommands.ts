@@ -13,9 +13,9 @@
  * the value only exists once the whole batch has been sent.
  *
  * The read half is made of read commands alone — `GET`, `MGET`, `SMEMBERS`, `SUNION`, `ZRANGE`,
- * `ZRANGEBYSCORE`, `HGETALL` — because the site holds a read-only token, and a read-only token
- * refuses a write however harmless the write is. Nothing a request does may store anything: the
- * sets come back as they are and the intersection happens in this process.
+ * `ZRANGEBYSCORE`, `HGET`, `HGETALL` — because the site holds a read-only token, and a read-only
+ * token refuses a write however harmless the write is. Nothing a request does may store anything:
+ * the sets come back as they are and the intersection happens in this process.
  */
 
 export interface RedisResult<T> {
@@ -34,6 +34,11 @@ export interface RedisBatch {
   zrangeAll(key: string): RedisResult<string[]>
   /** The members within a score range. Bounds as Redis writes them: a number, `(n`, `-inf`, `+inf`. */
   zrangebyscore(key: string, min: string, max: string): RedisResult<string[]>
+  /**
+   * One field of a hash; `null` when the hash has no such field, and when there is no such hash.
+   * The field is a value, not a key name: it is sent exactly as given and no key prefix reaches it.
+   */
+  hget(key: string, field: string): RedisResult<string | null>
   hgetall(key: string): RedisResult<Record<string, string>>
 
   // The write half: only the refresh job's token runs these.
@@ -82,6 +87,7 @@ export function withKeyPrefix(commands: RedisCommands, prefix: string): RedisCom
     sunion: (keys) => batch.sunion(movedKeys(keys)),
     zrangeAll: (key) => batch.zrangeAll(moved(key)),
     zrangebyscore: (key, min, max) => batch.zrangebyscore(moved(key), min, max),
+    hget: (key, field) => batch.hget(moved(key), field),
     hgetall: (key) => batch.hgetall(moved(key)),
     set: (key, value) => batch.set(moved(key), value),
     setNx: (key, value, seconds) => batch.setNx(moved(key), value, seconds),
@@ -150,6 +156,7 @@ export function withUsage(commands: RedisCommands): {
       count('ZRANGEBYSCORE', key, min, max),
       batch.zrangebyscore(key, min, max)
     ),
+    hget: (key, field) => (count('HGET', key, field), batch.hget(key, field)),
     hgetall: (key) => (count('HGETALL', key), batch.hgetall(key)),
     set: (key, value) => (count('SET', key, value), batch.set(key, value)),
     setNx: (key, value, seconds) => (

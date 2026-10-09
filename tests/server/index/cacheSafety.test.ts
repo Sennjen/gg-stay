@@ -59,6 +59,24 @@ describe('the cache never decides an answer', () => {
     })
   }
 
+  for (const [name, options] of budgets) {
+    it(`finds every game by its slug, and nothing else, with ${name}`, async () => {
+      const redis = createFakeRedis()
+      const live = createUpstashIndex(redis, options)
+      await publishFixture(live)
+
+      // Twice, in two orders, with a catalog query in between: the second pass is where a slug
+      // table that was evicted, or rebuilt half way, would give a wrong id or lose a game.
+      for (const games of [FIXTURE_GAMES, [...FIXTURE_GAMES].reverse()]) {
+        for (const game of games) {
+          expect(await live.idBySlug(game.slug), game.slug).toBe(game.id)
+        }
+        expect(await live.idBySlug('no-such-game')).toBeNull()
+        expect((await live.search({ genres: ['indie'] })).ids).toEqual([2, 3, 5])
+      }
+    })
+  }
+
   it('reports the same page however few entries it is allowed to keep', async () => {
     const memory = createMemoryGameIndex()
     await publishFixture(memory)

@@ -63,6 +63,8 @@ interface RequestState {
   index?: Promise<IndexState>
   /** Documents read by id in this request, so the game page and its similar row share one read. */
   entries?: Map<number, Promise<IndexedGame | null>>
+  /** Documents found by slug in this request, so a game asked for twice is looked up once. */
+  slugs?: Map<string, Promise<IndexedGame | null>>
   /** Answers worked out once per request, by name (`oncePerRequest`). */
   once?: Map<string, Promise<unknown>>
   warned: boolean
@@ -180,6 +182,51 @@ async function readIndexEntry(context: GraphQLContext, id: number): Promise<Inde
     warnIndexOnce(context, 'the game page could not read its index entry', error)
     return null
   }
+}
+
+/**
+ * One game's index document, found by the slug its page was asked for, once per request. The game
+ * page asks this way before RAWG has told it the game's id — and the document it gets is read
+ * through `indexEntry`, by the id the slug stands for, so whoever asks for the same game by id
+ * later in the request (the page itself once RAWG has answered, `Game.similar`) costs the index
+ * nothing more.
+ *
+ * `null` when the index does not hold a game under this slug — which is also all a version
+ * published before the refresh job wrote slugs can say, about any slug — and when the lookup could
+ * not be made, which is warned about and marks the request's index as failed, like every other
+ * index read. A document that carries another slug than the one asked for is `null` too: the two
+ * reads can straddle a publication (`GameIndex.idBySlug`), and the index answers for an address
+ * only when the document it found is that address's own.
+ */
+export function indexEntryBySlug(
+  context: GraphQLContext,
+  slug: string,
+): Promise<IndexedGame | null> {
+  const state = requestState(context)
+  state.slugs ??= new Map()
+  let entry = state.slugs.get(slug)
+  if (!entry) {
+    entry = readIndexEntryBySlug(context, slug)
+    state.slugs.set(slug, entry)
+  }
+  return entry
+}
+
+async function readIndexEntryBySlug(
+  context: GraphQLContext,
+  slug: string,
+): Promise<IndexedGame | null> {
+  if (indexFailed(context)) return null
+  let id: number | null
+  try {
+    id = await context.index.idBySlug(slug)
+  } catch (error) {
+    warnIndexOnce(context, 'the game page could not look its slug up in the index', error)
+    return null
+  }
+  if (id === null) return null
+  const entry = await indexEntry(context, id)
+  return entry?.slug === slug ? entry : null
 }
 
 function has(value: unknown): boolean {

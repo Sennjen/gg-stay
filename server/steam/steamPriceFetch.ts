@@ -1,5 +1,6 @@
 import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
-import { parseSteamPrice, type SteamPrice } from './price'
+import { UpstreamError } from '../upstream/errors'
+import { parseSteamPrice, readSteamPrice, type SteamPrice } from './price'
 import { parseUkrainianSupport, type UkrainianSupport } from './languages'
 import type { SteamAppDetailsResponse } from './types'
 import type { SteamFetch } from './steamFetch'
@@ -24,6 +25,8 @@ export interface SteamPriceFetchDeps {
   readFixture: (name: string) => Promise<unknown | null>
   now: () => number
   sleep: (ms: number) => Promise<void>
+  /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
+  log?: (line: string) => void
   /** The existing per-app, cached transport (server/steam/steamFetch.ts) — `fetchAppLanguages`
    *  reuses it instead of duplicating the transport for a single-app, unfiltered call. */
   steamFetch: SteamFetch
@@ -42,13 +45,38 @@ export interface SteamPriceFetch {
    *  mode, reads the single `steam-fixtures:prices.json` asset once and projects the requested ids
    *  out of it — an id absent from that map is `null`, same as a live "asked but absent" id. */
   fetchPrices: (appIds: string[]) => Promise<Map<string, SteamPrice | null>>
+  /**
+   * One app's price, read from Steam now and never cached: the game page's live refresh.
+   *
+   * It has three outcomes where `fetchPrices` has two, because the page remembers the second for
+   * an hour and must never remember the third (`readSteamPrice` draws the line):
+   *
+   * - the price Steam gives;
+   * - `null`, when Steam answers for this app and has no price for it — an app it will not
+   *   describe to this region, or one whose answer carries no price;
+   * - a rejection, when what came back cannot be read as Steam's answer about this app: an empty
+   *   or non-object body under a 200 (the transport hands one back uncached; here it becomes the
+   *   upstream error it stands for, as `rawgListOrThrow` does for a RAWG list), a body with no
+   *   entry for the app, an entry that says nothing readable. That is a failed read, whatever
+   *   status carried it.
+   *
+   * `fetchPrices` keeps reporting all of that as `null`, as it always has: the refresh job does
+   * its own accounting of which answers were definitive (`scripts/index/prices.ts`), a hundred
+   * apps at a time, and a chunk that told it nothing must not fail the ninety-nine beside it.
+   *
+   * The same request as `fetchPrices([appId])`, through the same limiter, timeout and retry. In
+   * fixture mode it reads the same recorded file, and an app the file does not hold has no price:
+   * there the file is the whole of Steam, and there is nobody to ask again.
+   */
+  fetchPrice: (appId: string) => Promise<SteamPrice | null>
   /** One unfiltered, cached per-app call, projected to Ukrainian localisation, the free flag and
    *  the price (when Steam includes it for a free/regionless app). */
   fetchAppLanguages: (appId: string) => Promise<SteamAppLanguages>
 }
 
-// The job wants fresh prices every run, so the batched transport never reads or writes a cache —
-// only the shared transport's limiter, timeout and single retry apply.
+// The job wants fresh prices every run, and the game page's live read exists to be fresher than
+// the index, so this transport never reads or writes a cache — only the shared transport's
+// limiter, timeout and single retry apply.
 const NO_CACHE: { get: () => Promise<UpstreamCacheEntry | null>; set: () => Promise<void> } = {
   get: async () => null,
   set: async () => {},
@@ -87,13 +115,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 /**
  * The batched Steam price/language transport, built on the shared upstream transport (see
- * server/upstream/createUpstreamFetch.ts) for `fetchPrices`'s network path, and on the existing
- * per-app cached transport for `fetchAppLanguages` — see each function's own doc comment.
+ * server/upstream/createUpstreamFetch.ts) for the network path of `fetchPrices` and `fetchPrice`,
+ * and on the existing per-app cached transport for `fetchAppLanguages` — see each function's own
+ * doc comment.
  */
 export function createSteamPriceFetch(deps: SteamPriceFetchDeps): SteamPriceFetch {
   // Fixture mode never goes through the throttled/retried network transport below — it reads the
   // one `prices.json` asset once (`fixtures: false` here, so `fetchChunk` itself always talks to
-  // `deps.fetchJson`) and `fetchPrices` short-circuits to it before building any chunk request.
+  // `deps.fetchJson`) and both price reads short-circuit to it before building any chunk request.
   const fetchChunk = createUpstreamFetch<{ ids: string[] }>(
     {
       source: 'STEAM',
@@ -112,11 +141,12 @@ export function createSteamPriceFetch(deps: SteamPriceFetchDeps): SteamPriceFetc
       cache: NO_CACHE,
       now: deps.now,
       sleep: deps.sleep,
+      log: deps.log,
     },
   )
 
-  // Read once per `createSteamPriceFetch` instance and reused for every `fetchPrices` call — the
-  // fixture is a fixed file, not something that changes between calls within one process.
+  // Read once per `createSteamPriceFetch` instance and reused for every price read — the fixture
+  // is a fixed file, not something that changes between calls within one process.
   let fixturePrices: Promise<Record<string, unknown>> | undefined
   function loadFixturePrices(): Promise<Record<string, unknown>> {
     fixturePrices ??= deps.readFixture(PRICES_FIXTURE_NAME).then(asRecord)
@@ -145,6 +175,23 @@ export function createSteamPriceFetch(deps: SteamPriceFetchDeps): SteamPriceFetc
     return result
   }
 
+  /** The entry as `fetchPrice` answers it: a price, `null` for "none", or the failure it stands for. */
+  function priceOrThrow(entry: unknown): SteamPrice | null {
+    const reading = readSteamPrice(entry)
+    if (reading.kind === 'unreadable') throw new UpstreamError('STEAM', 'ERROR')
+    return reading.kind === 'price' ? reading.price : null
+  }
+
+  async function fetchPrice(appId: string): Promise<SteamPrice | null> {
+    if (deps.fixtures) {
+      const record = await loadFixturePrices()
+      return Object.hasOwn(record, appId) ? priceOrThrow(record[appId]) : null
+    }
+
+    const record = asRecord(await fetchChunk({ ids: [appId] }))
+    return priceOrThrow(Object.hasOwn(record, appId) ? record[appId] : undefined)
+  }
+
   async function fetchAppLanguages(appId: string): Promise<SteamAppLanguages> {
     const response = (await deps.steamFetch(appId)) as SteamAppDetailsResponse
     const entry = response[appId]
@@ -155,5 +202,5 @@ export function createSteamPriceFetch(deps: SteamPriceFetchDeps): SteamPriceFetc
     return { ukrainian, isFree, price }
   }
 
-  return { fetchPrices, fetchAppLanguages }
+  return { fetchPrices, fetchPrice, fetchAppLanguages }
 }

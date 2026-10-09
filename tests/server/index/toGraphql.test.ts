@@ -3,14 +3,18 @@ import type { IndexedGame } from '../../../server/index/document'
 import type { GameCard } from '../../../server/graphql/__generated__/resolvers-types'
 import {
   RAWG_ONLY_CARD_FIELDS,
+  steamStorePageOf,
+  toGame,
   toGameCard,
   toLocalisationInfo,
   toPriceSummary,
   toSteamOffer,
 } from '../../../server/index/toGraphql'
-import { mapGameCard } from '../../../server/rawg/mappers'
+import { mapGame, mapGameCard } from '../../../server/rawg/mappers'
 import { DEV_FIXTURE_GAMES } from '../../fixtures/index/devGames'
 import rawgGames from '../../fixtures/rawg/games.json' with { type: 'json' }
+import rawgDetail from '../../fixtures/rawg/game-the-witcher-3-wild-hunt.json' with { type: 'json' }
+import rawgStores from '../../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json' with { type: 'json' }
 import type { RawgGameListItem, RawgList } from '../../../server/rawg/types'
 
 const indexed = (overrides: Partial<IndexedGame> = {}): IndexedGame => ({
@@ -194,6 +198,151 @@ describe('toGameCard', () => {
     ])
     expect(toGameCard(indexed({ preview: null })).screenshots).toEqual([])
     expect(toGameCard(indexed({ preview: 'javascript:alert(1)' })).screenshots).toEqual([])
+  })
+})
+
+describe('toGame', () => {
+  it('serves what the document carries, leaves the rest empty and says the answer is partial', () => {
+    const document = indexed({
+      ...onSale,
+      steamAppId: '292030',
+      localisation: { text: true, audio: false, source: 'steam' },
+      madeInUkraine: true,
+    })
+    expect(toGame(document)).toEqual({
+      id: '7',
+      slug: 'seven',
+      name: 'Seven',
+      released: '2020-06-01',
+      rating: 4,
+      ratingsCount: 12,
+      metacritic: 80,
+      playtime: 20,
+      ageRating: 'PEGI16',
+      gameModes: ['SINGLE'],
+      cover: { url: 'https://media.rawg.io/media/games/seven.jpg', width: null, height: null },
+      platformFamilies: ['PC', 'PLAYSTATION'],
+      localisation: { text: true, audio: false, source: 'steam' },
+      madeInUkraine: true,
+      // The document's one preview is all the page has of the game's screenshots.
+      screenshots: [
+        { url: 'https://media.rawg.io/media/screenshots/7.jpg', width: null, height: null },
+      ],
+      // One store: the Steam page its app id names, with the price the index holds.
+      stores: [
+        {
+          store: 'steam',
+          url: 'https://store.steampowered.com/app/292030/',
+          priceUah: 337,
+          regularPriceUah: 1349,
+          discountPercent: 75,
+          isFree: false,
+          updatedAt: '2026-09-20T06:00:00.000Z',
+        },
+      ],
+      // Only RAWG has these.
+      description: null,
+      website: null,
+      platforms: [],
+      genres: [],
+      tags: [],
+      developers: [],
+      publishers: [],
+      // The field resolver's to fill.
+      similar: [],
+      partial: true,
+    })
+  })
+
+  it('offers no store for a document that does not know the game’s Steam app', () => {
+    // Steam is among its stores, but there is no address to send anyone to.
+    expect(onSale.stores).toContain('steam')
+    expect(toGame(onSale).stores).toEqual([])
+  })
+
+  it.each([
+    [['gog'], 'on another store only'],
+    [['gog', 'epic-games'], 'on two other stores'],
+    [[], 'on no store the index knows of'],
+  ])(
+    'offers no Steam store for a document that knows the app but lists the game %j (%s)',
+    (stores, _where) => {
+      // The app id says which Steam app the game is, not that RAWG lists the game on Steam: a page
+      // RAWG answers would show no Steam link for this game, so neither does this one.
+      const document = indexed({ ...onSale, steamAppId: '292030', stores })
+      expect(toGame(document).stores).toEqual([])
+      expect(steamStorePageOf(document)).toBeNull()
+    },
+  )
+
+  it('offers the Steam store when the document has both: the app id and Steam among its stores', () => {
+    const document = indexed({ ...onSale, steamAppId: '292030', stores: ['gog', 'steam'] })
+    expect(steamStorePageOf(document)).toBe('https://store.steampowered.com/app/292030/')
+    // One offer, Steam's: the document names its other stores by slug and has no address for them.
+    expect(toGame(document).stores.map((offer) => [offer.store, offer.url])).toEqual([
+      ['steam', 'https://store.steampowered.com/app/292030/'],
+    ])
+  })
+
+  it('offers the Steam page without a price when the index has none for the game', () => {
+    expect(toGame(indexed({ steamAppId: '620' })).stores).toEqual([
+      {
+        store: 'steam',
+        url: 'https://store.steampowered.com/app/620/',
+        priceUah: null,
+        regularPriceUah: null,
+        discountPercent: null,
+        isFree: null,
+        updatedAt: null,
+      },
+    ])
+  })
+
+  it.each(['', '620/../../login', 'portal-2', ' 620'])(
+    'builds no store address from %j, which is not an app id',
+    (steamAppId) => {
+      expect(toGame(indexed({ ...onSale, steamAppId })).stores).toEqual([])
+    },
+  )
+
+  it('has no screenshot without a preview, and refuses a URL whose scheme is not allowed', () => {
+    expect(toGame(indexed({ preview: null })).screenshots).toEqual([])
+    expect(toGame(indexed({ preview: 'javascript:alert(1)' })).screenshots).toEqual([])
+    expect(toGame(indexed({ cover: 'javascript:alert(1)' })).cover).toBeNull()
+    expect(toGame(indexed({ cover: null })).cover).toBeNull()
+  })
+
+  it('reads a rating count of zero as unknown, as the RAWG mapper does', () => {
+    expect(toGame(indexed({ ratingsCount: 0 })).ratingsCount).toBeNull()
+  })
+
+  it('says nothing about languages the index does not know, and nothing of a flag it does not have', () => {
+    expect(toGame(indexed())).toMatchObject({ localisation: null, madeInUkraine: false })
+  })
+
+  it('states the same facts as the RAWG page about a game both of them know', () => {
+    const fromIndex = toGame(DEV_FIXTURE_GAMES[0]!)
+    const fromRawg = mapGame(rawgDetail, rawgStores.results)
+
+    for (const field of [
+      'id',
+      'slug',
+      'name',
+      'released',
+      'rating',
+      'ratingsCount',
+      'metacritic',
+      'playtime',
+      'ageRating',
+      'gameModes',
+      'cover',
+      'platformFamilies',
+    ] as const) {
+      expect(fromIndex[field], field).toEqual(fromRawg[field])
+    }
+    // The address built from the app id is the one RAWG's own store link carries.
+    const steamLink = fromRawg.stores.find((offer) => offer.store === 'steam')
+    expect(fromIndex.stores.map((offer) => offer.url)).toEqual([steamLink!.url])
   })
 })
 

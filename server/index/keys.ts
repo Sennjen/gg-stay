@@ -45,6 +45,16 @@ export function namesKey(version: number): string {
   return `${versionPrefix(version)}names`
 }
 
+/**
+ * The slugs of the version, one hash field per game holding its id: what `idBySlug` reads. One key
+ * for all of them rather than a key per slug, so a version does not carry three thousand more keys
+ * through its registry — and a slug is then a field, never part of a key name, so no spelling of
+ * one can collide with another key of the index.
+ */
+export function slugsKey(version: number): string {
+  return `${versionPrefix(version)}slugs`
+}
+
 export function genreFacetKey(version: number, genre: string): string {
   return `${versionPrefix(version)}f:genre:${genre}`
 }

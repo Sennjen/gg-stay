@@ -46,6 +46,14 @@ export type Game = {
   madeInUkraine: Scalars['Boolean']['output'];
   metacritic?: Maybe<Scalars['Int']['output']>;
   name: Scalars['String']['output'];
+  /**
+   * True when this answer left out something the same query will have a few seconds later: RAWG's
+   * own answer about the game was late or failed and the page was built from the index instead,
+   * the page went out before the store links or the screenshots had arrived, or — for a Steam game
+   * the index does not hold, which has no index price to show meanwhile — before Steam's price
+   * had. A partial answer must never be stored by a shared cache.
+   */
+  partial: Scalars['Boolean']['output'];
   platformFamilies: Array<PlatformFamily>;
   platforms: Array<Taxonomy>;
   playtime?: Maybe<Scalars['Int']['output']>;
@@ -422,6 +430,7 @@ export type GameResolvers<ContextType = GraphQLContext, ParentType extends Resol
   madeInUkraine?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   metacritic?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  partial?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   platformFamilies?: Resolver<Array<ResolversTypes['PlatformFamily']>, ParentType, ContextType>;
   platforms?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
   playtime?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;

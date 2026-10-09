@@ -159,6 +159,14 @@ export const typeDefs = /* GraphQL */ `
     """
     similar: [GameCard!]!
     platformFamilies: [PlatformFamily!]!
+    """
+    True when this answer left out something the same query will have a few seconds later: RAWG's
+    own answer about the game was late or failed and the page was built from the index instead,
+    the page went out before the store links or the screenshots had arrived, or — for a Steam game
+    the index does not hold, which has no index price to show meanwhile — before Steam's price
+    had. A partial answer must never be stored by a shared cache.
+    """
+    partial: Boolean!
   }
 
   enum DescriptionSource {

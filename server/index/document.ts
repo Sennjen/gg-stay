@@ -85,6 +85,26 @@ export interface IndexedGame {
   /** ISO timestamp of the last successful price read. */
   priceUpdatedAt: string | null
   /**
+   * The game's Steam app id, so the game page can ask Steam for a live price, and name the Steam
+   * store page, without waiting for RAWG's store links.
+   *
+   * One rule, whichever kind of run published the document: the field is there whenever the
+   * permanent RAWG-id-to-app-id mapping (`appid:{rawgId}`) holds an app id for the game, and only
+   * then. Every run copies it from that mapping — full, prices-only and languages alike — and a
+   * full run reads the mapping for the games RAWG does not list on Steam that night as well
+   * (`appIdsForDocuments`), so a game does not lose the field at night and regain it with the
+   * morning's prices. Never the mapping's empty string: a game the job knows to have no Steam
+   * page, like one it has not resolved yet, simply has no `steamAppId`.
+   *
+   * It says which Steam app the game is, not that RAWG lists the game on Steam today — `stores`
+   * says that — and it does not decide what a run prices: a full run still prices the games RAWG
+   * lists on Steam that night.
+   *
+   * Optional: documents published before the job copied it have none, and the page then takes
+   * the id from RAWG's store links, as it always has.
+   */
+  steamAppId?: string
+  /**
    * The ids of the games most like this one, best first, all of them in the same version: the
    * refresh job's full run ranks them over the whole index (`scripts/index/similarity.ts`) and the
    * other runs carry them forward. The game page reads them with one `getMany`. Optional:
@@ -219,4 +239,28 @@ export function rangeValueOf(game: IndexedGame, field: IndexRangeField): number 
  */
 export function foldName(name: string): string {
   return name.trim().toLocaleLowerCase('uk')
+}
+
+/**
+ * The longest slug the index files a game under, and the longest it looks up, in UTF-16 code
+ * units — the length a string reports. RAWG's slugs are a few dozen characters, so this is far
+ * past any of them; it exists because the slug a game page asks about comes from a visitor, in a
+ * request variable nothing else bounds, and megabytes of it would otherwise be sent to the store
+ * as one hash field.
+ */
+export const MAX_SLUG_LENGTH = 200
+
+/**
+ * Whether a slug can lead to a game of the index at all: not empty, no longer than
+ * `MAX_SLUG_LENGTH`, and well-formed text — a lone surrogate is one JSON escape away for whoever
+ * writes a request by hand, and it is not text UTF-8 can carry. Checked once by the writer, when
+ * it files the slugs of a version (`buildIndexPlan`), and once per lookup by the Upstash adapter
+ * before anything is sent, so both sides draw the line in the same place: what would not be
+ * looked up is not filed, and asking about it costs the store nothing.
+ *
+ * Nothing here judges what a slug is made of beyond that. The match is exact, so a slug in the
+ * wrong case or with a stray character simply finds nothing.
+ */
+export function isIndexableSlug(slug: string): boolean {
+  return slug.length > 0 && slug.length <= MAX_SLUG_LENGTH && slug.isWellFormed()
 }

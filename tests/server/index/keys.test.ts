@@ -17,6 +17,7 @@ import {
   platformFacetKey,
   playtimeFacetKey,
   rangeKey,
+  slugsKey,
   storeFacetKey,
   versionPrefix,
 } from '../../../server/index/keys'
@@ -38,6 +39,7 @@ describe('index keys', () => {
     expect(madeInUkraineFacetKey(2)).toBe('idx:v2:f:ua')
     expect(metaKey(2)).toBe('idx:v2:meta')
     expect(namesKey(2)).toBe('idx:v2:names')
+    expect(slugsKey(2)).toBe('idx:v2:slugs')
   })
 
   it('gives every sort its own order set and every trimmed value its own range set', () => {

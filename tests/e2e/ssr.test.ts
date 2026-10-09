@@ -502,6 +502,19 @@ describe('server-side rendering', async () => {
     expect(html).toContain('оновлено')
   })
 
+  it('renders the game page’s status region empty: what it says, it says once it is in a browser', async () => {
+    // The region a partial page's line is put into is in the markup of every game page, so that a
+    // screen reader has it before there is anything in it — and the server puts nothing in it,
+    // whatever the answer: it holds only the mark of the line that is not there.
+    for (const locale of ['', '/en']) {
+      const html = await $fetch<string>(`${locale}/games/the-witcher-3-wild-hunt`)
+      const regions = [...html.matchAll(/<div[^>]*\brole="status"[^>]*>([\s\S]*?)<\/div>/g)]
+      expect(regions).toHaveLength(1)
+      expect(regions[0]![1]).toBe('<!---->')
+      expect(html).not.toContain('game-partial-note')
+    }
+  })
+
   it('applies the Ukrainian plural rule server-side for the ratings count', async () => {
     const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
     // Fixture rating: 6800, uk-UA grouped with a no-break space (U+00A0) between the digits;
@@ -577,6 +590,46 @@ describe('server-side rendering', async () => {
     )
     // The static headers still come from routeRules, as on every other route.
     expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
+  it('says on a GraphQL answer where its time went, beside the endpoint’s own policy', async () => {
+    // Written by yoga onto its own Response, which `sendWebResponse` hands to the client with its
+    // headers; the route's policy is set beside it and must still be there.
+    const response = await fetch('/api/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: `query Page($slug: String!, $locale: String!) {
+          game(slug: $slug) { name partial localizedDescription(locale: $locale) { source } }
+        }`,
+        variables: { slug: 'the-witcher-3-wild-hunt', locale: 'uk' },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { data: { game: { partial: boolean } } }
+    expect(body.data.game.partial).toBe(false)
+    // Fixture mode's upstreams are its recordings and its seeded index: RAWG's three answers about
+    // the page, Steam's Ukrainian description, and the index's metadata, slug and document. Steam
+    // is not asked for the price: the index was seeded with one three hours old when this suite
+    // started its server a moment ago, and six hours is how long such a price is trusted. (The
+    // browser flows, whose server may be one kept for reuse, allow for the second request.)
+    expect(response.headers.get('server-timing')).toMatch(
+      /^rawg;dur=\d+;desc="RAWG x3", steam;dur=\d+;desc="Steam x1", index;dur=\d+;desc="Index x3", total;dur=\d+$/,
+    )
+    expect(response.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    )
+
+    // An answer that asked one thing names one upstream, once.
+    const genres = await fetch('/api/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '{ genres { id } }' }),
+    })
+    expect(genres.headers.get('server-timing')).toMatch(
+      /^rawg;dur=\d+;desc="RAWG x1", total;dur=\d+$/,
+    )
   })
 
   it('sends the security headers on every page, with an exact-hash script-src', async () => {

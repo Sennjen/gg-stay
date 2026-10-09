@@ -173,6 +173,12 @@ describe('mapGame', () => {
     const game = mapGame(detail, stores.results)
     expect(game.screenshots).toEqual([])
   })
+
+  it('calls a game mapped from RAWG’s detail complete, whatever else it was given', () => {
+    // What is missing from a page is the resolver's to say: it knows what it did not wait for.
+    expect(mapGame(detail, stores.results, screenshots.results).partial).toBe(false)
+    expect(mapGame(detail, []).partial).toBe(false)
+  })
 })
 
 describe('mapTaxonomy / mapGamePage', () => {

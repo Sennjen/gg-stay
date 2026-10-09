@@ -69,3 +69,40 @@ export function parseSteamPrice(entry: unknown): SteamPrice | null {
     isFree: false,
   }
 }
+
+/**
+ * What one app's `appdetails` entry says about its price, for a reader that has to tell "Steam has
+ * no price for this app" from "this is not an answer" — which `parseSteamPrice` deliberately does
+ * not: both are `null` there.
+ *
+ * - `price`: Steam gave one, exactly when `parseSteamPrice` does.
+ * - `none`: Steam answered for this app, and the answer is that it has no price to show. That is
+ *   `success: false` — an app Steam will not describe to this region: delisted, regionless, or
+ *   unknown to it — and `success: true` over data that carries no price: the empty list it sends
+ *   under `filters=price_overview` for a free game and for one that is not for sale, or an object
+ *   without a `price_overview`.
+ * - `unreadable`: anything else. No entry at all, an entry that is not an object, one that says
+ *   neither `success: true` nor `success: false`, a `success: true` whose data is neither a list
+ *   nor an object, and a `price_overview` that is there but is not a hryvnia price this app can
+ *   read. Steam said something, or nothing, and none of it is "this app has no price".
+ *
+ * The line between the last two is drawn on the cautious side on purpose. What a caller does with
+ * `none` is remember it; what it does with `unreadable` is ask again.
+ */
+export type SteamPriceReading =
+  { kind: 'price'; price: SteamPrice } | { kind: 'none' } | { kind: 'unreadable' }
+
+export function readSteamPrice(entry: unknown): SteamPriceReading {
+  const price = parseSteamPrice(entry)
+  if (price) return { kind: 'price', price }
+
+  const record = asRecord(entry)
+  if (!record) return { kind: 'unreadable' }
+  if (record.success === false) return { kind: 'none' }
+  if (record.success !== true) return { kind: 'unreadable' }
+
+  if (Array.isArray(record.data)) return { kind: 'none' }
+  const data = asRecord(record.data)
+  if (!data) return { kind: 'unreadable' }
+  return data.price_overview === undefined ? { kind: 'none' } : { kind: 'unreadable' }
+}

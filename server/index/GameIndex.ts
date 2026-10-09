@@ -99,6 +99,36 @@ export interface GameIndex {
   search(query: IndexQuery): Promise<IndexSearchResult>
   getMany(ids: number[]): Promise<Map<number, IndexedGame>>
   getOne(id: number): Promise<IndexedGame | null>
+  /**
+   * The id of the game the published version holds under this slug, for a caller that knows a
+   * game by its address and not yet by its id — the game page, before RAWG has answered. `null`
+   * for a slug no indexed game carries, when nothing is published, and for a version published
+   * before the refresh job wrote slugs: that last one cannot be told from "not in the index", and
+   * nothing needs it to be — the caller treats both as a game the index does not hold.
+   *
+   * The slug is matched exactly, byte for byte, as the game's document spells it: no case
+   * folding, no trimming, no decoding. `Portal-2` does not find `portal-2`. The index answers
+   * only for the spelling it published — the one every link, the sitemap and the canonical URL
+   * carry — so it can never answer for an address it does not know to be that game's. A slug two
+   * games claim belongs to the more popular one and then to the lower id (`buildIndexPlan`). RAWG
+   * gives every game a slug of its own, but a run can still hold two documents with one: a
+   * published studio game it kept as it was, beside a game that has since taken its slug.
+   *
+   * The slug is a visitor's: it arrives in a request variable that nothing else bounds. So an
+   * empty slug, one longer than `MAX_SLUG_LENGTH` (200 characters) and one that is not well-formed
+   * text are not in the index by rule, not by lookup — every adapter answers `null` for them
+   * without asking its store, and the writer files no such slug (`isIndexableSlug` in
+   * `document.ts`, applied on both sides). A caller needs no bound of its own, and no slug it is
+   * handed can cost the store a request it would refuse or choke on.
+   *
+   * Like `search` and `getMany`, it is served by the version `idx:current` names when it starts,
+   * so the id it returns can already be gone by the time `getOne` asks for it; a missing document
+   * means what it always means. At most one read command, like every other read — the site's
+   * token is read-only — and none for a slug an adapter has already found in the version it is
+   * serving: a page asks on every view, and a version's answer cannot change. A slug that is not
+   * in the index is asked about each time (see the Upstash adapter for why misses are not kept).
+   */
+  idBySlug(slug: string): Promise<number | null>
   meta(): Promise<IndexMeta | null>
   /**
    * Every game of the published version, in the default (popularity) order, for the sitemap; empty
@@ -107,6 +137,20 @@ export interface GameIndex {
    * and the site gives it a longer deadline than a page read (`withDeadline`).
    */
   allSlugs(): Promise<IndexedSlug[]>
+  /**
+   * How many requests this index has sent to its store so far, for an index that has a store and
+   * counts. The circuit around the site's index reads it before and after a call (`withCircuit`),
+   * to tell an answer the store gave from one that never left the process — a slug the adapter
+   * remembers, a slug it refuses to look up — which says nothing about how the store is doing.
+   * The timing of a request reads it the same way, on the index a resolver holds, so that a read
+   * which reached no store is not named as a call in the answer's `Server-Timing` header
+   * (`timedContext` in `server/graphql/serverTiming.ts`); every wrapper passes it on for that.
+   *
+   * Optional: the in-memory index stands in for a store without being one, does not implement
+   * it, and every answer it gives is then taken at face value. The index that is configured to
+   * know nothing has no store at all, and says so with a count that stays at zero.
+   */
+  storeRequests?(): number
 }
 
 /**

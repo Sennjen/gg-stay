@@ -137,6 +137,9 @@ export function mapGame(
     website: safeExternalUrl(raw.website),
     stores: mapStoreOffers(storeLinks),
     similar: [],
+    // A game mapped from RAWG's own detail is the whole game. The resolver says otherwise when it
+    // had to assemble the page without something RAWG had not sent yet.
+    partial: false,
   }
 }
 

@@ -54,6 +54,19 @@ describe('createSteamFetch', () => {
     expect(deps.fetchJson).toHaveBeenCalledTimes(1)
   })
 
+  it('tells a caller that asked to know when the cache answered, and only then', async () => {
+    const { deps } = makeDeps()
+    const steam = createSteamFetch(deps)
+    const onCached = vi.fn()
+
+    // Steam is asked the first time; the second answer was already here.
+    await steam('292030', { onCached })
+    expect(onCached).not.toHaveBeenCalled()
+    expect(await steam('292030', { ttl: 60, onCached })).toEqual({ '292030': { success: true } })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
   it('refetches after the ttl expires', async () => {
     const { deps, advance } = makeDeps()
     const steam = createSteamFetch(deps)
@@ -135,6 +148,17 @@ describe('createSteamFetch', () => {
     await Promise.all([steam('1'), steam('2'), steam('3')])
     const waits = vi.mocked(deps.sleep).mock.calls.map(([ms]) => ms)
     expect(waits).toEqual([1_500, 3_000])
+  })
+
+  it('writes a line about a failed attempt that names the app, not the URL', async () => {
+    const log = vi.fn<(line: string) => void>()
+    const fetchJson = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 502, body: null })
+      .mockResolvedValueOnce({ status: 200, body: { '292030': { success: true } } })
+    const { deps } = makeDeps({ fetchJson, log })
+    await createSteamFetch(deps)('292030')
+    expect(log.mock.calls).toEqual([['[upstream] STEAM 292030 attempt 1: 0 ms, ERROR (502)']])
   })
 
   it('reads fixtures instead of fetching when fixture mode is on', async () => {

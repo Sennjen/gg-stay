@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../shared/catalog'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../../server/index/GameIndex'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
+import { MAX_SLUG_LENGTH } from '../../../server/index/document'
 import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
 
 /**
@@ -356,6 +357,41 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           expect(meta?.version).toBe(await adapter.writer.currentVersion())
         })
       })
+
+      describe('slugs', () => {
+        it('finds the id of every game of the version by its slug', async () => {
+          expect(await adapter.index.idBySlug('kite-keep')).toBe(35)
+          for (const game of FIXTURE_GAMES) {
+            expect(await adapter.index.idBySlug(game.slug), game.slug).toBe(game.id)
+          }
+          // The id it answers is the id of a document of the same version.
+          expect((await adapter.index.getOne(35))?.slug).toBe('kite-keep')
+        })
+
+        it('answers null for a slug no game of the version carries', async () => {
+          expect(await adapter.index.idBySlug('no-such-game')).toBeNull()
+          expect(await adapter.index.idBySlug('')).toBeNull()
+          // Neither an id nor a name is a slug: RAWG answers `games/35`, the index does not.
+          expect(await adapter.index.idBySlug('35')).toBeNull()
+          expect(await adapter.index.idBySlug('Kite Keep')).toBeNull()
+        })
+
+        it('matches a slug exactly as the document spells it', async () => {
+          // Byte for byte: no case folding, no trimming, no decoding. The index answers for the
+          // one spelling it published and for nothing that merely resembles it.
+          for (const near of [
+            'Kite-Keep',
+            'KITE-KEEP',
+            ' kite-keep',
+            'kite-keep ',
+            'kite-keep/',
+            'kite%2Dkeep',
+            'kite-kee',
+          ]) {
+            expect(await adapter.index.idBySlug(near), JSON.stringify(near)).toBeNull()
+          }
+        })
+      })
     })
 
     /**
@@ -381,6 +417,7 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(await adapter.index.search({})).toEqual({ ids: [], total: 0, games: [] })
         expect(await adapter.index.getOne(1)).toBeNull()
         expect(await adapter.index.getMany([1, 2])).toEqual(new Map())
+        expect(await adapter.index.idBySlug('alpha-quest')).toBeNull()
         expect(await adapter.index.meta()).toBeNull()
         expect(await adapter.index.allSlugs()).toEqual([])
         expect(await adapter.writer.meta()).toBeNull()
@@ -400,6 +437,9 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await adapter.writer.writeVersion(next, FIXTURE_GAMES.slice(3, 6))
         expect((await adapter.index.search({})).ids).toEqual([1, 2, 3])
         expect(await adapter.index.getOne(4)).toBeNull()
+        // A slug is found in the published version and nowhere else: a draft's are invisible too.
+        expect(await adapter.index.idBySlug('alpha-quest')).toBe(1)
+        expect(await adapter.index.idBySlug('delta-force')).toBeNull()
 
         await adapter.writer.publish(next, {
           ...FIXTURE_META,
@@ -409,6 +449,8 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         })
         expect((await adapter.index.search({})).ids).toEqual([4, 5, 6])
         expect(await adapter.index.getOne(1)).toBeNull()
+        expect(await adapter.index.idBySlug('delta-force')).toBe(4)
+        expect(await adapter.index.idBySlug('alpha-quest')).toBeNull()
         expect(await adapter.writer.currentVersion()).toBe(next)
         expect((await adapter.index.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
       })
@@ -481,6 +523,10 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(6, 8))
         await adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 2 })
         expect((await adapter.index.search({})).ids).toEqual([7, 8])
+        // The slugs of the first attempt went with its documents: a slug must never outlive the
+        // game it named, or it would send a page to a document that is not there.
+        expect(await adapter.index.idBySlug('eta-empire')).toBe(7)
+        expect(await adapter.index.idBySlug('alpha-quest')).toBeNull()
       })
 
       it('forgets a discarded version and refuses to publish it', async () => {
@@ -490,9 +536,121 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(8, 10))
         await adapter.writer.discardVersion(version)
         expect((await adapter.index.search({})).ids).toEqual([7, 8])
+        expect(await adapter.index.idBySlug('eta-empire')).toBe(7)
+        expect(await adapter.index.idBySlug('iota-isle')).toBeNull()
         await expect(
           adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 2 }),
         ).rejects.toThrow()
+      })
+
+      it('keeps apart slugs that differ only by case, or that a URL would have to escape', async () => {
+        const adapter = await fresh()
+        // RAWG's slugs are lower-case words joined by hyphens, so none of these is expected from
+        // it. The rule is what matters: a slug is a hash field or a map key, matched exactly, so
+        // it needs no escaping and no spelling of one game can answer for another.
+        const slugs = [
+          'Kite-Keep',
+          'kite-keep',
+          'nier:automata',
+          'left/right',
+          'a b',
+          '50%25-off',
+          'say-"hi"',
+          "it's",
+          'pokémon-snap',
+          '2048',
+          '__proto__',
+          'constructor',
+        ]
+        const games = slugs.map((slug, position) => ({ ...FIXTURE_GAMES[position]!, slug }))
+        await publishGames(adapter, games)
+
+        for (const game of games) {
+          expect(await adapter.index.idBySlug(game.slug), game.slug).toBe(game.id)
+          expect((await adapter.index.getOne(game.id))?.slug).toBe(game.slug)
+        }
+        // And only those: neither a folded nor a decoded spelling of one of them is another's.
+        expect(await adapter.index.idBySlug('KITE-KEEP')).toBeNull()
+        expect(await adapter.index.idBySlug('50%-off')).toBeNull()
+        expect(await adapter.index.idBySlug('NIER:AUTOMATA')).toBeNull()
+        // Nor is a name every object answers to.
+        expect(await adapter.index.idBySlug('toString')).toBeNull()
+        expect(await adapter.index.idBySlug('hasOwnProperty')).toBeNull()
+      })
+
+      it('holds no game under a slug that is empty, over-long or not well-formed', async () => {
+        const adapter = await fresh()
+        const longest = 'a'.repeat(MAX_SLUG_LENGTH)
+        const tooLong = `${longest}a`
+        // Half of a surrogate pair: text no encoding can carry, and one JSON escape away for
+        // anyone who writes the request by hand.
+        const illFormed = 'half-\ud83d-emoji'
+        const games = [longest, tooLong, illFormed, ''].map((slug, position) => ({
+          ...FIXTURE_GAMES[position]!,
+          slug,
+        }))
+        await publishGames(adapter, games)
+
+        // The bound itself is a slug like any other.
+        expect(await adapter.index.idBySlug(longest)).toBe(1)
+        // Past it a slug is not in the index, although a document of the version carries it: the
+        // slug a page asks for comes from a visitor, so what the index will not look up, it does
+        // not file either, and the two sides agree.
+        expect(await adapter.index.idBySlug(tooLong)).toBeNull()
+        expect(await adapter.index.idBySlug(illFormed)).toBeNull()
+        expect(await adapter.index.idBySlug('')).toBeNull()
+        expect(await adapter.index.idBySlug('x'.repeat(100_000))).toBeNull()
+
+        // Only the lookup by slug is refused. The documents are stored and read as ever.
+        expect((await adapter.index.getMany([1, 2, 3, 4])).size).toBe(4)
+        expect((await adapter.index.getOne(2))?.slug).toBe(tooLong)
+        expect((await adapter.index.getOne(3))?.slug).toBe(illFormed)
+        expect((await adapter.index.search({})).total).toBe(4)
+      })
+
+      it('hands back a Steam app id on the documents that have one, and none on the rest', async () => {
+        const adapter = await fresh()
+        const onSteam = { ...FIXTURE_GAMES[0]!, steamAppId: '292030' }
+        // As every document was before the refresh job copied app ids: the field is not there.
+        const legacy = FIXTURE_GAMES[1]!
+        expect('steamAppId' in legacy).toBe(false)
+        await publishGames(adapter, [onSteam, legacy])
+
+        expect(await adapter.index.getOne(1)).toEqual(onSteam)
+        expect((await adapter.index.getMany([1])).get(1)?.steamAppId).toBe('292030')
+        const read = await adapter.index.getOne(2)
+        expect(read).toEqual(legacy)
+        expect(read && 'steamAppId' in read).toBe(false)
+
+        // The same from every read that hands documents out, the job's included.
+        const page = await adapter.index.search({})
+        expect(page.games.map((game) => game.steamAppId)).toEqual(['292030', undefined])
+        const published = await adapter.writer.allGames()
+        expect(published.find((game) => game.id === 1)?.steamAppId).toBe('292030')
+        expect('steamAppId' in published.find((game) => game.id === 2)!).toBe(false)
+      })
+
+      it('files a slug two games claim under the more popular one, then the lower id', async () => {
+        const adapter = await fresh()
+        const claim = (id: number, slug: string, popularity: number) => ({
+          ...FIXTURE_GAMES.find((game) => game.id === id)!,
+          slug,
+          popularity,
+        })
+        // RAWG never gives two games one slug, but a run can hold a document it kept beside the
+        // game that has since taken its slug, and a hash field holds one id: which game keeps the
+        // slug is a rule, not an accident of the order a run listed them in.
+        await publishGames(adapter, [
+          claim(3, 'twice', 10),
+          claim(1, 'twice', 90),
+          claim(2, 'twice', 90),
+          claim(5, 'tied', 40),
+          claim(4, 'tied', 40),
+        ])
+        expect(await adapter.index.idBySlug('twice')).toBe(1)
+        expect(await adapter.index.idBySlug('tied')).toBe(4)
+        // Every document is still there under its id; only the slug has one owner.
+        expect((await adapter.index.getMany([1, 2, 3, 4, 5])).size).toBe(5)
       })
 
       it('refuses to write a version that was never begun', async () => {

@@ -88,6 +88,28 @@ describe('createRawgFetch', () => {
     expect(deps.fetchJson).toHaveBeenCalledTimes(1)
   })
 
+  it('tells a caller that asked to know when the cache answered, and only then', async () => {
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    const onCached = vi.fn()
+
+    // RAWG is asked the first time; the second answer was already here.
+    await rawg('games', { page: 1 }, { onCached })
+    expect(onCached).not.toHaveBeenCalled()
+    expect(await rawg('games', { page: 1 }, { onCached })).toEqual({ ok: true })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares one request and one cache entry between a call that asks to know and one that does not', async () => {
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    await Promise.all([rawg('games', { page: 1 }), rawg('games', { page: 1 }, { onCached() {} })])
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+    await rawg('games', { page: 1 })
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+  })
+
   it('refetches after the ttl expires', async () => {
     const { deps, advance } = makeDeps()
     const rawg = createRawgFetch(deps)
@@ -196,6 +218,78 @@ describe('createRawgFetch', () => {
     ])
     const waits = vi.mocked(deps.sleep).mock.calls.map(([ms]) => ms)
     expect(waits).toEqual([250, 500])
+  })
+
+  it('sends one request for two calls for the same list made at the same time', async () => {
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    // The same key however the params are ordered, and whatever empty ones ride along.
+    const [first, second] = await Promise.all([
+      rawg('games', { genres: 'rpg', page: 1 }),
+      rawg('games', { page: 1, search: '', genres: 'rpg' }),
+    ])
+    expect(first).toEqual({ ok: true })
+    expect(second).toBe(first)
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+    expect(deps.sleep).not.toHaveBeenCalled()
+  })
+
+  it('shares a request between calls that differ only in how long they would cache it', async () => {
+    // The landing keeps a list for a day and the catalog for ten minutes. Asked for at the same
+    // moment it is one request, cached for as long as the call that started it asked.
+    const { deps, store } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    await Promise.all([rawg('games', { page: 1 }, { ttl: 86_400 }), rawg('games', { page: 1 })])
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+    expect(store.get('games?page=1')?.expiresAt).toBe(1_000_000 + 86_400_000)
+  })
+
+  it('keeps a call with tighter limits out of a request made with the defaults', async () => {
+    // What `/api/ask` asks for: its single short attempt must not sit through the two long ones
+    // a catalog page is prepared to wait for, nor the other way round.
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const { deps } = makeDeps()
+    const rawg = createRawgFetch(deps)
+    await Promise.all([
+      rawg('games', { search: 'x' }),
+      rawg('games', { search: 'x' }, { timeoutMs: 4_000, maxAttempts: 1 }),
+    ])
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([5_000, 4_000])
+    timeout.mockRestore()
+  })
+
+  it('writes a line about a failed attempt that carries no URL, no query and no API key', async () => {
+    const log = vi.fn<(line: string) => void>()
+    const fetchJson = vi.fn().mockResolvedValue({ status: 500, body: null })
+    const { deps } = makeDeps({ fetchJson, log })
+    await expect(
+      createRawgFetch(deps)('games', { search: 'half life', page: 2 }, { maxAttempts: 1 }),
+    ).rejects.toMatchObject({ kind: 'ERROR' })
+
+    // The request itself carried all three...
+    const url = fetchJson.mock.calls[0]![0] as string
+    expect(url).toContain('https://api.rawg.io/api/games?')
+    expect(url).toContain('search=half+life')
+    expect(url).toContain('key=test-key')
+    // ...and the line about it names the path, and nothing else of it.
+    expect(log.mock.calls).toEqual([['[upstream] RAWG games attempt 1: 0 ms, ERROR (500)']])
+    for (const hidden of ['test-key', 'key=', 'api.rawg.io', 'https', 'search', 'half', 'page']) {
+      expect(log.mock.calls[0]![0]).not.toContain(hidden)
+    }
+  })
+
+  it('names the game a failed attempt was about, by its path', async () => {
+    const log = vi.fn<(line: string) => void>()
+    const fetchJson = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 502, body: null })
+      .mockResolvedValueOnce({ status: 200, body: { results: [] } })
+    const { deps } = makeDeps({ fetchJson, log })
+    await createRawgFetch(deps)('games/portal-2/stores')
+    expect(log.mock.calls).toEqual([
+      ['[upstream] RAWG games/portal-2/stores attempt 1: 0 ms, ERROR (502)'],
+    ])
   })
 
   it('reads fixtures instead of fetching when fixture mode is on', async () => {

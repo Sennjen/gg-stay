@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndexPlan } from '../../../server/index/buildPlan'
-import { daysSinceEpoch } from '../../../server/index/document'
+import { MAX_SLUG_LENGTH, daysSinceEpoch, isIndexableSlug } from '../../../server/index/document'
 import { orderKey, rangeKey } from '../../../server/index/keys'
 import { FIXTURE_GAMES } from '../../fixtures/index/games'
 
@@ -88,6 +88,73 @@ describe('buildIndexPlan', () => {
     expect(plan.names.size).toBe(FIXTURE_GAMES.length)
   })
 
+  it('files every game under its own slug, spelled as the document spells it', () => {
+    expect(plan.slugs.size).toBe(FIXTURE_GAMES.length)
+    expect(plan.slugs.get('kite-keep')).toBe(35)
+    for (const game of FIXTURE_GAMES) expect(plan.slugs.get(game.slug), game.slug).toBe(game.id)
+
+    // Not folded as the names are: a slug is matched exactly, so it is stored exactly.
+    const mixed = buildIndexPlan(1, [
+      { ...FIXTURE_GAMES[0]!, slug: 'Kite-Keep' },
+      { ...FIXTURE_GAMES[1]!, slug: 'kite-keep' },
+      { ...FIXTURE_GAMES[2]!, slug: ' padded ' },
+    ])
+    expect(mixed.slugs).toEqual(
+      new Map([
+        ['Kite-Keep', 1],
+        ['kite-keep', 2],
+        [' padded ', 3],
+      ]),
+    )
+  })
+
+  it('gives a slug two games claim to the more popular one, then to the lower id', () => {
+    const claim = (id: number, slug: string, popularity: number) => ({
+      ...FIXTURE_GAMES.find((game) => game.id === id)!,
+      slug,
+      popularity,
+    })
+    const games = [
+      claim(3, 'twice', 10),
+      claim(1, 'twice', 90),
+      claim(2, 'twice', 90),
+      claim(5, 'tied', 40),
+      claim(4, 'tied', 40),
+    ]
+    // The same answer whatever order a run lists the games in: the rule, not the arrival order.
+    for (const order of [games, [...games].reverse()]) {
+      const slugs = buildIndexPlan(1, order).slugs
+      expect(slugs.get('twice')).toBe(1)
+      expect(slugs.get('tied')).toBe(4)
+      expect(slugs.size).toBe(2)
+    }
+    // The documents are all still there; only the slug has a single owner.
+    expect(buildIndexPlan(1, games).docs.size).toBe(5)
+  })
+
+  it('files a slug only under a document the version stores', () => {
+    // The same id listed twice keeps its last document, and only that document's slug.
+    const slugs = buildIndexPlan(1, [
+      { ...FIXTURE_GAMES[0]!, slug: 'old-slug' },
+      { ...FIXTURE_GAMES[0]!, slug: 'new-slug' },
+    ]).slugs
+    expect(slugs).toEqual(new Map([['new-slug', 1]]))
+  })
+
+  it('files no slug a lookup would refuse: empty, over-long or not well-formed', () => {
+    const longest = 'a'.repeat(MAX_SLUG_LENGTH)
+    const bounded = buildIndexPlan(1, [
+      { ...FIXTURE_GAMES[0]!, slug: longest },
+      { ...FIXTURE_GAMES[1]!, slug: `${longest}a` },
+      { ...FIXTURE_GAMES[2]!, slug: 'half-\ud83d-emoji' },
+      { ...FIXTURE_GAMES[3]!, slug: '' },
+    ])
+    expect(bounded.slugs).toEqual(new Map([[longest, 1]]))
+    // The games themselves are planned like any other: documents, names, orders.
+    expect(bounded.docs.size).toBe(4)
+    expect(bounded.names.size).toBe(4)
+  })
+
   it('orders names with a Ukrainian collator', () => {
     const byRank = order('NAME_ASC')
       .slice()
@@ -104,6 +171,48 @@ describe('buildIndexPlan', () => {
   it('namespaces every key it produces under the version', () => {
     for (const key of [...plan.facets.keys(), ...plan.orders.keys(), ...plan.ranges.keys()]) {
       expect(key.startsWith('idx:v1:')).toBe(true)
+    }
+  })
+})
+
+/**
+ * The one rule about which slugs the index deals in at all, applied by the plan when it files them
+ * and by both adapters before they look one up.
+ */
+describe('isIndexableSlug', () => {
+  it('takes every slug RAWG writes, up to two hundred characters', () => {
+    expect(MAX_SLUG_LENGTH).toBe(200)
+    for (const game of FIXTURE_GAMES) expect(isIndexableSlug(game.slug), game.slug).toBe(true)
+    expect(isIndexableSlug('the-witcher-3-wild-hunt')).toBe(true)
+    expect(isIndexableSlug('a')).toBe(true)
+    expect(isIndexableSlug('a'.repeat(MAX_SLUG_LENGTH))).toBe(true)
+  })
+
+  it('refuses an empty slug and one a character past the bound', () => {
+    expect(isIndexableSlug('')).toBe(false)
+    expect(isIndexableSlug('a'.repeat(MAX_SLUG_LENGTH + 1))).toBe(false)
+    expect(isIndexableSlug('a'.repeat(1_000_000))).toBe(false)
+  })
+
+  it('measures the bound in UTF-16 code units, the length a string reports', () => {
+    // An emoji is two units, so a hundred of them are exactly at the bound.
+    expect(isIndexableSlug('\u{1F3AE}'.repeat(MAX_SLUG_LENGTH / 2))).toBe(true)
+    expect(isIndexableSlug('\u{1F3AE}'.repeat(MAX_SLUG_LENGTH / 2 + 1))).toBe(false)
+  })
+
+  it('refuses text that is not well-formed, and nothing else for what it is made of', () => {
+    expect(isIndexableSlug('half-\ud83d-emoji')).toBe(false)
+    expect(isIndexableSlug('\udc00')).toBe(false)
+    // Whole characters of any kind are fine: the match is exact, so an odd slug simply misses.
+    for (const slug of [
+      'Kite-Keep',
+      'nier:automata',
+      'a b',
+      '50%25-off',
+      'pokémon-snap',
+      '\u{1F3AE}',
+    ]) {
+      expect(isIndexableSlug(slug), slug).toBe(true)
     }
   })
 })

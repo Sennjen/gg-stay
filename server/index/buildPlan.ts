@@ -1,6 +1,12 @@
 import { GAME_SORTS, type GameSortValue } from '../../shared/catalog'
 import type { IndexedGame } from './document'
-import { INDEX_RANGE_FIELDS, daysSinceEpoch, foldName, rangeValueOf } from './document'
+import {
+  INDEX_RANGE_FIELDS,
+  daysSinceEpoch,
+  foldName,
+  isIndexableSlug,
+  rangeValueOf,
+} from './document'
 import { facetKeysOf, orderKey, rangeKey } from './keys'
 
 /**
@@ -22,6 +28,14 @@ export interface IndexPlan {
   ranges: Map<string, [number, number][]>
   /** Id → folded name, the pairs written under `namesKey`. */
   names: Map<number, string>
+  /**
+   * Slug → id, the pairs written under `slugsKey`: how a game page that knows only its slug finds
+   * its document. The slug is the document's own, spelled exactly as the document spells it — not
+   * folded, not trimmed — because the reader matches it exactly too. A slug the reader would not
+   * look up at all (`isIndexableSlug`) is not here: its game is in `docs` like any other and can
+   * simply not be found by its slug.
+   */
+  slugs: Map<string, number>
 }
 
 /**
@@ -61,9 +75,41 @@ function primaryOf(sort: GameSortValue, game: IndexedGame): number {
   }
 }
 
+/**
+ * The contract's tie-break, on its own: the more popular game first, then the lower id. Every
+ * order ends on it, and it also decides which game keeps a slug two of them claim.
+ */
+function byPopularityThenId(left: IndexedGame, right: IndexedGame): number {
+  if (left.popularity !== right.popularity) return right.popularity - left.popularity
+  return left.id - right.id
+}
+
+/**
+ * Which game each slug leads to. RAWG gives every game a slug of its own, so in practice this is
+ * one entry per document — but a run can still hand over two documents with one slug (a published
+ * studio game kept as it was, beside a game that has since taken its slug), a hash field holds a
+ * single id, and an index that quietly let the last game listed win would answer differently for
+ * the same games in a different order. So the rule is written down: a slug two games claim
+ * belongs to the more popular one, then to the lower id. Built from the stored documents, so every
+ * slug here is the slug of a document of the version.
+ *
+ * A slug no lookup would be made for — empty, longer than `MAX_SLUG_LENGTH`, or not well-formed
+ * text — is left out, by the same test the Upstash adapter applies before it asks its store. RAWG
+ * writes no such slug; leaving one out keeps the table to what can be found in it, and keeps out
+ * of the store a field its transport could not carry.
+ */
+function slugOwners(docs: ReadonlyMap<number, IndexedGame>): Map<string, number> {
+  const slugs = new Map<string, number>()
+  for (const game of [...docs.values()].sort(byPopularityThenId)) {
+    if (isIndexableSlug(game.slug) && !slugs.has(game.slug)) slugs.set(game.slug, game.id)
+  }
+  return slugs
+}
+
 export function buildIndexPlan(version: number, games: readonly IndexedGame[]): IndexPlan {
   const docs = new Map(games.map((game) => [game.id, game]))
   const names = new Map(games.map((game) => [game.id, foldName(game.name)]))
+  const slugs = slugOwners(docs)
 
   const facets = new Map<string, number[]>()
   for (const game of games) {
@@ -91,8 +137,7 @@ export function buildIndexPlan(version: number, games: readonly IndexedGame[]): 
           return descending ? rightValue - leftValue : leftValue - rightValue
         }
       }
-      if (left.popularity !== right.popularity) return right.popularity - left.popularity
-      return left.id - right.id
+      return byPopularityThenId(left, right)
     })
     orders.set(
       orderKey(version, sort),
@@ -110,5 +155,5 @@ export function buildIndexPlan(version: number, games: readonly IndexedGame[]): 
     ranges.set(rangeKey(version, field), entries)
   }
 
-  return { docs, facets, orders, ranges, names }
+  return { docs, facets, orders, ranges, names, slugs }
 }
