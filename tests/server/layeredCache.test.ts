@@ -1048,11 +1048,14 @@ describe('a shared store that takes a write and does not finish it', () => {
       await cache.set('games/b', entryOf({ id: 2 }))
       await vi.advanceTimersByTimeAsync(SHARED_CACHE_WRITE_DEADLINE_MS)
 
+      // Long after: past the thirty seconds in which a second line would have been held back.
+      await vi.advanceTimersByTimeAsync(SHARED_CACHE_PAUSE_MS)
       writes[0]!.reject(new Error('the store gave up long after'))
       writes[1]!.resolve(undefined)
       await settle()
       await settle()
 
+      // It was reported when it was let go of, and is not reported again for how it ended.
       expect(lines()).toEqual([SLOW_LINE])
       expect(unhandled).not.toHaveBeenCalled()
     } finally {
