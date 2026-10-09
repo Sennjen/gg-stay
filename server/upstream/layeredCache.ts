@@ -133,12 +133,23 @@ type ReadOutcome =
  * deadline settles into a handler that ignores it, so one that fails then is still a handled
  * failure. The read itself cannot be called off — the store has no way to — and is simply left to
  * end.
+ *
+ * The deadline is the store's, not the event loop's. When the loop has been busy — a page being
+ * rendered — the timer and the store's answer can both be due in the same turn, and timers run
+ * first: a read answered after 40 ms would be called late, and the store left alone for a pause,
+ * because of work that had nothing to do with it. So a timer that fires does not decide by
+ * itself. It gives the loop the rest of its turn, in which an answer that has already arrived is
+ * delivered, and only then is the read late.
  */
 function withinDeadline(read: () => Promise<unknown>): Promise<ReadOutcome> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve({ status: 'late' }), SHARED_CACHE_DEADLINE_MS)
+    let lastChance: ReturnType<typeof setImmediate> | undefined
+    const timer = setTimeout(() => {
+      lastChance = setImmediate(() => resolve({ status: 'late' }))
+    }, SHARED_CACHE_DEADLINE_MS)
     const settle = (outcome: ReadOutcome) => {
       clearTimeout(timer)
+      if (lastChance) clearImmediate(lastChance)
       resolve(outcome)
     }
     let reading: Promise<unknown>

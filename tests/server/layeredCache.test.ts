@@ -567,8 +567,11 @@ describe('the deadline of a shared read', () => {
     const read = cache.get('games')
     const seen = watch(read)
     await vi.advanceTimersByTimeAsync(SHARED_CACHE_DEADLINE_MS - 1)
+    await settle()
     expect(seen.settled).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
+    // The loop gets the rest of its turn first, for an answer that might already be here.
+    await settle()
     expect(seen.settled).toBe(true)
     // What memory holds, as if the shared store had nothing.
     expect(await read).toBe(local)
@@ -579,6 +582,41 @@ describe('the deadline of a shared read', () => {
     await settle()
     expect(memory.held.get('games')).toBe(local)
     expect(memory.set).not.toHaveBeenCalled()
+  })
+
+  it('is not missed by a read the store has answered, only because the event loop was busy', async () => {
+    const { cache, reading, warn, get } = slowStore()
+    const remote = entryOf({ id: 4200 })
+    const told = vi.fn<(read: SharedRead) => void>()
+
+    const read = cache.get('games/portal-2', { onSharedRead: told })
+    await settle()
+    // The store answered after 40 ms, but the loop was busy for 200 — a page being rendered —
+    // so the deadline's timer and the answer are both due in the same turn, and timers run first.
+    vi.advanceTimersByTime(200)
+    reading.resolve(remote)
+
+    // The answer is taken: it was there before anyone looked.
+    expect(await read).toEqual(remote)
+    expect(told).toHaveBeenCalledExactlyOnceWith({ ms: 200, hit: true })
+    expect(warn).not.toHaveBeenCalled()
+    // And nothing is paused, nor left scheduled: the next read asks the store.
+    await cache.get('games/another')
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('is missed by a read still out when the loop has had its turn, however late the timer ran', async () => {
+    const { cache, reading, lines } = slowStore()
+
+    const read = cache.get('games/portal-2')
+    await settle()
+    vi.advanceTimersByTime(200)
+    await settle()
+    reading.resolve(entryOf({ id: 4200 }))
+
+    expect(await read).toBeNull()
+    expect(lines()).toEqual(['[shared-cache] a read took longer than 150 ms; left alone for 30 s'])
   })
 
   it('leaves no timer behind an answer in time, a failure, or a store that throws', async () => {
