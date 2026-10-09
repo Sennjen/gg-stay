@@ -835,28 +835,49 @@ describe('an answer with a stale window', () => {
     advance(DAY_MS)
     await fetchUpstream({ key: 'games/portal-2' })
     await settle()
-    advance(40)
-    sent[1]!.answer(502)
-    await settle()
     advance(5_000)
-    sent[2]!.fail(timeoutError())
+    sent[1]!.fail(timeoutError())
 
     // What was handed to the keep-alive ends without a failure of its own.
     await expect(kept[0]).resolves.toBeUndefined()
-    expect(lines()).toEqual([
-      '[upstream] RAWG games/portal-2 attempt 1: 40 ms, ERROR (502)',
-      '[upstream] RAWG games/portal-2 attempt 2: 5000 ms, TIMEOUT',
-    ])
+    expect(lines()).toEqual(['[upstream] RAWG games/portal-2 attempt 1: 5000 ms, TIMEOUT'])
     expect(store.get('games/portal-2')).toBe(before)
 
     // The entry is still what answers, and the next caller sets off the next refresh.
     expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
     await settle()
-    expect(sent).toHaveLength(4)
+    expect(sent).toHaveLength(3)
     expect(kept).toHaveLength(2)
-    sent[3]!.answer(200, { version: 2 })
+    sent[2]!.answer(200, { version: 2 })
     await kept[1]
     expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 2 })
+  })
+
+  it('makes one attempt at a refresh, though the call that set it off was allowed a retry', async () => {
+    const { fetchUpstream, sent, advance, kept, lines } = await holding('games/portal-2')
+    advance(DAY_MS)
+    // The transport's own limits: two attempts for a request somebody waits for.
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    advance(40)
+    sent[1]!.answer(502)
+    await kept[0]
+    await settle()
+
+    // A retry takes a limiter slot without asking how long the line is, and a refresh needs
+    // none: the next view of the page is its retry.
+    expect(sent).toHaveLength(2)
+    expect(lines()).toEqual(['[upstream] RAWG games/portal-2 attempt 1: 40 ms, ERROR (502)'])
+
+    // A request that is waited for still has its retry.
+    advance(WEEK_MS)
+    const waitedFor = fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    sent[2]!.answer(502)
+    await settle()
+    expect(sent).toHaveLength(4)
+    sent[3]!.answer(200, { version: 2 })
+    expect(await waitedFor).toEqual({ version: 2 })
   })
 
   it('raises nothing when a refresh fails with nobody holding on to it', async () => {
@@ -914,8 +935,6 @@ describe('an answer with a stale window', () => {
     await settle()
     expect(kept).toHaveLength(1)
     sent[1]!.answer(503)
-    await settle()
-    sent[2]!.answer(503)
     await kept[0]
   })
 

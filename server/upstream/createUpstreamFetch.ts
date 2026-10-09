@@ -571,8 +571,9 @@ export function createUpstreamFetch<TRequest>(
    * runtime to keep running. Nothing of it reaches the caller that set it off: what is handed over
    * cannot reject, a failed attempt has already written its own line (`report`), and the entry
    * that was served stays where it is until a refresh brings a newer one. A refresh whose turn
-   * comes while the limiter is backed up is dropped (`REFRESH_BACKLOG_LIMIT_MS`): the entry
-   * stays, and the next call for it starts another.
+   * comes while the limiter is backed up is dropped (`REFRESH_BACKLOG_LIMIT_MS`), and one that is
+   * started makes a single attempt: either way the entry stays, and the next call for it starts
+   * another.
    *
    * A 404 is no exception, though it is an answer rather than a failure: the game is gone, and its
    * entry goes on being served until the window closes on it. Taking it out would need a cache
@@ -590,8 +591,11 @@ export function createUpstreamFetch<TRequest>(
     refreshing.add(key)
     const done = () => void refreshing.delete(key)
     // At the end of the line: behind every call made before this answer was handed over, the ones
-    // somebody is waiting for among them.
-    const work = refreshInTurn(request, key, clock, limits, takePlace()).then(done, done)
+    // somebody is waiting for among them. And one attempt, whatever the call that set it off was
+    // allowed: a retry takes a slot without asking how long the line is, and a refresh needs
+    // none — the next view of the entry is its retry.
+    const once = { ...limits, maxAttempts: 1 }
+    const work = refreshInTurn(request, key, clock, once, takePlace()).then(done, done)
     try {
       runtime.keepAlive?.(work)
     } catch {
