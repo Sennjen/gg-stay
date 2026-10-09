@@ -440,16 +440,16 @@ describe('the caches of a function on Vercel', () => {
   })
 })
 
-describe('the caches of a function the platform gives no cache', () => {
-  it('say so once, ask the platform nothing more, and answer from memory and the upstreams as before', async () => {
+describe('the caches of a function whose request the platform gives no cache', () => {
+  it('take the call for a miss, say so once, and use the cache again when a request has one', async () => {
     const vercel = platform()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const made = await instance({ vercel, upstream: () => ({ ok: true }) })
-    // On Vercel, with a request context — and no cache in it.
-    vi.stubGlobal(REQUEST_CONTEXT as unknown as string, {
-      get: () => ({ waitUntil: vercel.waitUntil }),
-    })
+    const withCache = { get: () => ({ cache: vercel.cache, waitUntil: vercel.waitUntil }) }
+    const withoutCache = { get: () => ({ waitUntil: vercel.waitUntil }) }
 
+    // On Vercel, with a request context — and no cache in it.
+    vi.stubGlobal(REQUEST_CONTEXT as unknown as string, withoutCache)
     expect(await made.rawg('games/portal-2')).toEqual({ ok: true })
     expect(await behindTheLimiter(made.rawg('games/portal-2/stores'))).toEqual({ ok: true })
     expect(await made.steam('620')).toEqual(steamPage('{"ok":true}'))
@@ -457,18 +457,29 @@ describe('the caches of a function the platform gives no cache', () => {
     expect(await made.cache.get('steam-price:620')).toEqual({ price: null })
     await settle(vercel.kept)
 
-    // Half a minute on — a pause would be over by now — and still nothing is asked or said.
-    vi.setSystemTime(START + 60_000)
+    // The upstreams answered and memory kept it; the platform's cache was not there to be asked.
+    expect(made.fetched).toHaveLength(3)
+    expect(vercel.cache.get).not.toHaveBeenCalled()
+    expect(vercel.cache.set).not.toHaveBeenCalled()
+
+    // The next request's context has a cache: it is read and written at once, with no pause to
+    // wait out and nothing switched off by the requests before it.
+    vi.stubGlobal(REQUEST_CONTEXT as unknown as string, withCache)
     expect(await behindTheLimiter(made.rawg('games/half-life'))).toEqual({ ok: true })
-    expect(await made.rawg('games/portal-2')).toEqual({ ok: true })
+    await settle(vercel.kept)
+    expect(vercel.cache.get).toHaveBeenCalledExactlyOnceWith(
+      `gg-stay$v2.RAWG.${sha256('games/half-life')}`,
+    )
+    expect(vercel.cache.set).toHaveBeenCalledTimes(1)
+
+    // And one without, later, is a miss again — and is not said again.
+    vi.stubGlobal(REQUEST_CONTEXT as unknown as string, withoutCache)
+    expect(await behindTheLimiter(made.rawg('games/doom'))).toEqual({ ok: true })
     await settle(vercel.kept)
 
     expect(warn).toHaveBeenCalledExactlyOnceWith(
-      '[shared-cache] the platform gave this function no cache; not asked again by this instance',
+      '[shared-cache] the platform gave this request no cache; said once by this instance',
     )
-    expect(vercel.cache.get).not.toHaveBeenCalled()
-    expect(vercel.cache.set).not.toHaveBeenCalled()
-    expect(made.fetched).toHaveLength(4)
   })
 })
 

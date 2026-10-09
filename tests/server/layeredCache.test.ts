@@ -1083,83 +1083,114 @@ describe('a shared store that takes a write and does not finish it', () => {
   })
 })
 
-describe('a shared store that is not there at all', () => {
+describe('a shared store that is not there for a call', () => {
   const ABSENT_LINE =
-    '[shared-cache] the platform gave this function no cache; not asked again by this instance'
+    '[shared-cache] the platform gave this request no cache; said once by this instance'
 
-  /** A store that has only ever one thing to say, to a read and to a write alike. */
-  function absentStore() {
+  /**
+   * A store that is there for some calls and not for others, as a request's context may or may
+   * not carry a cache. While it is not, a read and a write alike are refused as absent.
+   */
+  function sometimesThere() {
+    const store = createFakeSharedStore()
+    const state = { there: false }
     const absent = () =>
-      Promise.reject(new SharedStoreAbsent('the platform gave this function no cache'))
-    const get = vi.fn(absent)
-    const set = vi.fn(absent)
+      Promise.reject(new SharedStoreAbsent('the platform gave this request no cache'))
+    const get = vi.fn((key: string) => (state.there ? store.get(key) : absent()))
+    const set = vi.fn((key: string, value: unknown, ttlSeconds: number) =>
+      state.there ? store.set(key, value, ttlSeconds) : absent(),
+    )
     const shared = levelOver({ get, set })
-    return { get, set, ...shared, ...cacheOver(shared.level) }
+    return { store, state, get, set, ...shared, ...cacheOver(shared.level) }
   }
 
-  it('is said once, by the read that finds it out, and never asked again', async () => {
-    const { cache, memory, get, set, lines } = absentStore()
+  it('is a miss for that call, and no read of anything', async () => {
+    const { cache, memory, lines } = sometimesThere()
     const local = entryOf({ page: 'mine' }, { age: 700_000 })
     memory.held.set('games', local)
     const told = vi.fn<(read: SharedRead) => void>()
 
-    // Memory answers as if there had never been a second level; and this was no read of one.
+    // Memory answers as if there were no second level; nothing was read, so nothing is measured.
     expect(await cache.get('games', { onSharedRead: told })).toBe(local)
-    expect(told).not.toHaveBeenCalled()
-    expect(lines()).toEqual([ABSENT_LINE])
-
-    // Not after a pause has run out, not an hour later, not for a write.
-    for (const wait of [SHARED_CACHE_PAUSE_MS, 3_600_000]) {
-      await vi.advanceTimersByTimeAsync(wait)
-      expect(await cache.get('games/portal-2', { onSharedRead: told })).toBeNull()
-      await cache.set('genres', entryOf({ genres: [] }))
-      await settle()
-    }
-    expect(get).toHaveBeenCalledTimes(1)
-    expect(set).not.toHaveBeenCalled()
+    expect(await cache.get('games/portal-2', { onSharedRead: told })).toBeNull()
     expect(told).not.toHaveBeenCalled()
     expect(lines()).toEqual([ABSENT_LINE])
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('is said once when a write is what finds it out', async () => {
-    const { cache, get, set, lines, kept } = absentStore()
+  it('is asked again by the very next call, and used the moment it is there', async () => {
+    const { cache, store, state, get, set, lines } = sometimesThere()
+    shareEntry(store, 'games/portal-2', entryOf({ id: 4200 }))
+
+    expect(await cache.get('games/portal-2')).toBeNull()
+    await cache.set('games/a', entryOf({ id: 1 }))
+    await settle()
+
+    // The next request's context carries a cache. No pause stands in the way, and no memory of
+    // the last one: the read is made and answered, and the write lands.
+    state.there = true
+    expect(await cache.get('games/portal-2')).toMatchObject({ value: { id: 4200 } })
+    await cache.set('games/b', entryOf({ id: 2 }))
+    await settle()
+
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(set).toHaveBeenCalledTimes(2)
+    expect(store.writes.map((write) => write.key)).toEqual([sharedKeyOf('games/b')])
+    expect(lines()).toEqual([ABSENT_LINE])
+  })
+
+  it('is said once in the life of the process, however often and however it is found out', async () => {
+    const { cache, state, get, set, lines } = sometimesThere()
+
+    // Three reads side by side, a write, and the same an hour later, after it had been there
+    // in between.
+    await Promise.all(
+      ['games/a', 'games/a/stores', 'games/a/screenshots'].map((key) => cache.get(key)),
+    )
+    await cache.set('genres', entryOf({ genres: [] }))
+    await settle()
+    state.there = true
+    await cache.get('games/b')
+    state.there = false
+    await vi.advanceTimersByTimeAsync(3_600_000)
+    await cache.get('games/c')
+    await cache.set('platforms', entryOf({ platforms: [] }))
+    await settle()
+
+    // Every call asked for itself…
+    expect(get).toHaveBeenCalledTimes(5)
+    expect(set).toHaveBeenCalledTimes(2)
+    // …and one line was written.
+    expect(lines()).toEqual([ABSENT_LINE])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('is said in its own line when a write is what finds it out, not in the line about a failed write', async () => {
+    const { cache, set, lines, kept } = sometimesThere()
 
     await cache.set('games/a', entryOf({ id: 1 }))
     await expect(kept[0]).resolves.toBeUndefined()
     await cache.set('games/b', entryOf({ id: 2 }))
-    expect(await cache.get('games/c')).toBeNull()
     await settle()
 
-    expect(set).toHaveBeenCalledTimes(1)
-    expect(get).not.toHaveBeenCalled()
-    // One line, and it is the one about absence: not the line about a write that failed.
+    // Nothing was switched off by it: the second write was tried too.
+    expect(set).toHaveBeenCalledTimes(2)
     expect(lines()).toEqual([ABSENT_LINE])
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('is said once when several reads find it out together', async () => {
-    const { cache, lines } = absentStore()
-
-    await Promise.all(
-      ['games/a', 'games/a/stores', 'games/a/screenshots'].map((key) => cache.get(key)),
-    )
-
-    expect(lines()).toEqual([ABSENT_LINE])
-  })
-
-  it('is told from a store that merely failed by the error’s name, whatever built it', async () => {
+  it('is told from a store that failed by the error’s name, whatever built the error', async () => {
     const lookalike = Object.assign(new Error('no cache here'), { name: 'SharedStoreAbsent' })
     const get = vi.fn(() => Promise.reject(lookalike))
     const { level, lines } = levelOver({ get, set: async () => {} })
     const { cache } = cacheOver(level)
 
     await cache.get('games/a')
-    await vi.advanceTimersByTimeAsync(SHARED_CACHE_PAUSE_MS)
     await cache.get('games/b')
 
-    expect(get).toHaveBeenCalledTimes(1)
-    expect(lines()).toEqual(['[shared-cache] no cache here; not asked again by this instance'])
+    // Not a failure: no pause, so the second call asked as well.
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(lines()).toEqual(['[shared-cache] no cache here; said once by this instance'])
   })
 })
 

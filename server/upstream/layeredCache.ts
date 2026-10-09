@@ -116,10 +116,12 @@ export interface SharedStore {
 }
 
 /**
- * What a store's read or write rejects with when the store is not there at all — not slow, not
- * failing, absent — and will not be there for as long as this process lives. It is said once and
- * the store is never asked again: a pause that ends every thirty seconds would write the same
- * line for ever about something no pause can mend.
+ * What a store's read or write rejects with when, for this one call, the store is not there at
+ * all — not slow, not failing, absent. Nothing was waited for and nothing broke, so there is
+ * nothing to pause for: the call is a miss, or a write that is not made, and the next call asks
+ * again, because whether the store is there is the store's to say each time and costs nothing to
+ * ask. It is said once in the life of the process, so that a store that is never there does not
+ * write the same line for ever.
  *
  * Told by its name rather than its class, which a bundler can leave in two copies.
  */
@@ -236,17 +238,20 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
 
   let pausedUntil = 0
   let writesQuietUntil = 0
-  let absent = false
+  let saidAbsent = false
 
-  /** Being left alone: for a pause after a read that failed, or for good when it is not there. */
-  const paused = () => absent || runtime.now() < pausedUntil
+  const paused = () => runtime.now() < pausedUntil
 
-  /** The store is not there (`SharedStoreAbsent`): said once, and never asked again. */
-  function gone(error: unknown): void {
-    if (absent) return
-    absent = true
+  /**
+   * The store was not there for a call (`SharedStoreAbsent`). Said once in the life of the
+   * process, and that is all: nothing is paused and nothing is remembered, so the next call finds
+   * out for itself whether the store is there for it.
+   */
+  function absent(error: unknown): void {
+    if (saidAbsent) return
+    saidAbsent = true
     const why = error instanceof Error ? error.message : 'the store is not there'
-    warn(`[shared-cache] ${why.slice(0, MAX_REASON_LENGTH)}; not asked again by this instance`)
+    warn(`[shared-cache] ${why.slice(0, MAX_REASON_LENGTH)}; said once by this instance`)
   }
 
   /**
@@ -297,7 +302,7 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
       )
       const failed = (error: unknown) => {
         if (isAbsence(error)) {
-          gone(error)
+          absent(error)
           end()
         } else {
           end(`failed (${reasonOf(error)})`)
@@ -323,8 +328,9 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
       const ms = Math.max(0, runtime.now() - startedAt)
       if (outcome.status === 'answered') return { ms, value: outcome.value ?? null }
       if (outcome.status === 'failed' && isAbsence(outcome.error)) {
-        // Not a read that found nothing: there was nothing to read from.
-        gone(outcome.error)
+        // Not a read that found nothing, and not a failure to pause for: there was nothing to
+        // read from, this time.
+        absent(outcome.error)
         return null
       }
       pause(

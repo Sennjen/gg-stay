@@ -18,10 +18,10 @@ import { SharedStoreAbsent, type SharedStore } from '../upstream/layeredCache'
  *   process**, after one `console.warn`. That map has no bound — it keeps every value as a JSON
  *   string until a read finds it expired — and the key space here is driven by what visitors ask
  *   for, which is the very thing the bounded memory level exists to contain. So the store below
- *   refuses to work unless the platform's cache is there: no cache is an absent store
- *   (`SharedStoreAbsent`), which the level above reports once and never asks again. (On a build
- *   machine the same branch can reach a remote build cache over HTTP instead; it is refused the
- *   same way.)
+ *   refuses to work unless the platform's cache is there for the request that is running: no
+ *   cache is an absent store (`SharedStoreAbsent`), which the level above takes for a miss and
+ *   reports once; the next call is asked afresh. (On a build machine the same branch can reach a
+ *   remote build cache over HTTP instead; it is refused the same way.)
  * - **A miss is `null`.** The package's own two implementations never reject a read; the
  *   platform's is not in the package, so nothing is assumed of it. The wrapper is an ordinary
  *   function, so a cache that throws would throw at the caller rather than reject — the methods
@@ -52,13 +52,14 @@ function platformCacheIsThere(): boolean {
 }
 
 /**
- * Refuses to go on without the platform's cache — as an absence, not as a failure: if a function
- * built this way is given none, no later request will be given one either, so the level above
- * says it once and stops asking instead of finding it out again every thirty seconds.
+ * Refuses to go on without the platform's cache — as an absence, not as a failure. The package
+ * types a request's context as one that may or may not carry a cache, and whether this one does
+ * is a property read: the call is a miss, the level above says so once in the life of the
+ * process, and the next call looks at its own context.
  */
 function requirePlatformCache(): void {
   if (!platformCacheIsThere()) {
-    throw new SharedStoreAbsent('the platform gave this function no cache')
+    throw new SharedStoreAbsent('the platform gave this request no cache')
   }
 }
 
