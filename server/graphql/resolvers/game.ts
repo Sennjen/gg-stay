@@ -32,7 +32,11 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * - **The store links and the screenshots** are enhancements. They are waited for until
  *   `GAME_EXTRAS_BUDGET_MS` after the request began, and the page is then assembled from whichever
  *   have arrived — `partial` if one had not. One that failed inside the budget is not missing in
- *   that sense: the page renders without it and is complete, exactly as it was.
+ *   that sense: the page renders without it and is complete, exactly as it was. The one exception
+ *   is a request RAWG refused for rate (a 429): that is no word about the game, only about the
+ *   moment it was asked in, and the same request a few seconds later is likely to be answered. So
+ *   the page goes out without it at once, as for any failure, but says `partial`, and the browser
+ *   asks again (`isRefusedForRate`).
  * - **The live Steam price** (below) is waited for `LIVE_PRICE_BUDGET_MS` from the moment it was
  *   asked for. Past that the index price stands, under its own true timestamp. That is not a
  *   reason for `partial`: the page has a price, and says how old it is. A Steam game the index
@@ -344,7 +348,8 @@ function kindOf(reason: unknown): string {
  *
  * The store links and the screenshots are waited for until their budget is spent — which, for a
  * detail that itself arrived after it, is no time at all — and the page says `partial` when one
- * of them had still not settled. The index entry is read by the id RAWG gave.
+ * of them had still not settled, or had been refused for rate. The index entry is read by the id
+ * RAWG gave.
  *
  * The live price is the other thing such a page can go out without, for a game the index does
  * not hold (the header says why that one case counts and no other).
@@ -365,7 +370,8 @@ async function rawgPage(
   ])
   const links = valueOf(extras.storeLinks)?.results ?? []
   const mapped = mapGame(detail, links, valueOf(extras.screenshots)?.results ?? [])
-  const late = lateExtras(extras)
+  const late = extrasThat(extras, isPending)
+  const refused = extrasThat(extras, isRefusedForRate)
 
   const id = Number(mapped.id)
   const entry = Number.isFinite(id) ? await indexEntry(context, id) : null
@@ -387,8 +393,8 @@ async function rawgPage(
   // answer inside the budget — a price, Steam's "none", a failure — leaves nothing to collect.
   const priceLate = appId !== null && entry === null && price.isOut(appId)
 
-  const partial = late.length > 0 || priceLate
-  if (partial) console.info(partialLine(late, priceLate))
+  const partial = late.length > 0 || refused.length > 0 || priceLate
+  if (partial) console.info(partialLine(refused, late, priceLate))
   return {
     ...mapped,
     stores: withSteamPrice(mapped.stores, priced),
@@ -400,30 +406,60 @@ async function rawgPage(
   }
 }
 
-/** Which of RAWG's two enhancements had not answered when the page was put together, by name. */
-function lateExtras(extras: Extras): string[] {
+/**
+ * Which of RAWG's two enhancements `is` holds of as the page is put together, by the names the
+ * log knows them by: the ones that had not answered (`isPending`), or the ones RAWG had refused
+ * (`isRefusedForRate`).
+ */
+function extrasThat(extras: Extras, is: (request: Observed<unknown>) => boolean): string[] {
   return [
-    ...(isPending(extras.storeLinks) ? ['store links'] : []),
-    ...(isPending(extras.screenshots) ? ['screenshots'] : []),
+    ...(is(extras.storeLinks) ? ['store links'] : []),
+    ...(is(extras.screenshots) ? ['screenshots'] : []),
   ]
 }
 
 /**
  * The line about a page RAWG answered that went out partial: what it went out without, each with
- * the budget it missed. In the shape of the line about a page answered from the index.
+ * the reason — RAWG's refusal, or the budget it missed. In the shape of the line about a page
+ * answered from the index, and with the same word for a refusal: `RATE_LIMITED`, which is also
+ * what the transport's own line about the attempt ends in, so one search of the log finds all
+ * three.
  */
-function partialLine(late: readonly string[], priceLate: boolean): string {
+function partialLine(
+  refused: readonly string[],
+  late: readonly string[],
+  priceLate: boolean,
+): string {
   const missed = [
+    ...(refused.length > 0 ? [`RAWG ${refused.join(' and ')} refused (RATE_LIMITED)`] : []),
     ...(late.length > 0
       ? [`RAWG ${late.join(' and ')} slower than ${GAME_EXTRAS_BUDGET_MS} ms`]
       : []),
     ...(priceLate ? [`Steam price slower than ${LIVE_PRICE_BUDGET_MS} ms`] : []),
   ]
-  return `[game] ${missed.join(' and ')}, answered without ${late.length > 0 ? 'them' : 'it'}`
+  const extras = refused.length > 0 || late.length > 0
+  return `[game] ${missed.join(' and ')}, answered without ${extras ? 'them' : 'it'}`
 }
 
 function isPending(request: Observed<unknown>): boolean {
   return request.outcome().status === 'pending'
+}
+
+/**
+ * Whether RAWG answered this request with a refusal for rate: a 429, which the transport neither
+ * retries nor keeps. Of everything that can go wrong with an enhancement inside its budget it is
+ * the one failure that says nothing about the game and is likely to be gone in a few seconds, so
+ * it is the one the page asks about again — see the header. Every other failure leaves the page
+ * complete without the enhancement, as it always did: a 5xx or a broken connection has had the
+ * transport's own retry by the time it is one, and a 404 is RAWG's answer.
+ */
+function isRefusedForRate(request: Observed<unknown>): boolean {
+  const outcome = request.outcome()
+  return (
+    outcome.status === 'rejected' &&
+    outcome.reason instanceof UpstreamError &&
+    outcome.reason.kind === 'RATE_LIMITED'
+  )
 }
 
 /**
