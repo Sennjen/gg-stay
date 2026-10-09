@@ -26,9 +26,10 @@ import { UpstreamError, type UpstreamSource } from './errors'
 
 /**
  * How long after it was stored an answer with a stale window may still be served while it is
- * refreshed: a week. A game's description, its store links and its screenshots, and Steam's own
- * page about it, change rarely and carry no price; a day-old copy shown at once is a better page
- * than a fresh one a visitor waits seconds for. The design is in
+ * refreshed: a week. RAWG's description of a game, its store links and its screenshots change
+ * rarely and carry no price; a day-old copy shown at once is a better page than a fresh one a
+ * visitor waits seconds for. Which requests have the window is each upstream's own rule
+ * (`staleFor`), and Steam's have none. The design is in
  * `docs/specs/2026-10-09-shared-upstream-cache-design.md`.
  */
 export const STALE_WHILE_REVALIDATE_SECONDS = 7 * 86_400

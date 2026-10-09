@@ -185,7 +185,8 @@ describe('the caches of a function on Vercel', () => {
     await settle(vercel.kept)
 
     expect(vercel.cache.set.mock.calls.map(([key, , options]) => [key, options?.ttl])).toEqual([
-      [`gg-stay$v1.STEAM.${sha256('620')}`, 8 * 86_400],
+      // A day fresh and never served stale: kept for that day and one more.
+      [`gg-stay$v1.STEAM.${sha256('620')}`, 2 * 86_400],
       [`gg-stay$v1.STEAM_PRICE.${sha256('steam-price:620')}`, 3_600 + 86_400],
     ])
 
@@ -216,20 +217,40 @@ describe('the caches of a function on Vercel', () => {
     const vercel = platform()
     const first = await instance({ vercel, upstream: () => ({ version: 1 }) })
     await first.rawg('games/portal-2')
-    await first.steam('620')
     await settle(vercel.kept)
 
     vi.setSystemTime(START + 2 * DAY_MS)
     const second = await instance({ vercel, upstream: () => ({ version: 2 }) })
     expect(await second.rawg('games/portal-2')).toEqual({ version: 1 })
-    expect(await second.steam('620')).toEqual(steamPage('{"version":1}'))
 
-    // Both refreshes went to the platform to be kept alive, and bring back what is served next.
+    // The refresh went to the platform to be kept alive, and brings back what is served next.
     await settle(vercel.kept)
-    expect(second.fetched).toHaveLength(2)
+    expect(second.fetched).toHaveLength(1)
     expect(await second.rawg('games/portal-2')).toEqual({ version: 2 })
-    expect(await second.steam('620')).toEqual(steamPage('{"version":2}'))
-    expect(second.fetched).toHaveLength(2)
+    expect(second.fetched).toHaveLength(1)
+  })
+
+  it('ask Steam again for its page about an app past its day, and wait: an old trailer link may not play', async () => {
+    const vercel = platform()
+    const first = await instance({ vercel, upstream: () => ({ version: 1 }) })
+    await first.steam('620')
+    await settle(vercel.kept)
+    const kept = vercel.waitUntil.mock.calls.length
+
+    // Inside its day another instance is spared the request, as for any shared answer…
+    vi.setSystemTime(START + DAY_MS - 1)
+    const second = await instance({ vercel, upstream: () => ({ version: 2 }) })
+    expect(await second.steam('620')).toEqual(steamPage('{"version":1}'))
+    expect(second.fetched).toEqual([])
+
+    // …and past it nobody is handed the old page, though the shared cache still holds it.
+    vi.setSystemTime(START + DAY_MS)
+    const third = await instance({ vercel, upstream: () => ({ version: 3 }) })
+    expect(await third.steam('620')).toEqual(steamPage('{"version":3}'))
+    expect(third.fetched).toHaveLength(1)
+    await settle(vercel.kept)
+    // Nothing was left running behind the answer but the write of what Steam just gave.
+    expect(vercel.waitUntil).toHaveBeenCalledTimes(kept + 1)
   })
 
   it('answer from RAWG, and leave the shared cache alone, when the platform’s cache fails', async () => {

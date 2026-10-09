@@ -25,11 +25,13 @@ Vercel's Runtime Cache (`getCache()` from `@vercel/functions`, already a depende
 - **Only on Vercel.** The shared level exists when the function runs on Vercel (`process.env.VERCEL`) and not in fixture mode. Development, tests, the CI quality gates and the refresh job have memory alone, as today. Nothing in `scripts/**` changes.
 - The live Steam price the game page keeps (`steam-price:` entries of the resolver cache, six hours for a price and one hour for "none") goes through the same two levels, with its own lifetimes and no stale use: an expired price is a miss, as today. Index-served catalog pages (`cache:resolvers`) stay in memory: the index is a few milliseconds away.
 
-### 2. A game's description and screenshots may be a week old while they are refreshed
+### 2. What RAWG says about a game may be a week old while it is refreshed
 
-RAWG's `games/{slug}`, `games/{slug}/stores` and `games/{slug}/screenshots`, and Steam's app details, stay fresh for 24 hours as today. Past that, and up to `STALE_WHILE_REVALIDATE_SECONDS = 7 days` after they were stored, the transport answers with the stored body at once and refreshes it in the background: one refresh per key at a time (the in-flight sharing of #71), kept alive past the response, its failure logged like any attempt and otherwise silent — the stale entry stays. Past seven days it is a miss.
+RAWG's `games/{slug}`, `games/{slug}/stores` and `games/{slug}/screenshots` stay fresh for 24 hours as today. Past that, and up to `STALE_WHILE_REVALIDATE_SECONDS = 7 days` after they were stored, the transport answers with the stored body at once and refreshes it in the background: one refresh per key at a time (the in-flight sharing of #71), kept alive past the response, its failure logged like any attempt and otherwise silent — the stale entry stays. Past seven days it is a miss.
 
-None of these answers carries a price: prices come from the index and from Steam's price endpoint, whose lifetimes do not change. RAWG lists (`games`), the taxonomies and Steam prices keep exactly today's lifetimes and get no stale window.
+None of these answers carries a price: prices come from the index and from Steam's price endpoint, whose lifetimes do not change. RAWG lists (`games`), the taxonomies, Steam's app details and Steam prices keep exactly today's lifetimes and get no stale window.
+
+Steam's app details are left out on purpose. The response that carries the Ukrainian description also carries the trailer's address, which Steam signs for a time it does not document: a copy served a week after it was stored may hold a trailer that no longer plays. So they stay fresh for 24 hours and are then a miss, with the stored copy only the stale-if-error fallback it is today. They still go through both cache levels (section 1), so one instance's request spares the others for that day.
 
 A caller can tell: the transport's "came from the cache" signal (added in #71) still says cached for a stale answer, and `Server-Timing` does not count it as a call.
 

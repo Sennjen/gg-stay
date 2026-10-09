@@ -54,7 +54,8 @@ describe('what a transport over the shared level lets out of the function', () =
 
   /**
    * One instance of the function: its own memory over the store every instance shares, and the
-   * two real transports on top. `keepAlive` is what gives them their stale window.
+   * two real transports on top. `keepAlive` is what gives a transport its stale window, for the
+   * requests it has one for.
    */
   function instance(
     options: { store?: ReturnType<typeof createFakeSharedStore>; keepAlive?: () => void } = {},
@@ -152,7 +153,7 @@ describe('what a transport over the shared level lets out of the function', () =
     ])
   })
 
-  it('keeps what a game page is made of, and Steam’s page, for eight days; a list for a day past its ten minutes', async () => {
+  it('keeps what a game page is made of for eight days; Steam’s page and a list for a day past their freshness', async () => {
     const { rawg, steam, store } = instance({ keepAlive: () => {} })
 
     for (const path of ['games/portal-2', 'games/portal-2/stores', 'games/portal-2/screenshots']) {
@@ -169,8 +170,8 @@ describe('what a transport over the shared level lets out of the function', () =
       8 * DAY,
       8 * DAY,
       8 * DAY,
-      8 * DAY,
-      // No stale window: the freshness and a day.
+      // No stale window, Steam's page included: the freshness and a day.
+      DAY + DAY,
       600 + DAY,
       DAY + DAY,
       // A week fresh: the cap again.

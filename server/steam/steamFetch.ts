@@ -1,6 +1,5 @@
 import {
   createUpstreamFetch,
-  STALE_WHILE_REVALIDATE_SECONDS,
   type SharedRead,
   type UpstreamCache,
   type UpstreamCacheEntry,
@@ -26,11 +25,6 @@ export interface SteamDeps {
   sleep: (ms: number) => Promise<void>
   /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
   log?: (line: string) => void
-  /**
-   * Keeps a refresh running behind a stale answer, and switches the stale window on: without it
-   * every answer past its ttl is asked for again and waited for (`UpstreamRuntime.keepAlive`).
-   */
-  keepAlive?: (work: Promise<unknown>) => void
 }
 
 export interface SteamFetchOptions {
@@ -72,13 +66,12 @@ function buildUrl(appId: string): string {
  * handful of fields this app reads — the full payload runs to tens of KB per game, and caching it
  * whole would waste most of the cache's entry budget.
  *
- * Every answer has the week-long stale window: what the site reads from an app's page is its
- * trailer and its Ukrainian description, which change as rarely as the game's own page does. The
- * site never reads the price in the same payload — the game page asks Steam's price endpoint,
- * uncached (`steamPriceFetch.ts`) — and the refresh job, which does, gives its transport no
- * keep-alive and so has no stale window. Nothing that is served stale is a price. What may not
- * age as well is a trailer's address, which Steam signs for a time it does not document (the
- * README lists it under Known gaps).
+ * No answer here has a stale window (`UpstreamConfig.staleFor`), though RAWG's pages about the
+ * same game do. The payload that carries the Ukrainian description also carries the trailer's
+ * address, which Steam signs for a time it does not document: a copy served a week after it was
+ * stored might hold a trailer that no longer plays. So past its day an app's page is asked for
+ * again and waited for, as it always was, and the stored copy is only the fallback for a refresh
+ * that fails.
  */
 export function createSteamFetch(deps: SteamDeps): SteamFetch {
   const fetchUpstream = createUpstreamFetch<SteamRequest>(
@@ -92,7 +85,6 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
       cacheKey: ({ appId }) => appId,
       fixtureName: ({ appId }) => fixtureName(appId),
       ttlFor: ({ options }) => options?.ttl ?? DEFAULT_TTL,
-      staleFor: () => STALE_WHILE_REVALIDATE_SECONDS,
       project: projectAppDetails,
     },
     deps,

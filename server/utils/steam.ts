@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { createSteamFetch, type SteamCacheEntry, type SteamFetch } from '../steam/steamFetch'
 import { createLayeredCache } from '../upstream/layeredCache'
 import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
-import { keepRunning } from './keepRunning'
 import { useSharedLevel } from './sharedCache'
 
 let instance: SteamFetch | undefined
@@ -24,7 +23,8 @@ export function useSteam(): SteamFetch {
     now,
   })
   // As in `useRawg`: the shared level on Vercel outside fixture mode, and `memory` itself anywhere
-  // else.
+  // else. Unlike RAWG's, this transport is given no keep-alive: nothing of Steam's is served past
+  // its day (`createSteamFetch` says why), so there is never a refresh to keep running.
   const shared = useSharedLevel()
 
   instance = createSteamFetch({
@@ -41,8 +41,6 @@ export function useSteam(): SteamFetch {
     cache: createLayeredCache({ memory, shared, source: 'STEAM', hashKey, now }),
     now,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    // The stale window comes with the shared level, as in `useRawg`.
-    keepAlive: shared ? keepRunning : undefined,
   })
   return instance
 }

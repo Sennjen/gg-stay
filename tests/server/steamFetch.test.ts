@@ -218,7 +218,7 @@ describe('createSteamFetch', () => {
   })
 })
 
-describe('the stale window of Steam’s page about an app', () => {
+describe('Steam’s page about an app, past its day', () => {
   const DAY_MS = 86_400_000
 
   /** Steam answering with one description first and another ever after. */
@@ -234,54 +234,49 @@ describe('the stale window of Steam’s page about an app', () => {
     (response as Record<string, { data: { short_description: string } }>)['292030']!.data
       .short_description
 
-  /** Lets a refresh nobody waited for run to its end. */
-  const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
-
-  it('hands the page over past its day while Steam is asked again, and for a week', async () => {
+  it('is asked for again and waited for, even where a refresh could be kept running behind an answer', async () => {
+    // RAWG's pages about a game are served stale for a week in such a runtime. Steam's never are:
+    // the same payload carries the trailer's signed address, and an old one may no longer play.
     const keepAlive = vi.fn()
-    const { deps, advance, store } = makeDeps({ fetchJson: versions(), keepAlive })
-    const steam = createSteamFetch(deps)
+    const { deps, advance, store } = makeDeps({ fetchJson: versions() })
+    const steam = createSteamFetch({ ...deps, keepAlive } as SteamDeps)
     await steam('292030')
     expect(store.get('292030')).toMatchObject({ storedAt: 1_000_000 })
 
-    advance(DAY_MS)
+    advance(DAY_MS - 1)
     expect(descriptionOf(await steam('292030'))).toBe('first')
-    expect(keepAlive).toHaveBeenCalledTimes(1)
-    await settle()
-    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
-    expect(descriptionOf(await steam('292030'))).toBe('second')
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
 
-    // A week after the refreshed page was stored it is expired: Steam is asked, and waited for.
-    advance(7 * DAY_MS)
-    vi.mocked(deps.fetchJson).mockResolvedValue({
-      status: 200,
-      body: { '292030': { success: true, data: { short_description: 'third' } } },
-    })
-    expect(descriptionOf(await steam('292030'))).toBe('third')
-    expect(keepAlive).toHaveBeenCalledTimes(1)
+    advance(1)
+    expect(descriptionOf(await steam('292030'))).toBe('second')
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+    expect(keepAlive).not.toHaveBeenCalled()
   })
 
   it('is the same under the ttl the site’s resolvers name for it', async () => {
     const keepAlive = vi.fn()
-    const { deps, advance } = makeDeps({ fetchJson: versions(), keepAlive })
-    const steam = createSteamFetch(deps)
+    const { deps, advance } = makeDeps({ fetchJson: versions() })
+    const steam = createSteamFetch({ ...deps, keepAlive } as SteamDeps)
     await steam('292030', { ttl: 86_400 })
 
     advance(DAY_MS)
-    expect(descriptionOf(await steam('292030', { ttl: 86_400 }))).toBe('first')
-    expect(keepAlive).toHaveBeenCalledTimes(1)
-    await settle()
+    expect(descriptionOf(await steam('292030', { ttl: 86_400 }))).toBe('second')
+    expect(keepAlive).not.toHaveBeenCalled()
   })
 
-  it('is off without a keep-alive: the page past its day is asked for again, and waited for', async () => {
-    // The refresh job reads languages and prices through this transport, and gives it none.
-    const { deps, advance } = makeDeps({ fetchJson: versions() })
-    const steam = createSteamFetch(deps)
+  it('still stands in for a refresh that fails, as it always has', async () => {
+    const fetchJson = versions()
+    const keepAlive = vi.fn()
+    const { deps, advance } = makeDeps({ fetchJson })
+    const steam = createSteamFetch({ ...deps, keepAlive } as SteamDeps)
     await steam('292030')
 
-    advance(DAY_MS)
-    expect(descriptionOf(await steam('292030'))).toBe('second')
-    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+    advance(3 * DAY_MS)
+    fetchJson.mockResolvedValue({ status: 500, body: null })
+    // The caller waited for Steam to fail twice first: this is the fallback, not a stale answer.
+    expect(descriptionOf(await steam('292030'))).toBe('first')
+    expect(fetchJson).toHaveBeenCalledTimes(3)
+    expect(keepAlive).not.toHaveBeenCalled()
   })
 })
 
