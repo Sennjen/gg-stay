@@ -43,6 +43,16 @@ export const SHARED_CACHE_DEADLINE_MS = 150
 export const SHARED_CACHE_PAUSE_MS = 30_000
 
 /**
+ * How long a write to the shared level is kept alive before it is given up on: five seconds.
+ *
+ * Nobody waits for a write, but the request it follows keeps the function alive until it is over
+ * (`keepRunning`), and a store that takes writes and never finishes them would hold every such
+ * invocation to the platform's own limit without a word: nothing rejects, so nothing is said.
+ * Past this the write is let go of — it cannot be called off — and reported like one that failed.
+ */
+export const SHARED_CACHE_WRITE_DEADLINE_MS = 5_000
+
+/**
  * The version of what is stored under a shared key, and part of the key.
  *
  * The shared cache outlives deployments: an entry written by last week's build is read by
@@ -214,24 +224,45 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
    * be a hit rate that never moves. Not while the store is being left alone, though: the line
    * about that has been written, and a write that was out when the pause began adds nothing.
    */
-  function writeFailed(error: unknown): void {
+  function writeFailed(what: string): void {
     const at = runtime.now()
     if (at < pausedUntil || at < writesQuietUntil) return
     writesQuietUntil = at + SHARED_CACHE_PAUSE_MS
     const quiet = `not reported again for ${SHARED_CACHE_PAUSE_MS / 1000} s`
-    warn(`[shared-cache] a write failed (${reasonOf(error)}); reads go on, ${quiet}`)
+    warn(`[shared-cache] a write ${what}; reads go on, ${quiet}`)
   }
 
-  /** A write as it is handed to the keep-alive: it cannot reject, however the store fails. */
+  /**
+   * A write as it is handed to the keep-alive: it cannot reject, however the store fails, and it
+   * is over within `SHARED_CACHE_WRITE_DEADLINE_MS`, however the store dawdles. The timer is
+   * cleared the moment the write settles; a write that settles after it was given up on settles
+   * into a handler that ignores it.
+   */
   function written(key: string, value: unknown, ttlSeconds: number): Promise<void> {
-    let writing: Promise<unknown>
-    try {
-      writing = Promise.resolve(store.set(key, value, ttlSeconds))
-    } catch (error) {
-      // A store that throws instead of rejecting has failed all the same.
-      writing = Promise.reject(error)
-    }
-    return writing.then(() => undefined, writeFailed)
+    return new Promise((resolve) => {
+      let over = false
+      const end = (failure?: string) => {
+        if (over) return
+        over = true
+        clearTimeout(timer)
+        if (failure !== undefined) writeFailed(failure)
+        resolve()
+      }
+      const timer = setTimeout(
+        () => end(`took longer than ${SHARED_CACHE_WRITE_DEADLINE_MS} ms`),
+        SHARED_CACHE_WRITE_DEADLINE_MS,
+      )
+      const failed = (error: unknown) => end(`failed (${reasonOf(error)})`)
+      let writing: Promise<unknown>
+      try {
+        writing = Promise.resolve(store.set(key, value, ttlSeconds))
+      } catch (error) {
+        // A store that throws instead of rejecting has failed all the same.
+        failed(error)
+        return
+      }
+      writing.then(() => end(), failed)
+    })
   }
 
   return {

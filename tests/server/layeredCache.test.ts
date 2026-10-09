@@ -9,6 +9,7 @@ import {
   SHARED_CACHE_MAX_TTL_SECONDS,
   SHARED_CACHE_PAUSE_MS,
   SHARED_CACHE_SCHEMA,
+  SHARED_CACHE_WRITE_DEADLINE_MS,
   sharedTtlSeconds,
   type SharedLevel,
   type SharedStore,
@@ -970,6 +971,111 @@ describe('a shared store that refuses writes', () => {
     await settle()
 
     expect(lines()).toEqual([WRITE_LINE])
+  })
+})
+
+describe('a shared store that takes a write and does not finish it', () => {
+  const SLOW_LINE =
+    '[shared-cache] a write took longer than 5000 ms; reads go on, not reported again for 30 s'
+
+  /** A shared store that answers reads from a map and whose writes a case ends by hand. */
+  function dawdling() {
+    const store = createFakeSharedStore()
+    const writes: ReturnType<typeof deferred<undefined>>[] = []
+    const set = vi.fn(() => {
+      const writing = deferred<undefined>()
+      writes.push(writing)
+      return writing.promise
+    })
+    const shared = levelOver({ get: store.get, set })
+    return { store, writes, set, ...shared, ...cacheOver(shared.level) }
+  }
+
+  it('gives the write five seconds', () => {
+    expect(SHARED_CACHE_WRITE_DEADLINE_MS).toBe(5_000)
+  })
+
+  it('lets go of it after five seconds and not a moment sooner, and says so', async () => {
+    const { cache, kept, lines } = dawdling()
+
+    await cache.set('games/a', entryOf({ id: 1 }))
+    const handedOver = watch(kept[0]!)
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_WRITE_DEADLINE_MS - 1)
+    await settle()
+    // Still kept alive, and nothing said.
+    expect(handedOver.settled).toBe(false)
+    expect(lines()).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(1)
+    await settle()
+    // What the request's keep-alive holds is over: the function is not kept for the store.
+    expect(handedOver.settled).toBe(true)
+    await expect(kept[0]).resolves.toBeUndefined()
+    expect(lines()).toEqual([SLOW_LINE])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('goes on reading, and tries the next write', async () => {
+    const { cache, store, set } = dawdling()
+    shareEntry(store, 'games/portal-2', entryOf({ id: 4200 }))
+
+    await cache.set('games/a', entryOf({ id: 1 }))
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_WRITE_DEADLINE_MS)
+
+    expect(await cache.get('games/portal-2')).toMatchObject({ value: { id: 4200 } })
+    await cache.set('games/b', entryOf({ id: 2 }))
+    expect(set).toHaveBeenCalledTimes(2)
+  })
+
+  it('says so once for thirty seconds of such writes', async () => {
+    const { cache, lines } = dawdling()
+
+    for (const key of ['games/a', 'games/b', 'games/c']) await cache.set(key, entryOf({ key }))
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_WRITE_DEADLINE_MS)
+    await cache.set('games/d', entryOf({ id: 4 }))
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_WRITE_DEADLINE_MS)
+
+    expect(lines()).toEqual([SLOW_LINE])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('says nothing more, and raises nothing, when the write it let go of ends after all', async () => {
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const { cache, writes, lines } = dawdling()
+      await cache.set('games/a', entryOf({ id: 1 }))
+      await cache.set('games/b', entryOf({ id: 2 }))
+      await vi.advanceTimersByTimeAsync(SHARED_CACHE_WRITE_DEADLINE_MS)
+
+      writes[0]!.reject(new Error('the store gave up long after'))
+      writes[1]!.resolve(undefined)
+      await settle()
+      await settle()
+
+      expect(lines()).toEqual([SLOW_LINE])
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('leaves no timer behind a write that ends in time, either way', async () => {
+    const { cache, writes, kept, lines } = dawdling()
+
+    await cache.set('games/a', entryOf({ id: 1 }))
+    await cache.set('games/b', entryOf({ id: 2 }))
+    expect(vi.getTimerCount()).toBe(2)
+    writes[0]!.resolve(undefined)
+    writes[1]!.reject(new Error('quota exceeded'))
+    await Promise.all(kept)
+
+    expect(vi.getTimerCount()).toBe(0)
+    // Five seconds on, nothing is said of a deadline: both writes were over long before it.
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_WRITE_DEADLINE_MS)
+    expect(lines()).toEqual([
+      '[shared-cache] a write failed (Error: quota exceeded); reads go on, not reported again for 30 s',
+    ])
   })
 })
 
