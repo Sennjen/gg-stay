@@ -10,6 +10,7 @@ import {
   SHARED_CACHE_PAUSE_MS,
   SHARED_CACHE_SCHEMA,
   SHARED_CACHE_WRITE_DEADLINE_MS,
+  SharedStoreAbsent,
   sharedTtlSeconds,
   type SharedLevel,
   type SharedStore,
@@ -1079,6 +1080,86 @@ describe('a shared store that takes a write and does not finish it', () => {
     expect(lines()).toEqual([
       '[shared-cache] a write failed (Error: quota exceeded); reads go on, not reported again for 30 s',
     ])
+  })
+})
+
+describe('a shared store that is not there at all', () => {
+  const ABSENT_LINE =
+    '[shared-cache] the platform gave this function no cache; not asked again by this instance'
+
+  /** A store that has only ever one thing to say, to a read and to a write alike. */
+  function absentStore() {
+    const absent = () =>
+      Promise.reject(new SharedStoreAbsent('the platform gave this function no cache'))
+    const get = vi.fn(absent)
+    const set = vi.fn(absent)
+    const shared = levelOver({ get, set })
+    return { get, set, ...shared, ...cacheOver(shared.level) }
+  }
+
+  it('is said once, by the read that finds it out, and never asked again', async () => {
+    const { cache, memory, get, set, lines } = absentStore()
+    const local = entryOf({ page: 'mine' }, { age: 700_000 })
+    memory.held.set('games', local)
+    const told = vi.fn<(read: SharedRead) => void>()
+
+    // Memory answers as if there had never been a second level; and this was no read of one.
+    expect(await cache.get('games', { onSharedRead: told })).toBe(local)
+    expect(told).not.toHaveBeenCalled()
+    expect(lines()).toEqual([ABSENT_LINE])
+
+    // Not after a pause has run out, not an hour later, not for a write.
+    for (const wait of [SHARED_CACHE_PAUSE_MS, 3_600_000]) {
+      await vi.advanceTimersByTimeAsync(wait)
+      expect(await cache.get('games/portal-2', { onSharedRead: told })).toBeNull()
+      await cache.set('genres', entryOf({ genres: [] }))
+      await settle()
+    }
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(set).not.toHaveBeenCalled()
+    expect(told).not.toHaveBeenCalled()
+    expect(lines()).toEqual([ABSENT_LINE])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('is said once when a write is what finds it out', async () => {
+    const { cache, get, set, lines, kept } = absentStore()
+
+    await cache.set('games/a', entryOf({ id: 1 }))
+    await expect(kept[0]).resolves.toBeUndefined()
+    await cache.set('games/b', entryOf({ id: 2 }))
+    expect(await cache.get('games/c')).toBeNull()
+    await settle()
+
+    expect(set).toHaveBeenCalledTimes(1)
+    expect(get).not.toHaveBeenCalled()
+    // One line, and it is the one about absence: not the line about a write that failed.
+    expect(lines()).toEqual([ABSENT_LINE])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('is said once when several reads find it out together', async () => {
+    const { cache, lines } = absentStore()
+
+    await Promise.all(
+      ['games/a', 'games/a/stores', 'games/a/screenshots'].map((key) => cache.get(key)),
+    )
+
+    expect(lines()).toEqual([ABSENT_LINE])
+  })
+
+  it('is told from a store that merely failed by the error’s name, whatever built it', async () => {
+    const lookalike = Object.assign(new Error('no cache here'), { name: 'SharedStoreAbsent' })
+    const get = vi.fn(() => Promise.reject(lookalike))
+    const { level, lines } = levelOver({ get, set: async () => {} })
+    const { cache } = cacheOver(level)
+
+    await cache.get('games/a')
+    await vi.advanceTimersByTimeAsync(SHARED_CACHE_PAUSE_MS)
+    await cache.get('games/b')
+
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(lines()).toEqual(['[shared-cache] no cache here; not asked again by this instance'])
   })
 })
 

@@ -440,6 +440,38 @@ describe('the caches of a function on Vercel', () => {
   })
 })
 
+describe('the caches of a function the platform gives no cache', () => {
+  it('say so once, ask the platform nothing more, and answer from memory and the upstreams as before', async () => {
+    const vercel = platform()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const made = await instance({ vercel, upstream: () => ({ ok: true }) })
+    // On Vercel, with a request context — and no cache in it.
+    vi.stubGlobal(REQUEST_CONTEXT as unknown as string, {
+      get: () => ({ waitUntil: vercel.waitUntil }),
+    })
+
+    expect(await made.rawg('games/portal-2')).toEqual({ ok: true })
+    expect(await behindTheLimiter(made.rawg('games/portal-2/stores'))).toEqual({ ok: true })
+    expect(await made.steam('620')).toEqual(steamPage('{"ok":true}'))
+    await made.cache.set('steam-price:620', { price: null }, 3_600)
+    expect(await made.cache.get('steam-price:620')).toEqual({ price: null })
+    await settle(vercel.kept)
+
+    // Half a minute on — a pause would be over by now — and still nothing is asked or said.
+    vi.setSystemTime(START + 60_000)
+    expect(await behindTheLimiter(made.rawg('games/half-life'))).toEqual({ ok: true })
+    expect(await made.rawg('games/portal-2')).toEqual({ ok: true })
+    await settle(vercel.kept)
+
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[shared-cache] the platform gave this function no cache; not asked again by this instance',
+    )
+    expect(vercel.cache.get).not.toHaveBeenCalled()
+    expect(vercel.cache.set).not.toHaveBeenCalled()
+    expect(made.fetched).toHaveLength(4)
+  })
+})
+
 describe('the caches anywhere else', () => {
   it.each([
     ['off Vercel', { vercel: false, fixtures: false }],

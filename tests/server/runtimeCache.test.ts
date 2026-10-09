@@ -100,6 +100,11 @@ describe('the Runtime Cache store', () => {
 
     await expect(store.set(KEY, { value: 1 }, 600)).rejects.toThrow('no cache')
     await expect(store.get(KEY)).rejects.toThrow('no cache')
+    // Not as a failure that a pause might see the end of: as a store that is not there.
+    await expect(store.get(KEY)).rejects.toMatchObject({ name: 'SharedStoreAbsent' })
+    await expect(store.set(KEY, { value: 1 }, 600)).rejects.toMatchObject({
+      name: 'SharedStoreAbsent',
+    })
     // A context that is there but holds no cache is no better.
     ;(globalThis as WithRequestContext)[REQUEST_CONTEXT] = { get: () => ({}) }
     await expect(store.set(KEY, { value: 1 }, 600)).rejects.toThrow('no cache')

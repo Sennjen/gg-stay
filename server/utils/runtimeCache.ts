@@ -1,5 +1,5 @@
 import { getCache } from '@vercel/functions'
-import type { SharedStore } from '../upstream/layeredCache'
+import { SharedStoreAbsent, type SharedStore } from '../upstream/layeredCache'
 
 /**
  * Vercel's Runtime Cache as the shared level of the upstream caches (`layeredCache.ts`): regional,
@@ -18,9 +18,10 @@ import type { SharedStore } from '../upstream/layeredCache'
  *   process**, after one `console.warn`. That map has no bound — it keeps every value as a JSON
  *   string until a read finds it expired — and the key space here is driven by what visitors ask
  *   for, which is the very thing the bounded memory level exists to contain. So the store below
- *   refuses to work unless the platform's cache is there: no cache is a failed read, which the
- *   level above turns into a miss, a pause and a line in the log. (On a build machine the same
- *   branch can reach a remote build cache over HTTP instead; it is refused the same way.)
+ *   refuses to work unless the platform's cache is there: no cache is an absent store
+ *   (`SharedStoreAbsent`), which the level above reports once and never asks again. (On a build
+ *   machine the same branch can reach a remote build cache over HTTP instead; it is refused the
+ *   same way.)
  * - **A miss is `null`.** The package's own two implementations never reject a read; the
  *   platform's is not in the package, so nothing is assumed of it. The wrapper is an ordinary
  *   function, so a cache that throws would throw at the caller rather than reject — the methods
@@ -50,8 +51,15 @@ function platformCacheIsThere(): boolean {
   return Boolean(holder?.get?.()?.cache)
 }
 
+/**
+ * Refuses to go on without the platform's cache — as an absence, not as a failure: if a function
+ * built this way is given none, no later request will be given one either, so the level above
+ * says it once and stops asking instead of finding it out again every thirty seconds.
+ */
 function requirePlatformCache(): void {
-  if (!platformCacheIsThere()) throw new Error('the platform gave this request no cache')
+  if (!platformCacheIsThere()) {
+    throw new SharedStoreAbsent('the platform gave this function no cache')
+  }
 }
 
 export function createRuntimeCacheStore(): SharedStore {

@@ -101,6 +101,25 @@ export interface SharedStore {
   set: (key: string, value: unknown, ttlSeconds: number) => Promise<void>
 }
 
+/**
+ * What a store's read or write rejects with when the store is not there at all — not slow, not
+ * failing, absent — and will not be there for as long as this process lives. It is said once and
+ * the store is never asked again: a pause that ends every thirty seconds would write the same
+ * line for ever about something no pause can mend.
+ *
+ * Told by its name rather than its class, which a bundler can leave in two copies.
+ */
+export class SharedStoreAbsent extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SharedStoreAbsent'
+  }
+}
+
+function isAbsence(error: unknown): boolean {
+  return (error as { name?: unknown } | null)?.name === 'SharedStoreAbsent'
+}
+
 export interface SharedLevelRuntime {
   now: () => number
   /**
@@ -203,8 +222,18 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
 
   let pausedUntil = 0
   let writesQuietUntil = 0
+  let absent = false
 
-  const paused = () => runtime.now() < pausedUntil
+  /** Being left alone: for a pause after a read that failed, or for good when it is not there. */
+  const paused = () => absent || runtime.now() < pausedUntil
+
+  /** The store is not there (`SharedStoreAbsent`): said once, and never asked again. */
+  function gone(error: unknown): void {
+    if (absent) return
+    absent = true
+    const why = error instanceof Error ? error.message : 'the store is not there'
+    warn(`[shared-cache] ${why.slice(0, MAX_REASON_LENGTH)}; not asked again by this instance`)
+  }
 
   /**
    * A read went wrong: the store is left alone from now on, and says so once. Reads that were
@@ -226,7 +255,7 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
    */
   function writeFailed(what: string): void {
     const at = runtime.now()
-    if (at < pausedUntil || at < writesQuietUntil) return
+    if (paused() || at < writesQuietUntil) return
     writesQuietUntil = at + SHARED_CACHE_PAUSE_MS
     const quiet = `not reported again for ${SHARED_CACHE_PAUSE_MS / 1000} s`
     warn(`[shared-cache] a write ${what}; reads go on, ${quiet}`)
@@ -252,7 +281,14 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
         () => end(`took longer than ${SHARED_CACHE_WRITE_DEADLINE_MS} ms`),
         SHARED_CACHE_WRITE_DEADLINE_MS,
       )
-      const failed = (error: unknown) => end(`failed (${reasonOf(error)})`)
+      const failed = (error: unknown) => {
+        if (isAbsence(error)) {
+          gone(error)
+          end()
+        } else {
+          end(`failed (${reasonOf(error)})`)
+        }
+      }
       let writing: Promise<unknown>
       try {
         writing = Promise.resolve(store.set(key, value, ttlSeconds))
@@ -272,6 +308,11 @@ export function createSharedLevel(store: SharedStore, runtime: SharedLevelRuntim
       const outcome = await withinDeadline(() => store.get(key))
       const ms = Math.max(0, runtime.now() - startedAt)
       if (outcome.status === 'answered') return { ms, value: outcome.value ?? null }
+      if (outcome.status === 'failed' && isAbsence(outcome.error)) {
+        // Not a read that found nothing: there was nothing to read from.
+        gone(outcome.error)
+        return null
+      }
       pause(
         outcome.status === 'late'
           ? `a read took longer than ${SHARED_CACHE_DEADLINE_MS} ms`
