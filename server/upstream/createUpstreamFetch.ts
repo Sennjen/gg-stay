@@ -12,16 +12,55 @@ import { UpstreamError, type UpstreamSource } from './errors'
  * for every caller: what a call resolves with is read-only, because the same object may be in
  * another caller's hands, and in the cache's.
  *
+ * An answer may also be served for a while after its ttl has run out, while a new one is fetched
+ * behind it — the stale window, see `staleFor`. It is a property of a request, like the ttl, and
+ * of a runtime that can keep a refresh running after the answer has gone out (`keepAlive`).
+ *
  * Everything that differs between the two is a parameter: the source name, the throttle interval,
- * how a request becomes a URL, a cache key, a fixture name and a ttl, and an optional projection
- * applied before a payload is cached. Everything the caller must be able to substitute in a test
- * (fetch, fixtures, cache, clock, sleep, the log) is injected, which is what lets the transport
- * tests drive throttling, retries and clock drift deterministically without a mock library.
+ * how a request becomes a URL, a cache key, a fixture name, a ttl and a stale window, and an
+ * optional projection applied before a payload is cached. Everything the caller must be able to
+ * substitute in a test (fetch, fixtures, cache, clock, sleep, the log, the keep-alive) is injected,
+ * which is what lets the transport tests drive throttling, retries and clock drift
+ * deterministically without a mock library.
  */
+
+/**
+ * How long after it was stored an answer with a stale window may still be served while it is
+ * refreshed: a week. A game's description, its store links and its screenshots, and Steam's own
+ * page about it, change rarely and carry no price; a day-old copy shown at once is a better page
+ * than a fresh one a visitor waits seconds for. The design is in
+ * `docs/specs/2026-10-09-shared-upstream-cache-design.md`.
+ */
+export const STALE_WHILE_REVALIDATE_SECONDS = 7 * 86_400
 
 export interface UpstreamCacheEntry {
   value: unknown
   expiresAt: number
+  /**
+   * When the upstream was asked for this body, on the clock `expiresAt` is counted on. The stale
+   * window is measured from it.
+   *
+   * It is kept beside `expiresAt` rather than worked out from it, because the ttl that would have
+   * to be subtracted is the writer's: a call may name its own (`ttlFor`), and an entry in a cache
+   * that outlives a deployment may have been written under another build's. An entry without it —
+   * one a cache was handed by something other than this transport — has no stale window: past
+   * `expiresAt` it is expired, as every entry was before the window existed.
+   */
+  storedAt?: number
+}
+
+/**
+ * Where answers are kept. `get` resolves with whatever is held under the key, however old —
+ * an entry past its `expiresAt` is the fallback for a refresh that fails — and `set` keeps an
+ * entry for at least as long as it can still be served.
+ *
+ * `staleSeconds` is for a cache with more to it than a map, and a map ignores it: the stale
+ * window of the request the entry answers, which is how long past its freshness the entry is
+ * still worth keeping.
+ */
+export interface UpstreamCache {
+  get: (key: string) => Promise<UpstreamCacheEntry | null>
+  set: (key: string, entry: UpstreamCacheEntry, staleSeconds?: number) => Promise<void>
 }
 
 export interface UpstreamRuntime {
@@ -29,10 +68,7 @@ export interface UpstreamRuntime {
   fixtures: boolean
   fetchJson: (url: string, signal: AbortSignal) => Promise<{ status: number; body: unknown }>
   readFixture: (name: string) => Promise<unknown | null>
-  cache: {
-    get: (key: string) => Promise<UpstreamCacheEntry | null>
-    set: (key: string, entry: UpstreamCacheEntry) => Promise<void>
-  }
+  cache: UpstreamCache
   now: () => number
   sleep: (ms: number) => Promise<void>
   /**
@@ -41,6 +77,18 @@ export interface UpstreamRuntime {
    * its output.
    */
   log?: (line: string) => void
+  /**
+   * Keeps a refresh nobody is waiting for running after the answer has gone out — on a platform
+   * that freezes a function once it has answered, the only thing that does. It is handed a promise
+   * that never rejects.
+   *
+   * It is also the switch of the stale window. An answer served stale leaves work behind it, and a
+   * runtime that has nowhere to put that work is never given a stale answer: without a keep-alive
+   * the transport behaves exactly as it did before the window existed, whatever `staleFor` says.
+   * That is every runtime but the deployed site's — the refresh job, the tests of everything built
+   * on this transport, and a server anywhere but on the platform (`server/utils/rawg.ts`).
+   */
+  keepAlive?: (work: Promise<unknown>) => void
 }
 
 export interface UpstreamConfig<TRequest> {
@@ -55,6 +103,21 @@ export interface UpstreamConfig<TRequest> {
   fixtureName: (request: TRequest) => string
   /** Cache lifetime in seconds for this particular request. */
   ttlFor: (request: TRequest) => number
+  /**
+   * The stale window of this particular request, in seconds counted from the moment its answer
+   * was stored; none when omitted, and none for a request it gives zero.
+   *
+   * Inside the ttl an answer is fresh, as ever. Past the ttl and inside the window it is still
+   * handed over at once, and the upstream is asked behind the caller's back: one refresh a key at a
+   * time, kept running by `keepAlive`, its attempts logged like any other, and the entry it brings
+   * back replacing the old one. A refresh that fails changes nothing: the entry stays, and the
+   * next call tries again. Past the window the entry is expired: the upstream is asked and waited
+   * for, and the entry is only the fallback it has always been for a refresh that fails.
+   *
+   * It is the reader's rule, not the writer's: the window applied to an entry is the one this
+   * build gives the request, so narrowing it takes effect on what is already stored.
+   */
+  staleFor?: (request: TRequest) => number
   /** Narrows a payload before it is cached and returned; identity when omitted. */
   project?: (value: unknown) => unknown
   /** A tighter timeout or fewer attempts for one request than the upstream's defaults. */
@@ -75,7 +138,8 @@ export interface UpstreamLimits {
  * which a call waited for nobody. An answer the upstream gave is not that, and neither is a
  * request another caller had already sent, a stale entry that stood in for a failed refresh, or a
  * recorded fixture, which is the upstream of fixture mode. So a caller that is never told may
- * count every one of its calls as a call.
+ * count every one of its calls as a call. An entry served inside its stale window is the cache's
+ * answer too: the refresh behind it is nobody's wait.
  */
 export type UpstreamFetch<TRequest> = (request: TRequest, onCached?: () => void) => Promise<unknown>
 
@@ -179,6 +243,19 @@ export function createUpstreamFetch<TRequest>(
    */
   const inFlight = new Map<string, Promise<Loaded>>()
 
+  /**
+   * The keys being refreshed behind a stale answer, so that a key has one refresh at a time
+   * however many callers are handed its stale entry meanwhile.
+   *
+   * It is `inFlight`'s idea — one request for one thing — kept apart from it on purpose. A call
+   * found in `inFlight` is waited for, and nobody may wait for a refresh: a caller that came for
+   * an answer the cache can still give is given it, and the refresh is none of its business. So a
+   * refresh is known by its cache key alone, whatever limits the call that started it had, and
+   * lasts exactly as long as an `inFlight` entry does: its attempts, each ended by its own abort
+   * timeout, and the cache write.
+   */
+  const refreshing = new Set<string>()
+
   async function throttle(now: number): Promise<void> {
     const slot = Math.max(now, nextSlot)
     nextSlot = slot + config.minIntervalMs
@@ -273,9 +350,69 @@ export function createUpstreamFetch<TRequest>(
   }
 
   /**
-   * One logical call, from the cache read to the cache write. `cached` is true for the one answer
-   * nobody was asked for: a fresh entry. A stale entry that stands in for a failed refresh is not
-   * that — the upstream was asked first, and whoever called waited for it to fail.
+   * The request's stale window in milliseconds: none in a runtime that cannot keep a refresh
+   * running behind an answer, and none for a window that is not a positive number.
+   */
+  function staleWindowMs(request: TRequest): number {
+    if (!runtime.keepAlive) return 0
+    const seconds = config.staleFor?.(request) ?? 0
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0
+  }
+
+  /**
+   * Asks the upstream and keeps what it answered: the body as the caller gets it, timed from `now`.
+   * A body that is not a JSON object is handed back and not kept (`isJsonObject`).
+   */
+  async function fetchAndStore(
+    request: TRequest,
+    key: string,
+    now: number,
+    limits: Required<UpstreamLimits>,
+  ): Promise<unknown> {
+    const body = await fetchWithRetry(config.buildUrl(request), now, limits, loggedPath(key))
+    const value = project(body)
+    if (isJsonObject(body)) {
+      const entry = { value, expiresAt: now + config.ttlFor(request) * 1000, storedAt: now }
+      await runtime.cache.set(key, entry, staleWindowMs(request) / 1000)
+    }
+    return value
+  }
+
+  /**
+   * Starts the refresh behind a stale answer, unless the key already has one, and hands it to the
+   * runtime to keep running. Nothing of it reaches the caller that set it off: what is handed over
+   * cannot reject, a failed attempt has already written its own line (`report`), and the entry
+   * that was served stays where it is until a refresh brings a newer one.
+   *
+   * A 404 is no exception, though it is an answer rather than a failure: the game is gone, and its
+   * entry goes on being served until the window closes on it. Taking it out would need a cache
+   * that can forget, and this port has no such word.
+   */
+  function refresh(
+    request: TRequest,
+    key: string,
+    now: number,
+    limits: Required<UpstreamLimits>,
+  ): void {
+    if (refreshing.has(key)) return
+    // Registered before anything is awaited, like an `inFlight` entry; and `fetchAndStore` is an
+    // async function, so nothing it does can run `done` before the key is in the set.
+    refreshing.add(key)
+    const done = () => void refreshing.delete(key)
+    const work = fetchAndStore(request, key, now, limits).then(done, done)
+    try {
+      runtime.keepAlive?.(work)
+    } catch {
+      // A keep-alive that will not take the work leaves it running, which is all it would have
+      // done off a platform that freezes; the answer it was started behind is not its to fail.
+    }
+  }
+
+  /**
+   * One logical call, from the cache read to the cache write. `cached` is true for the answers
+   * nobody was asked for: a fresh entry, and an entry inside its stale window, which is handed
+   * over while the upstream is asked behind it. A stale entry that stands in for a failed refresh
+   * is not that — the upstream was asked first, and whoever called waited for it to fail.
    */
   async function load(
     request: TRequest,
@@ -288,12 +425,14 @@ export function createUpstreamFetch<TRequest>(
     const cached = entry && isJsonObject(entry.value) ? entry : null
     if (cached && cached.expiresAt > now) return { value: cached.value, cached: true }
 
+    const staleWindow = staleWindowMs(request)
+    if (cached?.storedAt !== undefined && staleWindow > 0 && now < cached.storedAt + staleWindow) {
+      refresh(request, key, now, limits)
+      return { value: cached.value, cached: true }
+    }
+
     try {
-      const body = await fetchWithRetry(config.buildUrl(request), now, limits, loggedPath(key))
-      const value = project(body)
-      if (isJsonObject(body)) {
-        await runtime.cache.set(key, { value, expiresAt: now + config.ttlFor(request) * 1000 })
-      }
+      const value = await fetchAndStore(request, key, now, limits)
       return { value, cached: false }
     } catch (error) {
       // A 404 is an answer, not a failure: serving a stale body for a game that no longer exists

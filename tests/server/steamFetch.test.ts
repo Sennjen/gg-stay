@@ -217,3 +217,70 @@ describe('createSteamFetch', () => {
     expect(store.get('292030')?.value).toEqual(expected)
   })
 })
+
+describe('the stale window of Steam’s page about an app', () => {
+  const DAY_MS = 86_400_000
+
+  /** Steam answering with one description first and another ever after. */
+  function versions() {
+    const page = (text: string) => ({
+      status: 200,
+      body: { '292030': { success: true, data: { short_description: text } } },
+    })
+    return vi.fn().mockResolvedValueOnce(page('first')).mockResolvedValue(page('second'))
+  }
+
+  const descriptionOf = (response: unknown) =>
+    (response as Record<string, { data: { short_description: string } }>)['292030']!.data
+      .short_description
+
+  /** Lets a refresh nobody waited for run to its end. */
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+  it('hands the page over past its day while Steam is asked again, and for a week', async () => {
+    const keepAlive = vi.fn()
+    const { deps, advance, store } = makeDeps({ fetchJson: versions(), keepAlive })
+    const steam = createSteamFetch(deps)
+    await steam('292030')
+    expect(store.get('292030')).toMatchObject({ storedAt: 1_000_000 })
+
+    advance(DAY_MS)
+    expect(descriptionOf(await steam('292030'))).toBe('first')
+    expect(keepAlive).toHaveBeenCalledTimes(1)
+    await settle()
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+    expect(descriptionOf(await steam('292030'))).toBe('second')
+
+    // A week after the refreshed page was stored it is expired: Steam is asked, and waited for.
+    advance(7 * DAY_MS)
+    vi.mocked(deps.fetchJson).mockResolvedValue({
+      status: 200,
+      body: { '292030': { success: true, data: { short_description: 'third' } } },
+    })
+    expect(descriptionOf(await steam('292030'))).toBe('third')
+    expect(keepAlive).toHaveBeenCalledTimes(1)
+  })
+
+  it('is the same under the ttl the site’s resolvers name for it', async () => {
+    const keepAlive = vi.fn()
+    const { deps, advance } = makeDeps({ fetchJson: versions(), keepAlive })
+    const steam = createSteamFetch(deps)
+    await steam('292030', { ttl: 86_400 })
+
+    advance(DAY_MS)
+    expect(descriptionOf(await steam('292030', { ttl: 86_400 }))).toBe('first')
+    expect(keepAlive).toHaveBeenCalledTimes(1)
+    await settle()
+  })
+
+  it('is off without a keep-alive: the page past its day is asked for again, and waited for', async () => {
+    // The refresh job reads languages and prices through this transport, and gives it none.
+    const { deps, advance } = makeDeps({ fetchJson: versions() })
+    const steam = createSteamFetch(deps)
+    await steam('292030')
+
+    advance(DAY_MS)
+    expect(descriptionOf(await steam('292030'))).toBe('second')
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+  })
+})

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createUpstreamFetch,
   SLOW_ATTEMPT_MS,
+  STALE_WHILE_REVALIDATE_SECONDS,
   type UpstreamCacheEntry,
   type UpstreamConfig,
   type UpstreamRuntime,
@@ -10,9 +11,9 @@ import { UpstreamError } from '../../server/upstream/errors'
 
 /**
  * The shared transport on its own, for what neither RAWG's nor Steam's share of it decides: which
- * calls are one request, and what it writes down about an attempt that failed or was slow.
- * `rawgFetch.test.ts` and `steamFetch.test.ts` cover the rest through the two transports built on
- * it.
+ * calls are one request, what it writes down about an attempt that failed or was slow, and how an
+ * answer is served inside its stale window. `rawgFetch.test.ts` and `steamFetch.test.ts` cover the
+ * rest through the two transports built on it.
  *
  * The network here answers when a test says so. A request stays on the wire until its entry in
  * `sent` is answered or failed, which is what lets a test make a second call while the first is
@@ -89,6 +90,14 @@ function makeRuntime(overrides: Partial<UpstreamRuntime> = {}) {
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 const timeoutError = () => Object.assign(new Error('timed out'), { name: 'TimeoutError' })
+
+/** Whether `work` has settled yet, without waiting for it. */
+function watch(work: Promise<unknown>) {
+  const seen = { settled: false }
+  const mark = () => void (seen.settled = true)
+  work.then(mark, mark)
+  return seen
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -662,5 +671,351 @@ describe('the line about an attempt', () => {
     expect(info).toHaveBeenCalledExactlyOnceWith(
       '[upstream] RAWG games attempt 1: 0 ms, ERROR (500)',
     )
+  })
+})
+
+describe('an answer with a stale window', () => {
+  const DAY_MS = 86_400_000
+  const WEEK_MS = STALE_WHILE_REVALIDATE_SECONDS * 1000
+
+  /** A day fresh; a week's stale window for a game and what belongs to it, none for a list. */
+  const windowed: UpstreamConfig<Request> = {
+    ...config,
+    ttlFor: () => 86_400,
+    staleFor: ({ key }) => (key.startsWith('games/') ? STALE_WHILE_REVALIDATE_SECONDS : 0),
+  }
+
+  /**
+   * A runtime that can keep a refresh running — which is what gives a transport its stale window —
+   * and a transport over it whose cache already holds `key`, stored at the moment the case begins.
+   */
+  async function holding(key: string, body: unknown = { version: 1 }, using = windowed) {
+    const kept: Promise<unknown>[] = []
+    const keepAlive = vi.fn((work: Promise<unknown>) => void kept.push(work))
+    const made = makeRuntime({ keepAlive })
+    const fetchUpstream = createUpstreamFetch(using, made.runtime)
+    const first = fetchUpstream({ key })
+    await settle()
+    made.sent[0]!.answer(200, body)
+    await first
+    return { ...made, fetchUpstream, kept, keepAlive, storedAt: made.runtime.now() }
+  }
+
+  it('is a week, counted from the moment the answer was stored', () => {
+    expect(STALE_WHILE_REVALIDATE_SECONDS).toBe(7 * 86_400)
+  })
+
+  it('is stored with the moment the upstream was asked, and with the window it is to be kept through', async () => {
+    const { runtime, store, storedAt } = await holding('games/portal-2')
+
+    expect(store.get('games/portal-2')).toEqual({
+      value: { version: 1 },
+      expiresAt: storedAt + DAY_MS,
+      storedAt,
+    })
+    expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
+      'games/portal-2',
+      store.get('games/portal-2'),
+      STALE_WHILE_REVALIDATE_SECONDS,
+    )
+  })
+
+  it('is fresh for its ttl: handed over from the cache, with nothing asked behind it', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(DAY_MS - 1)
+    const onCached = vi.fn()
+
+    expect(await fetchUpstream({ key: 'games/portal-2' }, onCached)).toEqual({ version: 1 })
+    await settle()
+
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(sent).toHaveLength(1)
+    expect(kept).toEqual([])
+  })
+
+  it('is handed over at once past its ttl, while the upstream is asked behind the caller’s back', async () => {
+    const { fetchUpstream, sent, advance, kept, keepAlive } = await holding('games/portal-2')
+    advance(DAY_MS)
+    const onCached = vi.fn()
+
+    // The answer is here although nobody has answered the request that is now out.
+    expect(await fetchUpstream({ key: 'games/portal-2' }, onCached)).toEqual({ version: 1 })
+    await settle()
+
+    expect(sent).toHaveLength(2)
+    expect(sent[1]!.url).toBe('https://upstream.test/games/portal-2')
+    // A stale answer is the cache's: whoever measures the call is told so, as for a fresh one.
+    expect(onCached).toHaveBeenCalledTimes(1)
+    // The refresh was handed to the runtime to keep running, and is still out.
+    expect(keepAlive).toHaveBeenCalledTimes(1)
+    const refresh = watch(kept[0]!)
+    await settle()
+    expect(refresh.settled).toBe(false)
+
+    sent[1]!.answer(200, { version: 2 })
+    await kept[0]
+  })
+
+  it('has one refresh a key at a time, however many callers are handed the entry meanwhile', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(DAY_MS)
+
+    const answers = await Promise.all([
+      fetchUpstream({ key: 'games/portal-2' }),
+      fetchUpstream({ key: 'games/portal-2' }),
+    ])
+    await settle()
+    // Later, and under other limits — which would not share a request that is waited for.
+    advance(3_000)
+    answers.push(await fetchUpstream({ key: 'games/portal-2', timeoutMs: 4_000, maxAttempts: 1 }))
+    answers.push(await fetchUpstream({ key: 'games/portal-2' }))
+    await settle()
+
+    expect(answers).toEqual(Array(4).fill({ version: 1 }))
+    expect(sent).toHaveLength(2)
+    expect(kept).toHaveLength(1)
+
+    sent[1]!.answer(200, { version: 2 })
+    await kept[0]
+  })
+
+  it('refreshes each key on its own', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    const other = fetchUpstream({ key: 'games/portal-2/stores' })
+    await settle()
+    sent[1]!.answer(200, { results: [] })
+    await other
+    advance(DAY_MS + 300)
+
+    await fetchUpstream({ key: 'games/portal-2' })
+    await fetchUpstream({ key: 'games/portal-2/stores' })
+    await settle()
+
+    expect(sent.slice(2).map((request) => request.url)).toEqual([
+      'https://upstream.test/games/portal-2',
+      'https://upstream.test/games/portal-2/stores',
+    ])
+    expect(kept).toHaveLength(2)
+    for (const request of sent.slice(2)) request.answer(200, {})
+    await Promise.all(kept)
+  })
+
+  it('is replaced by what the refresh brings back, which is then fresh', async () => {
+    const { fetchUpstream, sent, advance, kept, store, runtime } = await holding('games/portal-2')
+    advance(DAY_MS + 5_000)
+    const refreshedAt = runtime.now()
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    advance(800)
+    sent[1]!.answer(200, { version: 2 })
+    await kept[0]
+
+    expect(store.get('games/portal-2')).toEqual({
+      value: { version: 2 },
+      expiresAt: refreshedAt + DAY_MS,
+      storedAt: refreshedAt,
+    })
+    const onCached = vi.fn()
+    expect(await fetchUpstream({ key: 'games/portal-2' }, onCached)).toEqual({ version: 2 })
+    await settle()
+    expect(onCached).toHaveBeenCalledTimes(1)
+    // Fresh again: no request, and no refresh.
+    expect(sent).toHaveLength(2)
+    expect(kept).toHaveLength(1)
+  })
+
+  it('keeps the entry when the refresh fails, says so like any attempt, and tries again on the next call', async () => {
+    const { fetchUpstream, sent, advance, kept, store, lines } = await holding('games/portal-2')
+    const before = store.get('games/portal-2')
+    advance(DAY_MS)
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    advance(40)
+    sent[1]!.answer(502)
+    await settle()
+    advance(5_000)
+    sent[2]!.fail(timeoutError())
+
+    // What was handed to the keep-alive ends without a failure of its own.
+    await expect(kept[0]).resolves.toBeUndefined()
+    expect(lines()).toEqual([
+      '[upstream] RAWG games/portal-2 attempt 1: 40 ms, ERROR (502)',
+      '[upstream] RAWG games/portal-2 attempt 2: 5000 ms, TIMEOUT',
+    ])
+    expect(store.get('games/portal-2')).toBe(before)
+
+    // The entry is still what answers, and the next caller sets off the next refresh.
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    expect(sent).toHaveLength(4)
+    expect(kept).toHaveLength(2)
+    sent[3]!.answer(200, { version: 2 })
+    await kept[1]
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 2 })
+  })
+
+  it('raises nothing when a refresh fails with nobody holding on to it', async () => {
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const { fetchUpstream, sent, advance } = await holding('games/portal-2')
+      advance(DAY_MS)
+      await fetchUpstream({ key: 'games/portal-2', maxAttempts: 1 })
+      await settle()
+      sent[1]!.answer(503)
+      await settle()
+      await settle()
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('keeps the entry when the refresh finds the game gone, without a line about it', async () => {
+    const { fetchUpstream, sent, advance, kept, lines } = await holding('games/portal-2')
+    advance(DAY_MS)
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    sent[1]!.answer(404)
+    await kept[0]
+
+    expect(lines()).toEqual([])
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    sent[2]!.answer(404)
+    await kept[1]
+  })
+
+  it('is handed over even when the keep-alive will not take the refresh, which runs all the same', async () => {
+    const { fetchUpstream, sent, advance, keepAlive, store } = await holding('games/portal-2')
+    keepAlive.mockImplementation(() => {
+      throw new Error('the response has already been sent')
+    })
+    advance(DAY_MS)
+
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    expect(sent).toHaveLength(2)
+    sent[1]!.answer(200, { version: 2 })
+    await settle()
+    expect(store.get('games/portal-2')?.value).toEqual({ version: 2 })
+  })
+
+  it('ends a week after the answer was stored: a millisecond before, it is still handed over', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(WEEK_MS - 1)
+
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    expect(kept).toHaveLength(1)
+    sent[1]!.answer(503)
+    await settle()
+    sent[2]!.answer(503)
+    await kept[0]
+  })
+
+  it('is a miss past the window: the upstream is asked, and waited for', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(WEEK_MS)
+    const onCached = vi.fn()
+
+    const call = fetchUpstream({ key: 'games/portal-2' }, onCached)
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    expect(sent).toHaveLength(2)
+
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+    expect(onCached).not.toHaveBeenCalled()
+    // Asked for by a caller who waited: nothing was left for the runtime to keep running.
+    expect(kept).toEqual([])
+  })
+
+  it('is still the fallback past the window, for a refresh that fails', async () => {
+    const { fetchUpstream, sent, advance } = await holding('games/portal-2')
+    advance(WEEK_MS + DAY_MS)
+    const onCached = vi.fn()
+
+    const call = fetchUpstream({ key: 'games/portal-2', maxAttempts: 1 }, onCached)
+    await settle()
+    sent[1]!.answer(500)
+
+    expect(await call).toEqual({ version: 1 })
+    expect(onCached).not.toHaveBeenCalled()
+  })
+
+  it('does not exist in a runtime without a keep-alive, whatever the request is given', async () => {
+    const { runtime, sent, advance, store } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(windowed, runtime)
+    const first = fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    sent[0]!.answer(200, { version: 1 })
+    await first
+    // Nothing is asked to be kept through a window that is not there.
+    expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
+      'games/portal-2',
+      store.get('games/portal-2'),
+      0,
+    )
+    advance(DAY_MS)
+
+    // Past its ttl the entry is expired, as it always was: the caller waits for the upstream.
+    const call = fetchUpstream({ key: 'games/portal-2' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+  })
+
+  it.each([
+    ['is given none', (): number => 0],
+    ['is given less than none', (): number => -60],
+    ['is given no number at all', (): number => Number.NaN],
+  ])('does not exist for a request that %s', async (_what, staleFor) => {
+    const { fetchUpstream, runtime, sent, advance, kept, store } = await holding(
+      'games/portal-2',
+      { version: 1 },
+      { ...windowed, staleFor },
+    )
+    expect(runtime.cache.set).toHaveBeenCalledWith('games/portal-2', store.get('games/portal-2'), 0)
+    advance(DAY_MS)
+
+    const call = fetchUpstream({ key: 'games/portal-2' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+    expect(kept).toEqual([])
+  })
+
+  it('does not exist for a list, beside a game that has one', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games')
+    advance(DAY_MS)
+
+    const call = fetchUpstream({ key: 'games' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+    expect(kept).toEqual([])
+  })
+
+  it('does not exist for an entry that does not say when it was stored', async () => {
+    const { fetchUpstream, sent, advance, kept, store, runtime } = await holding('games/portal-2')
+    // Handed to the cache by something other than this transport: fresh until a moment ago.
+    store.set('games/other', { value: { version: 0 }, expiresAt: runtime.now() + 1 })
+    advance(1)
+
+    const call = fetchUpstream({ key: 'games/other' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 1 })
+    expect(await call).toEqual({ version: 1 })
+    expect(kept).toEqual([])
   })
 })

@@ -1,4 +1,9 @@
-import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
+import {
+  createUpstreamFetch,
+  STALE_WHILE_REVALIDATE_SECONDS,
+  type UpstreamCache,
+  type UpstreamCacheEntry,
+} from '../upstream/createUpstreamFetch'
 import { projectAppDetails } from './appDetailsProjection'
 
 const BASE_URL = 'https://store.steampowered.com/api/appdetails'
@@ -15,14 +20,16 @@ export interface SteamDeps {
   fixtures: boolean
   fetchJson: (url: string, signal: AbortSignal) => Promise<{ status: number; body: unknown }>
   readFixture: (name: string) => Promise<unknown | null>
-  cache: {
-    get: (key: string) => Promise<SteamCacheEntry | null>
-    set: (key: string, entry: SteamCacheEntry) => Promise<void>
-  }
+  cache: UpstreamCache
   now: () => number
   sleep: (ms: number) => Promise<void>
   /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
   log?: (line: string) => void
+  /**
+   * Keeps a refresh running behind a stale answer, and switches the stale window on: without it
+   * every answer past its ttl is asked for again and waited for (`UpstreamRuntime.keepAlive`).
+   */
+  keepAlive?: (work: Promise<unknown>) => void
 }
 
 export interface SteamFetchOptions {
@@ -58,6 +65,14 @@ function buildUrl(appId: string): string {
  * the store URL, the flat 24h ttl, the slower 1.5s limiter, and the projection that keeps only the
  * handful of fields this app reads — the full payload runs to tens of KB per game, and caching it
  * whole would waste most of the cache's entry budget.
+ *
+ * Every answer has the week-long stale window: what the site reads from an app's page is its
+ * trailer and its Ukrainian description, which change as rarely as the game's own page does. The
+ * site never reads the price in the same payload — the game page asks Steam's price endpoint,
+ * uncached (`steamPriceFetch.ts`) — and the refresh job, which does, gives its transport no
+ * keep-alive and so has no stale window. Nothing that is served stale is a price. What may not
+ * age as well is a trailer's address, which Steam signs for a time it does not document (the
+ * README lists it under Known gaps).
  */
 export function createSteamFetch(deps: SteamDeps): SteamFetch {
   const fetchUpstream = createUpstreamFetch<SteamRequest>(
@@ -71,6 +86,7 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
       cacheKey: ({ appId }) => appId,
       fixtureName: ({ appId }) => fixtureName(appId),
       ttlFor: ({ options }) => options?.ttl ?? DEFAULT_TTL,
+      staleFor: () => STALE_WHILE_REVALIDATE_SECONDS,
       project: projectAppDetails,
     },
     deps,

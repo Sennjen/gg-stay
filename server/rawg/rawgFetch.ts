@@ -1,4 +1,9 @@
-import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
+import {
+  createUpstreamFetch,
+  STALE_WHILE_REVALIDATE_SECONDS,
+  type UpstreamCache,
+  type UpstreamCacheEntry,
+} from '../upstream/createUpstreamFetch'
 import { UpstreamError } from '../upstream/errors'
 import type { RawgList } from './types'
 
@@ -20,14 +25,16 @@ export interface RawgDeps {
   fixtures: boolean
   fetchJson: (url: string, signal: AbortSignal) => Promise<{ status: number; body: unknown }>
   readFixture: (name: string) => Promise<unknown | null>
-  cache: {
-    get: (key: string) => Promise<CacheEntry | null>
-    set: (key: string, entry: CacheEntry) => Promise<void>
-  }
+  cache: UpstreamCache
   now: () => number
   sleep: (ms: number) => Promise<void>
   /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
   log?: (line: string) => void
+  /**
+   * Keeps a refresh running behind a stale answer, and switches the stale window on: without it
+   * every answer past its ttl is asked for again and waited for (`UpstreamRuntime.keepAlive`).
+   */
+  keepAlive?: (work: Promise<unknown>) => void
 }
 
 export interface RawgFetchOptions {
@@ -78,6 +85,23 @@ export function ttlFor(path: string): number {
 }
 
 /**
+ * The stale window of a path, in seconds since its answer was stored: a week for what the game
+ * page is made of — the game, its store links and its screenshots — and none for anything else.
+ *
+ * Those three are a game's description: they change rarely, none of them carries a price, and a
+ * visitor who is shown yesterday's copy at once is better served than one who waits for RAWG. A
+ * list is the catalog itself and keeps its ten minutes; the taxonomies already live a week; and a
+ * game's other sub-paths (`movies` is the landing's) were never part of the page a visitor waits
+ * for. `ttlFor` still says how long each is fresh.
+ */
+export function staleFor(path: string): number {
+  const [root, slug, sub, ...deeper] = path.split('/')
+  if (root !== 'games' || !slug || deeper.length > 0) return 0
+  const ofThePage = sub === undefined || sub === 'stores' || sub === 'screenshots'
+  return ofThePage ? STALE_WHILE_REVALIDATE_SECONDS : 0
+}
+
+/**
  * A RAWG list answer, as the site's catalog and landing read one. RAWG has been seen answering with
  * an empty body under a 200, which the transport hands back once without caching it; here that
  * body — or any answer that is not a list — becomes the upstream error it stands for, so the page
@@ -113,8 +137,9 @@ export function fixtureName(path: string, params?: RawgParams): string {
 
 /**
  * RAWG's share of the shared upstream transport (see server/upstream/createUpstreamFetch.ts):
- * the base URL and API key, the per-path ttl rule and the 4 rps limiter. Everything else —
- * throttling, timeout, retry, cache, stale-if-error — lives there, once.
+ * the base URL and API key, the per-path ttl and stale-window rules and the 4 rps limiter.
+ * Everything else — throttling, timeout, retry, cache, stale-if-error, the refresh behind a stale
+ * answer — lives there, once.
  */
 export function createRawgFetch(deps: RawgDeps): RawgFetch {
   const fetchUpstream = createUpstreamFetch<RawgRequest>(
@@ -132,6 +157,7 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
       cacheKey: ({ path, params }) => normalizeKey(path, params),
       fixtureName: ({ path, params }) => fixtureName(path, params),
       ttlFor: ({ path, options }) => options?.ttl ?? ttlFor(path),
+      staleFor: ({ path }) => staleFor(path),
       limitsFor: ({ options }) =>
         options && (options.timeoutMs !== undefined || options.maxAttempts !== undefined)
           ? { timeoutMs: options.timeoutMs, maxAttempts: options.maxAttempts }

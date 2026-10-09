@@ -3,6 +3,7 @@ import {
   createRawgFetch,
   fixtureName,
   normalizeKey,
+  staleFor,
   ttlFor,
   UpstreamError,
   type CacheEntry,
@@ -44,6 +45,21 @@ describe('helpers', () => {
     expect(ttlFor('games/portal-2/stores')).toBe(86_400)
     expect(ttlFor('genres')).toBe(604_800)
     expect(ttlFor('developers')).toBe(604_800)
+  })
+
+  it('gives a week’s stale window to what a game page is made of, and none to anything else', () => {
+    expect(staleFor('games/portal-2')).toBe(604_800)
+    expect(staleFor('games/portal-2/stores')).toBe(604_800)
+    expect(staleFor('games/portal-2/screenshots')).toBe(604_800)
+    // Lists, the taxonomies, and a game's other sub-paths keep the lifetimes they had.
+    expect(staleFor('games')).toBe(0)
+    expect(staleFor('genres')).toBe(0)
+    expect(staleFor('platforms')).toBe(0)
+    expect(staleFor('developers')).toBe(0)
+    expect(staleFor('games/3328/movies')).toBe(0)
+    expect(staleFor('games/portal-2/stores/steam')).toBe(0)
+    expect(staleFor('games/')).toBe(0)
+    expect(staleFor('genres/action')).toBe(0)
   })
 
   it('maps paths to fixture names', () => {
@@ -363,5 +379,82 @@ describe('createRawgFetch', () => {
       await expect(rawg('games', { page: 2 })).rejects.toMatchObject({ kind: 'ERROR' })
       expect(fetchJson).toHaveBeenCalled()
     })
+  })
+})
+
+describe('the stale window of a RAWG answer', () => {
+  const DAY_MS = 86_400_000
+
+  /** RAWG answering `{ version: 1 }` first and `{ version: 2 }` ever after. */
+  function versions() {
+    return vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: { version: 1 } })
+      .mockResolvedValue({ status: 200, body: { version: 2 } })
+  }
+
+  /** Lets a refresh nobody waited for run to its end. */
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+  it.each(['games/portal-2', 'games/portal-2/stores', 'games/portal-2/screenshots'])(
+    'hands %s over past its day while RAWG is asked again, and for a week',
+    async (path) => {
+      const keepAlive = vi.fn()
+      const { deps, advance } = makeDeps({ fetchJson: versions(), keepAlive })
+      const rawg = createRawgFetch(deps)
+      await rawg(path)
+
+      advance(DAY_MS)
+      expect(await rawg(path)).toEqual({ version: 1 })
+      expect(keepAlive).toHaveBeenCalledTimes(1)
+      await settle()
+      expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+      // What the refresh brought back is fresh for a day, and stale for the rest of its own week.
+      expect(await rawg(path)).toEqual({ version: 2 })
+      advance(7 * DAY_MS - 1)
+      expect(await rawg(path)).toEqual({ version: 2 })
+      await settle()
+      expect(deps.fetchJson).toHaveBeenCalledTimes(3)
+
+      // A week after it was stored the entry is expired: RAWG is asked, and waited for.
+      const fetchJson = vi.fn().mockResolvedValue({ status: 200, body: { version: 9 } })
+      const late = makeDeps({ fetchJson, keepAlive: vi.fn() })
+      late.store.set(path, { value: { version: 1 }, expiresAt: 1_000_000, storedAt: 1_000_000 })
+      late.advance(7 * DAY_MS)
+      expect(await createRawgFetch(late.deps)(path)).toEqual({ version: 9 })
+    },
+  )
+
+  it.each([
+    ['a list', 'games', 600_000, undefined],
+    ['a list the landing keeps for a day', 'games', DAY_MS, { ttl: 86_400 }],
+    ['a taxonomy', 'genres', 7 * DAY_MS, undefined],
+    ['a game’s clips', 'games/3328/movies', DAY_MS, undefined],
+  ])(
+    'lets %s expire as it always has: past its ttl the caller waits for RAWG',
+    async (_what, path, ttlMs, options) => {
+      const keepAlive = vi.fn()
+      const { deps, advance } = makeDeps({ fetchJson: versions(), keepAlive })
+      const rawg = createRawgFetch(deps)
+      await rawg(path, undefined, options)
+
+      advance(ttlMs - 1)
+      expect(await rawg(path, undefined, options)).toEqual({ version: 1 })
+      expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+      advance(1)
+      expect(await rawg(path, undefined, options)).toEqual({ version: 2 })
+      expect(keepAlive).not.toHaveBeenCalled()
+    },
+  )
+
+  it('is off without a keep-alive: a game past its day is asked for again, and waited for', async () => {
+    // The refresh job's transport, and every transport off the platform.
+    const { deps, advance } = makeDeps({ fetchJson: versions() })
+    const rawg = createRawgFetch(deps)
+    await rawg('games/portal-2')
+
+    advance(DAY_MS)
+    expect(await rawg('games/portal-2')).toEqual({ version: 2 })
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
   })
 })
