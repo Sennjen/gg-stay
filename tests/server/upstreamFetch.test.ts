@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createUpstreamFetch,
   isShareable,
+  REFRESH_BACKLOG_LIMIT_MS,
   SHAREABLE_MIN_TTL_SECONDS,
   SLOW_ATTEMPT_MS,
   STALE_WHILE_REVALIDATE_SECONDS,
@@ -947,6 +948,92 @@ describe('an answer with a stale window', () => {
 
     expect(await call).toEqual({ version: 1 })
     expect(onCached).not.toHaveBeenCalled()
+  })
+
+  describe('while the limiter is backed up', () => {
+    /**
+     * A transport that holds `count` stale pages. The limiter's waits end at once here without
+     * moving the clock, so every request that is given a slot is on the wire straight away and
+     * `sleep` records how far ahead its slot was.
+     */
+    async function holdingStale(count: number) {
+      const kept: Promise<unknown>[] = []
+      const made = makeRuntime({
+        keepAlive: (work) => void kept.push(work),
+        sleep: vi.fn(async () => {}),
+      })
+      const fetchUpstream = createUpstreamFetch(windowed, made.runtime)
+      const keys = Array.from({ length: count }, (_, position) => `games/stale-${position}`)
+      const primed = keys.map((key) => fetchUpstream({ key }))
+      await settle()
+      for (const request of made.sent) request.answer(200, { version: 1 })
+      await Promise.all(primed)
+      made.advance(DAY_MS)
+      made.sent.length = 0
+      vi.mocked(made.runtime.sleep).mockClear()
+      return { ...made, fetchUpstream, kept, keys }
+    }
+
+    it('is two seconds of the limiter’s line', () => {
+      expect(REFRESH_BACKLOG_LIMIT_MS).toBe(2_000)
+    })
+
+    it('starts no more refreshes than two seconds of the line can hold, and hands every page over all the same', async () => {
+      const { fetchUpstream, sent, kept, keys } = await holdingStale(12)
+
+      // Twelve stale pages asked for at once: every one is answered from the cache…
+      const answers = await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+      expect(answers).toEqual(Array(12).fill({ version: 1 }))
+
+      // …and nine refreshes are started, a quarter of a second apart: the ninth finds the line
+      // exactly two seconds long, the tenth finds it longer.
+      expect(sent.map((request) => request.url)).toEqual(
+        keys.slice(0, 9).map((key) => `https://upstream.test/${key}`),
+      )
+      // The three that were not started are over, with nothing left running.
+      await expect(Promise.all(kept.slice(9))).resolves.toEqual([undefined, undefined, undefined])
+      for (const request of sent) request.answer(200, { version: 2 })
+      await Promise.all(kept)
+    })
+
+    it('leaves a request somebody is waiting for two seconds of refreshes in front of it, not nine', async () => {
+      const { fetchUpstream, runtime, sent, keys } = await holdingStale(12)
+      await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+
+      // A cold page, asked for behind the twelve.
+      const cold = fetchUpstream({ key: 'games/cold' })
+      await settle()
+
+      expect(sent.at(-1)!.url).toBe('https://upstream.test/games/cold')
+      // Nine refreshes are ahead of it: without the bound there would be twelve, and with
+      // thirty-six — twelve whole game pages — nine seconds.
+      expect(vi.mocked(runtime.sleep).mock.calls.at(-1)).toEqual([9 * 250])
+      for (const request of sent) request.answer(200, { version: 2 })
+      await cold
+    })
+
+    it('keeps the entry of a refresh it did not start, and starts one on a later view', async () => {
+      const { fetchUpstream, sent, advance, kept, keys, store } = await holdingStale(12)
+      await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+      for (const request of sent) request.answer(200, { version: 2 })
+      await Promise.all(kept)
+      const skipped = keys[11]!
+      expect(store.get(skipped)?.value).toEqual({ version: 1 })
+
+      // A second later the line is a second and a quarter long: the page is still served stale,
+      // and this time its refresh is started.
+      advance(1_000)
+      sent.length = 0
+      expect(await fetchUpstream({ key: skipped })).toEqual({ version: 1 })
+      await settle()
+      expect(sent.map((request) => request.url)).toEqual([`https://upstream.test/${skipped}`])
+      sent[0]!.answer(200, { version: 2 })
+      await kept.at(-1)
+      expect(store.get(skipped)?.value).toEqual({ version: 2 })
+    })
   })
 
   it('does not exist in a runtime without a keep-alive, whatever the request is given', async () => {

@@ -34,6 +34,23 @@ import { UpstreamError, type UpstreamSource } from './errors'
  */
 export const STALE_WHILE_REVALIDATE_SECONDS = 7 * 86_400
 
+/**
+ * How far ahead the limiter's next free slot may be for a refresh behind a stale answer still to
+ * be started: two seconds. Past that the refresh is not started at all.
+ *
+ * A refresh is the one request in the limiter's line that nobody is waiting for, and the only
+ * one that is optional: the entry it would replace can be served for days yet. But it takes a
+ * slot like any request, and stale answers are handed over in milliseconds — so a walk over stale
+ * pages (a crawler, two days after its last visit) would queue refreshes far faster than the
+ * limiter lets them out, and every request a visitor is waiting for would stand behind them:
+ * twelve stale game pages asked for at once put a cold page's first request nine seconds away.
+ * Bounded like this, what stands in front of a visitor's request is two seconds of refreshes at
+ * the most — inside the two and a half the game page gives RAWG before it answers from the index
+ * — and no refresh outlives by much the answer that set it off. The entry stays as it is, and the
+ * next view of it tries again.
+ */
+export const REFRESH_BACKLOG_LIMIT_MS = 2_000
+
 export interface UpstreamCacheEntry {
   value: unknown
   expiresAt: number
@@ -513,7 +530,9 @@ export function createUpstreamFetch<TRequest>(
    * Starts the refresh behind a stale answer, unless the key already has one, and hands it to the
    * runtime to keep running. Nothing of it reaches the caller that set it off: what is handed over
    * cannot reject, a failed attempt has already written its own line (`report`), and the entry
-   * that was served stays where it is until a refresh brings a newer one.
+   * that was served stays where it is until a refresh brings a newer one. A refresh whose turn
+   * comes while the limiter is backed up is dropped (`REFRESH_BACKLOG_LIMIT_MS`): the entry
+   * stays, and the next call for it starts another.
    *
    * A 404 is no exception, though it is an answer rather than a failure: the game is gone, and its
    * entry goes on being served until the window closes on it. Taking it out would need a cache
@@ -551,6 +570,9 @@ export function createUpstreamFetch<TRequest>(
   ): Promise<void> {
     try {
       await place.turn
+      // Not while the limiter is backed up: this is the one request nobody is waiting for, and
+      // the entry it is for goes on being served (`REFRESH_BACKLOG_LIMIT_MS`).
+      if (nextSlot - runtime.now() > REFRESH_BACKLOG_LIMIT_MS) return
       // The slot is taken by the time `fetchAndStore` hands back its promise, as in `load`.
       const fetching = fetchAndStore(request, key, clock(), limits)
       place.leave()
