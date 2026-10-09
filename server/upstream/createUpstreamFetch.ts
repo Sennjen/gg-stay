@@ -325,6 +325,24 @@ export function createUpstreamFetch<TRequest>(
   let nextSlot = 0
 
   /**
+   * The latest moment the clock is known to have reached, for timing a request whose call was
+   * made some real time ago.
+   *
+   * A call reserves its limiter slot against a moment, and a slot reserved against a moment
+   * already past lets the next request out too soon. The moment a call is made is the right one
+   * for as long as nothing in front of the limiter takes real time — and one thing does: a read
+   * of a cache's shared level, which holds up not only its own call but, in the line, every call
+   * behind it, a call that read memory alone among them. So the clock is looked at whenever such
+   * a read is over, and a call whose turn comes is timed from the later of its own moment and
+   * that one (`clock` in `load`). With a cache that is a map this never moves, and every call is
+   * timed from the moment it was made, as it always was.
+   */
+  let clockSeenAt = 0
+
+  /** Reads the clock and remembers how far it had got. */
+  const seeClock = () => (clockSeenAt = Math.max(clockSeenAt, runtime.now()))
+
+  /**
    * The calls that are still running, so that a second call for the same thing joins the first
    * instead of sending a request of its own.
    *
@@ -641,17 +659,20 @@ export function createUpstreamFetch<TRequest>(
       // Said now, before anyone is asked or waited for: the read is over, and whether what it
       // found answers is known. An entry too old to answer by itself answered nothing.
       if (reported.read) {
+        // It took real time, for this call and for every call standing behind it in the line.
+        seeClock()
         noted(notes, { ms: reported.read.ms, hit: reported.read.hit && (fresh || stale) })
       }
       if (cached && fresh) return { value: cached.value, cached: true }
 
-      // A read that went beyond memory took real time, so the request that follows it is timed,
-      // and given its slot at the limiter, from the clock as it stands when its turn comes — for
-      // the reason a retry is (`fetchWithRetry`): a slot reserved against a moment already past
-      // would let this request out too soon after the one before it. A read of memory alone took
-      // none, and keeps the moment the call was made, which is what keeps concurrent calls in
-      // step with each other.
-      const clock = () => (notes.sharedRead ? runtime.now() : now)
+      // The moment the request that follows is timed from, and given its slot at the limiter
+      // against, read when its turn comes. A call whose own read went beyond memory looks at the
+      // clock, for the reason a retry does (`fetchWithRetry`): a slot reserved against a moment
+      // already past would let this request out too soon after the one before it. A call that
+      // read memory alone took no time over it, and keeps the moment it was made — which is what
+      // keeps concurrent calls in step with each other — unless it stood in the line behind
+      // another call's shared read: then it is as late as that read was (`clockSeenAt`).
+      const clock = () => (notes.sharedRead ? seeClock() : Math.max(now, clockSeenAt))
 
       if (cached && stale) {
         refresh(request, key, clock, limits)

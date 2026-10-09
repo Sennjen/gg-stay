@@ -1296,6 +1296,124 @@ describe('a call’s turn at the limiter', () => {
   })
 })
 
+describe('the limiter’s spacing behind a slow read of the cache', () => {
+  /**
+   * A transport on a clock only the case moves: a wait at the limiter ends when the clock reaches
+   * it, every cache read is answered by hand, and every request is recorded with the moment it
+   * went out and answered at once.
+   */
+  function onAHandClock() {
+    let clock = 0
+    const waits: { until: number; wake: () => void }[] = []
+    const reads = new Map<
+      string,
+      { resolve: (entry: UpstreamCacheEntry | null) => void; told?: (read: SharedRead) => void }
+    >()
+    const wentOut: [path: string, at: number][] = []
+    const runtime: UpstreamRuntime = {
+      fixtures: false,
+      fetchJson: async (url) => {
+        wentOut.push([url.replace('https://upstream.test/', ''), clock])
+        return { status: 200, body: { ok: true } }
+      },
+      readFixture: async () => null,
+      cache: {
+        get: (key, options) =>
+          new Promise((resolve) => {
+            reads.set(key, { resolve, told: options?.onSharedRead })
+          }),
+        set: async () => {},
+      },
+      now: () => clock,
+      sleep: (ms) =>
+        new Promise((resolve) => {
+          waits.push({ until: clock + ms, wake: resolve })
+        }),
+      log: () => {},
+    }
+    return {
+      fetchUpstream: createUpstreamFetch(config, runtime),
+      wentOut,
+      /** Moves the clock to `time`, ending on the way every wait that falls due, in order. */
+      async at(time: number) {
+        for (;;) {
+          await settle()
+          const due = waits
+            .filter((wait) => wait.until <= time)
+            .sort((a, b) => a.until - b.until)[0]
+          if (!due) break
+          waits.splice(waits.indexOf(due), 1)
+          clock = Math.max(clock, due.until)
+          due.wake()
+        }
+        clock = time
+        await settle()
+      },
+      /** Ends the read of `key`: out of memory, or out of a shared level it took `tookMs` over. */
+      async read(key: string, entry: UpstreamCacheEntry | null = null, tookMs?: number) {
+        await settle()
+        const held = reads.get(key)!
+        if (tookMs !== undefined) held.told?.({ ms: tookMs, hit: entry !== null })
+        held.resolve(entry)
+        await settle()
+      },
+    }
+  }
+
+  it('holds for a call that read memory alone and stood in the line behind a shared read', async () => {
+    const { fetchUpstream, wentOut, at, read } = onAHandClock()
+
+    // A game, whose read goes to the shared level and takes 100 ms to find nothing; and, made
+    // with it, a ten-minute list, which reads memory alone and waits in the line behind it.
+    const calls = [
+      fetchUpstream({ key: 'games/portal-2' }),
+      fetchUpstream({ key: 'games?genres=rpg' }),
+    ]
+    await read('games?genres=rpg')
+    await at(100)
+    await read('games/portal-2', null, 100)
+    await at(350)
+    // A third call, made the moment the list goes out.
+    calls.push(fetchUpstream({ key: 'games?genres=action' }))
+    await read('games?genres=action')
+    await at(600)
+    await Promise.all(calls)
+
+    // A quarter of a second between each two. Timed from the moment it was made, the list would
+    // have slept a hundred milliseconds too long, and the third call gone out 150 ms behind it.
+    expect(wentOut).toEqual([
+      ['games/portal-2', 100],
+      ['games?genres=rpg', 350],
+      ['games?genres=action', 600],
+    ])
+  })
+
+  it('holds behind a shared read that answered its own call from the cache', async () => {
+    const { fetchUpstream, wentOut, at, read } = onAHandClock()
+
+    // A taxonomy the shared level holds, found after 120 ms; and a list made with it.
+    const taxonomy = fetchUpstream({ key: 'genres' })
+    const calls = [fetchUpstream({ key: 'games?page=1' })]
+    await read('games?page=1')
+    await at(120)
+    await read('genres', { value: { genres: [] }, expiresAt: 1_000_000, storedAt: 0 }, 120)
+    expect(await taxonomy).toEqual({ genres: [] })
+    // Another list, 10 ms after the first went out.
+    await at(130)
+    calls.push(fetchUpstream({ key: 'games?page=2' }))
+    await read('games?page=2')
+    await at(370)
+    await Promise.all(calls)
+
+    // The first list's slot is the moment it went out, not the moment it was asked for: so the
+    // second is a full interval behind it, where it would have been 130 ms.
+    expect(wentOut).toEqual([
+      ['games?page=1', 120],
+      ['games?page=2', 370],
+    ])
+  })
+})
+
 describe('which answers may be kept beyond the instance', () => {
   const DAY = 86_400
 
