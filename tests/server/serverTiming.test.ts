@@ -325,6 +325,18 @@ describe('the timing of one request', () => {
     expect(timing.header()).toBe('cache;dur=13;desc="Cache 1 of 2", total;dur=0')
   })
 
+  it('counts a read once, however many calls of the request were told of it', () => {
+    const timing = createServerTiming(handClock().now)
+    // Two resolvers asked for the same thing and shared one call, and so one read of the cache.
+    const shared = { ms: 14, hit: false }
+    timing.sharedRead(shared)
+    timing.sharedRead(shared)
+    // A read that merely looks the same is another read.
+    timing.sharedRead({ ms: 14, hit: false })
+
+    expect(timing.header()).toBe('cache;dur=14;desc="Cache 0 of 2", total;dur=0')
+  })
+
   it('has no header when a shared read’s time is not a time, rather than a wrong one', () => {
     const timing = createServerTiming(handClock().now)
     timing.sharedRead({ ms: Number.NaN, hit: true })
@@ -982,6 +994,19 @@ describe('a context whose upstream calls are timed', () => {
     await timedContext(contextOf({ rawg: second.rawg }), remembered).rawg('games/portal-2')
     expect(remembered.header()).toBe('total;dur=0')
 
+    // Two calls of one request for the same thing share one request and one read of the shared
+    // cache: each is a call that waited, and the read is counted once.
+    const third = instance()
+    const twice = createServerTiming(clock.now)
+    const context = timedContext(contextOf({ rawg: third.rawg }), twice)
+    const both = [context.rawg('games/half-life'), context.rawg('games/half-life')]
+    await settle()
+    third.sent[0]!.answer(200, { id: 70 })
+    await Promise.all(both)
+    expect(twice.header()).toBe(
+      'rawg;dur=0;desc="RAWG x2", cache;dur=0;desc="Cache 0 of 1", total;dur=0',
+    )
+
     // Steam's transport tells its reads the same way.
     const steamTiming = createServerTiming(clock.now)
     const steamCall = timedContext(contextOf({ steam: second.steam }), steamTiming).steam('620')
@@ -1332,7 +1357,7 @@ describe('the Server-Timing header of a GraphQL answer', () => {
     entries: Map<string, string>,
     {
       readMs = 12 as number | ((key: string) => number),
-      rawgMs = 100,
+      rawgMs = 100 as number | ((path: string) => number),
       keepAlive = undefined as (() => void) | undefined,
     } = {},
   ) {
@@ -1355,7 +1380,7 @@ describe('the Server-Timing header of a GraphQL answer', () => {
       fetchJson: async (url) => {
         const path = new URL(url).pathname.replace(/^\/api\//, '')
         fetched.push(path)
-        await elapse(rawgMs)
+        await elapse(typeof rawgMs === 'number' ? rawgMs : rawgMs(path))
         return { status: 200, body: await fixtureRawg(path) }
       },
       readFixture: async () => null,
@@ -1418,6 +1443,29 @@ describe('the Server-Timing header of a GraphQL answer', () => {
     )
     expect(remembered.header).toBe('index;dur=0;desc="Index x3", total;dur=0')
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('names the shared cache on a page that went out at its budget, with RAWG still out', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await publishTestIndex([DOCUMENT])
+    // Three reads of the shared cache that find nothing, then a RAWG that takes seven seconds
+    // over the game itself.
+    const { rawg } = instanceOver(new Map(), {
+      rawgMs: (path) => (path === `games/${SLUG}` ? 7_000 : 100),
+    })
+
+    const { header, body } = await answerAfter(
+      GAME_DETAIL_HEDGE_MS,
+      postQuery({ index, rawg }, PAGE, { slug: SLUG }),
+    )
+
+    // Answered from the index at the budget. The reads were over long before, and are named:
+    // a slow page whose cache found nothing is not a page whose cache was not asked.
+    expect(body.data!.game.partial).toBe(true)
+    expect(header).toBe(
+      'rawg;dur=2500;desc="RAWG x3", index;dur=0;desc="Index x3", cache;dur=12;desc="Cache 0 of 3", total;dur=2500',
+    )
+    await advance(7_000)
   })
 
   it('asks RAWG for the game first on a full miss, whatever order the shared reads come back in', async () => {

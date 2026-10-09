@@ -38,8 +38,9 @@ import type { GraphQLContext, ResolverCache } from './context'
  *   is one the shared cache was not asked for because it is being left alone. This is what tells a
  *   first open that another instance's work answered (`Cache 3 of 3`, and no `rawg` at all) from
  *   one that asked RAWG (`Cache 0 of 3`, and `RAWG x3`). The reads are the transports' and the
- *   price cache's own measurements, told at the moment each call ends; a call the answer stopped
- *   waiting for has not told yet, and its read is not in the header.
+ *   price cache's own measurements, told the moment each read is over — before the upstream is
+ *   asked — so a page that went out at its budget, with RAWG still out, names the cache it read
+ *   all the same. A read that two calls of one request shared is one read, and is counted once.
  *
  * The header is made of fixed names and numbers and of nothing that came with the request: no URL,
  * no key, no query, no slug. And it is an extra: nothing here can fail a call or an answer — when
@@ -81,7 +82,8 @@ export interface ServerTiming {
   /**
    * Counts one read of the shared cache this request made: how long it took, and whether what it
    * found answered. Told by whoever made the read — a transport (`onSharedRead`), the price cache —
-   * and safe to call at any moment, and to hand over unbound.
+   * and safe to call at any moment, and to hand over unbound. A read is known by the object it is
+   * told as: told twice — by two calls that shared it — it is still one read.
    */
   sharedRead(read: SharedRead): void
   /**
@@ -107,7 +109,7 @@ export function createServerTiming(now: () => number = () => performance.now()):
 
   const startedAt = read()
   const calls: TimedCall[] = []
-  const sharedReads: SharedRead[] = []
+  const sharedReads = new Set<SharedRead>()
 
   return {
     measure(upstream, call) {
@@ -126,7 +128,7 @@ export function createServerTiming(now: () => number = () => performance.now()):
     },
 
     sharedRead(read) {
-      sharedReads.push({ ms: read.ms, hit: read.hit })
+      sharedReads.add(read)
     },
 
     header() {
@@ -144,12 +146,13 @@ export function createServerTiming(now: () => number = () => performance.now()):
           `${upstream};dur=${Math.round(slowest)};desc="${LABELS[upstream]} x${asked.length}"`,
         )
       }
-      if (sharedReads.length > 0) {
-        const slowest = sharedReads.reduce((longest, { ms }) => Math.max(longest, ms), 0)
+      if (sharedReads.size > 0) {
+        const reads = [...sharedReads]
+        const slowest = reads.reduce((longest, { ms }) => Math.max(longest, ms), 0)
         if (!Number.isFinite(slowest)) return null
-        const hits = sharedReads.filter(({ hit }) => hit === true).length
+        const hits = reads.filter(({ hit }) => hit === true).length
         metrics.push(
-          `${SHARED_CACHE};dur=${Math.round(slowest)};desc="Cache ${hits} of ${sharedReads.length}"`,
+          `${SHARED_CACHE};dur=${Math.round(slowest)};desc="Cache ${hits} of ${reads.length}"`,
         )
       }
       const total = Math.max(0, at - startedAt)

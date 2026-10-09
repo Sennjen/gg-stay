@@ -78,8 +78,10 @@ export interface SharedRead {
   /** How long the read took, in milliseconds. */
   ms: number
   /**
-   * Whether what it found is what answered. The cache says whether it took an entry from there;
-   * the transport takes that back when the entry was too old to answer and the upstream did.
+   * Whether what it found answered the call by itself, and spared the upstream the request: a
+   * fresh entry, or one handed over while it is refreshed. The cache says whether it took an entry
+   * from there; the transport takes that back when the entry was too old to answer and the
+   * upstream had to be asked — even if the upstream then failed and the entry stood in for it.
    */
   hit: boolean
 }
@@ -219,9 +221,12 @@ export interface UpstreamLimits {
  * count every one of its calls as a call. An entry served inside its stale window is the cache's
  * answer too: the refresh behind it is nobody's wait.
  *
- * `onSharedRead` is for the same caller, and is called — before the answer is handed over, or the
- * failure — when the call's read of the cache went beyond this instance's memory (`SharedRead`).
- * That is told whatever the call came to: the read took its time either way.
+ * `onSharedRead` is for the same caller, and is called when the call's read of the cache went
+ * beyond this instance's memory (`SharedRead`) — the moment that read is over and it is known
+ * whether what it found answers, which is before the upstream is asked anything. So a caller that
+ * stops waiting for a slow upstream has still been told of the read it paid for. Callers that
+ * share a call are each told once, of the very same object: a collector that is told of one read
+ * by two of its calls can tell that it was one.
  */
 export type UpstreamFetch<TRequest> = (
   request: TRequest,
@@ -236,11 +241,15 @@ interface Loaded {
 }
 
 /**
- * What a call learns on its way that is not its answer, kept where every caller sharing the call
- * can read it when the call ends — however it ends, which is why it is not part of `Loaded`.
+ * What a call learns on its way that is not its answer, and who has yet to hear of it: every
+ * caller sharing the call is told, those that join after it is known as much as those that were
+ * there before.
  */
 interface Notes {
+  /** The call's read of the shared cache, once it is over and known for what it was. */
   sharedRead?: SharedRead
+  /** The callers that asked to be told of it, while it is not known yet. */
+  listeners: ((read: SharedRead) => void)[]
 }
 
 /** A call that is still running, as the callers that share it hold it. */
@@ -599,19 +608,29 @@ export function createUpstreamFetch<TRequest>(
     // made, not where its cache read happens to come back.
     const place = takePlace()
     try {
+      const reported: { read?: SharedRead } = {}
       const entry = await runtime.cache.get(key, {
         shareable: shareableOf(request),
         onSharedRead: (read) => {
-          notes.sharedRead = read
+          reported.read = read
         },
       })
-      // What the read found answered nothing after all: the upstream did, or nobody.
-      const unused = () => {
-        if (notes.sharedRead?.hit) notes.sharedRead = { ...notes.sharedRead, hit: false }
-      }
       // An entry an older build cached from a bad body is no entry at all.
       const cached = entry && isJsonObject(entry.value) ? entry : null
-      if (cached && cached.expiresAt > now) return { value: cached.value, cached: true }
+      const fresh = cached !== null && cached.expiresAt > now
+      const staleWindow = staleWindowMs(request)
+      const stale =
+        !fresh &&
+        cached?.storedAt !== undefined &&
+        staleWindow > 0 &&
+        now < cached.storedAt + staleWindow
+
+      // Said now, before anyone is asked or waited for: the read is over, and whether what it
+      // found answers is known. An entry too old to answer by itself answered nothing.
+      if (reported.read) {
+        noted(notes, { ms: reported.read.ms, hit: reported.read.hit && (fresh || stale) })
+      }
+      if (cached && fresh) return { value: cached.value, cached: true }
 
       // A read that went beyond memory took real time, so the request that follows it is timed,
       // and given its slot at the limiter, from the clock as it stands when its turn comes — for
@@ -621,12 +640,7 @@ export function createUpstreamFetch<TRequest>(
       // step with each other.
       const clock = () => (notes.sharedRead ? runtime.now() : now)
 
-      const staleWindow = staleWindowMs(request)
-      if (
-        cached?.storedAt !== undefined &&
-        staleWindow > 0 &&
-        now < cached.storedAt + staleWindow
-      ) {
+      if (cached && stale) {
         refresh(request, key, clock, limits)
         return { value: cached.value, cached: true }
       }
@@ -638,15 +652,12 @@ export function createUpstreamFetch<TRequest>(
         // while the request is out.
         const fetching = fetchAndStore(request, key, clock(), limits)
         place.leave()
-        const value = await fetching
-        unused()
-        return { value, cached: false }
+        return { value: await fetching, cached: false }
       } catch (error) {
         // A 404 is an answer, not a failure: serving a stale body for a game that no longer exists
         // would be worse than the error.
         const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
         if (cached && !notFound) return { value: cached.value, cached: false }
-        unused()
         throw error
       }
     } finally {
@@ -665,28 +676,32 @@ export function createUpstreamFetch<TRequest>(
     }
   }
 
+  /** Tells one caller of the call's shared read: now if it is known, or the moment it is. */
+  function listen(notes: Notes, onSharedRead?: (read: SharedRead) => void): void {
+    if (!onSharedRead) return
+    const read = notes.sharedRead
+    if (read) tell(() => onSharedRead(read))
+    else notes.listeners.push(onSharedRead)
+  }
+
+  /** The call's shared read is known for what it was: every caller waiting to hear is told. */
+  function noted(notes: Notes, read: SharedRead): void {
+    notes.sharedRead = read
+    for (const listener of notes.listeners.splice(0)) tell(() => listener(read))
+  }
+
   /**
-   * What `running` ended with, for one of the callers waiting on it — who is told first, when the
-   * cache alone supplied it, so the caller knows what its call was by the time it has the answer;
-   * and, however the call ended, when its read of the cache went beyond memory. Callers that share
-   * a call share those words as they share its answer: each of them is told.
+   * What `call` ended with, for one of the callers waiting on it — who is told first, when the
+   * cache alone supplied it, so the caller knows what its call was by the time it has the answer.
+   * Callers that share a call share that word as they share its answer: each of them is told.
    *
    * Telling is no part of the call. Whoever listens is measuring it, and a listener that throws
    * has failed at its own work: the answer is handed over all the same.
    */
-  async function answerOf(
-    { call, notes }: Running,
-    onCached?: () => void,
-    onSharedRead?: (read: SharedRead) => void,
-  ): Promise<unknown> {
-    try {
-      const { value, cached } = await call
-      if (cached && onCached) tell(onCached)
-      return value
-    } finally {
-      const read = notes.sharedRead
-      if (read && onSharedRead) tell(() => onSharedRead(read))
-    }
+  async function answerOf(call: Promise<Loaded>, onCached?: () => void): Promise<unknown> {
+    const { value, cached } = await call
+    if (cached && onCached) tell(onCached)
+    return value
   }
 
   return async function upstreamFetch(
@@ -717,14 +732,17 @@ export function createUpstreamFetch<TRequest>(
     // event loop must find each other, and they would not if either had already yielded.
     const sharedBy = `${limits.timeoutMs}/${limits.maxAttempts} ${key}`
     const running = inFlight.get(sharedBy)
-    if (running) return answerOf(running, onCached, onSharedRead)
+    if (running) {
+      listen(running.notes, onSharedRead)
+      return answerOf(running.call, onCached)
+    }
 
     // `load` is an async function, so nothing it does can run this `finally` before the entry is
     // set; and the promise callers hold is the one that settles after the entry is gone.
-    const notes: Notes = {}
+    const notes: Notes = { listeners: [] }
+    listen(notes, onSharedRead)
     const call = load(request, key, now, limits, notes).finally(() => inFlight.delete(sharedBy))
-    const started = { call, notes }
-    inFlight.set(sharedBy, started)
-    return answerOf(started, onCached, onSharedRead)
+    inFlight.set(sharedBy, { call, notes })
+    return answerOf(call, onCached)
   }
 }

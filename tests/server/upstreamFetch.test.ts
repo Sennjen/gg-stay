@@ -1399,17 +1399,21 @@ describe('a caller that asks to be told when its read went to the shared cache',
     expect(sent).toHaveLength(0)
   })
 
-  it('is told of a read that found nothing, when the upstream then answered', async () => {
+  it('is told of a read that found nothing the moment it is over, while the upstream has yet to answer', async () => {
     const { fetchUpstream, sent } = sharedCache({ 'games/a': { ms: 9, hit: false } })
     const onSharedRead = vi.fn()
 
     const call = fetchUpstream({ key: 'games/a' }, undefined, onSharedRead)
     await settle()
-    expect(onSharedRead).not.toHaveBeenCalled()
-    sent[0]!.answer(200, { id: 1 })
-
-    expect(await call).toEqual({ id: 1 })
+    // The request is on the wire, unanswered: a caller that stops waiting here — a page at its
+    // budget — has been told of the read it paid for.
+    expect(sent).toHaveLength(1)
     expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 9, hit: false })
+
+    sent[0]!.answer(200, { id: 1 })
+    expect(await call).toEqual({ id: 1 })
+    // And is not told again when the call ends.
+    expect(onSharedRead).toHaveBeenCalledTimes(1)
   })
 
   it('is told the read found nothing when what it found was too old, and the upstream answered', async () => {
@@ -1438,7 +1442,7 @@ describe('a caller that asks to be told when its read went to the shared cache',
     expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: false })
   })
 
-  it('is told the read’s entry answered when it stood in for an upstream that failed', async () => {
+  it('is told the read spared nobody when its entry only stood in for an upstream that failed', async () => {
     const { fetchUpstream, store, sent } = sharedCache({ games: { ms: 20, hit: true } })
     store.set('games', expired({ page: 'old' }))
     const onCached = vi.fn()
@@ -1446,12 +1450,15 @@ describe('a caller that asks to be told when its read went to the shared cache',
 
     const call = fetchUpstream({ key: 'games', maxAttempts: 1 }, onCached, onSharedRead)
     await settle()
+    // Told before anyone knows how the upstream will answer: the entry was too old to answer by
+    // itself, and that is all a hit means.
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: false })
     sent[0]!.answer(500)
 
-    // The upstream was asked, so this was a call; and what answered it came from the shared cache.
+    // The upstream was asked, so this was a call, though what answered it was the old entry.
     expect(await call).toEqual({ page: 'old' })
     expect(onCached).not.toHaveBeenCalled()
-    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: true })
+    expect(onSharedRead).toHaveBeenCalledTimes(1)
   })
 
   it('is told of the read when the call fails, by the time the failure arrives', async () => {
@@ -1478,8 +1485,10 @@ describe('a caller that asks to be told when its read went to the shared cache',
       .slice(0, 2)
       .map((onSharedRead) => fetchUpstream({ key: 'games/a' }, undefined, onSharedRead))
     await settle()
-    // A caller that joins the request while it is on the wire shares its read as well.
+    // A caller that joins the request while it is on the wire shares its read as well, and is
+    // told on the spot: the read is long over.
     calls.push(fetchUpstream({ key: 'games/a' }, undefined, told[2]))
+    expect(told[2]).toHaveBeenCalledTimes(1)
     sent[0]!.answer(200, { id: 1 })
     await Promise.all(calls)
 
@@ -1487,6 +1496,10 @@ describe('a caller that asks to be told when its read went to the shared cache',
     for (const onSharedRead of told) {
       expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 15, hit: false })
     }
+    // One read, told as one object: whoever counts reads can tell it was not three.
+    const [first, second, third] = told.map((onSharedRead) => onSharedRead.mock.calls[0]![0])
+    expect(second).toBe(first)
+    expect(third).toBe(first)
   })
 
   it('is told nothing of a read that memory answered, or of a cache that has no second level', async () => {
