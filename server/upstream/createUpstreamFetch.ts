@@ -345,6 +345,46 @@ export function createUpstreamFetch<TRequest>(
     if (slot > now) await runtime.sleep(slot - now)
   }
 
+  /**
+   * The line calls stand in for their turn at the limiter, in the order they were made.
+   *
+   * A call takes its place the moment it is made, before its cache is read, and gives it up when
+   * the cache answers. A call the cache does not answer waits for its turn — for every call made
+   * before it to have left the line or taken its slot — and only then takes its own. So requests
+   * go out in the order their calls were made, whatever order the cache reads come back in.
+   *
+   * With a cache that is a map it changes nothing: the reads come back in the order they were
+   * asked for. With a second level it is what keeps a promise callers rely on: the game page
+   * asks for the game before its store links and its screenshots because the game is what the
+   * page cannot be built without, and three reads of a shared cache return in any order they
+   * like. The reads themselves are not queued — every call's is out at once — so the line is as
+   * slow as its slowest read and no slower, and the cache bounds that.
+   *
+   * It holds only first attempts. A retry takes the next slot when it is ready for one, as it
+   * always did; it was first in line once already.
+   *
+   * A place must be left, whatever becomes of its call: a place nobody leaves holds up every
+   * request behind it for good. `leave` may be called more than once, and `load` and
+   * `refreshInTurn` call it in a `finally`.
+   */
+  interface Place {
+    /** Resolves when every call that took its place earlier has left the line. */
+    readonly turn: Promise<void>
+    leave: () => void
+  }
+
+  let endOfLine: Promise<void> = Promise.resolve()
+
+  function takePlace(): Place {
+    const turn = endOfLine
+    let leave!: () => void
+    const left = new Promise<void>((resolve) => {
+      leave = resolve
+    })
+    endOfLine = turn.then(() => left)
+    return { turn, leave }
+  }
+
   /** One request as the upstream answered it: its body, or the `UpstreamError` it stands for. */
   async function send(url: string, timeoutMs: number): Promise<unknown> {
     let response: { status: number; body: unknown }
@@ -482,20 +522,41 @@ export function createUpstreamFetch<TRequest>(
   function refresh(
     request: TRequest,
     key: string,
-    now: number,
+    clock: () => number,
     limits: Required<UpstreamLimits>,
   ): void {
     if (refreshing.has(key)) return
-    // Registered before anything is awaited, like an `inFlight` entry; and `fetchAndStore` is an
+    // Registered before anything is awaited, like an `inFlight` entry; and `refreshInTurn` is an
     // async function, so nothing it does can run `done` before the key is in the set.
     refreshing.add(key)
     const done = () => void refreshing.delete(key)
-    const work = fetchAndStore(request, key, now, limits).then(done, done)
+    // At the end of the line: behind every call made before this answer was handed over, the ones
+    // somebody is waiting for among them.
+    const work = refreshInTurn(request, key, clock, limits, takePlace()).then(done, done)
     try {
       runtime.keepAlive?.(work)
     } catch {
       // A keep-alive that will not take the work leaves it running, which is all it would have
       // done off a platform that freezes; the answer it was started behind is not its to fail.
+    }
+  }
+
+  /** The refresh itself: its turn in the line, then the request and the cache write. */
+  async function refreshInTurn(
+    request: TRequest,
+    key: string,
+    clock: () => number,
+    limits: Required<UpstreamLimits>,
+    place: Place,
+  ): Promise<void> {
+    try {
+      await place.turn
+      // The slot is taken by the time `fetchAndStore` hands back its promise, as in `load`.
+      const fetching = fetchAndStore(request, key, clock(), limits)
+      place.leave()
+      await fetching
+    } finally {
+      place.leave()
     }
   }
 
@@ -512,44 +573,64 @@ export function createUpstreamFetch<TRequest>(
     limits: Required<UpstreamLimits>,
     notes: Notes,
   ): Promise<Loaded> {
-    const entry = await runtime.cache.get(key, {
-      shareable: shareableOf(request),
-      onSharedRead: (read) => {
-        notes.sharedRead = read
-      },
-    })
-    // What the read found answered nothing after all: the upstream did, or nobody.
-    const unused = () => {
-      if (notes.sharedRead?.hit) notes.sharedRead = { ...notes.sharedRead, hit: false }
-    }
-    // An entry an older build cached from a bad body is no entry at all.
-    const cached = entry && isJsonObject(entry.value) ? entry : null
-    if (cached && cached.expiresAt > now) return { value: cached.value, cached: true }
-
-    // A read that went beyond memory took real time, so the request that follows it is timed, and
-    // given its turn at the limiter, from the clock as it stands now — for the reason a retry is
-    // (`fetchWithRetry`): a slot reserved against a moment already past would let this request out
-    // too soon after the one before it. A read of memory alone took none, and keeps the moment the
-    // call was made, which is what keeps concurrent calls in step with each other.
-    const sendAt = notes.sharedRead ? runtime.now() : now
-
-    const staleWindow = staleWindowMs(request)
-    if (cached?.storedAt !== undefined && staleWindow > 0 && now < cached.storedAt + staleWindow) {
-      refresh(request, key, sendAt, limits)
-      return { value: cached.value, cached: true }
-    }
-
+    // Taken before anything is awaited: this call's place in the limiter's line is where it was
+    // made, not where its cache read happens to come back.
+    const place = takePlace()
     try {
-      const value = await fetchAndStore(request, key, sendAt, limits)
-      unused()
-      return { value, cached: false }
-    } catch (error) {
-      // A 404 is an answer, not a failure: serving a stale body for a game that no longer exists
-      // would be worse than the error.
-      const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
-      if (cached && !notFound) return { value: cached.value, cached: false }
-      unused()
-      throw error
+      const entry = await runtime.cache.get(key, {
+        shareable: shareableOf(request),
+        onSharedRead: (read) => {
+          notes.sharedRead = read
+        },
+      })
+      // What the read found answered nothing after all: the upstream did, or nobody.
+      const unused = () => {
+        if (notes.sharedRead?.hit) notes.sharedRead = { ...notes.sharedRead, hit: false }
+      }
+      // An entry an older build cached from a bad body is no entry at all.
+      const cached = entry && isJsonObject(entry.value) ? entry : null
+      if (cached && cached.expiresAt > now) return { value: cached.value, cached: true }
+
+      // A read that went beyond memory took real time, so the request that follows it is timed,
+      // and given its slot at the limiter, from the clock as it stands when its turn comes — for
+      // the reason a retry is (`fetchWithRetry`): a slot reserved against a moment already past
+      // would let this request out too soon after the one before it. A read of memory alone took
+      // none, and keeps the moment the call was made, which is what keeps concurrent calls in
+      // step with each other.
+      const clock = () => (notes.sharedRead ? runtime.now() : now)
+
+      const staleWindow = staleWindowMs(request)
+      if (
+        cached?.storedAt !== undefined &&
+        staleWindow > 0 &&
+        now < cached.storedAt + staleWindow
+      ) {
+        refresh(request, key, clock, limits)
+        return { value: cached.value, cached: true }
+      }
+
+      try {
+        await place.turn
+        // `fetchAndStore` runs as far as the limiter before it first waits for anything, so this
+        // call's slot is taken by the time its promise is in hand — and the line can move on
+        // while the request is out.
+        const fetching = fetchAndStore(request, key, clock(), limits)
+        place.leave()
+        const value = await fetching
+        unused()
+        return { value, cached: false }
+      } catch (error) {
+        // A 404 is an answer, not a failure: serving a stale body for a game that no longer exists
+        // would be worse than the error.
+        const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
+        if (cached && !notFound) return { value: cached.value, cached: false }
+        unused()
+        throw error
+      }
+    } finally {
+      // The cache answered, the request has its slot, or the call failed before either: in every
+      // case the calls behind this one need wait for it no longer.
+      place.leave()
     }
   }
 

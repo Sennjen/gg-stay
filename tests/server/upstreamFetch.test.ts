@@ -1027,6 +1027,188 @@ describe('an answer with a stale window', () => {
   })
 })
 
+describe('a call’s turn at the limiter', () => {
+  /**
+   * A transport over a cache whose every read a case answers by hand, in whatever order it
+   * likes. `answer(key, entry, tookMs)` ends the read of `key`; with `tookMs` the read went to a
+   * second level and took that long on the clock.
+   */
+  function heldReads(
+    using: UpstreamConfig<Request> = config,
+    overrides: Partial<UpstreamRuntime> = {},
+  ) {
+    const made = makeRuntime(overrides)
+    const out = new Map<
+      string,
+      {
+        resolve: (entry: UpstreamCacheEntry | null) => void
+        reject: (error: Error) => void
+        told?: (read: SharedRead) => void
+      }
+    >()
+    vi.mocked(made.runtime.cache.get).mockImplementation(
+      (key, options) =>
+        new Promise((resolve, reject) => {
+          out.set(key, { resolve, reject, told: options?.onSharedRead })
+        }),
+    )
+    return {
+      ...made,
+      fetchUpstream: createUpstreamFetch(using, made.runtime),
+      answer(key: string, entry: UpstreamCacheEntry | null = null, tookMs?: number) {
+        const read = out.get(key)!
+        if (tookMs !== undefined) read.told?.({ ms: tookMs, hit: entry !== null })
+        read.resolve(entry)
+      },
+      fail: (key: string, error: Error) => out.get(key)!.reject(error),
+      /** The paths asked of the upstream so far, in the order they went out. */
+      asked: () => made.sent.map((request) => request.url.replace('https://upstream.test/', '')),
+    }
+  }
+
+  const PAGE = ['games/portal-2', 'games/portal-2/stores', 'games/portal-2/screenshots']
+
+  it('comes in the order the calls were made, whatever order their cache reads come back in', async () => {
+    const { fetchUpstream, runtime, sent, answer, asked } = heldReads()
+
+    // The game page: the game first, because the page cannot be built without it.
+    const calls = PAGE.map((key) => fetchUpstream({ key }))
+    await settle()
+    // The three reads are out side by side; nothing waits for another's.
+    expect(runtime.cache.get).toHaveBeenCalledTimes(3)
+
+    // They come back in reverse. A call whose read is back waits for the calls made before it.
+    answer('games/portal-2/screenshots')
+    await settle()
+    answer('games/portal-2/stores')
+    await settle()
+    expect(asked()).toEqual([])
+
+    answer('games/portal-2')
+    await settle()
+    expect(asked()).toEqual(PAGE)
+    // One limiter slot each, a quarter of a second apart, counted from the moment of the calls.
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250], [500]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('comes in that order when the reads went to a second level and took their time over it', async () => {
+    const { fetchUpstream, runtime, sent, advance, answer, asked } = heldReads()
+    const calls = PAGE.map((key) => fetchUpstream({ key }))
+    await settle()
+
+    // 10 ms, 50 ms and 90 ms, the screenshots' first and the game's last.
+    advance(10)
+    answer('games/portal-2/screenshots', null, 10)
+    await settle()
+    advance(40)
+    answer('games/portal-2/stores', null, 50)
+    await settle()
+    expect(asked()).toEqual([])
+    advance(40)
+    answer('games/portal-2', null, 90)
+    await settle()
+
+    // The game goes out the moment its own read is back, and the others a slot apart behind it.
+    expect(asked()).toEqual(PAGE)
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250], [250]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('is given up when the cache answers: the call behind goes out at once, and waits no slot', async () => {
+    const { fetchUpstream, runtime, sent, answer, asked } = heldReads()
+    const cached = fetchUpstream({ key: 'games/in-the-cache' })
+    const missed = fetchUpstream({ key: 'games/not-there' })
+    await settle()
+
+    answer('games/not-there')
+    await settle()
+    expect(asked()).toEqual([])
+
+    answer('games/in-the-cache', { value: { id: 1 }, expiresAt: 2_000_000, storedAt: 900_000 })
+    expect(await cached).toEqual({ id: 1 })
+    await settle()
+    expect(asked()).toEqual(['games/not-there'])
+    expect(runtime.sleep).not.toHaveBeenCalled()
+
+    sent[0]!.answer(200, { id: 2 })
+    expect(await missed).toEqual({ id: 2 })
+  })
+
+  it('is given up by a call that fails before it has a request to send', async () => {
+    const unbuildable: UpstreamConfig<Request> = {
+      ...config,
+      buildUrl: (request) => {
+        if (request.key === 'games/no-address') throw new Error('no address for this request')
+        return config.buildUrl(request)
+      },
+    }
+    const { fetchUpstream, sent, answer, fail, asked } = heldReads(unbuildable)
+    const unread = fetchUpstream({ key: 'games/unreadable' }).catch((error: Error) => error.message)
+    const unbuilt = fetchUpstream({ key: 'games/no-address' }).catch(
+      (error: Error) => error.message,
+    )
+    const behind = fetchUpstream({ key: 'games/behind' })
+    await settle()
+
+    answer('games/behind')
+    answer('games/no-address')
+    fail('games/unreadable', new Error('the storage driver is broken'))
+
+    expect(await unread).toBe('the storage driver is broken')
+    expect(await unbuilt).toBe('no address for this request')
+    await settle()
+    // Neither took a slot, and neither is in the way.
+    expect(asked()).toEqual(['games/behind'])
+    sent[0]!.answer(200, { ok: true })
+    expect(await behind).toEqual({ ok: true })
+  })
+
+  it('is not kept by a request once it has its slot: the next goes out while the first is still unanswered', async () => {
+    const { fetchUpstream, sent, answer, asked } = heldReads()
+    const calls = [fetchUpstream({ key: 'games/a' }), fetchUpstream({ key: 'games/b' })]
+    await settle()
+    answer('games/a')
+    answer('games/b')
+    await settle()
+
+    // Both are on the wire, a slot apart; the first has not been answered.
+    expect(asked()).toEqual(['games/a', 'games/b'])
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('puts a refresh at the end of the line, behind a call that was made before its answer was handed over', async () => {
+    const kept: Promise<unknown>[] = []
+    const { fetchUpstream, sent, answer, asked } = heldReads(
+      { ...config, staleFor: ({ key }) => (key === 'games/stale' ? 3_600 : 0) },
+      { keepAlive: (work) => void kept.push(work) },
+    )
+    const waitedFor = fetchUpstream({ key: 'games/missing' })
+    const stale = fetchUpstream({ key: 'games/stale' })
+    await settle()
+
+    // The stale answer is handed over at once; its refresh waits for the call ahead to decide.
+    answer('games/stale', { value: { version: 1 }, expiresAt: 999_000, storedAt: 900_000 })
+    expect(await stale).toEqual({ version: 1 })
+    await settle()
+    expect(asked()).toEqual([])
+
+    // The request somebody is waiting for goes first, and the refresh a slot behind it.
+    answer('games/missing')
+    await settle()
+    expect(asked()).toEqual(['games/missing', 'games/stale'])
+
+    for (const request of sent) request.answer(200, {})
+    await waitedFor
+    await Promise.all(kept)
+  })
+})
+
 describe('which answers may be kept beyond the instance', () => {
   const DAY = 86_400
 

@@ -1330,13 +1330,17 @@ describe('the Server-Timing header of a GraphQL answer', () => {
    */
   function instanceOver(
     entries: Map<string, string>,
-    { readMs = 12, rawgMs = 100, keepAlive = undefined as (() => void) | undefined } = {},
+    {
+      readMs = 12 as number | ((key: string) => number),
+      rawgMs = 100,
+      keepAlive = undefined as (() => void) | undefined,
+    } = {},
   ) {
     const shared = createFakeSharedStore(entries)
     const level = createSharedLevel(
       {
         get: async (key) => {
-          await elapse(readMs)
+          await elapse(typeof readMs === 'number' ? readMs : readMs(key))
           return shared.get(key)
         },
         set: shared.set,
@@ -1414,6 +1418,32 @@ describe('the Server-Timing header of a GraphQL answer', () => {
     )
     expect(remembered.header).toBe('index;dur=0;desc="Index x3", total;dur=0')
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('asks RAWG for the game first on a full miss, whatever order the shared reads come back in', async () => {
+    const index = await publishTestIndex([DOCUMENT])
+    const sharedKeyOf = (path: string) =>
+      `v2.RAWG.${createHash('sha256').update(path).digest('hex')}`
+    // The reads come back in reverse: the screenshots' after 10 ms, the game's own after 90.
+    const took = new Map([
+      [sharedKeyOf(`games/${SLUG}`), 90],
+      [sharedKeyOf(`games/${SLUG}/stores`), 50],
+      [sharedKeyOf(`games/${SLUG}/screenshots`), 10],
+    ])
+    const { rawg, fetched } = instanceOver(new Map(), { readMs: (key) => took.get(key)! })
+
+    const { header, body } = await answerAfter(
+      690,
+      postQuery({ index, rawg }, PAGE, { slug: SLUG }),
+    )
+
+    expect(body.data!.game.partial).toBe(false)
+    // The game is what the page cannot be built without: it is the first request out, the
+    // moment its own read is back, and the other two follow a limiter slot apart.
+    expect(fetched).toEqual([`games/${SLUG}`, `games/${SLUG}/stores`, `games/${SLUG}/screenshots`])
+    expect(header).toBe(
+      'rawg;dur=690;desc="RAWG x3", index;dur=0;desc="Index x3", cache;dur=90;desc="Cache 0 of 3", total;dur=690',
+    )
   })
 
   it('does not count a page served stale as a call to RAWG, which is asked behind it', async () => {
