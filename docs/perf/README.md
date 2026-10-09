@@ -249,6 +249,24 @@ Everything that reads the index got faster by roughly the two Atlantic crossings
 
 The first request after each deploy, one sample each and so not a measurement: 2.29 s before #69, 1.26 s after it in `iad1`, 0.97 s in `fra1`.
 
+## Step 8 — the game page's time budget
+
+Measured on production from one client in Europe: the `game` query as the page sends it, each game opened for the first time on the instance that answered. Before is commit `c1f0dba` on 2026-10-06 (function in `iad1`); after is `0c3c898` on 2026-10-09 (function in `fra1`, #70, and the budget of #71), first with the index version that did not yet carry slugs and then with version 87, which does.
+
+|                 | Before (30 games) | After, index without slugs (30) | After, index with slugs (60) |
+| --------------- | ----------------- | ------------------------------- | ---------------------------- |
+| Median          | 1.62 s            | 1.42 s                          | 1.46 s                       |
+| p90             | 3.7 s             | 1.76 s                          | 1.99 s                       |
+| Maximum         | 8.6 s             | 3.6 s                           | 3.0 s                        |
+| Over 2.5 s      | 6                 | 1                               | 5                            |
+| Partial answers | —                 | 3                               | 8                            |
+
+Of the sixty, RAWG's detail missed its 2.5 s for four games; each was answered from its index document in 2.9–3.0 s, and the function log carries `[game] RAWG slower than 2500 ms, answered from the index` for them. Four more went out without store links or screenshots that missed their 1.5 s. Asked again two minutes later, all of them answered whole in 0.25–0.32 s: the abandoned requests had filled the cache.
+
+The median did not move — it is the three RAWG requests, sent 250 ms apart, and RAWG's own time — and the two samples were taken three days and one region apart, so only the tail is this change's: nothing waits for RAWG past its budget when the index holds the game. A game outside the index still does.
+
+An answer says where its time went. For one of the four: `rawg;dur=2694;desc="RAWG x3", steam;dur=191;desc="Steam x1", index;dur=11;desc="Index x4", total;dur=2701`.
+
 ## JavaScript budget for `/games`, measured
 
 Measured on the production build (`NITRO_PRESET=vercel pnpm build`), by taking the exact set of
