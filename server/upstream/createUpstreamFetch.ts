@@ -12,6 +12,10 @@ import { UpstreamError, type UpstreamSource } from './errors'
  * for every caller: what a call resolves with is read-only, because the same object may be in
  * another caller's hands, and in the cache's.
  *
+ * Requests go out in the order their calls were made, whatever order the cache reads in front of
+ * them come back in — see `takePlace` — so a caller that asks first for what it needs most is
+ * served in that order.
+ *
  * An answer may also be served for a while after its ttl has run out, while a new one is fetched
  * behind it — the stale window, see `staleFor`. It is a property of a request, like the ttl, and
  * of a runtime that can keep a refresh running after the answer has gone out (`keepAlive`).
@@ -136,6 +140,10 @@ export interface CacheWriteOptions {
  * Where answers are kept. `get` resolves with whatever is held under the key, however old —
  * an entry past its `expiresAt` is the fallback for a refresh that fails — and `set` keeps an
  * entry for at least as long as it can still be served.
+ *
+ * A read has to end, and soon: a call keeps its place in the limiter's line while its cache is
+ * read (`takePlace`), and the calls behind it wait for it to. Memory answers at once, and a
+ * second level gives its reads a deadline (`SHARED_CACHE_DEADLINE_MS`).
  */
 export interface UpstreamCache {
   get: (key: string, options?: CacheReadOptions) => Promise<UpstreamCacheEntry | null>
