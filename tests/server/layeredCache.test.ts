@@ -191,7 +191,7 @@ describe('a read', () => {
       if (hadEntry) memory.held.set('games/portal-2', entryOf({ v: 0 }, { age: 700_000 }))
       const told = vi.fn<(read: SharedRead) => void>()
 
-      const read = cache.get('games/portal-2', told)
+      const read = cache.get('games/portal-2', { onSharedRead: told })
       await settle()
       // This instance's own refresh lands while the read is out…
       const refreshed = entryOf({ v: 2 })
@@ -246,6 +246,59 @@ describe('a read', () => {
     expect(warn).not.toHaveBeenCalled()
     await cache.get('games')
     expect(store.reads).toHaveLength(2)
+  })
+})
+
+describe('an answer that may not be shared', () => {
+  it('is read from memory and nowhere else, whether memory holds it, holds it expired, or does not', async () => {
+    const { cache, memory, store } = setup()
+    const told = vi.fn<(read: SharedRead) => void>()
+    const remote = { ...entryOf({ page: 'theirs' }), storedAt: Date.now() + 1 }
+    for (const key of ['games?search=a', 'games?search=b', 'games?search=c']) {
+      shareEntry(store, key, remote)
+    }
+    const live = entryOf({ page: 'mine' })
+    const expired = entryOf({ page: 'mine' }, { age: 700_000 })
+    memory.held.set('games?search=a', live)
+    memory.held.set('games?search=b', expired)
+
+    const options = { shareable: false, onSharedRead: told }
+    expect(await cache.get('games?search=a', options)).toBe(live)
+    expect(await cache.get('games?search=b', options)).toBe(expired)
+    expect(await cache.get('games?search=c', options)).toBeNull()
+
+    expect(store.reads).toEqual([])
+    expect(told).not.toHaveBeenCalled()
+    expect(memory.set).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('is written to memory and nowhere else', async () => {
+    const { cache, memory, store, kept } = setup()
+    const entry = entryOf({ results: [] })
+
+    await cache.set('games?search=half life', entry, { shareable: false, staleSeconds: 604_800 })
+    await settle()
+
+    expect(memory.held.get('games?search=half life')).toBe(entry)
+    expect(store.writes).toEqual([])
+    expect(kept).toEqual([])
+  })
+
+  it('is shared when its request says it may be, and when nothing is said', async () => {
+    const { cache, store } = setup()
+
+    await cache.set('games/a', entryOf({ id: 1 }), { shareable: true })
+    await cache.set('steam-price:620', entryOf({ price: null }))
+    await cache.get('games/b', { shareable: true })
+    await cache.get('steam-price:440')
+    await settle()
+
+    expect(store.writes.map((write) => write.key)).toEqual([
+      sharedKeyOf('games/a'),
+      sharedKeyOf('steam-price:620'),
+    ])
+    expect(store.reads).toEqual([sharedKeyOf('games/b'), sharedKeyOf('steam-price:440')])
   })
 })
 
@@ -393,7 +446,9 @@ describe('how long the shared store keeps an entry', () => {
     const { cache, store } = setup()
 
     await cache.set('games', entryOf({ list: true }, { ttl: 600_000 }))
-    await cache.set('games/portal-2', entryOf({ id: 1 }, { ttl: DAY * 1000 }), 7 * DAY)
+    await cache.set('games/portal-2', entryOf({ id: 1 }, { ttl: DAY * 1000 }), {
+      staleSeconds: 7 * DAY,
+    })
     // Written a while after it was stored: the freshness is the entry's, not what is left of it.
     await cache.set('genres', entryOf({ genres: [] }, { age: 5_000, ttl: 3_600_000 }))
     await settle()
@@ -891,7 +946,7 @@ describe('a read that is measured', () => {
     shareEntry(store, 'games/portal-2', entryOf({ id: 4200 }))
     const told = vi.fn<(read: SharedRead) => void>()
 
-    const read = cache.get('games/portal-2', told)
+    const read = cache.get('games/portal-2', { onSharedRead: told })
     await vi.advanceTimersByTimeAsync(12)
     // Told by the time the read is over, not after it.
     const calls = await read.then(() => told.mock.calls.length)
@@ -904,10 +959,10 @@ describe('a read that is measured', () => {
     const { cache, memory, store } = setup()
     const told = vi.fn<(read: SharedRead) => void>()
 
-    await cache.get('games/nope', told)
+    await cache.get('games/nope', { onSharedRead: told })
     memory.held.set('games', entryOf({ page: 'mine' }, { age: 700_000 }))
     shareEntry(store, 'games', entryOf({ page: 'theirs' }, { age: 700_000 }))
-    await cache.get('games', told)
+    await cache.get('games', { onSharedRead: told })
 
     expect(told.mock.calls).toEqual([[{ ms: 0, hit: false }], [{ ms: 0, hit: false }]])
   })
@@ -916,7 +971,7 @@ describe('a read that is measured', () => {
     const { level } = levelOver({ get: () => new Promise(() => {}), set: async () => {} })
     const told = vi.fn<(read: SharedRead) => void>()
 
-    const read = cacheOver(level).cache.get('games', told)
+    const read = cacheOver(level).cache.get('games', { onSharedRead: told })
     await vi.advanceTimersByTimeAsync(SHARED_CACHE_DEADLINE_MS)
     await read
 
@@ -931,12 +986,12 @@ describe('a read that is measured', () => {
     memory.held.set('games', entryOf({ page: 'mine' }))
     const told = vi.fn<(read: SharedRead) => void>()
 
-    await cache.get('games', told)
+    await cache.get('games', { onSharedRead: told })
     expect(told).not.toHaveBeenCalled()
 
     // The read that finds the store down is a read; the ones it spares are not.
-    await cache.get('games/a', told)
-    await cache.get('games/b', told)
+    await cache.get('games/a', { onSharedRead: told })
+    await cache.get('games/b', { onSharedRead: told })
     expect(told).toHaveBeenCalledExactlyOnceWith({ ms: 0, hit: false })
   })
 
@@ -945,8 +1000,10 @@ describe('a read that is measured', () => {
     const remote = entryOf({ id: 4200 })
     shareEntry(store, 'games/portal-2', remote)
 
-    const read = cache.get('games/portal-2', () => {
-      throw new Error('the collector failed')
+    const read = cache.get('games/portal-2', {
+      onSharedRead: () => {
+        throw new Error('the collector failed')
+      },
     })
 
     expect(await read).toEqual(remote)
@@ -961,8 +1018,8 @@ describe('a cache with no shared level', () => {
     expect(cache.set).toBe(memory.set)
 
     const entry = entryOf({ id: 1 })
-    await cache.set('games', entry, 604_800)
-    expect(await cache.get('games', () => {})).toBe(entry)
+    await cache.set('games', entry, { staleSeconds: 604_800 })
+    expect(await cache.get('games', { onSharedRead: () => {} })).toBe(entry)
     expect(vi.getTimerCount()).toBe(0)
   })
 })

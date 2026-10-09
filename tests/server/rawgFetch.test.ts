@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createRawgFetch,
   fixtureName,
+  isTyped,
   normalizeKey,
   staleFor,
   ttlFor,
   UpstreamError,
   type CacheEntry,
   type RawgDeps,
+  type RawgFetchOptions,
+  type RawgParams,
 } from '../../server/rawg/rawgFetch'
 
 function makeDeps(overrides: Partial<RawgDeps> = {}) {
@@ -60,6 +63,17 @@ describe('helpers', () => {
     expect(staleFor('games/portal-2/stores/steam')).toBe(0)
     expect(staleFor('games/')).toBe(0)
     expect(staleFor('genres/action')).toBe(0)
+  })
+
+  it('knows a request a visitor typed by its search term, and by nothing else', () => {
+    expect(isTyped({ search: 'half life', page: 2 })).toBe(true)
+    expect(isTyped({ search: 'va', page_size: 10 })).toBe(true)
+    // Chosen from what the page offers, not typed; and a search with nothing in it is no search.
+    expect(isTyped({ genres: 'rpg', tags: 'co-op', developers: 'valve', page: 3 })).toBe(false)
+    expect(isTyped({ search: '' })).toBe(false)
+    expect(isTyped({ search: undefined })).toBe(false)
+    expect(isTyped({})).toBe(false)
+    expect(isTyped()).toBe(false)
   })
 
   it('maps paths to fixture names', () => {
@@ -459,12 +473,45 @@ describe('the stale window of a RAWG answer', () => {
   })
 })
 
+describe('which RAWG answers may be kept beyond the instance', () => {
+  it.each<[string, string, RawgParams | undefined, RawgFetchOptions | undefined, boolean]>([
+    ['a game', 'games/portal-2', undefined, undefined, true],
+    ['a game’s store links', 'games/portal-2/stores', undefined, undefined, true],
+    ['a game’s screenshots', 'games/portal-2/screenshots', undefined, undefined, true],
+    ['a game’s clips', 'games/3328/movies', undefined, undefined, true],
+    ['the genres', 'genres', undefined, undefined, true],
+    ['the platforms', 'platforms', undefined, undefined, true],
+    ['a list the landing keeps for a day', 'games', { ordering: '-added' }, { ttl: 86_400 }, true],
+    ['a catalog page', 'games', { genres: 'rpg', page: 2 }, undefined, false],
+    ['the header’s suggestions', 'games', { search: 'half', page_size: 5 }, undefined, false],
+    ['a search kept for a day', 'games', { search: 'half' }, { ttl: 86_400 }, false],
+    ['the developer filter’s autocomplete', 'developers', { search: 'va' }, undefined, false],
+    [
+      'a game asked for with a ttl of its own under a day',
+      'games/x',
+      undefined,
+      { ttl: 60 },
+      false,
+    ],
+  ])('says of %s whether it may', async (_what, path, params, options, shareable) => {
+    const { deps, store } = makeDeps()
+    const get = vi.fn(async (key: string) => store.get(key) ?? null)
+    const set = vi.fn(async (key: string, entry: CacheEntry) => void store.set(key, entry))
+    deps.cache = { get, set }
+
+    await createRawgFetch(deps)(path, params, options)
+
+    expect(get.mock.calls[0]![1]).toMatchObject({ shareable })
+    expect(set.mock.calls[0]![2]).toMatchObject({ shareable })
+  })
+})
+
 describe('a RAWG call that asks what its read of the cache came to', () => {
   it('is told when the read went to the cache every instance shares, and what it found', async () => {
     const { deps, store } = makeDeps()
     store.set('games/portal-2', { value: { id: 4200 }, expiresAt: 2_000_000, storedAt: 900_000 })
-    deps.cache.get = async (key, onSharedRead) => {
-      onSharedRead?.({ ms: 11, hit: true })
+    deps.cache.get = async (key, options) => {
+      options?.onSharedRead?.({ ms: 11, hit: true })
       return store.get(key) ?? null
     }
     const onSharedRead = vi.fn()

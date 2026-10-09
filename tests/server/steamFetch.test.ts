@@ -280,12 +280,30 @@ describe('Steam’s page about an app, past its day', () => {
   })
 })
 
+describe('whether Steam’s page about an app may be kept beyond the instance', () => {
+  it.each([
+    ['may, fresh for its day', undefined, true],
+    ['may, under the day the site’s resolvers name', { ttl: 86_400 }, true],
+    ['may not, asked for with a ttl of its own under a day', { ttl: 60 }, false],
+  ])('%s', async (_what, options, shareable) => {
+    const { deps, store } = makeDeps()
+    const get = vi.fn(async (key: string) => store.get(key) ?? null)
+    const set = vi.fn(async (key: string, entry: SteamCacheEntry) => void store.set(key, entry))
+    deps.cache = { get, set }
+
+    await createSteamFetch(deps)('292030', options)
+
+    expect(get.mock.calls[0]![1]).toMatchObject({ shareable })
+    expect(set.mock.calls[0]![2]).toMatchObject({ shareable })
+  })
+})
+
 describe('a Steam call that asks what its read of the cache came to', () => {
   it('is told when the read went to the cache every instance shares, and what it found', async () => {
     const { deps, store } = makeDeps()
     store.set('292030', { value: { '292030': {} }, expiresAt: 2_000_000, storedAt: 900_000 })
-    deps.cache.get = async (key, onSharedRead) => {
-      onSharedRead?.({ ms: 8, hit: true })
+    deps.cache.get = async (key, options) => {
+      options?.onSharedRead?.({ ms: 8, hit: true })
       return store.get(key) ?? null
     }
     const onSharedRead = vi.fn()

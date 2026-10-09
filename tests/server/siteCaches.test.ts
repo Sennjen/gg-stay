@@ -158,22 +158,90 @@ describe('the caches of a function on Vercel', () => {
     expect(second.fetched).toEqual([])
   })
 
-  it('share nothing that holds the API key or what a visitor typed', async () => {
+  it('share nothing that holds the API key or anything of the request', async () => {
     const vercel = platform()
     const { rawg, fetched } = await instance({ vercel, upstream: () => ({ results: [] }) })
 
-    await rawg('games', { search: 'half life' })
+    // A list the landing keeps for a day.
+    await rawg('games', { ordering: '-added', page_size: 40 }, { ttl: 86_400 })
     await settle(vercel.kept)
 
     expect(fetched[0]).toContain('key=a-very-secret-rawg-key')
     const [key, , options] = vercel.cache.set.mock.calls[0]!
-    expect(key).toBe(`gg-stay$v1.RAWG.${sha256('games?search=half life')}`)
+    expect(key).toBe(`gg-stay$v1.RAWG.${sha256('games?ordering=-added&page_size=40')}`)
     const sent = JSON.stringify([vercel.cache.get.mock.calls, vercel.cache.set.mock.calls, options])
-    for (const hidden of ['a-very-secret-rawg-key', 'key=', 'half', 'search', 'api.rawg.io']) {
+    for (const hidden of ['a-very-secret-rawg-key', 'key=', 'ordering', 'added', 'api.rawg.io']) {
       expect(sent).not.toContain(hidden)
     }
-    // A list is kept for its ten minutes and a day.
-    expect(options).toMatchObject({ ttl: 600 + 86_400 })
+    // Fresh for a day, and kept for one more.
+    expect(options).toMatchObject({ ttl: 2 * 86_400 })
+  })
+
+  it('share every kind of answer that lives a day or longer and that no visitor typed', async () => {
+    const vercel = platform()
+    const { rawg, steam, cache } = await instance({ vercel, upstream: () => ({ ok: true }) })
+
+    const asked: [
+      string,
+      Record<string, string | number> | undefined,
+      { ttl: number } | undefined,
+    ][] = [
+      ['games/portal-2', undefined, undefined],
+      ['games/portal-2/stores', undefined, undefined],
+      ['games/portal-2/screenshots', undefined, undefined],
+      ['games/3328/movies', undefined, undefined],
+      ['genres', undefined, undefined],
+      ['platforms', undefined, undefined],
+      // The landing's lists: asked with a day's lifetime.
+      ['games', { ordering: '-added', page_size: 40 }, { ttl: 86_400 }],
+    ]
+    for (const [path, params, options] of asked) {
+      await behindTheLimiter(rawg(path, params, options))
+    }
+    await steam('620')
+    await cache.set('steam-price:620', { price: null, fetchedAt: 'then' }, 3_600)
+    await settle(vercel.kept)
+
+    const DAY = 86_400
+    expect(vercel.cache.set.mock.calls.map(([key, , options]) => [key, options?.ttl])).toEqual([
+      [`gg-stay$v1.RAWG.${sha256('games/portal-2')}`, 8 * DAY],
+      [`gg-stay$v1.RAWG.${sha256('games/portal-2/stores')}`, 8 * DAY],
+      [`gg-stay$v1.RAWG.${sha256('games/portal-2/screenshots')}`, 8 * DAY],
+      [`gg-stay$v1.RAWG.${sha256('games/3328/movies')}`, 2 * DAY],
+      [`gg-stay$v1.RAWG.${sha256('genres')}`, 8 * DAY],
+      [`gg-stay$v1.RAWG.${sha256('platforms')}`, 8 * DAY],
+      [`gg-stay$v1.RAWG.${sha256('games?ordering=-added&page_size=40')}`, 2 * DAY],
+      [`gg-stay$v1.STEAM.${sha256('620')}`, 2 * DAY],
+      [`gg-stay$v1.STEAM_PRICE.${sha256('steam-price:620')}`, 3_600 + DAY],
+    ])
+    // Each was looked for there first, the price aside: it was only written here.
+    expect(vercel.cache.get).toHaveBeenCalledTimes(8)
+  })
+
+  it('keep in memory alone what lives ten minutes and whatever a visitor typed', async () => {
+    const vercel = platform()
+    const { rawg, fetched } = await instance({ vercel, upstream: () => ({ ok: true }) })
+
+    const asked: [string, Record<string, string | number>, { ttl: number } | undefined][] = [
+      // A catalog page, the header's suggestions, the developer filter's autocomplete…
+      ['games', { genres: 'rpg', page: 2 }, undefined],
+      ['games', { search: 'half life', page_size: 5 }, undefined],
+      ['developers', { search: 'va', page_size: 10 }, undefined],
+      // …and a search however long its answer is kept.
+      ['games', { search: 'portal' }, { ttl: 86_400 }],
+    ]
+    for (const [path, params, options] of asked) {
+      await behindTheLimiter(rawg(path, params, options))
+    }
+    await settle(vercel.kept)
+
+    expect(vercel.cache.get).not.toHaveBeenCalled()
+    expect(vercel.cache.set).not.toHaveBeenCalled()
+    expect(vercel.waitUntil).not.toHaveBeenCalled()
+
+    // Memory keeps them for the instance, exactly as it did before there was a second level.
+    for (const [path, params, options] of asked) await rawg(path, params, options)
+    expect(fetched).toHaveLength(4)
   })
 
   it('share Steam’s page about an app, and the live price of a game page', async () => {

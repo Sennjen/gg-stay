@@ -108,6 +108,15 @@ export function staleFor(path: string): number {
 }
 
 /**
+ * Whether a request carries what a visitor typed: a search term, on a list or on a taxonomy. Its
+ * answer is never kept beyond the instance that fetched it (`isShareable`) — the header's
+ * suggestions and the developer filter ask for one of these for every few letters typed.
+ */
+export function isTyped(params?: RawgParams): boolean {
+  return cleanParams(params).some(([name]) => name === 'search')
+}
+
+/**
  * A RAWG list answer, as the site's catalog and landing read one. RAWG has been seen answering with
  * an empty body under a 200, which the transport hands back once without caching it; here that
  * body — or any answer that is not a list — becomes the upstream error it stands for, so the page
@@ -164,6 +173,7 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
       fixtureName: ({ path, params }) => fixtureName(path, params),
       ttlFor: ({ path, options }) => options?.ttl ?? ttlFor(path),
       staleFor: ({ path }) => staleFor(path),
+      typed: ({ params }) => isTyped(params),
       limitsFor: ({ options }) =>
         options && (options.timeoutMs !== undefined || options.maxAttempts !== undefined)
           ? { timeoutMs: options.timeoutMs, maxAttempts: options.maxAttempts }

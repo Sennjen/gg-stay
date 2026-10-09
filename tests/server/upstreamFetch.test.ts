@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createUpstreamFetch,
+  isShareable,
+  SHAREABLE_MIN_TTL_SECONDS,
   SLOW_ATTEMPT_MS,
   STALE_WHILE_REVALIDATE_SECONDS,
   type SharedRead,
@@ -718,7 +720,7 @@ describe('an answer with a stale window', () => {
     expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
       'games/portal-2',
       store.get('games/portal-2'),
-      STALE_WHILE_REVALIDATE_SECONDS,
+      { shareable: true, staleSeconds: STALE_WHILE_REVALIDATE_SECONDS },
     )
   })
 
@@ -958,7 +960,7 @@ describe('an answer with a stale window', () => {
     expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
       'games/portal-2',
       store.get('games/portal-2'),
-      0,
+      { shareable: true, staleSeconds: 0 },
     )
     advance(DAY_MS)
 
@@ -981,7 +983,10 @@ describe('an answer with a stale window', () => {
       { version: 1 },
       { ...windowed, staleFor },
     )
-    expect(runtime.cache.set).toHaveBeenCalledWith('games/portal-2', store.get('games/portal-2'), 0)
+    expect(runtime.cache.set).toHaveBeenCalledWith('games/portal-2', store.get('games/portal-2'), {
+      shareable: true,
+      staleSeconds: 0,
+    })
     advance(DAY_MS)
 
     const call = fetchUpstream({ key: 'games/portal-2' })
@@ -1022,6 +1027,69 @@ describe('an answer with a stale window', () => {
   })
 })
 
+describe('which answers may be kept beyond the instance', () => {
+  const DAY = 86_400
+
+  it('are the ones fresh for a day or longer that no visitor typed', () => {
+    expect(SHAREABLE_MIN_TTL_SECONDS).toBe(DAY)
+    // A game's page, a taxonomy, the landing's day-long list, Steam's page about an app.
+    expect(isShareable(DAY, false)).toBe(true)
+    expect(isShareable(7 * DAY, false)).toBe(true)
+    // A catalog list: ten minutes. A second short of a day is short of it.
+    expect(isShareable(600, false)).toBe(false)
+    expect(isShareable(DAY - 1, false)).toBe(false)
+    // A search, however long its answer lives.
+    expect(isShareable(600, true)).toBe(false)
+    expect(isShareable(DAY, true)).toBe(false)
+    expect(isShareable(7 * DAY, true)).toBe(false)
+  })
+
+  /** A ttl the request names, and a request that is typed when its key carries a search. */
+  const ruled: UpstreamConfig<Request> = {
+    ...config,
+    typed: ({ key }) => key.includes('search='),
+  }
+
+  it.each([
+    ['a game’s page, fresh for a day', { key: 'games/portal-2', ttl: DAY }, true],
+    ['a taxonomy, fresh for a week', { key: 'genres', ttl: 7 * DAY }, true],
+    ['a list kept for a day', { key: 'games?ordering=-added', ttl: DAY }, true],
+    ['a ten-minute list', { key: 'games?genres=rpg' }, false],
+    ['a search on a ten-minute list', { key: 'games?search=half life' }, false],
+    ['a search on a list kept for a day', { key: 'games?search=half life', ttl: DAY }, false],
+    ['a search on a taxonomy', { key: 'developers?search=va', ttl: 7 * DAY }, false],
+  ])('says so of %s with its read and with its write', async (_what, request, shareable) => {
+    const { runtime, sent } = makeRuntime()
+    const call = createUpstreamFetch(ruled, runtime)(request)
+    await settle()
+    sent[0]!.answer(200, { ok: true })
+    await call
+
+    expect(runtime.cache.get).toHaveBeenCalledExactlyOnceWith(
+      request.key,
+      expect.objectContaining({ shareable }),
+    )
+    expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
+      request.key,
+      expect.anything(),
+      expect.objectContaining({ shareable }),
+    )
+  })
+
+  it('takes a request for one nobody typed when its upstream has no such requests', async () => {
+    const { runtime, sent } = makeRuntime()
+    const call = createUpstreamFetch(config, runtime)({ key: '292030', ttl: DAY })
+    await settle()
+    sent[0]!.answer(200, { ok: true })
+    await call
+
+    expect(runtime.cache.get).toHaveBeenCalledWith(
+      '292030',
+      expect.objectContaining({ shareable: true }),
+    )
+  })
+})
+
 describe('a caller that asks to be told when its read went to the shared cache', () => {
   /**
    * A cache with a second level: what it holds, and what it says of each read that went beyond
@@ -1029,9 +1097,9 @@ describe('a caller that asks to be told when its read went to the shared cache',
    */
   function sharedCache(said: Record<string, SharedRead> = {}) {
     const made = makeRuntime()
-    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, onSharedRead) => {
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, options) => {
       const read = said[key]
-      if (read) onSharedRead?.(read)
+      if (read) options?.onSharedRead?.(read)
       return made.store.get(key) ?? null
     })
     return { ...made, fetchUpstream: createUpstreamFetch(config, made.runtime) }
@@ -1187,8 +1255,8 @@ describe('a caller that asks to be told when its read went to the shared cache',
   it('is told of the read behind a stale answer, whose entry is what answered', async () => {
     const kept: Promise<unknown>[] = []
     const made = makeRuntime({ keepAlive: (work) => void kept.push(work) })
-    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, onSharedRead) => {
-      onSharedRead?.({ ms: 30, hit: true })
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, options) => {
+      options?.onSharedRead?.({ ms: 30, hit: true })
       return made.store.get(key) ?? null
     })
     made.store.set('games/a', { value: { id: 1 }, expiresAt: 999_000, storedAt: 900_000 })
@@ -1213,10 +1281,10 @@ describe('a request that follows a slow read of the cache', () => {
    */
   function slowCache(slowKey: string, ms: number) {
     const made = makeRuntime()
-    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, onSharedRead) => {
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, options) => {
       if (key === slowKey) {
         made.advance(ms)
-        onSharedRead?.({ ms, hit: false })
+        options?.onSharedRead?.({ ms, hit: false })
       }
       return made.store.get(key) ?? null
     })

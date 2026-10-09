@@ -62,8 +62,10 @@ export function createResolverCache(stores: {
   return {
     get: async <T>(key: string, onSharedRead?: (read: SharedRead) => void) => {
       const told: { read?: SharedRead } = {}
-      const entry = await levelFor(key).get(key, (read) => {
-        told.read = read
+      const entry = await levelFor(key).get(key, {
+        onSharedRead: (read) => {
+          told.read = read
+        },
       })
       const live = entry !== null && entry.expiresAt > now()
       // A read of the shared level is passed on as the read it was; it found something only when

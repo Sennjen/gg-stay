@@ -68,21 +68,54 @@ export interface SharedRead {
 }
 
 /**
+ * An answer has to be fresh for at least this long to be kept beyond the instance that fetched
+ * it: a day.
+ */
+export const SHAREABLE_MIN_TTL_SECONDS = 86_400
+
+/**
+ * Whether an answer may be kept where other instances can read it: when it is fresh for a day or
+ * longer, and nothing in its request was typed by a visitor. The one rule, for every upstream.
+ *
+ * The cache every instance shares is metered, and what it is for is the answers that are asked
+ * for again: a game's own pages, the taxonomies, the landing's day-long lists, Steam's page about
+ * an app. A ten-minute list is the largest body there is and is stale before another instance
+ * has much chance to want it; and a request that carries what a visitor typed — a search term —
+ * has a key space nobody bounds, each key of it read once and written once and almost never
+ * asked for again. Both stay in the instance's memory alone, exactly as they always did
+ * (`docs/specs/2026-10-09-shared-upstream-cache-design.md`, section 1).
+ */
+export function isShareable(ttlSeconds: number, typed: boolean): boolean {
+  return !typed && ttlSeconds >= SHAREABLE_MIN_TTL_SECONDS
+}
+
+/** What the transport says of a read, for a cache with more to it than a map. A map ignores it. */
+export interface CacheReadOptions {
+  /** Whether the answer may be looked for beyond this instance's memory (`isShareable`). */
+  shareable?: boolean
+  /** Called, before `get` resolves, when the read did go beyond memory. */
+  onSharedRead?: (read: SharedRead) => void
+}
+
+/** What the transport says of a write, for a cache with more to it than a map. A map ignores it. */
+export interface CacheWriteOptions {
+  /** Whether the entry may be kept beyond this instance's memory (`isShareable`). */
+  shareable?: boolean
+  /**
+   * The stale window of the request the entry answers, which is how long past its freshness the
+   * entry is still worth keeping.
+   */
+  staleSeconds?: number
+}
+
+/**
  * Where answers are kept. `get` resolves with whatever is held under the key, however old —
  * an entry past its `expiresAt` is the fallback for a refresh that fails — and `set` keeps an
  * entry for at least as long as it can still be served.
- *
- * The second argument of each is for a cache with more to it than a map, and a map ignores both:
- * `onSharedRead` is called, before `get` resolves, when the read went beyond memory; and
- * `staleSeconds` is the stale window of the request the entry answers, which is how long past its
- * freshness the entry is still worth keeping.
  */
 export interface UpstreamCache {
-  get: (
-    key: string,
-    onSharedRead?: (read: SharedRead) => void,
-  ) => Promise<UpstreamCacheEntry | null>
-  set: (key: string, entry: UpstreamCacheEntry, staleSeconds?: number) => Promise<void>
+  get: (key: string, options?: CacheReadOptions) => Promise<UpstreamCacheEntry | null>
+  set: (key: string, entry: UpstreamCacheEntry, options?: CacheWriteOptions) => Promise<void>
 }
 
 export interface UpstreamRuntime {
@@ -140,6 +173,12 @@ export interface UpstreamConfig<TRequest> {
    * build gives the request, so narrowing it takes effect on what is already stored.
    */
   staleFor?: (request: TRequest) => number
+  /**
+   * Whether this particular request carries something a visitor typed, such as a search term;
+   * none does when omitted. Its answer is then kept in the instance's memory alone
+   * (`isShareable`).
+   */
+  typed?: (request: TRequest) => boolean
   /** Narrows a payload before it is cached and returned; identity when omitted. */
   project?: (value: unknown) => unknown
   /** A tighter timeout or fewer attempts for one request than the upstream's defaults. */
@@ -393,6 +432,11 @@ export function createUpstreamFetch<TRequest>(
     throw lastError
   }
 
+  /** Whether this request's answer may be kept beyond the instance: the one rule, per request. */
+  function shareableOf(request: TRequest): boolean {
+    return isShareable(config.ttlFor(request), config.typed?.(request) ?? false)
+  }
+
   /**
    * The request's stale window in milliseconds: none in a runtime that cannot keep a refresh
    * running behind an answer, and none for a window that is not a positive number.
@@ -417,7 +461,10 @@ export function createUpstreamFetch<TRequest>(
     const value = project(body)
     if (isJsonObject(body)) {
       const entry = { value, expiresAt: now + config.ttlFor(request) * 1000, storedAt: now }
-      await runtime.cache.set(key, entry, staleWindowMs(request) / 1000)
+      await runtime.cache.set(key, entry, {
+        shareable: shareableOf(request),
+        staleSeconds: staleWindowMs(request) / 1000,
+      })
     }
     return value
   }
@@ -465,8 +512,11 @@ export function createUpstreamFetch<TRequest>(
     limits: Required<UpstreamLimits>,
     notes: Notes,
   ): Promise<Loaded> {
-    const entry = await runtime.cache.get(key, (read) => {
-      notes.sharedRead = read
+    const entry = await runtime.cache.get(key, {
+      shareable: shareableOf(request),
+      onSharedRead: (read) => {
+        notes.sharedRead = read
+      },
     })
     // What the read found answered nothing after all: the upstream did, or nobody.
     const unused = () => {

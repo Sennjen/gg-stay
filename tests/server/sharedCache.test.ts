@@ -100,22 +100,44 @@ describe('what a transport over the shared level lets out of the function', () =
   /** Lets the write nobody waited for land. */
   const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 
-  it('shares a RAWG answer under a key that holds no secret and nothing a visitor typed', async () => {
+  it('shares a RAWG answer under a key that holds no secret and nothing of the request', async () => {
     const { rawg, store, fetchJson } = instance()
 
-    await rawg('games', { search: 'half life', page: 2 })
+    // A list the landing keeps for a day: the one kind of list that is shared.
+    await rawg('games', { ordering: '-added', page_size: 40 }, { ttl: DAY })
     await settle()
 
     // The request itself carried the key, as it must.
     expect(fetchJson.mock.calls[0]![0]).toContain(`key=${API_KEY}`)
     expect(store.writes).toHaveLength(1)
     const { key } = store.writes[0]!
-    expect(key).toBe(`v1.RAWG.${sha256('games?page=2&search=half life')}`)
-    for (const hidden of [API_KEY, 'key=', 'half', 'life', 'search', 'http', '?']) {
+    expect(key).toBe(`v1.RAWG.${sha256('games?ordering=-added&page_size=40')}`)
+    for (const hidden of [API_KEY, 'key=', 'ordering', 'added', 'page_size', 'http', '?']) {
       expect(key).not.toContain(hidden)
     }
     expect([...store.reads, ...store.entries.keys()]).toEqual([key, key])
   })
+
+  it.each([
+    ['a search, on a list', 'games', { search: 'half life', page: 2 }, undefined],
+    ['a search, on a list kept for a day', 'games', { search: 'half life' }, { ttl: DAY }],
+    ['a search, on a taxonomy', 'developers', { search: 'va', page_size: 10 }, undefined],
+    ['a ten-minute list, though nobody typed any of it', 'games', { genres: 'rpg' }, undefined],
+  ])(
+    'keeps %s in memory alone: the shared store is neither read nor written',
+    async (_what, path, params, options) => {
+      const { rawg, store, fetchJson } = instance()
+
+      const first = await rawg(path, params, options)
+      await settle()
+      // Memory still answers the instance that asked.
+      expect(await rawg(path, params, options)).toBe(first)
+
+      expect(fetchJson).toHaveBeenCalledTimes(1)
+      expect(store.reads).toEqual([])
+      expect(store.writes).toEqual([])
+    },
+  )
 
   it('stores the body the upstream gave and its two moments, and no address or key beside it', async () => {
     const { rawg, store } = instance()
@@ -153,29 +175,31 @@ describe('what a transport over the shared level lets out of the function', () =
     ])
   })
 
-  it('keeps what a game page is made of for eight days; Steam’s page and a list for a day past their freshness', async () => {
+  it('keeps what a game page is made of for eight days; Steam’s page and a day-long list for a day past their freshness', async () => {
     const { rawg, steam, store } = instance({ keepAlive: () => {} })
 
     for (const path of ['games/portal-2', 'games/portal-2/stores', 'games/portal-2/screenshots']) {
       await rawg(path)
     }
     await steam('620')
-    await rawg('games', { page: 1 })
+    await rawg('games', { ordering: '-added' }, { ttl: DAY })
     await rawg('games/3328/movies')
     await rawg('genres')
+    await rawg('platforms')
     await settle()
 
-    expect(store.writes.map((write) => write.ttlSeconds)).toEqual([
+    expect(store.writes.map((write) => [write.key.split('.')[1], write.ttlSeconds])).toEqual([
       // A day fresh and a week stale: the cap.
-      8 * DAY,
-      8 * DAY,
-      8 * DAY,
+      ['RAWG', 8 * DAY],
+      ['RAWG', 8 * DAY],
+      ['RAWG', 8 * DAY],
       // No stale window, Steam's page included: the freshness and a day.
-      DAY + DAY,
-      600 + DAY,
-      DAY + DAY,
+      ['STEAM', DAY + DAY],
+      ['RAWG', DAY + DAY],
+      ['RAWG', DAY + DAY],
       // A week fresh: the cap again.
-      8 * DAY,
+      ['RAWG', 8 * DAY],
+      ['RAWG', 8 * DAY],
     ])
   })
 

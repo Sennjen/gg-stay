@@ -1,4 +1,4 @@
-import type { SharedRead } from './createUpstreamFetch'
+import type { CacheReadOptions, CacheWriteOptions } from './createUpstreamFetch'
 
 /**
  * A cache in two levels: the instance's own memory, and a store every instance of the function
@@ -11,6 +11,10 @@ import type { SharedRead } from './createUpstreamFetch'
  *
  * The rules, each of which exists so that the second level can only ever help:
  *
+ * - **Only what may be shared is.** Which answers leave the instance is their request's to say:
+ *   the transport's one rule (`isShareable` — fresh for a day or longer, and nothing a visitor
+ *   typed) comes with every read and write, and an answer that is not shareable is read from
+ *   memory and written to memory, exactly as before there was a second level.
  * - **Memory first.** A read that memory answers with a live entry never leaves the instance. The
  *   shared level is asked only when memory has nothing, or only an entry past its `expiresAt`;
  *   an entry it holds that is newer than memory's is copied into memory and returned.
@@ -276,13 +280,15 @@ export interface LayeredCache<T extends LayeredEntry> {
   /**
    * The entry under `key`, however old, or `null`. `onSharedRead` is told, before this resolves,
    * when the shared level was read: how long it took and whether its entry is the one returned.
+   * A read that is not `shareable` is a read of memory, and nothing else.
    */
-  get: (key: string, onSharedRead?: (read: SharedRead) => void) => Promise<T | null>
+  get: (key: string, options?: CacheReadOptions) => Promise<T | null>
   /**
    * Keeps `entry`. `staleSeconds` is for how long after it was stored the entry may still be
-   * served while it is refreshed, which the shared level has to keep it through.
+   * served while it is refreshed, which the shared level has to keep it through. An entry that is
+   * not `shareable` is kept in memory, and nowhere else.
    */
-  set: (key: string, entry: T, staleSeconds?: number) => Promise<void>
+  set: (key: string, entry: T, options?: CacheWriteOptions) => Promise<void>
 }
 
 /**
@@ -309,8 +315,11 @@ export function createLayeredCache<T extends LayeredEntry>(
   const sharedKey = (key: string) => `${SHARED_CACHE_SCHEMA}.${source}.${hashKey(key)}`
 
   return {
-    async get(key, onSharedRead) {
+    async get(key, options) {
       const local = await memory.get(key)
+      // Which answers may leave the instance is their request's to say, and the transport says it
+      // with every read and write (`isShareable`); a caller that says nothing keeps only what may.
+      if (options?.shareable === false) return local
       if (local && local.expiresAt > now()) return local
 
       const read = await shared.read(sharedKey(key))
@@ -324,7 +333,7 @@ export function createLayeredCache<T extends LayeredEntry>(
       // reads back the very one it holds, and has nothing to copy.
       const newer = remote !== null && (held === null || storedAtOf(remote) > storedAtOf(held))
       try {
-        onSharedRead?.({ ms: read.ms, hit: newer })
+        options?.onSharedRead?.({ ms: read.ms, hit: newer })
       } catch {
         // Whoever listens is measuring the read, and is no part of it.
       }
@@ -333,12 +342,14 @@ export function createLayeredCache<T extends LayeredEntry>(
       return remote
     },
 
-    async set(key, entry, staleSeconds = 0) {
+    async set(key, entry, options) {
       await memory.set(key, entry)
+      if (options?.shareable === false) return
       // An entry that does not say when it was stored cannot be told from an older one elsewhere.
       if (entry.storedAt === undefined) return
       const freshnessSeconds = (entry.expiresAt - entry.storedAt) / 1000
-      shared.write(sharedKey(key), entry, sharedTtlSeconds(freshnessSeconds, staleSeconds))
+      const ttlSeconds = sharedTtlSeconds(freshnessSeconds, options?.staleSeconds ?? 0)
+      shared.write(sharedKey(key), entry, ttlSeconds)
     },
   }
 }
