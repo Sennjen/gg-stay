@@ -334,6 +334,32 @@ describe('fetchPrice', () => {
     expect(fetchJson).toHaveBeenCalledTimes(2)
   })
 
+  it('has no stale window: a runtime that could keep a refresh running is handed nothing', async () => {
+    const priced = (final: number) => ({
+      status: 200,
+      body: {
+        '1': {
+          success: true,
+          data: {
+            price_overview: { currency: 'UAH', initial: 10_000, final, discount_percent: 0 },
+          },
+        },
+      },
+    })
+    const fetchJson = vi.fn().mockResolvedValueOnce(priced(10_000)).mockResolvedValue(priced(5_000))
+    const keepAlive = vi.fn()
+    const { deps, advance } = makeDeps({ fetchJson })
+    // Not a dependency this transport has; given anyway, as a deployed site's runtime would be.
+    const steamPrices = createSteamPriceFetch({ ...deps, keepAlive } as SteamPriceFetchDeps)
+
+    expect((await steamPrices.fetchPrice('1'))?.priceUah).toBe(100)
+    advance(86_400_000)
+    // A day later the price is the one Steam gives now, waited for — never yesterday's.
+    expect((await steamPrices.fetchPrice('1'))?.priceUah).toBe(50)
+    expect(fetchJson).toHaveBeenCalledTimes(2)
+    expect(keepAlive).not.toHaveBeenCalled()
+  })
+
   it('is the same request as a batched read of that one app, so the two share it in flight', async () => {
     const { steamPrices, fetchJson } = answering({ '1': UAH_100 })
 

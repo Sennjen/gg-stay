@@ -26,4 +26,4 @@ Hybrid. `/games` and `/games/[slug]` are server-rendered per request; `/` (and `
 ## Consequences
 
 - TTFB depends on cache warmth; cold requests pay one RAWG round trip.
-- The in-memory Nitro cache is per server instance on Vercel. A shared cache (Redis) arrives with the nightly index in week 2.
+- The in-memory Nitro cache is per server instance on Vercel. A shared cache (Redis) arrives with the nightly index in week 2. Since 2026-10-09 the upstream answers themselves have a level every instance shares, Vercel's Runtime Cache, behind each instance's memory ([design](../specs/2026-10-09-shared-upstream-cache-design.md)): a cold request pays the RAWG round trip only for an answer no instance has fetched and kept. The Redis index of week 2 holds prices and facets, not upstream responses.

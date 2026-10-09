@@ -113,6 +113,10 @@ function projectEntry(raw: unknown): SteamAppDetails {
  * Unknown fields are dropped silently. Missing or malformed fields become absent (never thrown):
  * this runs on parsed JSON from a third-party API, so every field's shape is treated as
  * untrusted input.
+ *
+ * What this returns is what the shared cache stores, and that cache outlives a deployment: a
+ * field added, dropped or reshaped here — or one a reader starts to rely on — means changing
+ * `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`) in the same change.
  */
 export function projectAppDetails(raw: unknown): SteamAppDetailsResponse {
   const record = asRecord(raw)

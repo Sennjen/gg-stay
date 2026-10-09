@@ -2,11 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createRawgFetch,
   fixtureName,
+  isTyped,
   normalizeKey,
+  staleFor,
   ttlFor,
   UpstreamError,
   type CacheEntry,
   type RawgDeps,
+  type RawgFetchOptions,
+  type RawgParams,
 } from '../../server/rawg/rawgFetch'
 
 function makeDeps(overrides: Partial<RawgDeps> = {}) {
@@ -44,6 +48,32 @@ describe('helpers', () => {
     expect(ttlFor('games/portal-2/stores')).toBe(86_400)
     expect(ttlFor('genres')).toBe(604_800)
     expect(ttlFor('developers')).toBe(604_800)
+  })
+
+  it('gives a week’s stale window to what a game page is made of, and none to anything else', () => {
+    expect(staleFor('games/portal-2')).toBe(604_800)
+    expect(staleFor('games/portal-2/stores')).toBe(604_800)
+    expect(staleFor('games/portal-2/screenshots')).toBe(604_800)
+    // Lists, the taxonomies, and a game's other sub-paths keep the lifetimes they had.
+    expect(staleFor('games')).toBe(0)
+    expect(staleFor('genres')).toBe(0)
+    expect(staleFor('platforms')).toBe(0)
+    expect(staleFor('developers')).toBe(0)
+    expect(staleFor('games/3328/movies')).toBe(0)
+    expect(staleFor('games/portal-2/stores/steam')).toBe(0)
+    expect(staleFor('games/')).toBe(0)
+    expect(staleFor('genres/action')).toBe(0)
+  })
+
+  it('knows a request a visitor typed by its search term, and by nothing else', () => {
+    expect(isTyped({ search: 'half life', page: 2 })).toBe(true)
+    expect(isTyped({ search: 'va', page_size: 10 })).toBe(true)
+    // Chosen from what the page offers, not typed; and a search with nothing in it is no search.
+    expect(isTyped({ genres: 'rpg', tags: 'co-op', developers: 'valve', page: 3 })).toBe(false)
+    expect(isTyped({ search: '' })).toBe(false)
+    expect(isTyped({ search: undefined })).toBe(false)
+    expect(isTyped({})).toBe(false)
+    expect(isTyped()).toBe(false)
   })
 
   it('maps paths to fixture names', () => {
@@ -363,5 +393,146 @@ describe('createRawgFetch', () => {
       await expect(rawg('games', { page: 2 })).rejects.toMatchObject({ kind: 'ERROR' })
       expect(fetchJson).toHaveBeenCalled()
     })
+  })
+})
+
+describe('the stale window of a RAWG answer', () => {
+  const DAY_MS = 86_400_000
+
+  /** RAWG answering `{ version: 1 }` first and `{ version: 2 }` ever after. */
+  function versions() {
+    return vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: { version: 1 } })
+      .mockResolvedValue({ status: 200, body: { version: 2 } })
+  }
+
+  /** Lets a refresh nobody waited for run to its end. */
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+  it.each(['games/portal-2', 'games/portal-2/stores', 'games/portal-2/screenshots'])(
+    'hands %s over past its day while RAWG is asked again, and for a week',
+    async (path) => {
+      const keepAlive = vi.fn()
+      const { deps, advance } = makeDeps({ fetchJson: versions(), keepAlive })
+      const rawg = createRawgFetch(deps)
+      await rawg(path)
+
+      advance(DAY_MS)
+      expect(await rawg(path)).toEqual({ version: 1 })
+      expect(keepAlive).toHaveBeenCalledTimes(1)
+      await settle()
+      expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+      // What the refresh brought back is fresh for a day, and stale for the rest of its own week.
+      expect(await rawg(path)).toEqual({ version: 2 })
+      advance(7 * DAY_MS - 1)
+      expect(await rawg(path)).toEqual({ version: 2 })
+      await settle()
+      expect(deps.fetchJson).toHaveBeenCalledTimes(3)
+
+      // A week after it was stored the entry is expired: RAWG is asked, and waited for.
+      const fetchJson = vi.fn().mockResolvedValue({ status: 200, body: { version: 9 } })
+      const late = makeDeps({ fetchJson, keepAlive: vi.fn() })
+      late.store.set(path, { value: { version: 1 }, expiresAt: 1_000_000, storedAt: 1_000_000 })
+      late.advance(7 * DAY_MS)
+      expect(await createRawgFetch(late.deps)(path)).toEqual({ version: 9 })
+    },
+  )
+
+  it.each([
+    ['a list', 'games', 600_000, undefined],
+    ['a list the landing keeps for a day', 'games', DAY_MS, { ttl: 86_400 }],
+    ['a taxonomy', 'genres', 7 * DAY_MS, undefined],
+    ['a game’s clips', 'games/3328/movies', DAY_MS, undefined],
+  ])(
+    'lets %s expire as it always has: past its ttl the caller waits for RAWG',
+    async (_what, path, ttlMs, options) => {
+      const keepAlive = vi.fn()
+      const { deps, advance } = makeDeps({ fetchJson: versions(), keepAlive })
+      const rawg = createRawgFetch(deps)
+      await rawg(path, undefined, options)
+
+      advance(ttlMs - 1)
+      expect(await rawg(path, undefined, options)).toEqual({ version: 1 })
+      expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+      advance(1)
+      expect(await rawg(path, undefined, options)).toEqual({ version: 2 })
+      expect(keepAlive).not.toHaveBeenCalled()
+    },
+  )
+
+  it('is off without a keep-alive: a game past its day is asked for again, and waited for', async () => {
+    // The refresh job's transport, and every transport off the platform.
+    const { deps, advance } = makeDeps({ fetchJson: versions() })
+    const rawg = createRawgFetch(deps)
+    await rawg('games/portal-2')
+
+    advance(DAY_MS)
+    expect(await rawg('games/portal-2')).toEqual({ version: 2 })
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('a list’s links to its neighbouring pages', () => {
+  it('are handed on as RAWG sent them by the transport itself: cutting them is the site’s own step', async () => {
+    // The refresh job walks RAWG's pages through this transport, wired its own way, and reads
+    // `next` as it came. Nothing here may change what it is given.
+    const next = 'https://api.rawg.io/api/games?key=test-key&page=2'
+    const body = { count: 80, next, previous: null, results: [{ id: 1 }] }
+    const { deps, store } = makeDeps({ fetchJson: vi.fn(async () => ({ status: 200, body })) })
+
+    const answer = await createRawgFetch(deps)('games', { page: 1 })
+
+    expect(answer).toBe(body)
+    expect(store.get('games?page=1')?.value).toBe(body)
+  })
+})
+
+describe('which RAWG answers may be kept beyond the instance', () => {
+  it.each<[string, string, RawgParams | undefined, RawgFetchOptions | undefined, boolean]>([
+    ['a game', 'games/portal-2', undefined, undefined, true],
+    ['a game’s store links', 'games/portal-2/stores', undefined, undefined, true],
+    ['a game’s screenshots', 'games/portal-2/screenshots', undefined, undefined, true],
+    ['a game’s clips', 'games/3328/movies', undefined, undefined, true],
+    ['the genres', 'genres', undefined, undefined, true],
+    ['the platforms', 'platforms', undefined, undefined, true],
+    ['a list the landing keeps for a day', 'games', { ordering: '-added' }, { ttl: 86_400 }, true],
+    ['a catalog page', 'games', { genres: 'rpg', page: 2 }, undefined, false],
+    ['the header’s suggestions', 'games', { search: 'half', page_size: 5 }, undefined, false],
+    ['a search kept for a day', 'games', { search: 'half' }, { ttl: 86_400 }, false],
+    ['the developer filter’s autocomplete', 'developers', { search: 'va' }, undefined, false],
+    [
+      'a game asked for with a ttl of its own under a day',
+      'games/x',
+      undefined,
+      { ttl: 60 },
+      false,
+    ],
+  ])('says of %s whether it may', async (_what, path, params, options, shareable) => {
+    const { deps, store } = makeDeps()
+    const get = vi.fn(async (key: string) => store.get(key) ?? null)
+    const set = vi.fn(async (key: string, entry: CacheEntry) => void store.set(key, entry))
+    deps.cache = { get, set }
+
+    await createRawgFetch(deps)(path, params, options)
+
+    expect(get.mock.calls[0]![1]).toMatchObject({ shareable })
+    expect(set.mock.calls[0]![2]).toMatchObject({ shareable })
+  })
+})
+
+describe('a RAWG call that asks what its read of the cache came to', () => {
+  it('is told when the read went to the cache every instance shares, and what it found', async () => {
+    const { deps, store } = makeDeps()
+    store.set('games/portal-2', { value: { id: 4200 }, expiresAt: 2_000_000, storedAt: 900_000 })
+    deps.cache.get = async (key, options) => {
+      options?.onSharedRead?.({ ms: 11, hit: true })
+      return store.get(key) ?? null
+    }
+    const onSharedRead = vi.fn()
+
+    await createRawgFetch(deps)('games/portal-2', undefined, { onSharedRead })
+
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 11, hit: true })
   })
 })

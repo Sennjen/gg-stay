@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createUpstreamFetch,
+  isShareable,
+  REFRESH_BACKLOG_LIMIT_MS,
+  SHAREABLE_MIN_TTL_SECONDS,
   SLOW_ATTEMPT_MS,
+  STALE_WHILE_REVALIDATE_SECONDS,
+  type SharedRead,
   type UpstreamCacheEntry,
   type UpstreamConfig,
   type UpstreamRuntime,
@@ -10,9 +15,10 @@ import { UpstreamError } from '../../server/upstream/errors'
 
 /**
  * The shared transport on its own, for what neither RAWG's nor Steam's share of it decides: which
- * calls are one request, and what it writes down about an attempt that failed or was slow.
- * `rawgFetch.test.ts` and `steamFetch.test.ts` cover the rest through the two transports built on
- * it.
+ * calls are one request, what it writes down about an attempt that failed or was slow, how an
+ * answer is served inside its stale window, and what it passes on of a cache that has a second
+ * level. `rawgFetch.test.ts` and `steamFetch.test.ts` cover the rest through the two transports
+ * built on it.
  *
  * The network here answers when a test says so. A request stays on the wire until its entry in
  * `sent` is answered or failed, which is what lets a test make a second call while the first is
@@ -89,6 +95,14 @@ function makeRuntime(overrides: Partial<UpstreamRuntime> = {}) {
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 const timeoutError = () => Object.assign(new Error('timed out'), { name: 'TimeoutError' })
+
+/** Whether `work` has settled yet, without waiting for it. */
+function watch(work: Promise<unknown>) {
+  const seen = { settled: false }
+  const mark = () => void (seen.settled = true)
+  work.then(mark, mark)
+  return seen
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -662,5 +676,1084 @@ describe('the line about an attempt', () => {
     expect(info).toHaveBeenCalledExactlyOnceWith(
       '[upstream] RAWG games attempt 1: 0 ms, ERROR (500)',
     )
+  })
+})
+
+describe('an answer with a stale window', () => {
+  const DAY_MS = 86_400_000
+  const WEEK_MS = STALE_WHILE_REVALIDATE_SECONDS * 1000
+
+  /** A day fresh; a week's stale window for a game and what belongs to it, none for a list. */
+  const windowed: UpstreamConfig<Request> = {
+    ...config,
+    ttlFor: () => 86_400,
+    staleFor: ({ key }) => (key.startsWith('games/') ? STALE_WHILE_REVALIDATE_SECONDS : 0),
+  }
+
+  /**
+   * A runtime that can keep a refresh running — which is what gives a transport its stale window —
+   * and a transport over it whose cache already holds `key`, stored at the moment the case begins.
+   */
+  async function holding(key: string, body: unknown = { version: 1 }, using = windowed) {
+    const kept: Promise<unknown>[] = []
+    const keepAlive = vi.fn((work: Promise<unknown>) => void kept.push(work))
+    const made = makeRuntime({ keepAlive })
+    const fetchUpstream = createUpstreamFetch(using, made.runtime)
+    const first = fetchUpstream({ key })
+    await settle()
+    made.sent[0]!.answer(200, body)
+    await first
+    return { ...made, fetchUpstream, kept, keepAlive, storedAt: made.runtime.now() }
+  }
+
+  it('is a week, counted from the moment the answer was stored', () => {
+    expect(STALE_WHILE_REVALIDATE_SECONDS).toBe(7 * 86_400)
+  })
+
+  it('is stored with the moment the upstream was asked, and with the window it is to be kept through', async () => {
+    const { runtime, store, storedAt } = await holding('games/portal-2')
+
+    expect(store.get('games/portal-2')).toEqual({
+      value: { version: 1 },
+      expiresAt: storedAt + DAY_MS,
+      storedAt,
+    })
+    expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
+      'games/portal-2',
+      store.get('games/portal-2'),
+      { shareable: true, staleSeconds: STALE_WHILE_REVALIDATE_SECONDS },
+    )
+  })
+
+  it('is fresh for its ttl: handed over from the cache, with nothing asked behind it', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(DAY_MS - 1)
+    const onCached = vi.fn()
+
+    expect(await fetchUpstream({ key: 'games/portal-2' }, onCached)).toEqual({ version: 1 })
+    await settle()
+
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(sent).toHaveLength(1)
+    expect(kept).toEqual([])
+  })
+
+  it('is handed over at once past its ttl, while the upstream is asked behind the caller’s back', async () => {
+    const { fetchUpstream, sent, advance, kept, keepAlive } = await holding('games/portal-2')
+    advance(DAY_MS)
+    const onCached = vi.fn()
+
+    // The answer is here although nobody has answered the request that is now out.
+    expect(await fetchUpstream({ key: 'games/portal-2' }, onCached)).toEqual({ version: 1 })
+    await settle()
+
+    expect(sent).toHaveLength(2)
+    expect(sent[1]!.url).toBe('https://upstream.test/games/portal-2')
+    // A stale answer is the cache's: whoever measures the call is told so, as for a fresh one.
+    expect(onCached).toHaveBeenCalledTimes(1)
+    // The refresh was handed to the runtime to keep running, and is still out.
+    expect(keepAlive).toHaveBeenCalledTimes(1)
+    const refresh = watch(kept[0]!)
+    await settle()
+    expect(refresh.settled).toBe(false)
+
+    sent[1]!.answer(200, { version: 2 })
+    await kept[0]
+  })
+
+  it('has one refresh a key at a time, however many callers are handed the entry meanwhile', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(DAY_MS)
+
+    const answers = await Promise.all([
+      fetchUpstream({ key: 'games/portal-2' }),
+      fetchUpstream({ key: 'games/portal-2' }),
+    ])
+    await settle()
+    // Later, and under other limits — which would not share a request that is waited for.
+    advance(3_000)
+    answers.push(await fetchUpstream({ key: 'games/portal-2', timeoutMs: 4_000, maxAttempts: 1 }))
+    answers.push(await fetchUpstream({ key: 'games/portal-2' }))
+    await settle()
+
+    expect(answers).toEqual(Array(4).fill({ version: 1 }))
+    expect(sent).toHaveLength(2)
+    expect(kept).toHaveLength(1)
+
+    sent[1]!.answer(200, { version: 2 })
+    await kept[0]
+  })
+
+  it('refreshes each key on its own', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    const other = fetchUpstream({ key: 'games/portal-2/stores' })
+    await settle()
+    sent[1]!.answer(200, { results: [] })
+    await other
+    advance(DAY_MS + 300)
+
+    await fetchUpstream({ key: 'games/portal-2' })
+    await fetchUpstream({ key: 'games/portal-2/stores' })
+    await settle()
+
+    expect(sent.slice(2).map((request) => request.url)).toEqual([
+      'https://upstream.test/games/portal-2',
+      'https://upstream.test/games/portal-2/stores',
+    ])
+    expect(kept).toHaveLength(2)
+    for (const request of sent.slice(2)) request.answer(200, {})
+    await Promise.all(kept)
+  })
+
+  it('is replaced by what the refresh brings back, which is then fresh', async () => {
+    const { fetchUpstream, sent, advance, kept, store, runtime } = await holding('games/portal-2')
+    advance(DAY_MS + 5_000)
+    const refreshedAt = runtime.now()
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    advance(800)
+    sent[1]!.answer(200, { version: 2 })
+    await kept[0]
+
+    expect(store.get('games/portal-2')).toEqual({
+      value: { version: 2 },
+      expiresAt: refreshedAt + DAY_MS,
+      storedAt: refreshedAt,
+    })
+    const onCached = vi.fn()
+    expect(await fetchUpstream({ key: 'games/portal-2' }, onCached)).toEqual({ version: 2 })
+    await settle()
+    expect(onCached).toHaveBeenCalledTimes(1)
+    // Fresh again: no request, and no refresh.
+    expect(sent).toHaveLength(2)
+    expect(kept).toHaveLength(1)
+  })
+
+  it('keeps the entry when the refresh fails, says so like any attempt, and tries again on the next call', async () => {
+    const { fetchUpstream, sent, advance, kept, store, lines } = await holding('games/portal-2')
+    const before = store.get('games/portal-2')
+    advance(DAY_MS)
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    advance(5_000)
+    sent[1]!.fail(timeoutError())
+
+    // What was handed to the keep-alive ends without a failure of its own.
+    await expect(kept[0]).resolves.toBeUndefined()
+    expect(lines()).toEqual(['[upstream] RAWG games/portal-2 attempt 1: 5000 ms, TIMEOUT'])
+    expect(store.get('games/portal-2')).toBe(before)
+
+    // The entry is still what answers, and the next caller sets off the next refresh.
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    expect(sent).toHaveLength(3)
+    expect(kept).toHaveLength(2)
+    sent[2]!.answer(200, { version: 2 })
+    await kept[1]
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 2 })
+  })
+
+  it('makes one attempt at a refresh, though the call that set it off was allowed a retry', async () => {
+    const { fetchUpstream, sent, advance, kept, lines } = await holding('games/portal-2')
+    advance(DAY_MS)
+    // The transport's own limits: two attempts for a request somebody waits for.
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    advance(40)
+    sent[1]!.answer(502)
+    await kept[0]
+    await settle()
+
+    // A retry takes a limiter slot without asking how long the line is, and a refresh needs
+    // none: the next view of the page is its retry.
+    expect(sent).toHaveLength(2)
+    expect(lines()).toEqual(['[upstream] RAWG games/portal-2 attempt 1: 40 ms, ERROR (502)'])
+
+    // A request that is waited for still has its retry.
+    advance(WEEK_MS)
+    const waitedFor = fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    sent[2]!.answer(502)
+    await settle()
+    expect(sent).toHaveLength(4)
+    sent[3]!.answer(200, { version: 2 })
+    expect(await waitedFor).toEqual({ version: 2 })
+  })
+
+  it('raises nothing when a refresh fails with nobody holding on to it', async () => {
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const { fetchUpstream, sent, advance } = await holding('games/portal-2')
+      advance(DAY_MS)
+      await fetchUpstream({ key: 'games/portal-2', maxAttempts: 1 })
+      await settle()
+      sent[1]!.answer(503)
+      await settle()
+      await settle()
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('keeps the entry when the refresh finds the game gone, without a line about it', async () => {
+    const { fetchUpstream, sent, advance, kept, lines } = await holding('games/portal-2')
+    advance(DAY_MS)
+    await fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    sent[1]!.answer(404)
+    await kept[0]
+
+    expect(lines()).toEqual([])
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    sent[2]!.answer(404)
+    await kept[1]
+  })
+
+  it('is handed over even when the keep-alive will not take the refresh, which runs all the same', async () => {
+    const { fetchUpstream, sent, advance, keepAlive, store } = await holding('games/portal-2')
+    keepAlive.mockImplementation(() => {
+      throw new Error('the response has already been sent')
+    })
+    advance(DAY_MS)
+
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    expect(sent).toHaveLength(2)
+    sent[1]!.answer(200, { version: 2 })
+    await settle()
+    expect(store.get('games/portal-2')?.value).toEqual({ version: 2 })
+  })
+
+  it('ends a week after the answer was stored: a millisecond before, it is still handed over', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(WEEK_MS - 1)
+
+    expect(await fetchUpstream({ key: 'games/portal-2' })).toEqual({ version: 1 })
+    await settle()
+    expect(kept).toHaveLength(1)
+    sent[1]!.answer(503)
+    await kept[0]
+  })
+
+  it('is a miss past the window: the upstream is asked, and waited for', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games/portal-2')
+    advance(WEEK_MS)
+    const onCached = vi.fn()
+
+    const call = fetchUpstream({ key: 'games/portal-2' }, onCached)
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    expect(sent).toHaveLength(2)
+
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+    expect(onCached).not.toHaveBeenCalled()
+    // Asked for by a caller who waited: nothing was left for the runtime to keep running.
+    expect(kept).toEqual([])
+  })
+
+  it('is still the fallback past the window, for a refresh that fails', async () => {
+    const { fetchUpstream, sent, advance } = await holding('games/portal-2')
+    advance(WEEK_MS + DAY_MS)
+    const onCached = vi.fn()
+
+    const call = fetchUpstream({ key: 'games/portal-2', maxAttempts: 1 }, onCached)
+    await settle()
+    sent[1]!.answer(500)
+
+    expect(await call).toEqual({ version: 1 })
+    expect(onCached).not.toHaveBeenCalled()
+  })
+
+  describe('while the limiter is backed up', () => {
+    /**
+     * A transport that holds `count` stale pages. The limiter's waits end at once here without
+     * moving the clock, so every request that is given a slot is on the wire straight away and
+     * `sleep` records how far ahead its slot was.
+     */
+    async function holdingStale(count: number) {
+      const kept: Promise<unknown>[] = []
+      const made = makeRuntime({
+        keepAlive: (work) => void kept.push(work),
+        sleep: vi.fn(async () => {}),
+      })
+      const fetchUpstream = createUpstreamFetch(windowed, made.runtime)
+      const keys = Array.from({ length: count }, (_, position) => `games/stale-${position}`)
+      const primed = keys.map((key) => fetchUpstream({ key }))
+      await settle()
+      for (const request of made.sent) request.answer(200, { version: 1 })
+      await Promise.all(primed)
+      made.advance(DAY_MS)
+      made.sent.length = 0
+      vi.mocked(made.runtime.sleep).mockClear()
+      return { ...made, fetchUpstream, kept, keys }
+    }
+
+    it('is two seconds of the limiter’s line', () => {
+      expect(REFRESH_BACKLOG_LIMIT_MS).toBe(2_000)
+    })
+
+    it('starts no more refreshes than two seconds of the line can hold, and hands every page over all the same', async () => {
+      const { fetchUpstream, sent, kept, keys } = await holdingStale(12)
+
+      // Twelve stale pages asked for at once: every one is answered from the cache…
+      const answers = await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+      expect(answers).toEqual(Array(12).fill({ version: 1 }))
+
+      // …and nine refreshes are started, a quarter of a second apart: the ninth finds the line
+      // exactly two seconds long, the tenth finds it longer.
+      expect(sent.map((request) => request.url)).toEqual(
+        keys.slice(0, 9).map((key) => `https://upstream.test/${key}`),
+      )
+      // The three that were not started are over, with nothing left running.
+      await expect(Promise.all(kept.slice(9))).resolves.toEqual([undefined, undefined, undefined])
+      for (const request of sent) request.answer(200, { version: 2 })
+      await Promise.all(kept)
+    })
+
+    it('leaves a request somebody is waiting for two seconds of refreshes in front of it, not nine', async () => {
+      const { fetchUpstream, runtime, sent, keys } = await holdingStale(12)
+      await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+
+      // A cold page, asked for behind the twelve.
+      const cold = fetchUpstream({ key: 'games/cold' })
+      await settle()
+
+      expect(sent.at(-1)!.url).toBe('https://upstream.test/games/cold')
+      // Nine refreshes are ahead of it: without the bound there would be twelve, and with
+      // thirty-six — twelve whole game pages — nine seconds.
+      expect(vi.mocked(runtime.sleep).mock.calls.at(-1)).toEqual([9 * 250])
+      for (const request of sent) request.answer(200, { version: 2 })
+      await cold
+    })
+
+    it('keeps the entry of a refresh it did not start, and starts one on a later view', async () => {
+      const { fetchUpstream, sent, advance, kept, keys, store } = await holdingStale(12)
+      await Promise.all(keys.map((key) => fetchUpstream({ key })))
+      await settle()
+      for (const request of sent) request.answer(200, { version: 2 })
+      await Promise.all(kept)
+      const skipped = keys[11]!
+      expect(store.get(skipped)?.value).toEqual({ version: 1 })
+
+      // A second later the line is a second and a quarter long: the page is still served stale,
+      // and this time its refresh is started.
+      advance(1_000)
+      sent.length = 0
+      expect(await fetchUpstream({ key: skipped })).toEqual({ version: 1 })
+      await settle()
+      expect(sent.map((request) => request.url)).toEqual([`https://upstream.test/${skipped}`])
+      sent[0]!.answer(200, { version: 2 })
+      await kept.at(-1)
+      expect(store.get(skipped)?.value).toEqual({ version: 2 })
+    })
+  })
+
+  it('does not exist in a runtime without a keep-alive, whatever the request is given', async () => {
+    const { runtime, sent, advance, store } = makeRuntime()
+    const fetchUpstream = createUpstreamFetch(windowed, runtime)
+    const first = fetchUpstream({ key: 'games/portal-2' })
+    await settle()
+    sent[0]!.answer(200, { version: 1 })
+    await first
+    // Nothing is asked to be kept through a window that is not there.
+    expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
+      'games/portal-2',
+      store.get('games/portal-2'),
+      { shareable: true, staleSeconds: 0 },
+    )
+    advance(DAY_MS)
+
+    // Past its ttl the entry is expired, as it always was: the caller waits for the upstream.
+    const call = fetchUpstream({ key: 'games/portal-2' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+  })
+
+  it.each([
+    ['is given none', (): number => 0],
+    ['is given less than none', (): number => -60],
+    ['is given no number at all', (): number => Number.NaN],
+  ])('does not exist for a request that %s', async (_what, staleFor) => {
+    const { fetchUpstream, runtime, sent, advance, kept, store } = await holding(
+      'games/portal-2',
+      { version: 1 },
+      { ...windowed, staleFor },
+    )
+    expect(runtime.cache.set).toHaveBeenCalledWith('games/portal-2', store.get('games/portal-2'), {
+      shareable: true,
+      staleSeconds: 0,
+    })
+    advance(DAY_MS)
+
+    const call = fetchUpstream({ key: 'games/portal-2' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+    expect(kept).toEqual([])
+  })
+
+  it('does not exist for a list, beside a game that has one', async () => {
+    const { fetchUpstream, sent, advance, kept } = await holding('games')
+    advance(DAY_MS)
+
+    const call = fetchUpstream({ key: 'games' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 2 })
+    expect(await call).toEqual({ version: 2 })
+    expect(kept).toEqual([])
+  })
+
+  it('does not exist for an entry that does not say when it was stored', async () => {
+    const { fetchUpstream, sent, advance, kept, store, runtime } = await holding('games/portal-2')
+    // Handed to the cache by something other than this transport: fresh until a moment ago.
+    store.set('games/other', { value: { version: 0 }, expiresAt: runtime.now() + 1 })
+    advance(1)
+
+    const call = fetchUpstream({ key: 'games/other' })
+    const seen = watch(call)
+    await settle()
+    expect(seen.settled).toBe(false)
+    sent[1]!.answer(200, { version: 1 })
+    expect(await call).toEqual({ version: 1 })
+    expect(kept).toEqual([])
+  })
+})
+
+describe('a call’s turn at the limiter', () => {
+  /**
+   * A transport over a cache whose every read a case answers by hand, in whatever order it
+   * likes. `answer(key, entry, tookMs)` ends the read of `key`; with `tookMs` the read went to a
+   * second level and took that long on the clock.
+   */
+  function heldReads(
+    using: UpstreamConfig<Request> = config,
+    overrides: Partial<UpstreamRuntime> = {},
+  ) {
+    const made = makeRuntime(overrides)
+    const out = new Map<
+      string,
+      {
+        resolve: (entry: UpstreamCacheEntry | null) => void
+        reject: (error: Error) => void
+        told?: (read: SharedRead) => void
+      }
+    >()
+    vi.mocked(made.runtime.cache.get).mockImplementation(
+      (key, options) =>
+        new Promise((resolve, reject) => {
+          out.set(key, { resolve, reject, told: options?.onSharedRead })
+        }),
+    )
+    return {
+      ...made,
+      fetchUpstream: createUpstreamFetch(using, made.runtime),
+      answer(key: string, entry: UpstreamCacheEntry | null = null, tookMs?: number) {
+        const read = out.get(key)!
+        if (tookMs !== undefined) read.told?.({ ms: tookMs, hit: entry !== null })
+        read.resolve(entry)
+      },
+      fail: (key: string, error: Error) => out.get(key)!.reject(error),
+      /** The paths asked of the upstream so far, in the order they went out. */
+      asked: () => made.sent.map((request) => request.url.replace('https://upstream.test/', '')),
+    }
+  }
+
+  const PAGE = ['games/portal-2', 'games/portal-2/stores', 'games/portal-2/screenshots']
+
+  it('comes in the order the calls were made, whatever order their cache reads come back in', async () => {
+    const { fetchUpstream, runtime, sent, answer, asked } = heldReads()
+
+    // The game page: the game first, because the page cannot be built without it.
+    const calls = PAGE.map((key) => fetchUpstream({ key }))
+    await settle()
+    // The three reads are out side by side; nothing waits for another's.
+    expect(runtime.cache.get).toHaveBeenCalledTimes(3)
+
+    // They come back in reverse. A call whose read is back waits for the calls made before it.
+    answer('games/portal-2/screenshots')
+    await settle()
+    answer('games/portal-2/stores')
+    await settle()
+    expect(asked()).toEqual([])
+
+    answer('games/portal-2')
+    await settle()
+    expect(asked()).toEqual(PAGE)
+    // One limiter slot each, a quarter of a second apart, counted from the moment of the calls.
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250], [500]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('comes in that order when the reads went to a second level and took their time over it', async () => {
+    const { fetchUpstream, runtime, sent, advance, answer, asked } = heldReads()
+    const calls = PAGE.map((key) => fetchUpstream({ key }))
+    await settle()
+
+    // 10 ms, 50 ms and 90 ms, the screenshots' first and the game's last.
+    advance(10)
+    answer('games/portal-2/screenshots', null, 10)
+    await settle()
+    advance(40)
+    answer('games/portal-2/stores', null, 50)
+    await settle()
+    expect(asked()).toEqual([])
+    advance(40)
+    answer('games/portal-2', null, 90)
+    await settle()
+
+    // The game goes out the moment its own read is back, and the others a slot apart behind it.
+    expect(asked()).toEqual(PAGE)
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250], [250]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('is given up when the cache answers: the call behind goes out at once, and waits no slot', async () => {
+    const { fetchUpstream, runtime, sent, answer, asked } = heldReads()
+    const cached = fetchUpstream({ key: 'games/in-the-cache' })
+    const missed = fetchUpstream({ key: 'games/not-there' })
+    await settle()
+
+    answer('games/not-there')
+    await settle()
+    expect(asked()).toEqual([])
+
+    answer('games/in-the-cache', { value: { id: 1 }, expiresAt: 2_000_000, storedAt: 900_000 })
+    expect(await cached).toEqual({ id: 1 })
+    await settle()
+    expect(asked()).toEqual(['games/not-there'])
+    expect(runtime.sleep).not.toHaveBeenCalled()
+
+    sent[0]!.answer(200, { id: 2 })
+    expect(await missed).toEqual({ id: 2 })
+  })
+
+  it('is given up by a call that fails before it has a request to send', async () => {
+    const unbuildable: UpstreamConfig<Request> = {
+      ...config,
+      buildUrl: (request) => {
+        if (request.key === 'games/no-address') throw new Error('no address for this request')
+        return config.buildUrl(request)
+      },
+    }
+    const { fetchUpstream, sent, answer, fail, asked } = heldReads(unbuildable)
+    const unread = fetchUpstream({ key: 'games/unreadable' }).catch((error: Error) => error.message)
+    const unbuilt = fetchUpstream({ key: 'games/no-address' }).catch(
+      (error: Error) => error.message,
+    )
+    const behind = fetchUpstream({ key: 'games/behind' })
+    await settle()
+
+    answer('games/behind')
+    answer('games/no-address')
+    fail('games/unreadable', new Error('the storage driver is broken'))
+
+    expect(await unread).toBe('the storage driver is broken')
+    expect(await unbuilt).toBe('no address for this request')
+    await settle()
+    // Neither took a slot, and neither is in the way.
+    expect(asked()).toEqual(['games/behind'])
+    sent[0]!.answer(200, { ok: true })
+    expect(await behind).toEqual({ ok: true })
+  })
+
+  it('is not kept by a request once it has its slot: the next goes out while the first is still unanswered', async () => {
+    const { fetchUpstream, sent, answer, asked } = heldReads()
+    const calls = [fetchUpstream({ key: 'games/a' }), fetchUpstream({ key: 'games/b' })]
+    await settle()
+    answer('games/a')
+    answer('games/b')
+    await settle()
+
+    // Both are on the wire, a slot apart; the first has not been answered.
+    expect(asked()).toEqual(['games/a', 'games/b'])
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+  })
+
+  it('puts a refresh at the end of the line, behind a call that was made before its answer was handed over', async () => {
+    const kept: Promise<unknown>[] = []
+    const { fetchUpstream, sent, answer, asked } = heldReads(
+      { ...config, staleFor: ({ key }) => (key === 'games/stale' ? 3_600 : 0) },
+      { keepAlive: (work) => void kept.push(work) },
+    )
+    const waitedFor = fetchUpstream({ key: 'games/missing' })
+    const stale = fetchUpstream({ key: 'games/stale' })
+    await settle()
+
+    // The stale answer is handed over at once; its refresh waits for the call ahead to decide.
+    answer('games/stale', { value: { version: 1 }, expiresAt: 999_000, storedAt: 900_000 })
+    expect(await stale).toEqual({ version: 1 })
+    await settle()
+    expect(asked()).toEqual([])
+
+    // The request somebody is waiting for goes first, and the refresh a slot behind it.
+    answer('games/missing')
+    await settle()
+    expect(asked()).toEqual(['games/missing', 'games/stale'])
+
+    for (const request of sent) request.answer(200, {})
+    await waitedFor
+    await Promise.all(kept)
+  })
+})
+
+describe('the limiter’s spacing behind a slow read of the cache', () => {
+  /**
+   * A transport on a clock only the case moves: a wait at the limiter ends when the clock reaches
+   * it, every cache read is answered by hand, and every request is recorded with the moment it
+   * went out and answered at once.
+   */
+  function onAHandClock() {
+    let clock = 0
+    const waits: { until: number; wake: () => void }[] = []
+    const reads = new Map<
+      string,
+      { resolve: (entry: UpstreamCacheEntry | null) => void; told?: (read: SharedRead) => void }
+    >()
+    const wentOut: [path: string, at: number][] = []
+    const runtime: UpstreamRuntime = {
+      fixtures: false,
+      fetchJson: async (url) => {
+        wentOut.push([url.replace('https://upstream.test/', ''), clock])
+        return { status: 200, body: { ok: true } }
+      },
+      readFixture: async () => null,
+      cache: {
+        get: (key, options) =>
+          new Promise((resolve) => {
+            reads.set(key, { resolve, told: options?.onSharedRead })
+          }),
+        set: async () => {},
+      },
+      now: () => clock,
+      sleep: (ms) =>
+        new Promise((resolve) => {
+          waits.push({ until: clock + ms, wake: resolve })
+        }),
+      log: () => {},
+    }
+    return {
+      fetchUpstream: createUpstreamFetch(config, runtime),
+      wentOut,
+      /** Moves the clock to `time`, ending on the way every wait that falls due, in order. */
+      async at(time: number) {
+        for (;;) {
+          await settle()
+          const due = waits
+            .filter((wait) => wait.until <= time)
+            .sort((a, b) => a.until - b.until)[0]
+          if (!due) break
+          waits.splice(waits.indexOf(due), 1)
+          clock = Math.max(clock, due.until)
+          due.wake()
+        }
+        clock = time
+        await settle()
+      },
+      /** Ends the read of `key`: out of memory, or out of a shared level it took `tookMs` over. */
+      async read(key: string, entry: UpstreamCacheEntry | null = null, tookMs?: number) {
+        await settle()
+        const held = reads.get(key)!
+        if (tookMs !== undefined) held.told?.({ ms: tookMs, hit: entry !== null })
+        held.resolve(entry)
+        await settle()
+      },
+    }
+  }
+
+  it('holds for a call that read memory alone and stood in the line behind a shared read', async () => {
+    const { fetchUpstream, wentOut, at, read } = onAHandClock()
+
+    // A game, whose read goes to the shared level and takes 100 ms to find nothing; and, made
+    // with it, a ten-minute list, which reads memory alone and waits in the line behind it.
+    const calls = [
+      fetchUpstream({ key: 'games/portal-2' }),
+      fetchUpstream({ key: 'games?genres=rpg' }),
+    ]
+    await read('games?genres=rpg')
+    await at(100)
+    await read('games/portal-2', null, 100)
+    await at(350)
+    // A third call, made the moment the list goes out.
+    calls.push(fetchUpstream({ key: 'games?genres=action' }))
+    await read('games?genres=action')
+    await at(600)
+    await Promise.all(calls)
+
+    // A quarter of a second between each two. Timed from the moment it was made, the list would
+    // have slept a hundred milliseconds too long, and the third call gone out 150 ms behind it.
+    expect(wentOut).toEqual([
+      ['games/portal-2', 100],
+      ['games?genres=rpg', 350],
+      ['games?genres=action', 600],
+    ])
+  })
+
+  it('holds behind a shared read that answered its own call from the cache', async () => {
+    const { fetchUpstream, wentOut, at, read } = onAHandClock()
+
+    // A taxonomy the shared level holds, found after 120 ms; and a list made with it.
+    const taxonomy = fetchUpstream({ key: 'genres' })
+    const calls = [fetchUpstream({ key: 'games?page=1' })]
+    await read('games?page=1')
+    await at(120)
+    await read('genres', { value: { genres: [] }, expiresAt: 1_000_000, storedAt: 0 }, 120)
+    expect(await taxonomy).toEqual({ genres: [] })
+    // Another list, 10 ms after the first went out.
+    await at(130)
+    calls.push(fetchUpstream({ key: 'games?page=2' }))
+    await read('games?page=2')
+    await at(370)
+    await Promise.all(calls)
+
+    // The first list's slot is the moment it went out, not the moment it was asked for: so the
+    // second is a full interval behind it, where it would have been 130 ms.
+    expect(wentOut).toEqual([
+      ['games?page=1', 120],
+      ['games?page=2', 370],
+    ])
+  })
+})
+
+describe('which answers may be kept beyond the instance', () => {
+  const DAY = 86_400
+
+  it('are the ones fresh for a day or longer that no visitor typed', () => {
+    expect(SHAREABLE_MIN_TTL_SECONDS).toBe(DAY)
+    // A game's page, a taxonomy, the landing's day-long list, Steam's page about an app.
+    expect(isShareable(DAY, false)).toBe(true)
+    expect(isShareable(7 * DAY, false)).toBe(true)
+    // A catalog list: ten minutes. A second short of a day is short of it.
+    expect(isShareable(600, false)).toBe(false)
+    expect(isShareable(DAY - 1, false)).toBe(false)
+    // A search, however long its answer lives.
+    expect(isShareable(600, true)).toBe(false)
+    expect(isShareable(DAY, true)).toBe(false)
+    expect(isShareable(7 * DAY, true)).toBe(false)
+  })
+
+  /** A ttl the request names, and a request that is typed when its key carries a search. */
+  const ruled: UpstreamConfig<Request> = {
+    ...config,
+    typed: ({ key }) => key.includes('search='),
+  }
+
+  it.each([
+    ['a game’s page, fresh for a day', { key: 'games/portal-2', ttl: DAY }, true],
+    ['a taxonomy, fresh for a week', { key: 'genres', ttl: 7 * DAY }, true],
+    ['a list kept for a day', { key: 'games?ordering=-added', ttl: DAY }, true],
+    ['a ten-minute list', { key: 'games?genres=rpg' }, false],
+    ['a search on a ten-minute list', { key: 'games?search=half life' }, false],
+    ['a search on a list kept for a day', { key: 'games?search=half life', ttl: DAY }, false],
+    ['a search on a taxonomy', { key: 'developers?search=va', ttl: 7 * DAY }, false],
+  ])('says so of %s with its read and with its write', async (_what, request, shareable) => {
+    const { runtime, sent } = makeRuntime()
+    const call = createUpstreamFetch(ruled, runtime)(request)
+    await settle()
+    sent[0]!.answer(200, { ok: true })
+    await call
+
+    expect(runtime.cache.get).toHaveBeenCalledExactlyOnceWith(
+      request.key,
+      expect.objectContaining({ shareable }),
+    )
+    expect(runtime.cache.set).toHaveBeenCalledExactlyOnceWith(
+      request.key,
+      expect.anything(),
+      expect.objectContaining({ shareable }),
+    )
+  })
+
+  it('takes a request for one nobody typed when its upstream has no such requests', async () => {
+    const { runtime, sent } = makeRuntime()
+    const call = createUpstreamFetch(config, runtime)({ key: '292030', ttl: DAY })
+    await settle()
+    sent[0]!.answer(200, { ok: true })
+    await call
+
+    expect(runtime.cache.get).toHaveBeenCalledWith(
+      '292030',
+      expect.objectContaining({ shareable: true }),
+    )
+  })
+})
+
+describe('a caller that asks to be told when its read went to the shared cache', () => {
+  /**
+   * A cache with a second level: what it holds, and what it says of each read that went beyond
+   * memory — nothing, for a key that is in `said` under no name.
+   */
+  function sharedCache(said: Record<string, SharedRead> = {}) {
+    const made = makeRuntime()
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, options) => {
+      const read = said[key]
+      if (read) options?.onSharedRead?.(read)
+      return made.store.get(key) ?? null
+    })
+    return { ...made, fetchUpstream: createUpstreamFetch(config, made.runtime) }
+  }
+
+  const fresh = (value: unknown): UpstreamCacheEntry => ({
+    value,
+    expiresAt: 2_000_000,
+    storedAt: 999_000,
+  })
+  const expired = (value: unknown): UpstreamCacheEntry => ({ value, expiresAt: 0, storedAt: 0 })
+
+  it('is told of the read that found the entry which answered, and that the cache answered', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ 'games/a': { ms: 12, hit: true } })
+    store.set('games/a', fresh({ id: 1 }))
+    const onCached = vi.fn()
+    const onSharedRead = vi.fn()
+
+    // Whoever measures the call knows what it was in the handler its answer arrives in.
+    const told = fetchUpstream({ key: 'games/a' }, onCached, onSharedRead).then((answer) => ({
+      answer,
+      told: onSharedRead.mock.calls.length,
+    }))
+
+    expect(await told).toEqual({ answer: { id: 1 }, told: 1 })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 12, hit: true })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('is told of a read that found nothing the moment it is over, while the upstream has yet to answer', async () => {
+    const { fetchUpstream, sent } = sharedCache({ 'games/a': { ms: 9, hit: false } })
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games/a' }, undefined, onSharedRead)
+    await settle()
+    // The request is on the wire, unanswered: a caller that stops waiting here — a page at its
+    // budget — has been told of the read it paid for.
+    expect(sent).toHaveLength(1)
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 9, hit: false })
+
+    sent[0]!.answer(200, { id: 1 })
+    expect(await call).toEqual({ id: 1 })
+    // And is not told again when the call ends.
+    expect(onSharedRead).toHaveBeenCalledTimes(1)
+  })
+
+  it('is told the read found nothing when what it found was too old, and the upstream answered', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ games: { ms: 20, hit: true } })
+    store.set('games', expired({ page: 'old' }))
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games' }, undefined, onSharedRead)
+    await settle()
+    sent[0]!.answer(200, { page: 'new' })
+
+    expect(await call).toEqual({ page: 'new' })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: false })
+  })
+
+  it('is told the read found nothing when what it found was not a body at all', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ games: { ms: 20, hit: true } })
+    store.set('games', fresh(null))
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games' }, undefined, onSharedRead)
+    await settle()
+    sent[0]!.answer(200, { page: 'new' })
+
+    expect(await call).toEqual({ page: 'new' })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: false })
+  })
+
+  it('is told the read spared nobody when its entry only stood in for an upstream that failed', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ games: { ms: 20, hit: true } })
+    store.set('games', expired({ page: 'old' }))
+    const onCached = vi.fn()
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games', maxAttempts: 1 }, onCached, onSharedRead)
+    await settle()
+    // Told before anyone knows how the upstream will answer: the entry was too old to answer by
+    // itself, and that is all a hit means.
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: false })
+    sent[0]!.answer(500)
+
+    // The upstream was asked, so this was a call, though what answered it was the old entry.
+    expect(await call).toEqual({ page: 'old' })
+    expect(onCached).not.toHaveBeenCalled()
+    expect(onSharedRead).toHaveBeenCalledTimes(1)
+  })
+
+  it('is told of the read when the call fails, by the time the failure arrives', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ 'games/gone': { ms: 7, hit: true } })
+    store.set('games/gone', expired({ id: 1 }))
+    const onSharedRead = vi.fn()
+
+    const outcome = fetchUpstream({ key: 'games/gone' }, undefined, onSharedRead).catch(
+      (error: unknown) => ({ error, told: onSharedRead.mock.calls.length }),
+    )
+    await settle()
+    sent[0]!.answer(404)
+
+    // A 404 is never answered from an old entry, so the entry the read found answered nothing.
+    expect(await outcome).toMatchObject({ error: { kind: 'NOT_FOUND' }, told: 1 })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 7, hit: false })
+  })
+
+  it('is told, as is every caller that shares the call', async () => {
+    const { fetchUpstream, sent, runtime } = sharedCache({ 'games/a': { ms: 15, hit: false } })
+    const told = [vi.fn(), vi.fn(), vi.fn()]
+
+    const calls = told
+      .slice(0, 2)
+      .map((onSharedRead) => fetchUpstream({ key: 'games/a' }, undefined, onSharedRead))
+    await settle()
+    // A caller that joins the request while it is on the wire shares its read as well, and is
+    // told on the spot: the read is long over.
+    calls.push(fetchUpstream({ key: 'games/a' }, undefined, told[2]))
+    expect(told[2]).toHaveBeenCalledTimes(1)
+    sent[0]!.answer(200, { id: 1 })
+    await Promise.all(calls)
+
+    expect(runtime.cache.get).toHaveBeenCalledTimes(1)
+    for (const onSharedRead of told) {
+      expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 15, hit: false })
+    }
+    // One read, told as one object: whoever counts reads can tell it was not three.
+    const [first, second, third] = told.map((onSharedRead) => onSharedRead.mock.calls[0]![0])
+    expect(second).toBe(first)
+    expect(third).toBe(first)
+  })
+
+  it('is told nothing of a read that memory answered, or of a cache that has no second level', async () => {
+    const { fetchUpstream, store, sent } = sharedCache()
+    store.set('games/a', fresh({ id: 1 }))
+    const onSharedRead = vi.fn()
+
+    await fetchUpstream({ key: 'games/a' }, undefined, onSharedRead)
+    const missed = fetchUpstream({ key: 'games/b' }, undefined, onSharedRead)
+    await settle()
+    sent[0]!.answer(200, { id: 2 })
+    await missed
+
+    expect(onSharedRead).not.toHaveBeenCalled()
+  })
+
+  it('gets its answer whatever its own listener does with the news', async () => {
+    const { fetchUpstream, store } = sharedCache({ 'games/a': { ms: 12, hit: true } })
+    store.set('games/a', fresh({ id: 1 }))
+    const broken = vi.fn(() => {
+      throw new Error('the collector failed')
+    })
+    const beside = vi.fn()
+
+    const calls = [
+      fetchUpstream({ key: 'games/a' }, undefined, broken),
+      fetchUpstream({ key: 'games/a' }, beside, beside),
+    ]
+
+    expect(await Promise.all(calls)).toEqual([{ id: 1 }, { id: 1 }])
+    expect(broken).toHaveBeenCalledTimes(1)
+    expect(beside).toHaveBeenCalledTimes(2)
+  })
+
+  it('is told of the read behind a stale answer, whose entry is what answered', async () => {
+    const kept: Promise<unknown>[] = []
+    const made = makeRuntime({ keepAlive: (work) => void kept.push(work) })
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, options) => {
+      options?.onSharedRead?.({ ms: 30, hit: true })
+      return made.store.get(key) ?? null
+    })
+    made.store.set('games/a', { value: { id: 1 }, expiresAt: 999_000, storedAt: 900_000 })
+    const fetchUpstream = createUpstreamFetch({ ...config, staleFor: () => 3_600 }, made.runtime)
+    const onCached = vi.fn()
+    const onSharedRead = vi.fn()
+
+    expect(await fetchUpstream({ key: 'games/a' }, onCached, onSharedRead)).toEqual({ id: 1 })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 30, hit: true })
+
+    await settle()
+    made.sent[0]!.answer(200, { id: 2 })
+    await kept[0]
+  })
+})
+
+describe('a request that follows a slow read of the cache', () => {
+  /**
+   * A cache whose read of `slowKey` goes to its second level, and takes `ms` of the clock doing
+   * it.
+   */
+  function slowCache(slowKey: string, ms: number) {
+    const made = makeRuntime()
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, options) => {
+      if (key === slowKey) {
+        made.advance(ms)
+        options?.onSharedRead?.({ ms, hit: false })
+      }
+      return made.store.get(key) ?? null
+    })
+    return { ...made, fetchUpstream: createUpstreamFetch(config, made.runtime) }
+  }
+
+  it('takes its turn at the limiter from the clock as it stands after the read', async () => {
+    const { fetchUpstream, runtime, sent, advance } = slowCache('games/slow', 140)
+
+    // Sent 140 ms after the call was made: that is the moment the next request is spaced from.
+    const slow = fetchUpstream({ key: 'games/slow' })
+    await settle()
+    expect(sent).toHaveLength(1)
+    expect(runtime.sleep).not.toHaveBeenCalled()
+
+    // 200 ms after the first call was made, and 60 ms after its request went out.
+    advance(60)
+    const next = fetchUpstream({ key: 'games/next' })
+    await settle()
+    // A slot counted from the call instead would let it out after 50 ms: 110 ms behind the first.
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[190]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all([slow, next])
+  })
+
+  it('stores what it fetched under the moment the request went out', async () => {
+    const { fetchUpstream, sent, store } = slowCache('games/slow', 140)
+
+    const call = fetchUpstream({ key: 'games/slow' })
+    await settle()
+    sent[0]!.answer(200, { id: 1 })
+    await call
+
+    expect(store.get('games/slow')).toMatchObject({
+      storedAt: 1_000_140,
+      expiresAt: 1_000_140 + 600_000,
+    })
+  })
+
+  it('keeps the moment the call was made after a read of memory alone, as it always did', async () => {
+    const { fetchUpstream, runtime, sent, store } = slowCache('games/slow', 140)
+
+    // Three calls in one turn of the event loop: each reserves its slot against the same moment.
+    const calls = ['games/a', 'games/b', 'games/c'].map((key) => fetchUpstream({ key }))
+    await settle()
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250], [500]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+    expect(store.get('games/c')).toMatchObject({ storedAt: 1_000_000 })
   })
 })

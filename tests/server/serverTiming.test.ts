@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GraphQLContext } from '../../server/graphql/context'
+import type { GraphQLContext, ResolverCache } from '../../server/graphql/context'
 import { GAME_DETAIL_HEDGE_MS } from '../../server/graphql/resolvers/game'
 import {
   createServerTiming,
@@ -20,11 +21,14 @@ import { createUpstashIndex } from '../../server/index/upstashIndex'
 import { createRawgFetch, type CacheEntry, type RawgFetch } from '../../server/rawg/rawgFetch'
 import { createSteamFetch, type SteamFetch } from '../../server/steam/steamFetch'
 import type { SteamPriceFetch } from '../../server/steam/steamPriceFetch'
+import type { SharedRead } from '../../server/upstream/createUpstreamFetch'
 import { UpstreamError } from '../../server/upstream/errors'
+import { createLayeredCache, createSharedLevel } from '../../server/upstream/layeredCache'
 import { DEV_FIXTURE_GAMES } from '../fixtures/index/devGames'
 import { FIXTURE_GAMES } from '../fixtures/index/games'
 import { FIXTURE_META } from './index/contract'
 import { createFakeRedis } from './index/fakeRedis'
+import { createFakeSharedStore } from './support/sharedStore'
 import {
   fixtureRawg,
   fixtureSteam,
@@ -55,11 +59,12 @@ const SERVER_TIMING = new RegExp(`^${METRIC}(?:[ \\t]*,[ \\t]*${METRIC})*$`)
 
 /**
  * And as this endpoint writes it: its three upstreams at most, each once and in this order, with
- * a whole number of milliseconds and a count, then the total. Nothing else fits — which is what
- * keeps a slug, a search or a URL out of it.
+ * a whole number of milliseconds and a count; the shared cache, with its slowest read and how many
+ * of its reads found what answered; then the total. Nothing else fits — which is what keeps a
+ * slug, a search or a URL out of it.
  */
 const OURS =
-  /^(?:rawg;dur=\d+;desc="RAWG x[1-9]\d*", )?(?:steam;dur=\d+;desc="Steam x[1-9]\d*", )?(?:index;dur=\d+;desc="Index x[1-9]\d*", )?total;dur=\d+$/
+  /^(?:rawg;dur=\d+;desc="RAWG x[1-9]\d*", )?(?:steam;dur=\d+;desc="Steam x[1-9]\d*", )?(?:index;dur=\d+;desc="Index x[1-9]\d*", )?(?:cache;dur=\d+;desc="Cache \d+ of [1-9]\d*", )?total;dur=\d+$/
 
 /** A clock the test moves by hand. */
 function handClock(at = 5_000) {
@@ -269,6 +274,76 @@ describe('the timing of one request', () => {
     expect(timing.header()).toBe('index;dur=0;desc="Index x1", total;dur=0')
   })
 
+  it('names the shared cache after the upstreams: its slowest read, and how many found what answered', async () => {
+    const clock = handClock()
+    const timing = createServerTiming(clock.now)
+    timing.sharedRead({ ms: 8, hit: true })
+    timing.sharedRead({ ms: 31, hit: false })
+    timing.sharedRead({ ms: 12, hit: true })
+    await timing.measure('rawg', async () => clock.advance(640))
+    await timing.measure('index', async () => clock.advance(5))
+    await settle()
+
+    expect(timing.header()).toBe(
+      'rawg;dur=640;desc="RAWG x1", index;dur=5;desc="Index x1", cache;dur=31;desc="Cache 2 of 3", total;dur=645',
+    )
+  })
+
+  it('names the shared cache alone when it answered everything, and when it answered nothing', () => {
+    const clock = handClock()
+    const served = createServerTiming(clock.now)
+    for (const ms of [9, 14, 11]) served.sharedRead({ ms, hit: true })
+    const missed = createServerTiming(clock.now)
+    missed.sharedRead({ ms: 300, hit: false })
+    clock.advance(14)
+
+    // A first open that another instance's work answered: no upstream is named at all.
+    expect(served.header()).toBe('cache;dur=14;desc="Cache 3 of 3", total;dur=14')
+    expect(missed.header()).toBe('cache;dur=300;desc="Cache 0 of 1", total;dur=14')
+  })
+
+  it('names no shared cache for a request that read none: an answer out of memory is no read', async () => {
+    const clock = handClock()
+    const timing = createServerTiming(clock.now)
+    await timing.measure('rawg', (onCached) => {
+      onCached()
+      return Promise.resolve({})
+    })
+    await settle()
+
+    expect(timing.header()).toBe('total;dur=0')
+  })
+
+  it('counts a shared read whenever it is told, and when the teller holds the method alone', () => {
+    const clock = handClock()
+    const timing = createServerTiming(clock.now)
+    const { sharedRead } = timing
+
+    sharedRead({ ms: 12.4, hit: true })
+    expect(timing.header()).toBe('cache;dur=12;desc="Cache 1 of 1", total;dur=0')
+    sharedRead({ ms: 12.6, hit: false })
+    expect(timing.header()).toBe('cache;dur=13;desc="Cache 1 of 2", total;dur=0')
+  })
+
+  it('counts a read once, however many calls of the request were told of it', () => {
+    const timing = createServerTiming(handClock().now)
+    // Two resolvers asked for the same thing and shared one call, and so one read of the cache.
+    const shared = { ms: 14, hit: false }
+    timing.sharedRead(shared)
+    timing.sharedRead(shared)
+    // A read that merely looks the same is another read.
+    timing.sharedRead({ ms: 14, hit: false })
+
+    expect(timing.header()).toBe('cache;dur=14;desc="Cache 0 of 2", total;dur=0')
+  })
+
+  it('has no header when a shared read’s time is not a time, rather than a wrong one', () => {
+    const timing = createServerTiming(handClock().now)
+    timing.sharedRead({ ms: Number.NaN, hit: true })
+
+    expect(timing.header()).toBeNull()
+  })
+
   it('is a valid Server-Timing value with every upstream, with some and with none', async () => {
     const clock = handClock()
     const timing = createServerTiming(clock.now)
@@ -278,8 +353,13 @@ describe('the timing of one request', () => {
       await settle()
       headers.push(timing.header())
     }
+    timing.sharedRead({ ms: 17, hit: false })
+    headers.push(timing.header())
+    const cacheAlone = createServerTiming(clock.now)
+    cacheAlone.sharedRead({ ms: 3, hit: true })
+    headers.push(cacheAlone.header())
 
-    expect(headers).toHaveLength(4)
+    expect(headers).toHaveLength(6)
     for (const header of headers) {
       expect(header).toMatch(SERVER_TIMING)
       expect(header).toMatch(OURS)
@@ -354,6 +434,7 @@ describe('the header on an answer', () => {
 
     const broken: ServerTiming = {
       measure: (_upstream, call) => call(() => {}),
+      sharedRead() {},
       header() {
         throw new Error('no header')
       },
@@ -421,12 +502,20 @@ describe('a context whose upstream calls are timed', () => {
     expect(rawg).toHaveBeenCalledExactlyOnceWith(
       'games',
       { search: 'half life', page: 2 },
-      { ttl: 60, maxAttempts: 1, onCached: expect.any(Function) },
+      {
+        ttl: 60,
+        maxAttempts: 1,
+        onCached: expect.any(Function),
+        onSharedRead: expect.any(Function),
+      },
     )
 
     // A call made with nothing but a path asks to be told as well.
     void timed.rawg('genres')
-    expect(rawg).toHaveBeenLastCalledWith('genres', undefined, { onCached: expect.any(Function) })
+    expect(rawg).toHaveBeenLastCalledWith('genres', undefined, {
+      onCached: expect.any(Function),
+      onSharedRead: expect.any(Function),
+    })
   })
 
   it('passes a Steam call on as it was made', async () => {
@@ -438,6 +527,7 @@ describe('a context whose upstream calls are timed', () => {
     expect(steam).toHaveBeenCalledExactlyOnceWith('292030', {
       ttl: 86_400,
       onCached: expect.any(Function),
+      onSharedRead: expect.any(Function),
     })
   })
 
@@ -810,8 +900,122 @@ describe('a context whose upstream calls are timed', () => {
     expect(timed).not.toBe(context)
     expect(timed.today).toBe(context.today)
     expect(timed.now).toBe(context.now)
-    expect(timed.cache).toBe(context.cache)
     expect(timed.waitUntil).toBe(waitUntil)
+  })
+
+  it('passes a read and a write of the resolvers’ cache on as they were made', async () => {
+    const cache = {
+      get: vi.fn(async () => ({ price: null })),
+      set: vi.fn(async () => {}),
+    }
+    const timing = createServerTiming(handClock().now)
+    const timed = timedContext(contextOf({ cache: cache as ResolverCache }), timing)
+
+    expect(await timed.cache.get('steam-price:620')).toEqual({ price: null })
+    await timed.cache.set('steam-price:620', { price: null }, 3_600)
+
+    expect(cache.get).toHaveBeenCalledExactlyOnceWith('steam-price:620', expect.any(Function))
+    expect(cache.set).toHaveBeenCalledExactlyOnceWith('steam-price:620', { price: null }, 3_600)
+    // A cache that says nothing of a shared level is counted for nothing.
+    expect(timing.header()).toBe('total;dur=0')
+  })
+
+  it('counts what the resolvers’ cache read of the shared cache, for a live price', async () => {
+    const reads: SharedRead[] = [
+      { ms: 9, hit: true },
+      { ms: 21, hit: false },
+    ]
+    const cache: ResolverCache = {
+      get: async (_key, onSharedRead) => {
+        onSharedRead?.(reads.shift()!)
+        return null
+      },
+      set: async () => {},
+    }
+    const timing = createServerTiming(handClock().now)
+    const timed = timedContext(contextOf({ cache }), timing)
+
+    await timed.cache.get('steam-price:620')
+    await timed.cache.get('steam-price:440')
+
+    expect(timing.header()).toBe('cache;dur=21;desc="Cache 1 of 2", total;dur=0')
+  })
+
+  it('counts what a transport read of the shared cache: a miss beside the call, a hit instead of one', async () => {
+    const shared = createFakeSharedStore()
+    const clock = handClock()
+    /** One instance of the function: memory of its own, over the store both of them share. */
+    const instance = () => {
+      const { deps, sent, fetchJson } = network()
+      const level = createSharedLevel(createFakeSharedStore(shared.entries), {
+        now: clock.now,
+        keepAlive: () => {},
+      })
+      const cacheOf = (source: string) =>
+        createLayeredCache<CacheEntry>({
+          memory: deps.cache,
+          shared: level,
+          source,
+          hashKey: (key) => createHash('sha256').update(key).digest('hex'),
+          now: clock.now,
+        })
+      return {
+        sent,
+        fetchJson,
+        rawg: createRawgFetch({ ...deps, cache: cacheOf('RAWG') }),
+        steam: createSteamFetch({ ...deps, cache: cacheOf('STEAM') }),
+      }
+    }
+
+    // The first instance finds nothing in the shared cache, and asks RAWG.
+    const first = instance()
+    const asked = createServerTiming(clock.now)
+    const call = timedContext(contextOf({ rawg: first.rawg }), asked).rawg('games/portal-2')
+    await settle()
+    clock.advance(480)
+    first.sent[0]!.answer(200, { id: 4200 })
+    expect(await call).toEqual({ id: 4200 })
+    expect(asked.header()).toBe(
+      'rawg;dur=480;desc="RAWG x1", cache;dur=0;desc="Cache 0 of 1", total;dur=480',
+    )
+    await settle()
+
+    // A second instance, with nothing in memory, is answered by what the first one left there.
+    const second = instance()
+    const found = createServerTiming(clock.now)
+    expect(
+      await timedContext(contextOf({ rawg: second.rawg }), found).rawg('games/portal-2'),
+    ).toEqual({ id: 4200 })
+    expect(found.header()).toBe('cache;dur=0;desc="Cache 1 of 1", total;dur=0')
+    expect(second.fetchJson).not.toHaveBeenCalled()
+
+    // And from then on by its own memory, which is no read of the shared cache at all.
+    const remembered = createServerTiming(clock.now)
+    await timedContext(contextOf({ rawg: second.rawg }), remembered).rawg('games/portal-2')
+    expect(remembered.header()).toBe('total;dur=0')
+
+    // Two calls of one request for the same thing share one request and one read of the shared
+    // cache: each is a call that waited, and the read is counted once.
+    const third = instance()
+    const twice = createServerTiming(clock.now)
+    const context = timedContext(contextOf({ rawg: third.rawg }), twice)
+    const both = [context.rawg('games/half-life'), context.rawg('games/half-life')]
+    await settle()
+    third.sent[0]!.answer(200, { id: 70 })
+    await Promise.all(both)
+    expect(twice.header()).toBe(
+      'rawg;dur=0;desc="RAWG x2", cache;dur=0;desc="Cache 0 of 1", total;dur=0',
+    )
+
+    // Steam's transport tells its reads the same way.
+    const steamTiming = createServerTiming(clock.now)
+    const steamCall = timedContext(contextOf({ steam: second.steam }), steamTiming).steam('620')
+    await settle()
+    second.sent[0]!.answer(200, { '620': { success: true } })
+    await steamCall
+    expect(steamTiming.header()).toBe(
+      'steam;dur=0;desc="Steam x1", cache;dur=0;desc="Cache 0 of 1", total;dur=0',
+    )
   })
 })
 
@@ -1142,5 +1346,178 @@ describe('the Server-Timing header of a GraphQL answer', () => {
     expect(body.errors).toBeUndefined()
     expect(body.data!.game).toMatchObject({ name: 'The Witcher 3: Wild Hunt', partial: false })
     expect(header).toBeNull()
+  })
+
+  /**
+   * One instance of the function, as the site builds its RAWG transport on Vercel: memory of its
+   * own over the store every instance shares, a shared read that takes `readMs`, and a RAWG that
+   * takes `rawgMs` over each request. `keepAlive` is what gives the transport its stale window.
+   */
+  function instanceOver(
+    entries: Map<string, string>,
+    {
+      readMs = 12 as number | ((key: string) => number),
+      rawgMs = 100 as number | ((path: string) => number),
+      keepAlive = undefined as (() => void) | undefined,
+    } = {},
+  ) {
+    const shared = createFakeSharedStore(entries)
+    const level = createSharedLevel(
+      {
+        get: async (key) => {
+          await elapse(typeof readMs === 'number' ? readMs : readMs(key))
+          return shared.get(key)
+        },
+        set: shared.set,
+      },
+      { now: () => performance.now(), keepAlive: () => {} },
+    )
+    const held = new Map<string, CacheEntry>()
+    const fetched: string[] = []
+    const rawg = createRawgFetch({
+      apiKey: 'test-key',
+      fixtures: false,
+      fetchJson: async (url) => {
+        const path = new URL(url).pathname.replace(/^\/api\//, '')
+        fetched.push(path)
+        await elapse(typeof rawgMs === 'number' ? rawgMs : rawgMs(path))
+        return { status: 200, body: await fixtureRawg(path) }
+      },
+      readFixture: async () => null,
+      cache: createLayeredCache<CacheEntry>({
+        memory: {
+          get: async (key) => held.get(key) ?? null,
+          set: async (key, entry) => void held.set(key, entry),
+        },
+        shared: level,
+        source: 'RAWG',
+        hashKey: (key) => createHash('sha256').update(key).digest('hex'),
+        now: () => performance.now(),
+      }),
+      now: () => performance.now(),
+      sleep: elapse,
+      log: () => {},
+      keepAlive,
+    })
+    return { rawg, fetched, held }
+  }
+
+  it('tells a first open that another instance’s work answered from one that asked RAWG', async () => {
+    const index = await publishTestIndex([DOCUMENT])
+    const entries = new Map<string, string>()
+
+    // The first instance reads the shared cache three times, finds nothing, and asks RAWG: a
+    // read of 12 ms, then three requests a quarter of a second apart, a tenth of one each.
+    const first = instanceOver(entries)
+    const asked = await answerAfter(
+      612,
+      postQuery({ index, rawg: first.rawg }, PAGE, { slug: SLUG }),
+    )
+    expect(asked.body.data!.game.partial).toBe(false)
+    expect(asked.header).toBe(
+      'rawg;dur=612;desc="RAWG x3", index;dur=0;desc="Index x3", cache;dur=12;desc="Cache 0 of 3", total;dur=612',
+    )
+    expect(asked.header).toMatch(SERVER_TIMING)
+    expect(asked.header).toMatch(OURS)
+
+    // A new instance — a cold start, a deployment — has nothing in memory, and RAWG is not asked:
+    // the whole page is three reads of the shared cache, side by side.
+    const second = instanceOver(entries)
+    const found = await answerAfter(
+      12,
+      postQuery({ index, rawg: second.rawg }, PAGE, { slug: SLUG }),
+    )
+    expect(found.body.data!.game).toMatchObject({
+      name: asked.body.data!.game.name,
+      partial: false,
+    })
+    expect(found.header).toBe(
+      'index;dur=0;desc="Index x3", cache;dur=12;desc="Cache 3 of 3", total;dur=12',
+    )
+    expect(second.fetched).toEqual([])
+
+    // And its next answer is its own memory's: neither RAWG nor the shared cache is named.
+    const remembered = await answerAfter(
+      0,
+      postQuery({ index, rawg: second.rawg }, PAGE, { slug: SLUG }),
+    )
+    expect(remembered.header).toBe('index;dur=0;desc="Index x3", total;dur=0')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('names the shared cache on a page that went out at its budget, with RAWG still out', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await publishTestIndex([DOCUMENT])
+    // Three reads of the shared cache that find nothing, then a RAWG that takes seven seconds
+    // over the game itself.
+    const { rawg } = instanceOver(new Map(), {
+      rawgMs: (path) => (path === `games/${SLUG}` ? 7_000 : 100),
+    })
+
+    const { header, body } = await answerAfter(
+      GAME_DETAIL_HEDGE_MS,
+      postQuery({ index, rawg }, PAGE, { slug: SLUG }),
+    )
+
+    // Answered from the index at the budget. The reads were over long before, and are named:
+    // a slow page whose cache found nothing is not a page whose cache was not asked.
+    expect(body.data!.game.partial).toBe(true)
+    expect(header).toBe(
+      'rawg;dur=2500;desc="RAWG x3", index;dur=0;desc="Index x3", cache;dur=12;desc="Cache 0 of 3", total;dur=2500',
+    )
+    await advance(7_000)
+  })
+
+  it('asks RAWG for the game first on a full miss, whatever order the shared reads come back in', async () => {
+    const index = await publishTestIndex([DOCUMENT])
+    const sharedKeyOf = (path: string) =>
+      `v2.RAWG.${createHash('sha256').update(path).digest('hex')}`
+    // The reads come back in reverse: the screenshots' after 10 ms, the game's own after 90.
+    const took = new Map([
+      [sharedKeyOf(`games/${SLUG}`), 90],
+      [sharedKeyOf(`games/${SLUG}/stores`), 50],
+      [sharedKeyOf(`games/${SLUG}/screenshots`), 10],
+    ])
+    const { rawg, fetched } = instanceOver(new Map(), { readMs: (key) => took.get(key)! })
+
+    const { header, body } = await answerAfter(
+      690,
+      postQuery({ index, rawg }, PAGE, { slug: SLUG }),
+    )
+
+    expect(body.data!.game.partial).toBe(false)
+    // The game is what the page cannot be built without: it is the first request out, the
+    // moment its own read is back, and the other two follow a limiter slot apart.
+    expect(fetched).toEqual([`games/${SLUG}`, `games/${SLUG}/stores`, `games/${SLUG}/screenshots`])
+    expect(header).toBe(
+      'rawg;dur=690;desc="RAWG x3", index;dur=0;desc="Index x3", cache;dur=90;desc="Cache 0 of 3", total;dur=690',
+    )
+  })
+
+  it('does not count a page served stale as a call to RAWG, which is asked behind it', async () => {
+    const index = await publishTestIndex([DOCUMENT])
+    const entries = new Map<string, string>()
+    const keepAlive = vi.fn()
+    const { rawg, fetched } = instanceOver(entries, { keepAlive })
+    await answerAfter(612, postQuery({ index, rawg }, PAGE, { slug: SLUG }))
+    expect(fetched).toHaveLength(3)
+
+    // Two days on, what the page is made of is past its day and well inside its week.
+    await advance(2 * 86_400_000)
+    const stale = await answerAfter(12, postQuery({ index, rawg }, PAGE, { slug: SLUG }))
+
+    expect(stale.body.data!.game.partial).toBe(false)
+    // Memory held only expired entries, so the shared cache was read — and had nothing newer.
+    expect(stale.header).toBe(
+      'index;dur=0;desc="Index x3", cache;dur=12;desc="Cache 0 of 3", total;dur=12',
+    )
+    expect(keepAlive).toHaveBeenCalledTimes(3)
+
+    // The three refreshes run behind the answer, through the limiter like any request.
+    await advance(700)
+    expect(fetched).toHaveLength(6)
+    const fresh = await answerAfter(0, postQuery({ index, rawg }, PAGE, { slug: SLUG }))
+    expect(fresh.header).toBe('index;dur=0;desc="Index x3", total;dur=0')
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

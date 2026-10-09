@@ -1,4 +1,10 @@
-import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
+import {
+  createUpstreamFetch,
+  STALE_WHILE_REVALIDATE_SECONDS,
+  type SharedRead,
+  type UpstreamCache,
+  type UpstreamCacheEntry,
+} from '../upstream/createUpstreamFetch'
 import { UpstreamError } from '../upstream/errors'
 import type { RawgList } from './types'
 
@@ -20,14 +26,16 @@ export interface RawgDeps {
   fixtures: boolean
   fetchJson: (url: string, signal: AbortSignal) => Promise<{ status: number; body: unknown }>
   readFixture: (name: string) => Promise<unknown | null>
-  cache: {
-    get: (key: string) => Promise<CacheEntry | null>
-    set: (key: string, entry: CacheEntry) => Promise<void>
-  }
+  cache: UpstreamCache
   now: () => number
   sleep: (ms: number) => Promise<void>
   /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
   log?: (line: string) => void
+  /**
+   * Keeps a refresh running behind a stale answer, and switches the stale window on: without it
+   * every answer past its ttl is asked for again and waited for (`UpstreamRuntime.keepAlive`).
+   */
+  keepAlive?: (work: Promise<unknown>) => void
 }
 
 export interface RawgFetchOptions {
@@ -43,6 +51,11 @@ export interface RawgFetchOptions {
    * makes two calls one request.
    */
   onCached?: () => void
+  /**
+   * Called when this call's read of the cache went beyond the instance's memory, to the cache
+   * every instance shares — see `UpstreamFetch`. About the call, like `onCached`.
+   */
+  onSharedRead?: (read: SharedRead) => void
 }
 
 export type RawgFetch = (
@@ -75,6 +88,39 @@ export function ttlFor(path: string): number {
   if (path === 'games') return 600
   if (path.startsWith('games/')) return 86_400
   return 604_800
+}
+
+/**
+ * The stale window of a path, in seconds since its answer was stored: a week for what the game
+ * page is made of — the game, its store links and its screenshots — and none for anything else.
+ *
+ * Those three are a game's description: they change rarely, none of them carries a price, and a
+ * visitor who is shown yesterday's copy at once is better served than one who waits for RAWG. A
+ * list is the catalog itself and keeps its ten minutes; the taxonomies already live a week; and a
+ * game's other sub-paths (`movies` is the landing's) were never part of the page a visitor waits
+ * for. `ttlFor` still says how long each is fresh.
+ */
+export function staleFor(path: string): number {
+  const [root, slug, sub, ...deeper] = path.split('/')
+  if (root !== 'games' || !slug || deeper.length > 0) return 0
+  const ofThePage = sub === undefined || sub === 'stores' || sub === 'screenshots'
+  return ofThePage ? STALE_WHILE_REVALIDATE_SECONDS : 0
+}
+
+/**
+ * Whether a request carries what a visitor typed: a search term, on a list or on a taxonomy. Its
+ * answer is never kept beyond the instance that fetched it (`isShareable`) — the header's
+ * suggestions and the developer filter ask for one of these for every few letters typed.
+ *
+ * `search` is the only parameter this looks at, and not the only place a visitor's text enters a
+ * request. The catalog's filters (`developers`, `publishers`, `tags`, `genres`, `dates`) come
+ * from the address bar too, and are kept out of the shared cache by their ten-minute lifetime
+ * alone: a list asked with one of them AND a lifetime of a day would be shared, and whoever
+ * writes that call has to decide it here. The slug in a game's path is a visitor's as well, and
+ * is shared on purpose: a game's page is what the shared cache is for.
+ */
+export function isTyped(params?: RawgParams): boolean {
+  return cleanParams(params).some(([name]) => name === 'search')
 }
 
 /**
@@ -113,8 +159,13 @@ export function fixtureName(path: string, params?: RawgParams): string {
 
 /**
  * RAWG's share of the shared upstream transport (see server/upstream/createUpstreamFetch.ts):
- * the base URL and API key, the per-path ttl rule and the 4 rps limiter. Everything else —
- * throttling, timeout, retry, cache, stale-if-error — lives there, once.
+ * the base URL and API key, the per-path ttl and stale-window rules and the 4 rps limiter.
+ * Everything else — throttling, timeout, retry, cache, stale-if-error, the refresh behind a stale
+ * answer — lives there, once.
+ *
+ * A body is kept as it was fetched: there is no projection here. Giving this transport one
+ * changes what the cache every instance shares stores under the same keys, and so means changing
+ * `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`) with it.
  */
 export function createRawgFetch(deps: RawgDeps): RawgFetch {
   const fetchUpstream = createUpstreamFetch<RawgRequest>(
@@ -132,6 +183,8 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
       cacheKey: ({ path, params }) => normalizeKey(path, params),
       fixtureName: ({ path, params }) => fixtureName(path, params),
       ttlFor: ({ path, options }) => options?.ttl ?? ttlFor(path),
+      staleFor: ({ path }) => staleFor(path),
+      typed: ({ params }) => isTyped(params),
       limitsFor: ({ options }) =>
         options && (options.timeoutMs !== undefined || options.maxAttempts !== undefined)
           ? { timeoutMs: options.timeoutMs, maxAttempts: options.maxAttempts }
@@ -140,5 +193,6 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
     deps,
   )
 
-  return (path, params, options) => fetchUpstream({ path, params, options }, options?.onCached)
+  return (path, params, options) =>
+    fetchUpstream({ path, params, options }, options?.onCached, options?.onSharedRead)
 }

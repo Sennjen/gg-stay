@@ -1,19 +1,22 @@
 import type { GameIndex } from '../index/GameIndex'
 import type { SteamPriceFetch } from '../steam/steamPriceFetch'
-import type { GraphQLContext } from './context'
+import type { SharedRead } from '../upstream/createUpstreamFetch'
+import type { GraphQLContext, ResolverCache } from './context'
 
 /**
  * Where the time of one answer went, as a `Server-Timing` header: one entry for each upstream the
- * request called — RAWG, Steam, the index — and one for the whole.
+ * request called — RAWG, Steam, the index — one for the cache every instance shares, when the
+ * request read it, and one for the whole.
  *
  *   rawg;dur=5012;desc="RAWG x3", index;dur=41;desc="Index x2", total;dur=5020
+ *   index;dur=41;desc="Index x2", cache;dur=12;desc="Cache 3 of 3", total;dur=58
  *
  * The browser's network panel shows it under Timing, which is where a slow answer gets looked at.
  * `dur` is the upstream's slowest call in milliseconds, and the description says how many calls
  * there were: an answer waits for its slowest call, not for the sum, because the calls run side by
  * side.
  *
- * Three rules decide what a number means:
+ * Four rules decide what a number means:
  *
  * - **It is what the request waited.** A call is timed from the moment a resolver made it to the
  *   moment it settled, so the limiter's queue and the transport's retry are in it — they are time
@@ -28,6 +31,16 @@ import type { GraphQLContext } from './context'
  *   sent its store nothing (`timedIndex`). Everything else is a call: an answer the upstream
  *   gave, a failure, a request another caller had already sent — and, in fixture mode, a
  *   recorded fixture and the seeded index, which are that mode's upstreams.
+ * - **The shared cache is named for its reads, not for its answers.** `cache` is there only when
+ *   the request read the cache the instances share (`server/upstream/layeredCache.ts`): `dur` is
+ *   the slowest of those reads, and the description says how many of them found what then
+ *   answered — `Cache 2 of 3`. An answer out of this instance's own memory is no read, and neither
+ *   is one the shared cache was not asked for because it is being left alone. This is what tells a
+ *   first open that another instance's work answered (`Cache 3 of 3`, and no `rawg` at all) from
+ *   one that asked RAWG (`Cache 0 of 3`, and `RAWG x3`). The reads are the transports' and the
+ *   price cache's own measurements, told the moment each read is over — before the upstream is
+ *   asked — so a page that went out at its budget, with RAWG still out, names the cache it read
+ *   all the same. A read that two calls of one request shared is one read, and is counted once.
  *
  * The header is made of fixed names and numbers and of nothing that came with the request: no URL,
  * no key, no query, no slug. And it is an extra: nothing here can fail a call or an answer — when
@@ -43,6 +56,9 @@ export type TimedUpstream = (typeof UPSTREAMS)[number]
 
 /** How the network panel labels each of them, before the number of calls. */
 const LABELS: Record<TimedUpstream, string> = { rawg: 'RAWG', steam: 'Steam', index: 'Index' }
+
+/** The header's name for the cache every instance shares, after the upstreams it stands in for. */
+const SHARED_CACHE = 'cache'
 
 interface TimedCall {
   upstream: TimedUpstream
@@ -63,6 +79,13 @@ export interface ServerTiming {
    * moment. A `call` that throws before returning one has asked nobody, and is not counted.
    */
   measure<T>(upstream: TimedUpstream, call: (onCached: () => void) => Promise<T>): Promise<T>
+  /**
+   * Counts one read of the shared cache this request made: how long it took, and whether what it
+   * found answered. Told by whoever made the read — a transport (`onSharedRead`), the price cache —
+   * and safe to call at any moment, and to hand over unbound. A read is known by the object it is
+   * told as: told twice — by two calls that shared it — it is still one read.
+   */
+  sharedRead(read: SharedRead): void
   /**
    * The header's value as things stand at this moment, or `null` when there is nothing true to
    * say — which is only when the clock could not be read.
@@ -86,6 +109,7 @@ export function createServerTiming(now: () => number = () => performance.now()):
 
   const startedAt = read()
   const calls: TimedCall[] = []
+  const sharedReads = new Set<SharedRead>()
 
   return {
     measure(upstream, call) {
@@ -103,6 +127,10 @@ export function createServerTiming(now: () => number = () => performance.now()):
       return answer
     },
 
+    sharedRead(read) {
+      sharedReads.add(read)
+    },
+
     header() {
       const at = read()
       const metrics: string[] = []
@@ -116,6 +144,15 @@ export function createServerTiming(now: () => number = () => performance.now()):
         if (!Number.isFinite(slowest)) return null
         metrics.push(
           `${upstream};dur=${Math.round(slowest)};desc="${LABELS[upstream]} x${asked.length}"`,
+        )
+      }
+      if (sharedReads.size > 0) {
+        const reads = [...sharedReads]
+        const slowest = reads.reduce((longest, { ms }) => Math.max(longest, ms), 0)
+        if (!Number.isFinite(slowest)) return null
+        const hits = reads.filter(({ hit }) => hit === true).length
+        metrics.push(
+          `${SHARED_CACHE};dur=${Math.round(slowest)};desc="Cache ${hits} of ${reads.length}"`,
         )
       }
       const total = Math.max(0, at - startedAt)
@@ -149,20 +186,42 @@ export function writeServerTiming(headers: Pick<Headers, 'set'>, timing: ServerT
  * state — which is kept per context object — is one.
  *
  * - `rawg` and `steam` are the cached transports, and are told apart from their caches through
- *   `onCached`.
+ *   `onCached`; what their caches read of the shared level reaches the timing through
+ *   `onSharedRead`.
  * - `steamPrices` is the game page's live price read — see `timedSteamPrices`.
  * - `index` is the six reads of the index port — see `timedIndex`.
+ * - `cache` is the resolvers' own cache, whose live prices are kept in the shared level too — see
+ *   `timedCache`.
  */
 export function timedContext(context: GraphQLContext, timing: ServerTiming): GraphQLContext {
-  const { rawg, steam, steamPrices, index } = context
+  const { rawg, steam, steamPrices, index, cache } = context
+  const onSharedRead = (read: SharedRead) => timing.sharedRead(read)
   return {
     ...context,
     rawg: (path, params, options) =>
-      timing.measure('rawg', (onCached) => rawg(path, params, { ...options, onCached })),
+      timing.measure('rawg', (onCached) =>
+        rawg(path, params, { ...options, onCached, onSharedRead }),
+      ),
     steam: (appId, options) =>
-      timing.measure('steam', (onCached) => steam(appId, { ...options, onCached })),
+      timing.measure('steam', (onCached) => steam(appId, { ...options, onCached, onSharedRead })),
     steamPrices: timedSteamPrices(steamPrices, timing),
     index: timedIndex(index, timing),
+    cache: timedCache(cache, timing),
+  }
+}
+
+/**
+ * The resolvers' cache, with what it reads of the shared level counted.
+ *
+ * Nothing else about it is timed. A read it answers from memory waited for nobody, and what a
+ * resolver does on a miss — the live Steam price read — is a call of its own, counted where it is
+ * made (`timedSteamPrices`). A read and a write are passed on exactly as they were made.
+ */
+function timedCache(cache: ResolverCache, timing: ServerTiming): ResolverCache {
+  const onSharedRead = (read: SharedRead) => timing.sharedRead(read)
+  return {
+    get: <T>(key: string) => cache.get<T>(key, onSharedRead),
+    set: (key, value, ttlSeconds) => cache.set(key, value, ttlSeconds),
   }
 }
 

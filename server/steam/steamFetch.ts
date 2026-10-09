@@ -1,4 +1,9 @@
-import { createUpstreamFetch, type UpstreamCacheEntry } from '../upstream/createUpstreamFetch'
+import {
+  createUpstreamFetch,
+  type SharedRead,
+  type UpstreamCache,
+  type UpstreamCacheEntry,
+} from '../upstream/createUpstreamFetch'
 import { projectAppDetails } from './appDetailsProjection'
 
 const BASE_URL = 'https://store.steampowered.com/api/appdetails'
@@ -15,10 +20,7 @@ export interface SteamDeps {
   fixtures: boolean
   fetchJson: (url: string, signal: AbortSignal) => Promise<{ status: number; body: unknown }>
   readFixture: (name: string) => Promise<unknown | null>
-  cache: {
-    get: (key: string) => Promise<SteamCacheEntry | null>
-    set: (key: string, entry: SteamCacheEntry) => Promise<void>
-  }
+  cache: UpstreamCache
   now: () => number
   sleep: (ms: number) => Promise<void>
   /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
@@ -29,6 +31,11 @@ export interface SteamFetchOptions {
   ttl?: number
   /** Called when this call was answered from the cache and Steam was not asked — see `UpstreamFetch`. */
   onCached?: () => void
+  /**
+   * Called when this call's read of the cache went beyond the instance's memory, to the cache
+   * every instance shares — see `UpstreamFetch`.
+   */
+  onSharedRead?: (read: SharedRead) => void
 }
 
 export type SteamFetch = (appId: string, options?: SteamFetchOptions) => Promise<unknown>
@@ -58,6 +65,13 @@ function buildUrl(appId: string): string {
  * the store URL, the flat 24h ttl, the slower 1.5s limiter, and the projection that keeps only the
  * handful of fields this app reads — the full payload runs to tens of KB per game, and caching it
  * whole would waste most of the cache's entry budget.
+ *
+ * No answer here has a stale window (`UpstreamConfig.staleFor`), though RAWG's pages about the
+ * same game do. The payload that carries the Ukrainian description also carries the trailer's
+ * address, which Steam signs for a time it does not document: a copy served a week after it was
+ * stored might hold a trailer that no longer plays. So past its day an app's page is asked for
+ * again and waited for, as it always was, and the stored copy is only the fallback for a refresh
+ * that fails.
  */
 export function createSteamFetch(deps: SteamDeps): SteamFetch {
   const fetchUpstream = createUpstreamFetch<SteamRequest>(
@@ -71,10 +85,13 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
       cacheKey: ({ appId }) => appId,
       fixtureName: ({ appId }) => fixtureName(appId),
       ttlFor: ({ options }) => options?.ttl ?? DEFAULT_TTL,
+      // Decides what is stored, in memory and in the cache every instance shares: another
+      // projection here means another `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`).
       project: projectAppDetails,
     },
     deps,
   )
 
-  return (appId, options) => fetchUpstream({ appId, options }, options?.onCached)
+  return (appId, options) =>
+    fetchUpstream({ appId, options }, options?.onCached, options?.onSharedRead)
 }

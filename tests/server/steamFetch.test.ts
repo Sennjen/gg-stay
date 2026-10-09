@@ -217,3 +217,99 @@ describe('createSteamFetch', () => {
     expect(store.get('292030')?.value).toEqual(expected)
   })
 })
+
+describe('Steam’s page about an app, past its day', () => {
+  const DAY_MS = 86_400_000
+
+  /** Steam answering with one description first and another ever after. */
+  function versions() {
+    const page = (text: string) => ({
+      status: 200,
+      body: { '292030': { success: true, data: { short_description: text } } },
+    })
+    return vi.fn().mockResolvedValueOnce(page('first')).mockResolvedValue(page('second'))
+  }
+
+  const descriptionOf = (response: unknown) =>
+    (response as Record<string, { data: { short_description: string } }>)['292030']!.data
+      .short_description
+
+  it('is asked for again and waited for, even where a refresh could be kept running behind an answer', async () => {
+    // RAWG's pages about a game are served stale for a week in such a runtime. Steam's never are:
+    // the same payload carries the trailer's signed address, and an old one may no longer play.
+    const keepAlive = vi.fn()
+    const { deps, advance, store } = makeDeps({ fetchJson: versions() })
+    const steam = createSteamFetch({ ...deps, keepAlive } as SteamDeps)
+    await steam('292030')
+    expect(store.get('292030')).toMatchObject({ storedAt: 1_000_000 })
+
+    advance(DAY_MS - 1)
+    expect(descriptionOf(await steam('292030'))).toBe('first')
+    expect(deps.fetchJson).toHaveBeenCalledTimes(1)
+
+    advance(1)
+    expect(descriptionOf(await steam('292030'))).toBe('second')
+    expect(deps.fetchJson).toHaveBeenCalledTimes(2)
+    expect(keepAlive).not.toHaveBeenCalled()
+  })
+
+  it('is the same under the ttl the site’s resolvers name for it', async () => {
+    const keepAlive = vi.fn()
+    const { deps, advance } = makeDeps({ fetchJson: versions() })
+    const steam = createSteamFetch({ ...deps, keepAlive } as SteamDeps)
+    await steam('292030', { ttl: 86_400 })
+
+    advance(DAY_MS)
+    expect(descriptionOf(await steam('292030', { ttl: 86_400 }))).toBe('second')
+    expect(keepAlive).not.toHaveBeenCalled()
+  })
+
+  it('still stands in for a refresh that fails, as it always has', async () => {
+    const fetchJson = versions()
+    const keepAlive = vi.fn()
+    const { deps, advance } = makeDeps({ fetchJson })
+    const steam = createSteamFetch({ ...deps, keepAlive } as SteamDeps)
+    await steam('292030')
+
+    advance(3 * DAY_MS)
+    fetchJson.mockResolvedValue({ status: 500, body: null })
+    // The caller waited for Steam to fail twice first: this is the fallback, not a stale answer.
+    expect(descriptionOf(await steam('292030'))).toBe('first')
+    expect(fetchJson).toHaveBeenCalledTimes(3)
+    expect(keepAlive).not.toHaveBeenCalled()
+  })
+})
+
+describe('whether Steam’s page about an app may be kept beyond the instance', () => {
+  it.each([
+    ['may, fresh for its day', undefined, true],
+    ['may, under the day the site’s resolvers name', { ttl: 86_400 }, true],
+    ['may not, asked for with a ttl of its own under a day', { ttl: 60 }, false],
+  ])('%s', async (_what, options, shareable) => {
+    const { deps, store } = makeDeps()
+    const get = vi.fn(async (key: string) => store.get(key) ?? null)
+    const set = vi.fn(async (key: string, entry: SteamCacheEntry) => void store.set(key, entry))
+    deps.cache = { get, set }
+
+    await createSteamFetch(deps)('292030', options)
+
+    expect(get.mock.calls[0]![1]).toMatchObject({ shareable })
+    expect(set.mock.calls[0]![2]).toMatchObject({ shareable })
+  })
+})
+
+describe('a Steam call that asks what its read of the cache came to', () => {
+  it('is told when the read went to the cache every instance shares, and what it found', async () => {
+    const { deps, store } = makeDeps()
+    store.set('292030', { value: { '292030': {} }, expiresAt: 2_000_000, storedAt: 900_000 })
+    deps.cache.get = async (key, options) => {
+      options?.onSharedRead?.({ ms: 8, hit: true })
+      return store.get(key) ?? null
+    }
+    const onSharedRead = vi.fn()
+
+    await createSteamFetch(deps)('292030', { onSharedRead })
+
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 8, hit: true })
+  })
+})
