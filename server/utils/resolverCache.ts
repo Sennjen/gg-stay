@@ -70,7 +70,14 @@ export function createResolverCache(stores: {
       const live = entry !== null && entry.expiresAt > now()
       // A read of the shared level is passed on as the read it was; it found something only when
       // what it found may still be served.
-      if (told.read) onSharedRead?.({ ms: told.read.ms, hit: told.read.hit && live })
+      if (told.read && onSharedRead) {
+        try {
+          onSharedRead({ ms: told.read.ms, hit: told.read.hit && live })
+        } catch {
+          // Whoever listens is measuring the read, and is no part of it: the price is handed
+          // over whatever becomes of the measurement.
+        }
+      }
       return live ? (entry.value as T) : null
     },
     set: async (key, value, ttlSeconds) => {

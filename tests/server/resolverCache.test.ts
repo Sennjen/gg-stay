@@ -162,6 +162,21 @@ describe('a live price', () => {
     expect(told.mock.calls.slice(1)).toEqual([[{ ms: 0, hit: false }], [{ ms: 0, hit: false }]])
   })
 
+  it('is handed over whatever the listener that measures its read does with the news', async () => {
+    const store = createFakeSharedStore()
+    await instance(store).set(PRICE_KEY, PRICE, HOUR)
+    await settle()
+    const broken = vi.fn(() => {
+      throw new Error('the collector failed')
+    })
+
+    // A new instance reads the shared store, and tells a listener that throws.
+    const price = await instance(createFakeSharedStore(store.entries)).get(PRICE_KEY, broken)
+
+    expect(price).toEqual(PRICE)
+    expect(broken).toHaveBeenCalledTimes(1)
+  })
+
   it('stays in memory alone where there is no shared level, exactly as it was', async () => {
     const cache = instance(null)
     const told = vi.fn()
