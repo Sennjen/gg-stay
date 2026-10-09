@@ -111,6 +111,13 @@ export function staleFor(path: string): number {
  * Whether a request carries what a visitor typed: a search term, on a list or on a taxonomy. Its
  * answer is never kept beyond the instance that fetched it (`isShareable`) — the header's
  * suggestions and the developer filter ask for one of these for every few letters typed.
+ *
+ * `search` is the only parameter this looks at, and not the only place a visitor's text enters a
+ * request. The catalog's filters (`developers`, `publishers`, `tags`, `genres`, `dates`) come
+ * from the address bar too, and are kept out of the shared cache by their ten-minute lifetime
+ * alone: a list asked with one of them AND a lifetime of a day would be shared, and whoever
+ * writes that call has to decide it here. The slug in a game's path is a visitor's as well, and
+ * is shared on purpose: a game's page is what the shared cache is for.
  */
 export function isTyped(params?: RawgParams): boolean {
   return cleanParams(params).some(([name]) => name === 'search')
