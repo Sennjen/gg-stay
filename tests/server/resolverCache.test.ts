@@ -19,7 +19,7 @@ const PRICE_KEY = 'steam-price:620'
 const PAGE_KEY = 'index-page:{"genres":["rpg"]}:v87'
 
 const sha256 = (key: string) => createHash('sha256').update(key).digest('hex')
-const sharedKeyOf = (key: string) => `v1.STEAM_PRICE.${sha256(key)}`
+const sharedKeyOf = (key: string) => `v2.STEAM_PRICE.${sha256(key)}`
 
 interface Cached {
   expiresAt: number

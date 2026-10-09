@@ -44,7 +44,7 @@ type Platform = ReturnType<typeof platform>
 /** Nitro's in-memory storage driver, one per mount, as far as the caches use it. */
 function storages() {
   const mounts = new Map<string, Map<string, unknown>>()
-  return (base: string) => {
+  const mount = (base: string) => {
     const items = mounts.get(base) ?? new Map<string, unknown>()
     mounts.set(base, items)
     return {
@@ -53,7 +53,25 @@ function storages() {
       removeItem: async (key: string) => void items.delete(key),
     }
   }
+  /** Everything this instance holds in memory, in every mount, as text. */
+  const held = () => JSON.stringify([...mounts].map(([base, items]) => [base, [...items]]))
+  return { mount, held }
 }
+
+/** The address `asked` with another page number: what RAWG puts in `next` and `previous`. */
+function pageOf(asked: string, page: number): string {
+  const link = new URL(asked)
+  link.searchParams.set('page', String(page))
+  return link.toString()
+}
+
+/** A RAWG list as RAWG answers one: with links that repeat the request, API key included. */
+const listWithLinks = (asked: string) => ({
+  count: 100,
+  next: pageOf(asked, 3),
+  previous: pageOf(asked, 1),
+  results: [{ id: 1 }],
+})
 
 /** Steam's page about app 620, as far as the transport keeps it, saying `text`. */
 const steamPage = (text: string) => ({
@@ -68,7 +86,7 @@ const steamPage = (text: string) => ({
 async function instance(options: {
   vercel: Platform | null
   fixtures?: boolean
-  upstream?: () => unknown
+  upstream?: (asked: string) => unknown
 }) {
   vi.resetModules()
   vi.unstubAllGlobals()
@@ -87,14 +105,16 @@ async function instance(options: {
   const storage = storages()
   // The fixture mounts answer every name, as a recording would.
   vi.stubGlobal('useStorage', (base: string) =>
-    base.startsWith('assets:') ? { getItem: async () => ({ recorded: true }) } : storage(base),
+    base.startsWith('assets:')
+      ? { getItem: async () => ({ recorded: true }) }
+      : storage.mount(base),
   )
   const fetched: string[] = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
       fetched.push(url)
-      const answer = options.upstream?.() ?? { ok: true }
+      const answer = options.upstream?.(url) ?? { ok: true }
       const body = url.includes('steampowered') ? steamPage(JSON.stringify(answer)) : answer
       return new Response(JSON.stringify(body))
     }),
@@ -103,7 +123,14 @@ async function instance(options: {
   const { useRawg } = await import('../../server/utils/rawg')
   const { useSteam } = await import('../../server/utils/steam')
   const { useResolverCache } = await import('../../server/utils/resolverCache')
-  return { rawg: useRawg(), steam: useSteam(), cache: useResolverCache(), fetched }
+  return {
+    rawg: useRawg(),
+    steam: useSteam(),
+    cache: useResolverCache(),
+    fetched,
+    /** Everything the instance's own memory holds, as text. */
+    held: storage.held,
+  }
 }
 
 /** Lets the writes and the refreshes nobody waited for run to their end. */
@@ -141,7 +168,7 @@ describe('the caches of a function on Vercel', () => {
     expect(await first.rawg('games/portal-2')).toEqual({ id: 4200 })
     await settle(vercel.kept)
 
-    const key = `gg-stay$v1.RAWG.${sha256('games/portal-2')}`
+    const key = `gg-stay$v2.RAWG.${sha256('games/portal-2')}`
     expect(vercel.cache.get).toHaveBeenCalledExactlyOnceWith(key)
     expect(vercel.cache.set).toHaveBeenCalledTimes(1)
     const [writtenKey, entry, written] = vercel.cache.set.mock.calls[0]!
@@ -160,21 +187,70 @@ describe('the caches of a function on Vercel', () => {
 
   it('share nothing that holds the API key or anything of the request', async () => {
     const vercel = platform()
-    const { rawg, fetched } = await instance({ vercel, upstream: () => ({ results: [] }) })
+    const SECRET = 'a-very-secret-rawg-key'
+    // RAWG answers a list with links built from the address it was asked at: key and all.
+    const { rawg, fetched, held } = await instance({ vercel, upstream: listWithLinks })
 
-    // A list the landing keeps for a day.
-    await rawg('games', { ordering: '-added', page_size: 40 }, { ttl: 86_400 })
+    // A list the landing keeps for a day: the kind of list that is shared.
+    const answer = await rawg('games', { ordering: '-added', page: 2 }, { ttl: 86_400 })
     await settle(vercel.kept)
 
-    expect(fetched[0]).toContain('key=a-very-secret-rawg-key')
-    const [key, , options] = vercel.cache.set.mock.calls[0]!
-    expect(key).toBe(`gg-stay$v1.RAWG.${sha256('games?ordering=-added&page_size=40')}`)
-    const sent = JSON.stringify([vercel.cache.get.mock.calls, vercel.cache.set.mock.calls, options])
-    for (const hidden of ['a-very-secret-rawg-key', 'key=', 'ordering', 'added', 'api.rawg.io']) {
+    expect(fetched[0]).toBe(`https://api.rawg.io/api/games?ordering=-added&page=2&key=${SECRET}`)
+    const [key, value, options] = vercel.cache.set.mock.calls[0]!
+    expect(key).toBe(`gg-stay$v2.RAWG.${sha256('games?ordering=-added&page=2')}`)
+    // What reached the shared cache: the list, with links that say only that there are pages.
+    expect(value).toMatchObject({
+      value: {
+        count: 100,
+        next: 'https://api.rawg.io/api/games',
+        previous: 'https://api.rawg.io/api/games',
+        results: [{ id: 1 }],
+      },
+    })
+    const sent = JSON.stringify([vercel.cache.get.mock.calls, vercel.cache.set.mock.calls])
+    for (const hidden of [SECRET, 'key=', 'ordering', 'added', 'page=', '?']) {
       expect(sent).not.toContain(hidden)
+      // Nor does this instance's own memory hold any of it…
+      expect(held()).not.toContain(hidden)
     }
+    // …nor what the caller was handed, which still says the list goes on.
+    expect(answer).toEqual({
+      count: 100,
+      next: 'https://api.rawg.io/api/games',
+      previous: 'https://api.rawg.io/api/games',
+      results: [{ id: 1 }],
+    })
     // Fresh for a day, and kept for one more.
     expect(options).toMatchObject({ ttl: 2 * 86_400 })
+
+    // A second instance is handed the same list out of the shared cache.
+    const second = await instance({ vercel, upstream: listWithLinks })
+    expect(await second.rawg('games', { ordering: '-added', page: 2 }, { ttl: 86_400 })).toEqual(
+      answer,
+    )
+    expect(second.fetched).toEqual([])
+  })
+
+  it('keep a search in memory without the key or the links that repeat what was typed', async () => {
+    const vercel = platform()
+    const { rawg, fetched, held } = await instance({ vercel, upstream: listWithLinks })
+
+    const answer = (await rawg('games', { search: 'half life', page: 2 })) as { next: unknown }
+    await settle(vercel.kept)
+
+    // RAWG was asked with both, and its links repeated both.
+    expect(fetched[0]).toContain('key=a-very-secret-rawg-key')
+    expect(fetched[0]).toContain('search=half+life')
+    expect(answer.next).toBe('https://api.rawg.io/api/games')
+    // Memory holds the list — under a hash, with nothing of the request beside it…
+    expect(held()).toContain('"count":100')
+    for (const hidden of ['a-very-secret-rawg-key', 'key=', 'half', 'search', '?']) {
+      expect(held()).not.toContain(hidden)
+      expect(JSON.stringify(answer)).not.toContain(hidden)
+    }
+    // …and the shared cache was never asked about a thing a visitor typed.
+    expect(vercel.cache.get).not.toHaveBeenCalled()
+    expect(vercel.cache.set).not.toHaveBeenCalled()
   })
 
   it('share every kind of answer that lives a day or longer and that no visitor typed', async () => {
@@ -204,15 +280,15 @@ describe('the caches of a function on Vercel', () => {
 
     const DAY = 86_400
     expect(vercel.cache.set.mock.calls.map(([key, , options]) => [key, options?.ttl])).toEqual([
-      [`gg-stay$v1.RAWG.${sha256('games/portal-2')}`, 8 * DAY],
-      [`gg-stay$v1.RAWG.${sha256('games/portal-2/stores')}`, 8 * DAY],
-      [`gg-stay$v1.RAWG.${sha256('games/portal-2/screenshots')}`, 8 * DAY],
-      [`gg-stay$v1.RAWG.${sha256('games/3328/movies')}`, 2 * DAY],
-      [`gg-stay$v1.RAWG.${sha256('genres')}`, 8 * DAY],
-      [`gg-stay$v1.RAWG.${sha256('platforms')}`, 8 * DAY],
-      [`gg-stay$v1.RAWG.${sha256('games?ordering=-added&page_size=40')}`, 2 * DAY],
-      [`gg-stay$v1.STEAM.${sha256('620')}`, 2 * DAY],
-      [`gg-stay$v1.STEAM_PRICE.${sha256('steam-price:620')}`, 3_600 + DAY],
+      [`gg-stay$v2.RAWG.${sha256('games/portal-2')}`, 8 * DAY],
+      [`gg-stay$v2.RAWG.${sha256('games/portal-2/stores')}`, 8 * DAY],
+      [`gg-stay$v2.RAWG.${sha256('games/portal-2/screenshots')}`, 8 * DAY],
+      [`gg-stay$v2.RAWG.${sha256('games/3328/movies')}`, 2 * DAY],
+      [`gg-stay$v2.RAWG.${sha256('genres')}`, 8 * DAY],
+      [`gg-stay$v2.RAWG.${sha256('platforms')}`, 8 * DAY],
+      [`gg-stay$v2.RAWG.${sha256('games?ordering=-added&page_size=40')}`, 2 * DAY],
+      [`gg-stay$v2.STEAM.${sha256('620')}`, 2 * DAY],
+      [`gg-stay$v2.STEAM_PRICE.${sha256('steam-price:620')}`, 3_600 + DAY],
     ])
     // Each was looked for there first, the price aside: it was only written here.
     expect(vercel.cache.get).toHaveBeenCalledTimes(8)
@@ -254,8 +330,8 @@ describe('the caches of a function on Vercel', () => {
 
     expect(vercel.cache.set.mock.calls.map(([key, , options]) => [key, options?.ttl])).toEqual([
       // A day fresh and never served stale: kept for that day and one more.
-      [`gg-stay$v1.STEAM.${sha256('620')}`, 2 * 86_400],
-      [`gg-stay$v1.STEAM_PRICE.${sha256('steam-price:620')}`, 3_600 + 86_400],
+      [`gg-stay$v2.STEAM.${sha256('620')}`, 2 * 86_400],
+      [`gg-stay$v2.STEAM_PRICE.${sha256('steam-price:620')}`, 3_600 + 86_400],
     ])
 
     const second = await instance({ vercel })
@@ -409,6 +485,17 @@ describe('the caches anywhere else', () => {
     expect(await rawg('games/portal-2')).toEqual({ version: 3 })
     expect(await steam('620')).toEqual(steamPage('{"version":4}'))
     expect(fetched).toHaveLength(4)
+  })
+
+  it('keep no link with the key in it off Vercel either: the cut is the site’s, wherever it runs', async () => {
+    const { rawg, held } = await instance({ vercel: null, upstream: listWithLinks })
+
+    const answer = (await rawg('games', { search: 'half life' })) as { next: unknown }
+
+    expect(answer.next).toBe('https://api.rawg.io/api/games')
+    expect(held()).toContain('"count":100')
+    expect(held()).not.toContain('a-very-secret-rawg-key')
+    expect(held()).not.toContain('half')
   })
 
   it('answer from memory exactly as before: the entry is fresh for its ttl and expired after it', async () => {

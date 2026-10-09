@@ -51,7 +51,7 @@ export const SHARED_CACHE_PAUSE_MS = 30_000
  * that comes to mean another request. The entries of the old version are then simply never read
  * again, and age out of the store by themselves.
  */
-export const SHARED_CACHE_SCHEMA = 'v1'
+export const SHARED_CACHE_SCHEMA = 'v2'
 
 /**
  * The largest entry, serialised, that is written to the shared level: 1.5 MB, under the store's

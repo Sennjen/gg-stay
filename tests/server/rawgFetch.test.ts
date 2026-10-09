@@ -473,6 +473,21 @@ describe('the stale window of a RAWG answer', () => {
   })
 })
 
+describe('a list’s links to its neighbouring pages', () => {
+  it('are handed on as RAWG sent them by the transport itself: cutting them is the site’s own step', async () => {
+    // The refresh job walks RAWG's pages through this transport, wired its own way, and reads
+    // `next` as it came. Nothing here may change what it is given.
+    const next = 'https://api.rawg.io/api/games?key=test-key&page=2'
+    const body = { count: 80, next, previous: null, results: [{ id: 1 }] }
+    const { deps, store } = makeDeps({ fetchJson: vi.fn(async () => ({ status: 200, body })) })
+
+    const answer = await createRawgFetch(deps)('games', { page: 1 })
+
+    expect(answer).toBe(body)
+    expect(store.get('games?page=1')?.value).toBe(body)
+  })
+})
+
 describe('which RAWG answers may be kept beyond the instance', () => {
   it.each<[string, string, RawgParams | undefined, RawgFetchOptions | undefined, boolean]>([
     ['a game', 'games/portal-2', undefined, undefined, true],

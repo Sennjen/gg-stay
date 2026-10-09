@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { withoutLinkQueries } from '../../server/rawg/paginationLinks'
 import { createRawgFetch, type CacheEntry } from '../../server/rawg/rawgFetch'
 import { createSteamFetch } from '../../server/steam/steamFetch'
 import { createLayeredCache, createSharedLevel } from '../../server/upstream/layeredCache'
@@ -75,11 +76,19 @@ describe('what a transport over the shared level lets out of the function', () =
         now: () => NOW,
       })
     }
-    // A body with nothing of the request in it: whatever else gets stored came from this side.
-    const fetchJson = vi.fn(async (url: string) => ({
-      status: 200,
-      body: url.includes('steampowered') ? { '620': { success: true } } : { id: 4200 },
-    }))
+    // RAWG as it answers: a list comes with links to its neighbouring pages, each the address
+    // the request was sent to with another page number — the API key, and any search, included.
+    // The site cuts them before its transport sees the body (`server/utils/rawg.ts`), and so
+    // does this.
+    const fetchJson = vi.fn(async (url: string) => {
+      const asked = new URL(url)
+      if (asked.host !== 'api.rawg.io') return { status: 200, body: { '620': { success: true } } }
+      const isList = /\/api\/(games|genres|platforms|developers)$/.test(asked.pathname)
+      const body = isList
+        ? { count: 100, next: pageOf(asked, 3), previous: pageOf(asked, 1), results: [{ id: 1 }] }
+        : { id: 4200 }
+      return { status: 200, body: withoutLinkQueries(body) }
+    })
     const deps = {
       fixtures: false,
       fetchJson,
@@ -97,6 +106,21 @@ describe('what a transport over the shared level lets out of the function', () =
     }
   }
 
+  /** The address `asked` with another page number: what RAWG puts in `next` and `previous`. */
+  function pageOf(asked: URL, page: number): string {
+    const link = new URL(asked)
+    link.searchParams.set('page', String(page))
+    return link.toString()
+  }
+
+  /** A list as the site keeps one: that there are neighbouring pages, and nothing of the request. */
+  const KEPT_LIST = {
+    count: 100,
+    next: 'https://api.rawg.io/api/games',
+    previous: 'https://api.rawg.io/api/games',
+    results: [{ id: 1 }],
+  }
+
   /** Lets the write nobody waited for land. */
   const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 
@@ -111,11 +135,37 @@ describe('what a transport over the shared level lets out of the function', () =
     expect(fetchJson.mock.calls[0]![0]).toContain(`key=${API_KEY}`)
     expect(store.writes).toHaveLength(1)
     const { key } = store.writes[0]!
-    expect(key).toBe(`v1.RAWG.${sha256('games?ordering=-added&page_size=40')}`)
+    expect(key).toBe(`v2.RAWG.${sha256('games?ordering=-added&page_size=40')}`)
     for (const hidden of [API_KEY, 'key=', 'ordering', 'added', 'page_size', 'http', '?']) {
       expect(key).not.toContain(hidden)
     }
     expect([...store.reads, ...store.entries.keys()]).toEqual([key, key])
+  })
+
+  it('stores a list without the links RAWG sent with it, which carry the key, and hands the caller the same', async () => {
+    const { rawg, store, fetchJson } = instance()
+
+    const answer = await rawg('games', { ordering: '-added', page: 2 }, { ttl: DAY })
+    await settle()
+
+    // What RAWG was asked, and so what its links repeated.
+    expect(fetchJson.mock.calls[0]![0]).toBe(
+      `https://api.rawg.io/api/games?ordering=-added&page=2&key=${API_KEY}`,
+    )
+    // What reached the store…
+    expect(store.writes).toHaveLength(1)
+    expect(store.writes[0]!.value).toEqual({
+      value: KEPT_LIST,
+      expiresAt: NOW + DAY * 1000,
+      storedAt: NOW,
+    })
+    const stored = JSON.stringify([...store.entries])
+    for (const hidden of [API_KEY, 'key=', 'ordering', 'page=', '?']) {
+      expect(stored).not.toContain(hidden)
+    }
+    // …and what the caller got: a page that still says it has a next one.
+    expect(answer).toEqual(KEPT_LIST)
+    expect(JSON.stringify(answer)).not.toContain(API_KEY)
   })
 
   it.each([
@@ -157,6 +207,18 @@ describe('what a transport over the shared level lets out of the function', () =
     }
   })
 
+  it('keeps a taxonomy, too, without the links to its other pages', async () => {
+    const { rawg, store } = instance()
+
+    const answer = await rawg('platforms')
+    await settle()
+
+    const kept = { ...KEPT_LIST, next: 'https://api.rawg.io/api/platforms' }
+    expect(answer).toEqual({ ...kept, previous: 'https://api.rawg.io/api/platforms' })
+    expect(JSON.stringify([...store.entries])).not.toContain(API_KEY)
+    expect(JSON.stringify([...store.entries])).not.toContain('key=')
+  })
+
   it('lets a second instance answer from what the first one fetched, and asks the upstream nothing', async () => {
     const first = instance()
     const second = instance({ store: createFakeSharedStore(first.store.entries) })
@@ -170,8 +232,8 @@ describe('what a transport over the shared level lets out of the function', () =
     expect(await second.steam('620')).toEqual({ '620': { success: true } })
     expect(second.fetchJson).not.toHaveBeenCalled()
     expect(second.store.reads).toEqual([
-      `v1.RAWG.${sha256('games/portal-2')}`,
-      `v1.STEAM.${sha256('620')}`,
+      `v2.RAWG.${sha256('games/portal-2')}`,
+      `v2.STEAM.${sha256('620')}`,
     ])
   })
 

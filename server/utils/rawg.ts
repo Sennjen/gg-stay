@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { withoutLinkQueries } from '../rawg/paginationLinks'
 import { createRawgFetch, type CacheEntry, type RawgFetch } from '../rawg/rawgFetch'
 import { createLayeredCache } from '../upstream/layeredCache'
 import { createBoundedCache, MAX_CACHE_ENTRIES } from './boundedCache'
@@ -34,7 +35,10 @@ export function useRawg(): RawgFetch {
     fetchJson: async (url, signal) => {
       const response = await fetch(url, { signal })
       const body: unknown = await response.json().catch(() => null)
-      return { status: response.status, body }
+      // RAWG's links to the neighbouring pages repeat the request's address, API key included.
+      // They are cut here, before the transport has the body, so that nothing the site keeps —
+      // in memory or in the shared cache — holds the key or a visitor's search.
+      return { status: response.status, body: withoutLinkQueries(body) }
     },
     readFixture: async (name) => (await fixtures.getItem(`${name}.json`)) ?? null,
     cache: createLayeredCache({ memory, shared, source: 'RAWG', hashKey, now }),

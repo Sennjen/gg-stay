@@ -34,7 +34,7 @@ function onVercelWith(cache: unknown): void {
   ;(globalThis as WithRequestContext)[REQUEST_CONTEXT] = { get: () => ({ cache }) }
 }
 
-const KEY = `v1.RAWG.${createHash('sha256').update('games/portal-2').digest('hex')}`
+const KEY = `v2.RAWG.${createHash('sha256').update('games/portal-2').digest('hex')}`
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, REQUEST_CONTEXT)
@@ -77,7 +77,7 @@ describe('the Runtime Cache store', () => {
     cache.held.set(`gg-stay$${KEY}`, { value: { id: 4200 }, expiresAt: 2, storedAt: 1 })
 
     expect(await store.get(KEY)).toEqual({ value: { id: 4200 }, expiresAt: 2, storedAt: 1 })
-    expect(await store.get('v1.RAWG.unknown')).toBeNull()
+    expect(await store.get('v2.RAWG.unknown')).toBeNull()
   })
 
   it('uses the cache of the request that is running, each time it is asked', async () => {

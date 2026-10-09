@@ -466,14 +466,14 @@ describe('the key an entry is shared under', () => {
     await cache.set(key, entryOf({ results: [] }))
     await settle()
 
-    const expected = `v1.RAWG.${sha256(key)}`
+    const expected = `v2.RAWG.${sha256(key)}`
     expect(store.reads).toEqual([expected])
     expect(store.writes.map((write) => write.key)).toEqual([expected])
     // Nothing of what the visitor typed is in it.
     for (const typed of ['half', 'life', 'search', 'page', '?', '=', ' ']) {
       expect(expected).not.toContain(typed)
     }
-    expect(expected).toMatch(/^v1\.RAWG\.[0-9a-f]{64}$/)
+    expect(expected).toMatch(/^v2\.RAWG\.[0-9a-f]{64}$/)
   })
 
   it('keeps two sources apart, though they were given the same key', async () => {
@@ -486,8 +486,8 @@ describe('the key an entry is shared under', () => {
     await settle()
 
     expect(await steam.get('292030')).toBeNull()
-    expect(store.reads).toEqual([`v1.STEAM.${sha256('292030')}`])
-    expect([...store.entries.keys()]).toEqual([`v1.RAWG.${sha256('292030')}`])
+    expect(store.reads).toEqual([`v2.STEAM.${sha256('292030')}`])
+    expect([...store.entries.keys()]).toEqual([`v2.RAWG.${sha256('292030')}`])
   })
 })
 
