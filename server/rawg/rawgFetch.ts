@@ -155,6 +155,10 @@ export function fixtureName(path: string, params?: RawgParams): string {
  * the base URL and API key, the per-path ttl and stale-window rules and the 4 rps limiter.
  * Everything else — throttling, timeout, retry, cache, stale-if-error, the refresh behind a stale
  * answer — lives there, once.
+ *
+ * A body is kept as it was fetched: there is no projection here. Giving this transport one
+ * changes what the cache every instance shares stores under the same keys, and so means changing
+ * `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`) with it.
  */
 export function createRawgFetch(deps: RawgDeps): RawgFetch {
   const fetchUpstream = createUpstreamFetch<RawgRequest>(

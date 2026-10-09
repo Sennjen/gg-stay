@@ -85,6 +85,8 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
       cacheKey: ({ appId }) => appId,
       fixtureName: ({ appId }) => fixtureName(appId),
       ttlFor: ({ options }) => options?.ttl ?? DEFAULT_TTL,
+      // Decides what is stored, in memory and in the cache every instance shares: another
+      // projection here means another `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`).
       project: projectAppDetails,
     },
     deps,

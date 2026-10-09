@@ -51,6 +51,11 @@ export const STALE_WHILE_REVALIDATE_SECONDS = 7 * 86_400
  */
 export const REFRESH_BACKLOG_LIMIT_MS = 2_000
 
+/**
+ * An answer as a cache keeps it. A cache may keep it where a later build reads it back
+ * (`server/upstream/layeredCache.ts`), so a change to this shape means changing
+ * `SHARED_CACHE_SCHEMA` there in the same change.
+ */
 export interface UpstreamCacheEntry {
   value: unknown
   expiresAt: number

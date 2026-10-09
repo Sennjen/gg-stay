@@ -146,6 +146,10 @@ interface LivePrice {
  * answered, and has no price for this app", kept for one. Only an answer is ever written — a read
  * that failed leaves nothing, so the next reader asks Steam again, and an answer that could not
  * be read is a read that failed.
+ *
+ * This is what the cache every instance shares stores for a price, and it is read back by builds
+ * that did not write it: a change to this shape, or to `SteamPrice`, means changing
+ * `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`) in the same change.
  */
 interface RememberedPrice {
   price: SteamPrice | null

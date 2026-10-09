@@ -27,6 +27,10 @@ import { useSharedLevel } from './sharedCache'
  * milliseconds away.
  */
 
+/**
+ * What is kept around a resolver's value — in the shared cache too, for a live price. Changing
+ * it means changing `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`).
+ */
 interface CachedValue {
   expiresAt: number
   /** When it was written: how the shared level tells the newer of two prices. */

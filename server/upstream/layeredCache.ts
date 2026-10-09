@@ -60,6 +60,20 @@ export const SHARED_CACHE_WRITE_DEADLINE_MS = 5_000
  * other fields, a field the code starts to rely on, a different envelope around the value, a key
  * that comes to mean another request. The entries of the old version are then simply never read
  * again, and age out of the store by themselves.
+ *
+ * The shapes are decided elsewhere, and each of those places points here: the entry's envelope
+ * (`UpstreamCacheEntry`, and `CachedValue` in `server/utils/resolverCache.ts`), Steam's projection
+ * (`server/steam/appDetailsProjection.ts`), a RAWG list without its pagination links
+ * (`server/rawg/paginationLinks.ts`), and a remembered price (`RememberedPrice` in
+ * `server/graphql/resolvers/game.ts`). `tests/server/sharedCacheSchema.test.ts` pins all of them
+ * together with this value, so that one cannot change without the other being looked at.
+ *
+ * It is also the one way to make a shorter lifetime take effect at once. An entry carries the
+ * `expiresAt` its writer gave it, and the store the ttl it was written with: a build that shortens
+ * a ttl goes on reading the old build's entries as fresh until they run out by the old one.
+ *
+ * v2: a RAWG list is stored without the query of its `next` and `previous` links, which carried
+ * the API key.
  */
 export const SHARED_CACHE_SCHEMA = 'v2'
 
