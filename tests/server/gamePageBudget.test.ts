@@ -1195,6 +1195,102 @@ describe('the store links and the screenshots', () => {
     },
   )
 
+  /** RAWG's answer to a request it will not take just now: a 429, which the transport does not retry. */
+  const REFUSED = { after: 200, fail: new UpstreamError('RAWG', 'RATE_LIMITED', 429) }
+
+  it.each([
+    [
+      'the store links',
+      { stores: REFUSED },
+      { stores: [] },
+      '[game] RAWG store links refused (RATE_LIMITED), answered without them',
+    ],
+    [
+      'the screenshots',
+      { screenshots: REFUSED },
+      { screenshots: [] },
+      '[game] RAWG screenshots refused (RATE_LIMITED), answered without them',
+    ],
+    [
+      'both',
+      { stores: REFUSED, screenshots: REFUSED },
+      { stores: [], screenshots: [] },
+      '[game] RAWG store links and screenshots refused (RATE_LIMITED), answered without them',
+    ],
+  ])(
+    'leave the page partial when RAWG refuses %s for rate: out at once without them, and said in one line',
+    async (_name, replies, missing, line) => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const index = await indexHolding(DOCUMENT)
+      const waitUntil = vi.fn()
+
+      // A refusal is not waited out: the page goes out the moment it is in, as for any failure.
+      const { data, errors } = await pageAt(200, {
+        index,
+        rawg: rawgAnswering(replies),
+        waitUntil,
+      })
+
+      expect(errors).toBeUndefined()
+      // Unlike any other failure, it is something the same query will have in a few seconds: the
+      // page says so, and the browser asks again by itself.
+      expect(data!.game).toEqual({ ...WHOLE_PAGE, ...missing, partial: true })
+      expect(info).toHaveBeenCalledExactlyOnceWith(line)
+      // Nothing is still out, so nothing is handed over: the request was answered, with a no.
+      expect(waitUntil).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
+
+  it('name a refusal beside what was late, in the one line', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await indexHolding(DOCUMENT)
+    const rawg = rawgAnswering({ stores: REFUSED, screenshots: 5_000 })
+
+    const { data } = await pageAt(GAME_EXTRAS_BUDGET_MS, { index, rawg })
+
+    expect(data!.game).toEqual({ ...WHOLE_PAGE, stores: [], screenshots: [], partial: true })
+    expect(info).toHaveBeenCalledExactlyOnceWith(
+      '[game] RAWG store links refused (RATE_LIMITED) and RAWG screenshots slower than 1500 ms, answered without them',
+    )
+  })
+
+  it('leave the page of a game outside the index partial as well when one of them is refused', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await indexHolding(...FIXTURE_GAMES)
+    const rawg = rawgAnswering({ stores: REFUSED })
+
+    const { data, errors } = await pageAt(200, { index, rawg })
+
+    expect(errors).toBeUndefined()
+    expect(data!.game).toMatchObject({ name: WHOLE_PAGE.name, stores: [], partial: true })
+    expect(data!.game.screenshots).toHaveLength(3)
+  })
+
+  it.each([
+    ['a timeout', new UpstreamError('RAWG', 'TIMEOUT')],
+    ['a 5xx', new UpstreamError('RAWG', 'ERROR', 503)],
+    ['a request that never got an answer', new UpstreamError('RAWG', 'ERROR')],
+    ['“no such game”', new UpstreamError('RAWG', 'NOT_FOUND', 404)],
+    ['an error that is not the transport’s', new Error('socket hang up')],
+  ])(
+    'keep the page complete without them after %s: only a refusal for rate is asked about again',
+    async (_name, failure) => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const index = await indexHolding(DOCUMENT)
+      const failed = { after: 200, fail: failure }
+
+      const { data, errors } = await pageAt(200, {
+        index,
+        rawg: rawgAnswering({ stores: failed, screenshots: failed }),
+      })
+
+      expect(errors).toBeUndefined()
+      expect(data!.game).toEqual({ ...WHOLE_PAGE, stores: [], screenshots: [] })
+      expect(info).not.toHaveBeenCalled()
+    },
+  )
+
   it('never let a failure after the budget surface, with or without a waitUntil', async () => {
     await expectNoUnhandledRejection(async () => {
       const index = await indexHolding(DOCUMENT)
@@ -1887,6 +1983,63 @@ describe('the page asked for again, a few seconds after a partial answer', () =>
     const third = await runQuery({ index, rawg }, PAGE, WITCHER)
     expect(third.data!.game).toEqual(WHOLE_PAGE)
     expect(fetched).toHaveLength(3)
+  })
+})
+
+describe('the page asked for again, a few seconds after RAWG refused it something', () => {
+  it('asks RAWG for the store links it was refused, and for nothing else', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const index = await indexHolding(DOCUMENT)
+    // The real transport, with the burst the site gives it, over a RAWG that refuses the first
+    // request for the store links and answers every other. Its clock is moved by hand, with the
+    // page's.
+    const fetched: string[] = []
+    const store = new Map<string, CacheEntry>()
+    let clock = 0
+    let refusals = 1
+    const rawg = createRawgFetch({
+      apiKey: 'test-key',
+      fixtures: false,
+      fetchJson: async (url) => {
+        const path = new URL(url).pathname.replace(/^\/api\//, '')
+        fetched.push(path)
+        await elapse(PROMPT_MS)
+        if (path.endsWith('/stores') && refusals-- > 0) return { status: 429, body: null }
+        return { status: 200, body: await fixtureRawg(path) }
+      },
+      readFixture: async () => null,
+      cache: {
+        get: async (key) => store.get(key) ?? null,
+        set: async (key, entry) => void store.set(key, entry),
+      },
+      now: () => clock,
+      sleep: elapse,
+      burst: 3,
+      log: () => {},
+    })
+
+    // The three leave together, and one of them is refused: the page goes out without it.
+    const first = await pageAt(PROMPT_MS, { index, rawg })
+    expect(first.data!.game).toEqual({ ...WHOLE_PAGE, stores: [], partial: true })
+    expect(info).toHaveBeenCalledExactlyOnceWith(
+      '[game] RAWG store links refused (RATE_LIMITED), answered without them',
+    )
+
+    // Three seconds later the page asks again, as it does for a partial answer. The game and its
+    // screenshots are in the cache; a refusal never is, so the store links are asked for again.
+    await advance(3_000)
+    clock += 3_000
+    const second = await pageAt(PROMPT_MS, { index, rawg })
+
+    expect(second.errors).toBeUndefined()
+    expect(second.data!.game).toEqual(WHOLE_PAGE)
+    expect(fetched).toEqual([
+      `games/${SLUG}`,
+      `games/${SLUG}/stores`,
+      `games/${SLUG}/screenshots`,
+      `games/${SLUG}/stores`,
+    ])
+    expect(info).toHaveBeenCalledTimes(1)
   })
 })
 
