@@ -1,6 +1,7 @@
 import {
   createUpstreamFetch,
   STALE_WHILE_REVALIDATE_SECONDS,
+  type SharedRead,
   type UpstreamCache,
   type UpstreamCacheEntry,
 } from '../upstream/createUpstreamFetch'
@@ -36,6 +37,11 @@ export interface SteamFetchOptions {
   ttl?: number
   /** Called when this call was answered from the cache and Steam was not asked — see `UpstreamFetch`. */
   onCached?: () => void
+  /**
+   * Called when this call's read of the cache went beyond the instance's memory, to the cache
+   * every instance shares — see `UpstreamFetch`.
+   */
+  onSharedRead?: (read: SharedRead) => void
 }
 
 export type SteamFetch = (appId: string, options?: SteamFetchOptions) => Promise<unknown>
@@ -92,5 +98,6 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
     deps,
   )
 
-  return (appId, options) => fetchUpstream({ appId, options }, options?.onCached)
+  return (appId, options) =>
+    fetchUpstream({ appId, options }, options?.onCached, options?.onSharedRead)
 }

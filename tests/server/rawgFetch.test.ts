@@ -458,3 +458,19 @@ describe('the stale window of a RAWG answer', () => {
     expect(deps.fetchJson).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('a RAWG call that asks what its read of the cache came to', () => {
+  it('is told when the read went to the cache every instance shares, and what it found', async () => {
+    const { deps, store } = makeDeps()
+    store.set('games/portal-2', { value: { id: 4200 }, expiresAt: 2_000_000, storedAt: 900_000 })
+    deps.cache.get = async (key, onSharedRead) => {
+      onSharedRead?.({ ms: 11, hit: true })
+      return store.get(key) ?? null
+    }
+    const onSharedRead = vi.fn()
+
+    await createRawgFetch(deps)('games/portal-2', undefined, { onSharedRead })
+
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 11, hit: true })
+  })
+})

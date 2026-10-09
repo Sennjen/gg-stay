@@ -3,6 +3,7 @@ import {
   createUpstreamFetch,
   SLOW_ATTEMPT_MS,
   STALE_WHILE_REVALIDATE_SECONDS,
+  type SharedRead,
   type UpstreamCacheEntry,
   type UpstreamConfig,
   type UpstreamRuntime,
@@ -11,9 +12,10 @@ import { UpstreamError } from '../../server/upstream/errors'
 
 /**
  * The shared transport on its own, for what neither RAWG's nor Steam's share of it decides: which
- * calls are one request, what it writes down about an attempt that failed or was slow, and how an
- * answer is served inside its stale window. `rawgFetch.test.ts` and `steamFetch.test.ts` cover the
- * rest through the two transports built on it.
+ * calls are one request, what it writes down about an attempt that failed or was slow, how an
+ * answer is served inside its stale window, and what it passes on of a cache that has a second
+ * level. `rawgFetch.test.ts` and `steamFetch.test.ts` cover the rest through the two transports
+ * built on it.
  *
  * The network here answers when a test says so. A request stays on the wire until its entry in
  * `sent` is answered or failed, which is what lets a test make a second call while the first is
@@ -1017,5 +1019,254 @@ describe('an answer with a stale window', () => {
     sent[1]!.answer(200, { version: 1 })
     expect(await call).toEqual({ version: 1 })
     expect(kept).toEqual([])
+  })
+})
+
+describe('a caller that asks to be told when its read went to the shared cache', () => {
+  /**
+   * A cache with a second level: what it holds, and what it says of each read that went beyond
+   * memory — nothing, for a key that is in `said` under no name.
+   */
+  function sharedCache(said: Record<string, SharedRead> = {}) {
+    const made = makeRuntime()
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, onSharedRead) => {
+      const read = said[key]
+      if (read) onSharedRead?.(read)
+      return made.store.get(key) ?? null
+    })
+    return { ...made, fetchUpstream: createUpstreamFetch(config, made.runtime) }
+  }
+
+  const fresh = (value: unknown): UpstreamCacheEntry => ({
+    value,
+    expiresAt: 2_000_000,
+    storedAt: 999_000,
+  })
+  const expired = (value: unknown): UpstreamCacheEntry => ({ value, expiresAt: 0, storedAt: 0 })
+
+  it('is told of the read that found the entry which answered, and that the cache answered', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ 'games/a': { ms: 12, hit: true } })
+    store.set('games/a', fresh({ id: 1 }))
+    const onCached = vi.fn()
+    const onSharedRead = vi.fn()
+
+    // Whoever measures the call knows what it was in the handler its answer arrives in.
+    const told = fetchUpstream({ key: 'games/a' }, onCached, onSharedRead).then((answer) => ({
+      answer,
+      told: onSharedRead.mock.calls.length,
+    }))
+
+    expect(await told).toEqual({ answer: { id: 1 }, told: 1 })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 12, hit: true })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('is told of a read that found nothing, when the upstream then answered', async () => {
+    const { fetchUpstream, sent } = sharedCache({ 'games/a': { ms: 9, hit: false } })
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games/a' }, undefined, onSharedRead)
+    await settle()
+    expect(onSharedRead).not.toHaveBeenCalled()
+    sent[0]!.answer(200, { id: 1 })
+
+    expect(await call).toEqual({ id: 1 })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 9, hit: false })
+  })
+
+  it('is told the read found nothing when what it found was too old, and the upstream answered', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ games: { ms: 20, hit: true } })
+    store.set('games', expired({ page: 'old' }))
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games' }, undefined, onSharedRead)
+    await settle()
+    sent[0]!.answer(200, { page: 'new' })
+
+    expect(await call).toEqual({ page: 'new' })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: false })
+  })
+
+  it('is told the read found nothing when what it found was not a body at all', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ games: { ms: 20, hit: true } })
+    store.set('games', fresh(null))
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games' }, undefined, onSharedRead)
+    await settle()
+    sent[0]!.answer(200, { page: 'new' })
+
+    expect(await call).toEqual({ page: 'new' })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: false })
+  })
+
+  it('is told the read’s entry answered when it stood in for an upstream that failed', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ games: { ms: 20, hit: true } })
+    store.set('games', expired({ page: 'old' }))
+    const onCached = vi.fn()
+    const onSharedRead = vi.fn()
+
+    const call = fetchUpstream({ key: 'games', maxAttempts: 1 }, onCached, onSharedRead)
+    await settle()
+    sent[0]!.answer(500)
+
+    // The upstream was asked, so this was a call; and what answered it came from the shared cache.
+    expect(await call).toEqual({ page: 'old' })
+    expect(onCached).not.toHaveBeenCalled()
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 20, hit: true })
+  })
+
+  it('is told of the read when the call fails, by the time the failure arrives', async () => {
+    const { fetchUpstream, store, sent } = sharedCache({ 'games/gone': { ms: 7, hit: true } })
+    store.set('games/gone', expired({ id: 1 }))
+    const onSharedRead = vi.fn()
+
+    const outcome = fetchUpstream({ key: 'games/gone' }, undefined, onSharedRead).catch(
+      (error: unknown) => ({ error, told: onSharedRead.mock.calls.length }),
+    )
+    await settle()
+    sent[0]!.answer(404)
+
+    // A 404 is never answered from an old entry, so the entry the read found answered nothing.
+    expect(await outcome).toMatchObject({ error: { kind: 'NOT_FOUND' }, told: 1 })
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 7, hit: false })
+  })
+
+  it('is told, as is every caller that shares the call', async () => {
+    const { fetchUpstream, sent, runtime } = sharedCache({ 'games/a': { ms: 15, hit: false } })
+    const told = [vi.fn(), vi.fn(), vi.fn()]
+
+    const calls = told
+      .slice(0, 2)
+      .map((onSharedRead) => fetchUpstream({ key: 'games/a' }, undefined, onSharedRead))
+    await settle()
+    // A caller that joins the request while it is on the wire shares its read as well.
+    calls.push(fetchUpstream({ key: 'games/a' }, undefined, told[2]))
+    sent[0]!.answer(200, { id: 1 })
+    await Promise.all(calls)
+
+    expect(runtime.cache.get).toHaveBeenCalledTimes(1)
+    for (const onSharedRead of told) {
+      expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 15, hit: false })
+    }
+  })
+
+  it('is told nothing of a read that memory answered, or of a cache that has no second level', async () => {
+    const { fetchUpstream, store, sent } = sharedCache()
+    store.set('games/a', fresh({ id: 1 }))
+    const onSharedRead = vi.fn()
+
+    await fetchUpstream({ key: 'games/a' }, undefined, onSharedRead)
+    const missed = fetchUpstream({ key: 'games/b' }, undefined, onSharedRead)
+    await settle()
+    sent[0]!.answer(200, { id: 2 })
+    await missed
+
+    expect(onSharedRead).not.toHaveBeenCalled()
+  })
+
+  it('gets its answer whatever its own listener does with the news', async () => {
+    const { fetchUpstream, store } = sharedCache({ 'games/a': { ms: 12, hit: true } })
+    store.set('games/a', fresh({ id: 1 }))
+    const broken = vi.fn(() => {
+      throw new Error('the collector failed')
+    })
+    const beside = vi.fn()
+
+    const calls = [
+      fetchUpstream({ key: 'games/a' }, undefined, broken),
+      fetchUpstream({ key: 'games/a' }, beside, beside),
+    ]
+
+    expect(await Promise.all(calls)).toEqual([{ id: 1 }, { id: 1 }])
+    expect(broken).toHaveBeenCalledTimes(1)
+    expect(beside).toHaveBeenCalledTimes(2)
+  })
+
+  it('is told of the read behind a stale answer, whose entry is what answered', async () => {
+    const kept: Promise<unknown>[] = []
+    const made = makeRuntime({ keepAlive: (work) => void kept.push(work) })
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, onSharedRead) => {
+      onSharedRead?.({ ms: 30, hit: true })
+      return made.store.get(key) ?? null
+    })
+    made.store.set('games/a', { value: { id: 1 }, expiresAt: 999_000, storedAt: 900_000 })
+    const fetchUpstream = createUpstreamFetch({ ...config, staleFor: () => 3_600 }, made.runtime)
+    const onCached = vi.fn()
+    const onSharedRead = vi.fn()
+
+    expect(await fetchUpstream({ key: 'games/a' }, onCached, onSharedRead)).toEqual({ id: 1 })
+    expect(onCached).toHaveBeenCalledTimes(1)
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 30, hit: true })
+
+    await settle()
+    made.sent[0]!.answer(200, { id: 2 })
+    await kept[0]
+  })
+})
+
+describe('a request that follows a slow read of the cache', () => {
+  /**
+   * A cache whose read of `slowKey` goes to its second level, and takes `ms` of the clock doing
+   * it.
+   */
+  function slowCache(slowKey: string, ms: number) {
+    const made = makeRuntime()
+    vi.mocked(made.runtime.cache.get).mockImplementation(async (key, onSharedRead) => {
+      if (key === slowKey) {
+        made.advance(ms)
+        onSharedRead?.({ ms, hit: false })
+      }
+      return made.store.get(key) ?? null
+    })
+    return { ...made, fetchUpstream: createUpstreamFetch(config, made.runtime) }
+  }
+
+  it('takes its turn at the limiter from the clock as it stands after the read', async () => {
+    const { fetchUpstream, runtime, sent, advance } = slowCache('games/slow', 140)
+
+    // Sent 140 ms after the call was made: that is the moment the next request is spaced from.
+    const slow = fetchUpstream({ key: 'games/slow' })
+    await settle()
+    expect(sent).toHaveLength(1)
+    expect(runtime.sleep).not.toHaveBeenCalled()
+
+    // 200 ms after the first call was made, and 60 ms after its request went out.
+    advance(60)
+    const next = fetchUpstream({ key: 'games/next' })
+    await settle()
+    // A slot counted from the call instead would let it out after 50 ms: 110 ms behind the first.
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[190]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all([slow, next])
+  })
+
+  it('stores what it fetched under the moment the request went out', async () => {
+    const { fetchUpstream, sent, store } = slowCache('games/slow', 140)
+
+    const call = fetchUpstream({ key: 'games/slow' })
+    await settle()
+    sent[0]!.answer(200, { id: 1 })
+    await call
+
+    expect(store.get('games/slow')).toMatchObject({
+      storedAt: 1_000_140,
+      expiresAt: 1_000_140 + 600_000,
+    })
+  })
+
+  it('keeps the moment the call was made after a read of memory alone, as it always did', async () => {
+    const { fetchUpstream, runtime, sent, store } = slowCache('games/slow', 140)
+
+    // Three calls in one turn of the event loop: each reserves its slot against the same moment.
+    const calls = ['games/a', 'games/b', 'games/c'].map((key) => fetchUpstream({ key }))
+    await settle()
+    expect(vi.mocked(runtime.sleep).mock.calls).toEqual([[250], [500]])
+
+    for (const request of sent) request.answer(200, {})
+    await Promise.all(calls)
+    expect(store.get('games/c')).toMatchObject({ storedAt: 1_000_000 })
   })
 })

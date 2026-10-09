@@ -284,3 +284,19 @@ describe('the stale window of Steam’s page about an app', () => {
     expect(deps.fetchJson).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('a Steam call that asks what its read of the cache came to', () => {
+  it('is told when the read went to the cache every instance shares, and what it found', async () => {
+    const { deps, store } = makeDeps()
+    store.set('292030', { value: { '292030': {} }, expiresAt: 2_000_000, storedAt: 900_000 })
+    deps.cache.get = async (key, onSharedRead) => {
+      onSharedRead?.({ ms: 8, hit: true })
+      return store.get(key) ?? null
+    }
+    const onSharedRead = vi.fn()
+
+    await createSteamFetch(deps)('292030', { onSharedRead })
+
+    expect(onSharedRead).toHaveBeenCalledExactlyOnceWith({ ms: 8, hit: true })
+  })
+})

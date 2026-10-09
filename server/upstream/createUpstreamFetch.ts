@@ -38,7 +38,8 @@ export interface UpstreamCacheEntry {
   expiresAt: number
   /**
    * When the upstream was asked for this body, on the clock `expiresAt` is counted on. The stale
-   * window is measured from it.
+   * window is measured from it, and a cache with a second level tells the newer of two entries by
+   * it (`server/upstream/layeredCache.ts`).
    *
    * It is kept beside `expiresAt` rather than worked out from it, because the ttl that would have
    * to be subtracted is the writer's: a call may name its own (`ttlFor`), and an entry in a cache
@@ -50,16 +51,36 @@ export interface UpstreamCacheEntry {
 }
 
 /**
+ * A read the cache made beyond this instance's memory: of a level it shares with other instances.
+ * The transport has no idea what that level is. It only passes the word on, to the caller that
+ * measures what its calls cost (`onSharedRead`), because such a read is the one thing a cache does
+ * that takes a request real time.
+ */
+export interface SharedRead {
+  /** How long the read took, in milliseconds. */
+  ms: number
+  /**
+   * Whether what it found is what answered. The cache says whether it took an entry from there;
+   * the transport takes that back when the entry was too old to answer and the upstream did.
+   */
+  hit: boolean
+}
+
+/**
  * Where answers are kept. `get` resolves with whatever is held under the key, however old —
  * an entry past its `expiresAt` is the fallback for a refresh that fails — and `set` keeps an
  * entry for at least as long as it can still be served.
  *
- * `staleSeconds` is for a cache with more to it than a map, and a map ignores it: the stale
- * window of the request the entry answers, which is how long past its freshness the entry is
- * still worth keeping.
+ * The second argument of each is for a cache with more to it than a map, and a map ignores both:
+ * `onSharedRead` is called, before `get` resolves, when the read went beyond memory; and
+ * `staleSeconds` is the stale window of the request the entry answers, which is how long past its
+ * freshness the entry is still worth keeping.
  */
 export interface UpstreamCache {
-  get: (key: string) => Promise<UpstreamCacheEntry | null>
+  get: (
+    key: string,
+    onSharedRead?: (read: SharedRead) => void,
+  ) => Promise<UpstreamCacheEntry | null>
   set: (key: string, entry: UpstreamCacheEntry, staleSeconds?: number) => Promise<void>
 }
 
@@ -140,13 +161,35 @@ export interface UpstreamLimits {
  * recorded fixture, which is the upstream of fixture mode. So a caller that is never told may
  * count every one of its calls as a call. An entry served inside its stale window is the cache's
  * answer too: the refresh behind it is nobody's wait.
+ *
+ * `onSharedRead` is for the same caller, and is called — before the answer is handed over, or the
+ * failure — when the call's read of the cache went beyond this instance's memory (`SharedRead`).
+ * That is told whatever the call came to: the read took its time either way.
  */
-export type UpstreamFetch<TRequest> = (request: TRequest, onCached?: () => void) => Promise<unknown>
+export type UpstreamFetch<TRequest> = (
+  request: TRequest,
+  onCached?: () => void,
+  onSharedRead?: (read: SharedRead) => void,
+) => Promise<unknown>
 
 /** What one logical call ended with, and whether the cache alone supplied it. */
 interface Loaded {
   value: unknown
   cached: boolean
+}
+
+/**
+ * What a call learns on its way that is not its answer, kept where every caller sharing the call
+ * can read it when the call ends — however it ends, which is why it is not part of `Loaded`.
+ */
+interface Notes {
+  sharedRead?: SharedRead
+}
+
+/** A call that is still running, as the callers that share it hold it. */
+interface Running {
+  call: Promise<Loaded>
+  notes: Notes
 }
 
 /**
@@ -241,7 +284,7 @@ export function createUpstreamFetch<TRequest>(
    * job's stages that read these bodies build new objects from them, and a new reader has to do
    * the same.
    */
-  const inFlight = new Map<string, Promise<Loaded>>()
+  const inFlight = new Map<string, Running>()
 
   /**
    * The keys being refreshed behind a stale answer, so that a key has one refresh at a time
@@ -419,51 +462,84 @@ export function createUpstreamFetch<TRequest>(
     key: string,
     now: number,
     limits: Required<UpstreamLimits>,
+    notes: Notes,
   ): Promise<Loaded> {
-    const entry = await runtime.cache.get(key)
+    const entry = await runtime.cache.get(key, (read) => {
+      notes.sharedRead = read
+    })
+    // What the read found answered nothing after all: the upstream did, or nobody.
+    const unused = () => {
+      if (notes.sharedRead?.hit) notes.sharedRead = { ...notes.sharedRead, hit: false }
+    }
     // An entry an older build cached from a bad body is no entry at all.
     const cached = entry && isJsonObject(entry.value) ? entry : null
     if (cached && cached.expiresAt > now) return { value: cached.value, cached: true }
 
+    // A read that went beyond memory took real time, so the request that follows it is timed, and
+    // given its turn at the limiter, from the clock as it stands now — for the reason a retry is
+    // (`fetchWithRetry`): a slot reserved against a moment already past would let this request out
+    // too soon after the one before it. A read of memory alone took none, and keeps the moment the
+    // call was made, which is what keeps concurrent calls in step with each other.
+    const sendAt = notes.sharedRead ? runtime.now() : now
+
     const staleWindow = staleWindowMs(request)
     if (cached?.storedAt !== undefined && staleWindow > 0 && now < cached.storedAt + staleWindow) {
-      refresh(request, key, now, limits)
+      refresh(request, key, sendAt, limits)
       return { value: cached.value, cached: true }
     }
 
     try {
-      const value = await fetchAndStore(request, key, now, limits)
+      const value = await fetchAndStore(request, key, sendAt, limits)
+      unused()
       return { value, cached: false }
     } catch (error) {
       // A 404 is an answer, not a failure: serving a stale body for a game that no longer exists
       // would be worse than the error.
       const notFound = error instanceof UpstreamError && error.kind === 'NOT_FOUND'
       if (cached && !notFound) return { value: cached.value, cached: false }
+      unused()
       throw error
     }
   }
 
+  /** Tells a listener, whose own failure is no part of the call it is told about. */
+  function tell(listener: () => void): void {
+    try {
+      listener()
+    } catch {
+      // Nothing of the listener's reaches the caller.
+    }
+  }
+
   /**
-   * What `call` ended with, for one of the callers waiting on it — who is told first, when the
-   * cache alone supplied it, so the caller knows what its call was by the time it has the answer.
-   * Callers that share a call share that word as they share its answer: each of them is told.
+   * What `running` ended with, for one of the callers waiting on it — who is told first, when the
+   * cache alone supplied it, so the caller knows what its call was by the time it has the answer;
+   * and, however the call ended, when its read of the cache went beyond memory. Callers that share
+   * a call share those words as they share its answer: each of them is told.
    *
    * Telling is no part of the call. Whoever listens is measuring it, and a listener that throws
    * has failed at its own work: the answer is handed over all the same.
    */
-  async function answerOf(call: Promise<Loaded>, onCached?: () => void): Promise<unknown> {
-    const { value, cached } = await call
-    if (cached) {
-      try {
-        onCached?.()
-      } catch {
-        // Nothing of the listener's reaches the caller.
-      }
+  async function answerOf(
+    { call, notes }: Running,
+    onCached?: () => void,
+    onSharedRead?: (read: SharedRead) => void,
+  ): Promise<unknown> {
+    try {
+      const { value, cached } = await call
+      if (cached && onCached) tell(onCached)
+      return value
+    } finally {
+      const read = notes.sharedRead
+      if (read && onSharedRead) tell(() => onSharedRead(read))
     }
-    return value
   }
 
-  return async function upstreamFetch(request: TRequest, onCached?: () => void): Promise<unknown> {
+  return async function upstreamFetch(
+    request: TRequest,
+    onCached?: () => void,
+    onSharedRead?: (read: SharedRead) => void,
+  ): Promise<unknown> {
     // Capture `now` synchronously, before the first await, so concurrent calls (e.g.
     // Promise.all(...)) all reserve throttle slots against the same reference point instead of one
     // call's simulated sleep (in tests) or real elapsed time (in production) skewing another
@@ -487,12 +563,14 @@ export function createUpstreamFetch<TRequest>(
     // event loop must find each other, and they would not if either had already yielded.
     const sharedBy = `${limits.timeoutMs}/${limits.maxAttempts} ${key}`
     const running = inFlight.get(sharedBy)
-    if (running) return answerOf(running, onCached)
+    if (running) return answerOf(running, onCached, onSharedRead)
 
     // `load` is an async function, so nothing it does can run this `finally` before the entry is
     // set; and the promise callers hold is the one that settles after the entry is gone.
-    const call = load(request, key, now, limits).finally(() => inFlight.delete(sharedBy))
-    inFlight.set(sharedBy, call)
-    return answerOf(call, onCached)
+    const notes: Notes = {}
+    const call = load(request, key, now, limits, notes).finally(() => inFlight.delete(sharedBy))
+    const started = { call, notes }
+    inFlight.set(sharedBy, started)
+    return answerOf(started, onCached, onSharedRead)
   }
 }

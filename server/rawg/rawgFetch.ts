@@ -1,6 +1,7 @@
 import {
   createUpstreamFetch,
   STALE_WHILE_REVALIDATE_SECONDS,
+  type SharedRead,
   type UpstreamCache,
   type UpstreamCacheEntry,
 } from '../upstream/createUpstreamFetch'
@@ -50,6 +51,11 @@ export interface RawgFetchOptions {
    * makes two calls one request.
    */
   onCached?: () => void
+  /**
+   * Called when this call's read of the cache went beyond the instance's memory, to the cache
+   * every instance shares — see `UpstreamFetch`. About the call, like `onCached`.
+   */
+  onSharedRead?: (read: SharedRead) => void
 }
 
 export type RawgFetch = (
@@ -166,5 +172,6 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
     deps,
   )
 
-  return (path, params, options) => fetchUpstream({ path, params, options }, options?.onCached)
+  return (path, params, options) =>
+    fetchUpstream({ path, params, options }, options?.onCached, options?.onSharedRead)
 }
