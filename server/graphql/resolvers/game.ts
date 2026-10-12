@@ -197,7 +197,7 @@ interface Indexed {
    * What the document's offers are read with, or `null` while the index is stale: where Steam's
    * price is withheld, so are the other stores'.
    */
-  offers: OfferTerms | null
+  terms: OfferTerms | null
 }
 
 /** RAWG's two enhancements to the page, and the budget they share. */
@@ -333,10 +333,10 @@ async function indexedGame(context: GraphQLContext, slug: string): Promise<Index
   if (state.meta === null) return null
   const document = await indexEntryBySlug(context, slug)
   if (!document) return null
-  const offers = state.stale
+  const terms = state.stale
     ? null
     : { now: context.now, rate: exchangeRateAt(state.meta, context.now) }
-  return { document, stale: state.stale, offers }
+  return { document, stale: state.stale, terms }
 }
 
 /**
@@ -373,7 +373,7 @@ async function offerTermsFor(
  * production.
  */
 async function indexPage(
-  { document, stale, offers }: Indexed,
+  { document, stale, terms }: Indexed,
   detail: Observed<RawgGameDetail>,
   price: LivePrices,
 ): Promise<Game> {
@@ -388,8 +388,8 @@ async function indexPage(
   // wait for (`offeredSteamAppOf`).
   const appId = offeredSteamAppOf(document)
   const live = appId ? await price.read(appId, document) : null
-  if (live) return toGame(withLivePrice(document, live), offers)
-  return toGame(stale ? withoutPrice(document) : document, offers)
+  if (live) return toGame(withLivePrice(document, live), terms)
+  return toGame(stale ? withoutPrice(document) : document, terms)
 }
 
 function kindOf(reason: unknown): string {

@@ -24,7 +24,7 @@
  * mark, the title, then the price as one sentence — "−78% $8.99, було $39.99, приблизно 404 ₴" —
  * and its age. The eye takes the estimate right beside the price it is an estimate of, with the
  * struck price after both; heard in that order, "було" would attach to the estimate. So the
- * sentence is written out for a screen reader (`PricedRow.spoken`) and the pieces the eye reads are
+ * sentence is written out for a screen reader (`StoreRow.spoken`) and the pieces the eye reads are
  * hidden from it, sign and dot included.
  *
  * Nothing in a render path reads a clock: a price's age is counted against `now`, the moment the
@@ -75,8 +75,12 @@ const safeOffers = computed(() =>
   }),
 )
 
-/** A store's row with a price on it, as the template reads it. */
-interface PricedRow {
+/**
+ * A store's row with a price on it, as the template reads it: every figure already formatted.
+ * Not what the server weighs a row as when it looks for the cheapest (`PricedRow`,
+ * `server/index/offerRules.ts`) — that is an amount to compare, and nothing is compared here.
+ */
+interface StoreRow {
   store: string
   url: string
   cheapest: boolean
@@ -109,13 +113,11 @@ function chipPercent(percent: number | null | undefined, onSale: boolean): numbe
 }
 
 /**
- * The sentence of a price for a screen reader (`PricedRow.spoken`): what it costs, what it cost,
+ * The sentence of a price for a screen reader (`StoreRow.spoken`): what it costs, what it cost,
  * about how much that is. In that order whatever the order on screen, and with the words the
  * strike and the sign stand for.
  */
-function spokenPrice(
-  parts: Pick<PricedRow, 'price' | 'regular' | 'estimate' | 'discount'>,
-): string {
+function spokenPrice(parts: Pick<StoreRow, 'price' | 'regular' | 'estimate' | 'discount'>): string {
   return [
     `${parts.discount ? `−${parts.discount}% ` : ''}${parts.price}`,
     parts.regular ? `${t('price.was')} ${parts.regular}` : '',
@@ -125,7 +127,7 @@ function spokenPrice(
     .join(', ')
 }
 
-function pricedRow(offer: Offer): PricedRow | null {
+function storeRow(offer: Offer): StoreRow | null {
   const foreign = offer.foreignPrice ?? null
   if (offer.priceUah == null && !foreign) return null
   const row = {
@@ -162,7 +164,7 @@ function pricedRow(offer: Offer): PricedRow | null {
 }
 
 /** Every store once, read once: with its priced row when it has a price to show. */
-const stores = computed(() => safeOffers.value.map((offer) => ({ offer, row: pricedRow(offer) })))
+const stores = computed(() => safeOffers.value.map((offer) => ({ offer, row: storeRow(offer) })))
 const priced = computed(() => stores.value.flatMap(({ row }) => (row ? [row] : [])))
 const links = computed(() => stores.value.flatMap(({ offer, row }) => (row ? [] : [offer])))
 
