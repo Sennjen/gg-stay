@@ -410,10 +410,17 @@ off.
 
 The server answers a game page inside a time budget, with what it has by then
 (`docs/specs/2026-10-06-game-page-budget-design.md`). When not everything about the game had
-arrived, the page is `partial`: it may lack its description, RAWG's screenshots, the stores other
-than Steam and the genres, developer and publisher of the facts panel — or, for a Steam game the
+arrived, the page is `partial`: it may lack its description, RAWG's screenshots, some or all of
+its stores and the genres, developer and publisher of the facts panel — or, for a Steam game the
 index does not hold, only its price. Every section is simply absent until it has data — no
 skeleton, no placeholder — exactly as it is for a game that has none.
+
+Which stores a partial page has depends on how it was put together. The page built from the index
+document, when RAWG's own answer was late or failed, has Steam's row and after it a row for GOG or
+the Xbox Store wherever the index holds an offer for a store it lists the game on — with the
+store's price while that is fresh, so a partial page can already say what another store charges
+(see "Where to buy") — and lacks every other store RAWG links. A page RAWG answered before its
+store links had arrived has no store at all until they do.
 
 - **The line.** One sentence says so — "Some of this page is still loading…" on the English page
   (it names no section, because what is missing may be the description and the screenshots, the
