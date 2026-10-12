@@ -40,7 +40,7 @@ const game: NonNullable<GameQuery['game']> = {
 describe('GameScoreboard', () => {
   it('shows a visible caption for every item, not just a screen-reader label', async () => {
     const wrapper = await mountSuspended(GameScoreboard, { props: { game } })
-    expect(wrapper.get('dl').exists()).toBe(true)
+    expect(wrapper.find('dl').exists()).toBe(true)
     const dts = wrapper.findAll('dt')
     expect(dts.every((dt) => !dt.classes().includes('sr-only'))).toBe(true)
     const captions = dts.map((dt) => dt.text())

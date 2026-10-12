@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { nextTick } from 'vue'
-import type { Router } from 'vue-router'
+import type { RouteLocationNormalizedLoaded, Router } from 'vue-router'
 import plugin from '~/plugins/speed-insights.client'
 import { routePattern, speedInsightsWanted, withoutQuery } from '~/utils/speedInsights'
 
@@ -109,7 +109,7 @@ describe('the Speed Insights plugin', () => {
   const config = () => useRuntimeConfig().public as Record<string, unknown>
   let saved: unknown
   // The plugin's navigation hook, captured instead of registered on the test app's real router.
-  let navigationHook: ReturnType<typeof vi.spyOn<Router, 'afterEach'>>
+  let navigationHook: MockInstance<Router['afterEach']>
 
   const runPlugin = async () => {
     const nuxtApp = useNuxtApp()
@@ -118,6 +118,10 @@ describe('the Speed Insights plugin', () => {
   const hydrate = async () => {
     for (const callback of ready.splice(0)) await callback()
   }
+  // The target of a navigation to `path`, typed as the hook receives it. `resolve` returns the
+  // same location under a wider type, one whose `name` may be null.
+  const landingOn = (router: Router, path: string) =>
+    router.resolve(path) as RouteLocationNormalizedLoaded
   const setNavigator = (name: string, value: unknown) =>
     Object.defineProperty(window.navigator, name, { value, configurable: true })
 
@@ -175,7 +179,7 @@ describe('the Speed Insights plugin', () => {
     await hydrate()
     expect(navigationHook).toHaveBeenCalledTimes(1)
     const guard = navigationHook.mock.calls[0]![0]
-    guard(router.resolve(path), router.currentRoute.value, undefined)
+    guard(landingOn(router, path), router.currentRoute.value, undefined)
     expect(setRoute).toHaveBeenLastCalledWith(route)
   })
 
@@ -190,7 +194,7 @@ describe('the Speed Insights plugin', () => {
       await runPlugin()
       await hydrate()
       const guard = navigationHook.mock.calls[0]![0]
-      guard(router.resolve('/games/no-such-game'), router.currentRoute.value, undefined)
+      guard(landingOn(router, '/games/no-such-game'), router.currentRoute.value, undefined)
       expect(setRoute).toHaveBeenLastCalledWith('/games/[slug]')
       // The page throws its 404 after the navigation has finished.
       useError().value = createError({ statusCode: 404 })

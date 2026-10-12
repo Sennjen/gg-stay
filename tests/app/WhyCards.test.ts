@@ -26,7 +26,7 @@ describe('WhyCards', () => {
   it('shows a title and one-sentence description per card, from the uk locale', async () => {
     const wrapper = await mountSuspended(WhyCards)
     const text = wrapper.text()
-    for (const card of Object.values(uk.why.cards)) {
+    for (const card of Object.values<{ title: string; description: string }>(uk.why.cards)) {
       expect(text).toContain(card.title)
       expect(text).toContain(card.description)
     }

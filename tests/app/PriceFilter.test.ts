@@ -70,7 +70,10 @@ describe('PriceFilter', () => {
     beforeEach(() => vi.useFakeTimers())
     afterEach(() => vi.useRealTimers())
 
-    async function type(wrapper: { get: (selector: string) => DOMWrapper }, value: string) {
+    async function type(
+      wrapper: { get: (selector: string) => Pick<DOMWrapper<Element>, 'setValue'> },
+      value: string,
+    ) {
       await wrapper.get('input').setValue(value)
       await nextTick()
     }

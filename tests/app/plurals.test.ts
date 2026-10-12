@@ -337,7 +337,7 @@ describe('plural forms at the call sites', () => {
         method: 'POST',
         handler: (event) => {
           setResponseStatus(event, 429)
-          setResponseHeader(event, 'Retry-After', String(count))
+          setResponseHeader(event, 'Retry-After', count)
           return { error: 'RATE_LIMITED' }
         },
       })

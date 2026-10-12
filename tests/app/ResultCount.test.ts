@@ -8,7 +8,7 @@ describe('ResultCount', () => {
     const wrapper = await mountSuspended(ResultCount, { props: { total: 900934 } })
     expect(wrapper.text()).not.toContain('900934')
     expect(wrapper.find('.font-numeric').text()).toBe('900 934')
-    expect(wrapper.get('[aria-live="polite"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-live="polite"]').exists()).toBe(true)
   })
 
   it('ticks briefly when the total changes, then settles', async () => {

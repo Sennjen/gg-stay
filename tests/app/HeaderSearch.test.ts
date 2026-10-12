@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { readBody } from 'h3'
+import type { RouteLocationNormalizedLoaded, Router } from 'vue-router'
 import HeaderSearch from '~/components/HeaderSearch.vue'
 
 // `mountSuspended` mounts with its own router, detached from any router driven
@@ -10,6 +11,14 @@ import HeaderSearch from '~/components/HeaderSearch.vue'
 // mounted component is observed on the SAME instance via the component's own
 // `route` binding (`wrapper.vm.route`, exposed because HeaderSearch uses
 // `<script setup>`) — `wrapper.vm.$route` resolves to a different app.
+
+/** The `<script setup>` bindings the tests read through `vm`; the component's type lists none. */
+interface Bindings {
+  route: RouteLocationNormalizedLoaded
+  router: Router
+  mobileExpanded: boolean
+}
+const bindings = (wrapper: { vm: unknown }) => wrapper.vm as Bindings
 
 function games(names: string[]) {
   return names.map((name, index) => ({
@@ -202,7 +211,7 @@ describe('HeaderSearch', () => {
     vi.useRealTimers()
     await wrapper.get('input[role="combobox"]').trigger('keydown', { key: 'Enter' })
 
-    await vi.waitFor(() => expect(wrapper.vm.route.fullPath).toBe('/games?search=alpha'))
+    await vi.waitFor(() => expect(bindings(wrapper).route.fullPath).toBe('/games?search=alpha'))
   })
 
   it('Enter with no highlighted row navigates to the catalog search (en)', async () => {
@@ -214,7 +223,7 @@ describe('HeaderSearch', () => {
     vi.useRealTimers()
     await wrapper.get('input[role="combobox"]').trigger('keydown', { key: 'Enter' })
 
-    await vi.waitFor(() => expect(wrapper.vm.route.fullPath).toBe('/en/games?search=alpha'))
+    await vi.waitFor(() => expect(bindings(wrapper).route.fullPath).toBe('/en/games?search=alpha'))
   })
 
   it('Enter on a highlighted row navigates to that game', async () => {
@@ -228,7 +237,7 @@ describe('HeaderSearch', () => {
     vi.useRealTimers()
     await input.trigger('keydown', { key: 'Enter' })
 
-    await vi.waitFor(() => expect(wrapper.vm.route.fullPath).toBe('/games/the-witcher-3'))
+    await vi.waitFor(() => expect(bindings(wrapper).route.fullPath).toBe('/games/the-witcher-3'))
   })
 
   it('Escape closes the dropdown and keeps the text', async () => {
@@ -331,13 +340,13 @@ describe('HeaderSearch', () => {
     vi.useFakeTimers()
     await wrapper.get('button[aria-label]').trigger('click')
     await wrapper.vm.$nextTick()
-    expect(wrapper.vm.mobileExpanded).toBe(true)
+    expect(bindings(wrapper).mobileExpanded).toBe(true)
 
     const input = wrapper.get('input[role="combobox"]')
     await input.trigger('keydown', { key: 'Escape' })
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.vm.mobileExpanded).toBe(false)
+    expect(bindings(wrapper).mobileExpanded).toBe(false)
     expect(document.activeElement).toBe(wrapper.get('button[aria-label]').element)
     wrapper.unmount()
   })
@@ -351,12 +360,12 @@ describe('HeaderSearch', () => {
     vi.useFakeTimers()
     await wrapper.get('button[aria-label]').trigger('click')
     await wrapper.vm.$nextTick()
-    expect(wrapper.vm.mobileExpanded).toBe(true)
+    expect(bindings(wrapper).mobileExpanded).toBe(true)
 
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.vm.mobileExpanded).toBe(false)
+    expect(bindings(wrapper).mobileExpanded).toBe(false)
     expect(document.activeElement).toBe(wrapper.get('button[aria-label]').element)
     wrapper.unmount()
   })
@@ -370,15 +379,15 @@ describe('HeaderSearch', () => {
     vi.useFakeTimers()
     await wrapper.get('button[aria-label]').trigger('click')
     await wrapper.vm.$nextTick()
-    expect(wrapper.vm.mobileExpanded).toBe(true)
+    expect(bindings(wrapper).mobileExpanded).toBe(true)
     ;(document.activeElement as HTMLElement | null)?.blur()
     document.body.focus()
 
     vi.useRealTimers()
-    await wrapper.vm.router.push('/games/the-witcher-3')
+    await bindings(wrapper).router.push('/games/the-witcher-3')
     await flushPromises()
 
-    expect(wrapper.vm.mobileExpanded).toBe(false)
+    expect(bindings(wrapper).mobileExpanded).toBe(false)
     expect(document.activeElement).not.toBe(wrapper.get('button[aria-label]').element)
     wrapper.unmount()
   })

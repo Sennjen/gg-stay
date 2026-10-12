@@ -23,6 +23,6 @@ describe('default layout', () => {
     expect(mains).toHaveLength(1)
     expect(mains[0]!.attributes('id')).toBe('main-content')
     expect(mains[0]!.text()).toContain('page body')
-    expect(wrapper.get('a[href="#main-content"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="#main-content"]').exists()).toBe(true)
   })
 })
