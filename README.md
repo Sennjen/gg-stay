@@ -56,10 +56,12 @@ flowchart LR
 - A cover ring of the catalog's most-added titles — pause on hover, drag or
   arrow-key rotation, click through to a game page; a static marquee below
   768 px and under reduced motion.
-- "Why GG Stay", up to five shelves — made in Ukraine, with Ukrainian
-  localisation, on sale (30 % off or more), best of this year, upcoming — each
-  linking to the catalog page it is the start of, and a closing call to
-  action. A shelf with fewer than four games is not shown.
+- Four cards on what makes the catalog Ukrainian: the language, hryvnia
+  prices, Ukrainian-made games and Gege.
+- Up to five shelves — made in Ukraine, with Ukrainian localisation, on sale
+  (30 % off or more), best of this year, upcoming — each linking to the
+  catalog page it is the start of, and a closing call to action. A shelf with
+  fewer than four games is not shown.
 
 ## Catalog and game page
 

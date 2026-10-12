@@ -266,19 +266,25 @@
     "current": "Centered: {name}"
   },
   "why": {
-    "title": "Why GG Stay",
+    "title": "A catalog with a Ukrainian character",
+    "lead": "The Ukrainian language, prices in hryvnia and games by Ukrainian studios come first.",
     "cards": {
       "language": {
-        "title": "Descriptions in Ukrainian",
-        "description": "When a game has a Ukrainian description on Steam, that is the one you read. Filters, dates and scores are in Ukrainian too."
+        "title": "In Ukrainian",
+        "description": "The site is written in Ukrainian first. A filter shows games with Ukrainian text or voice acting."
       },
-      "filters": {
-        "title": "Filters the stores do not have",
-        "description": "PEGI age rating, time to beat, solo or co-op, player score and Metacritic — in one search."
+      "hryvnia": {
+        "title": "In hryvnia",
+        "description": "Prices as a buyer in Ukraine sees them. A discount shows right on the game card."
       },
-      "stores": {
-        "title": "Every store on one page",
-        "description": "Steam, GOG, PlayStation, Xbox, Nintendo — a link to the game in each store, next to its trailer and screenshots."
+      "ukrainianGames": {
+        "title": "Ukrainian-made games",
+        "description": "Games by Ukrainian studios have a shelf of their own — “Made in Ukraine”."
+      },
+      "gege": {
+        "title": "Gege understands Ukrainian",
+        "description": "Describe a game in your own words — Gege picks games from the catalog and explains why these.",
+        "action": "Ask Gege"
       }
     }
   },

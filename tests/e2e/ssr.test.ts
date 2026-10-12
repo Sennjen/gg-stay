@@ -75,7 +75,7 @@ describe('server-side rendering', async () => {
     // figure for a count under 1 000, so the headline is hidden rather than reading "0+ ігор".
     // (Against production, where the total is ~900 000, this is the "900 000+" headline.)
     expect(html).not.toContain('ігор у каталозі')
-    expect(html).toContain('Чому GG Stay')
+    expect(html).toContain('Каталог з українським характером')
     // Row cards reuse GameCard and are present in the server HTML (unlike the ring).
     expect(html).toContain('Portal 2')
     expect(html).toContain('Stardew Valley')
@@ -95,7 +95,7 @@ describe('server-side rendering', async () => {
     const html = await $fetch<string>('/en')
     // Same as above: the fixture total is too small for a rounded headline, so it is absent.
     expect(html).not.toContain('games in the catalog')
-    expect(html).toContain('Why GG Stay')
+    expect(html).toContain('A catalog with a Ukrainian character')
     expect(shelfTitles(html)).toEqual([
       'Made in Ukraine',
       'In Ukrainian',
