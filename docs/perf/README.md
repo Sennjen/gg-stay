@@ -303,7 +303,19 @@ One window does not read as cleanly. While the sixty stale pages above were bein
 
 ### What is left of a first open
 
-For one visitor, a game nobody has opened in a week costs RAWG's three requests (about a quarter of a second, a tenth of the time much more) and, on the Ukrainian page, Steam's one (about 0.2 s). Opened by anyone in the last week, it costs neither. Pages opened faster than one per 1.5 s on one instance — a visitor clicking through, two visitors at once — still queue for Steam.
+For one visitor, a game nobody has opened in a week costs RAWG's three requests (about a quarter of a second, a tenth of the time much more) and, on the Ukrainian page, Steam's one (about 0.2 s). Opened by anyone in the last week, it costs neither.
+
+### Steam's three requests together
+
+The same morning showed the next wait: pages opened faster than one per 1.5 s on one instance queued for Steam, which the site asked once per 1.5 s. #75 gave the site's two Steam transports the same burst of three. Three game pages opened back to back, then a pause of six seconds, ten times, on thirty fresh games each time — before on commit `661d779`, after on `a13d500`, an hour apart:
+
+| Page in the three | Steam as the request waited, before | After  | Whole request, before | After  |
+| ----------------- | ----------------------------------- | ------ | --------------------- | ------ |
+| First             | 228 ms                              | 215 ms | 0.71 s                | 0.79 s |
+| Second            | 952 ms                              | 210 ms | 1.47 s                | 0.73 s |
+| Third             | 1 002 ms                            | 212 ms | 1.48 s                | 0.77 s |
+
+Medians of ten. The function log of the second run holds no Steam attempt line at all — nothing refused, failed or slower than 2 s. Four of its thirty answers were partial, all four for a RAWG detail past its 2.5 s (three of them in six seconds); the first run had none. A fourth page inside the same second and a half still waits for Steam, as does a crawl that keeps up more than one page per 1.5 s.
 
 ## JavaScript budget for `/games`, measured
 
