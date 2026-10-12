@@ -3,9 +3,15 @@ import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import {
   DEV_FIXTURE_GAMES,
+  DEV_FIXTURE_META_EXTRA,
+  DEV_FIXTURE_PRICES_UPDATED_AT,
   DEV_FIXTURE_SHELF_GAMES,
   DEV_FIXTURE_UKRAINIAN_GAMES,
 } from '../../fixtures/index/devGames'
+import { safeExternalUrl } from '../../../shared/url'
+import rawgStardewStores from '../../fixtures/rawg/game-stardew-valley-stores.json' with { type: 'json' }
+import rawgWitcherStores from '../../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json' with { type: 'json' }
+import bankRate from '../../fixtures/nbu/exchange.json' with { type: 'json' }
 import published from '../../fixtures/index/published.json' with { type: 'json' }
 
 /**
@@ -133,6 +139,83 @@ describe('the published index fixture', () => {
     expect((await index.search({ priceMaxUah: 300, onSaleMinPercent: 50 })).ids).toEqual([
       4200, 16944,
     ])
+  })
+
+  /**
+   * What GOG and the Microsoft Store charge, seeded so that a page has every case to render: a
+   * dollar offer and a hryvnia one, one stale, a GOG price clearly below Steam's and one that is
+   * not. The cases are measured the way the design measures them.
+   */
+  describe('the offers of the other stores', () => {
+    const HOUR = 3_600_000
+    const runAt = Date.parse(DEV_FIXTURE_PRICES_UPDATED_AT)
+    const offered = fixture.games.filter((game) => game.offers !== undefined)
+    const offerOf = (id: number, store: string) =>
+      fixture.games.find((game) => game.id === id)?.offers?.find((offer) => offer.store === store)
+    const isFresh = (updatedAt: string) => runAt - Date.parse(updatedAt) <= 36 * HOUR
+    /** A dollar amount in whole hryvnia at the fixture's rate, as a page estimates it. */
+    const estimate = (cents: number) => Math.round((cents / 100) * fixture.meta.exchangeRate!.uah)
+
+    it('carries the rate and the store stamps beside the offers', () => {
+      expect(fixture.meta).toMatchObject(DEV_FIXTURE_META_EXTRA)
+      // The National Bank's own rate, as recorded.
+      expect(fixture.meta.exchangeRate?.uah).toBe(bankRate[0]!.rate)
+      // The rate was read by the fixture's run, so it is in date.
+      expect(fixture.meta.exchangeRate?.readAt).toBe(DEV_FIXTURE_PRICES_UPDATED_AT)
+    })
+
+    it('holds a dollar offer from GOG and a hryvnia offer from the Microsoft Store', () => {
+      expect(offered.map((game) => game.slug)).toEqual([
+        'the-witcher-3-wild-hunt',
+        'stardew-valley',
+        'metro-exodus',
+        'sherlock-holmes-chapter-one',
+      ])
+      expect(offerOf(3328, 'gog')).toMatchObject({ currency: 'USD', amount: 899 })
+      expect(offerOf(654, 'xbox-store')).toMatchObject({ currency: 'UAH', amount: 38_500 })
+      for (const game of offered) {
+        // At most one a store, every amount whole minor units, and every link one a page may show.
+        expect(new Set(game.offers!.map((offer) => offer.store)).size).toBe(game.offers!.length)
+        for (const offer of game.offers!) {
+          expect(Number.isInteger(offer.amount) && Number.isInteger(offer.regularAmount)).toBe(true)
+          expect(offer.regularAmount).toBeGreaterThanOrEqual(offer.amount)
+          expect(offer.currency).toBe(offer.store === 'gog' ? 'USD' : 'UAH')
+          expect(safeExternalUrl(offer.url)).toBe(offer.url)
+        }
+      }
+    })
+
+    it('holds one game where GOG is clearly cheaper than Steam, and one where it is not', () => {
+      const witcher = fixture.games.find((game) => game.id === 3328)!
+      const metro = fixture.games.find((game) => game.id === 28201)!
+
+      // The design's own example: $8.99 is ≈ 404 ₴, and that is far more than a tenth below
+      // Steam's 675 ₴.
+      expect(estimate(offerOf(3328, 'gog')!.amount)).toBe(404)
+      expect(estimate(offerOf(3328, 'gog')!.amount)).toBeLessThanOrEqual(witcher.priceUah! * 0.9)
+      // $29.99 is ≈ 1 348 ₴, against Steam's 749 ₴.
+      expect(estimate(offerOf(28201, 'gog')!.amount)).toBe(1348)
+      expect(estimate(offerOf(28201, 'gog')!.amount)).toBeGreaterThan(metro.priceUah!)
+    })
+
+    it('holds one stale offer, which would have been the cheapest had it been fresh', () => {
+      const stale = offered
+        .flatMap((game) => game.offers!)
+        .filter((offer) => !isFresh(offer.updatedAt))
+      const sherlock = fixture.games.find((game) => game.id === 447825)!
+
+      expect(stale).toEqual([offerOf(447825, 'gog')])
+      expect(estimate(stale[0]!.amount)).toBeLessThan(sherlock.priceUah! * 0.9)
+    })
+
+    it('offers a store only where the game is listed on it, and RAWG’s fixture links it', () => {
+      for (const game of offered) {
+        for (const offer of game.offers!) expect(game.stores, game.slug).toContain(offer.store)
+      }
+      // The two offered games a RAWG fixture exists for: the row the offer belongs to is there.
+      expect(rawgWitcherStores.results.map((link) => link.store_id)).toContain(5)
+      expect(rawgStardewStores.results.map((link) => link.store_id)).toContain(2)
+    })
   })
 
   it('strikes a real pre-discount price through, rather than the same number twice', () => {

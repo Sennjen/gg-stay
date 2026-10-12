@@ -7,6 +7,16 @@
     "stats": {
       "gamesIndexed": 11,
       "failures": 0
+    },
+    "exchangeRate": {
+      "currency": "USD",
+      "uah": 44.9567,
+      "date": "2026-09-20",
+      "readAt": "2026-09-20T06:00:00.000Z"
+    },
+    "offersReadAt": {
+      "gog": "2026-09-20T00:15:00.000Z",
+      "xbox-store": "2026-09-20T00:15:00.000Z"
     }
   },
   "games": [
@@ -50,7 +60,18 @@
       },
       "madeInUkraine": false,
       "priceUpdatedAt": "2026-09-20T03:00:00.000Z",
-      "steamAppId": "292030"
+      "steamAppId": "292030",
+      "offers": [
+        {
+          "store": "gog",
+          "amount": 899,
+          "regularAmount": 3999,
+          "currency": "USD",
+          "discountPercent": 78,
+          "url": "https://www.gog.com/en/game/the_witcher_3_wild_hunt",
+          "updatedAt": "2026-09-20T00:15:00.000Z"
+        }
+      ]
     },
     {
       "id": 4200,
@@ -109,7 +130,8 @@
         "simulation"
       ],
       "stores": [
-        "steam"
+        "steam",
+        "xbox-store"
       ],
       "gameModes": [
         "SINGLE",
@@ -127,7 +149,18 @@
       "localisation": null,
       "madeInUkraine": false,
       "priceUpdatedAt": "2026-09-20T06:00:00.000Z",
-      "steamAppId": "413150"
+      "steamAppId": "413150",
+      "offers": [
+        {
+          "store": "xbox-store",
+          "amount": 38500,
+          "regularAmount": 38500,
+          "currency": "UAH",
+          "discountPercent": 0,
+          "url": "https://www.microsoft.com/uk-ua/p/stardew-valley/c3d891z6tnqm",
+          "updatedAt": "2026-09-20T00:15:00.000Z"
+        }
+      ]
     },
     {
       "id": 28201,
@@ -166,7 +199,18 @@
       "free": false,
       "localisation": null,
       "madeInUkraine": true,
-      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z",
+      "offers": [
+        {
+          "store": "gog",
+          "amount": 2999,
+          "regularAmount": 2999,
+          "currency": "USD",
+          "discountPercent": 0,
+          "url": "https://www.gog.com/en/game/metro_exodus",
+          "updatedAt": "2026-09-20T00:15:00.000Z"
+        }
+      ]
     },
     {
       "id": 17857,
@@ -275,7 +319,18 @@
       "free": false,
       "localisation": null,
       "madeInUkraine": true,
-      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z",
+      "offers": [
+        {
+          "store": "gog",
+          "amount": 799,
+          "regularAmount": 3999,
+          "currency": "USD",
+          "discountPercent": 80,
+          "url": "https://www.gog.com/en/game/sherlock_holmes_chapter_one",
+          "updatedAt": "2026-09-18T12:15:00.000Z"
+        }
+      ]
     },
     {
       "id": 9873,
