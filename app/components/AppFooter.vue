@@ -2,6 +2,22 @@
 const { t } = useI18n()
 const localePath = useLocalePath()
 const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DESC' } }
+
+/**
+ * Where the site's data comes from, in the order the sentence names them: RAWG for the games,
+ * and the three stores whose prices a game page shows. Each is the slot of `footer.dataBy` it
+ * fills and the key of its name, with the address of the source's own front page.
+ *
+ * The third store is named as a visitor meets it everywhere else on the site — "Xbox Store", in
+ * the store filter and on a game page's row (`STORE_OPTIONS`) — and linked where its prices are
+ * charged: Microsoft's own address for a product in Ukraine redirects to the Xbox store.
+ */
+const SOURCES = [
+  { slot: 'rawg', href: 'https://rawg.io' },
+  { slot: 'steam', href: 'https://store.steampowered.com' },
+  { slot: 'gog', href: 'https://www.gog.com' },
+  { slot: 'xbox', href: 'https://www.xbox.com' },
+] as const
 </script>
 
 <template>
@@ -68,22 +84,13 @@ const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DES
       <div class="mt-8 border-t border-line pt-4 text-sm text-fg-2">
         <p>
           <i18n-t keypath="footer.dataBy" tag="span">
-            <template #rawg>
+            <template v-for="source in SOURCES" :key="source.slot" #[source.slot]>
               <a
-                href="https://rawg.io"
+                :href="source.href"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="underline underline-offset-4 hover:text-fg focus-visible:outline-2"
-                >{{ t('footer.rawg') }}</a
-              >
-            </template>
-            <template #steam>
-              <a
-                href="https://store.steampowered.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="underline underline-offset-4 hover:text-fg focus-visible:outline-2"
-                >{{ t('footer.steam') }}</a
+                >{{ t(`footer.${source.slot}`) }}</a
               >
             </template>
           </i18n-t>

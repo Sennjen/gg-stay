@@ -27,6 +27,7 @@ describe('mapGameCard', () => {
       metacritic: 92,
       playtime: 43,
       price: null,
+      cheaperAt: null,
       localisation: null,
       madeInUkraine: false,
     })
@@ -85,25 +86,22 @@ describe('mapGame', () => {
     expect(game.gameModes).toEqual(['SINGLE'])
     expect(game.developers[0]?.slug).toBe('cd-projekt-red')
     expect(game.website).toBe('https://thewitcher.com/en/witcher3')
+    // Links, and nothing a price would fill: RAWG knows where a game is sold, not for how much.
+    const noPrice = {
+      title: null,
+      priceUah: null,
+      regularPriceUah: null,
+      discountPercent: null,
+      isFree: null,
+      updatedAt: null,
+      foreignPrice: null,
+      foreignRegularPrice: null,
+      approxUah: null,
+      cheapest: false,
+    }
     expect(game.stores).toEqual([
-      {
-        store: 'steam',
-        url: 'https://store.steampowered.com/app/292030/',
-        priceUah: null,
-        regularPriceUah: null,
-        discountPercent: null,
-        isFree: null,
-        updatedAt: null,
-      },
-      {
-        store: 'gog',
-        url: 'https://www.gog.com/game/the_witcher_3_wild_hunt',
-        priceUah: null,
-        regularPriceUah: null,
-        discountPercent: null,
-        isFree: null,
-        updatedAt: null,
-      },
+      { store: 'steam', url: 'https://store.steampowered.com/app/292030/', ...noPrice },
+      { store: 'gog', url: 'https://www.gog.com/game/the_witcher_3_wild_hunt', ...noPrice },
     ])
     expect(game.screenshots).toEqual([])
     expect(game.similar).toEqual([])
@@ -172,6 +170,13 @@ describe('mapGame', () => {
   it('defaults to an empty screenshots list when none are given', () => {
     const game = mapGame(detail, stores.results)
     expect(game.screenshots).toEqual([])
+  })
+
+  it('carries none of the fields only a card has', () => {
+    // A game page is built on the card's mapping; what a card says of the price is the card's.
+    const game = mapGame(detail, stores.results)
+    expect('price' in game).toBe(false)
+    expect('cheaperAt' in game).toBe(false)
   })
 
   it('calls a game mapped from RAWG’s detail complete, whatever else it was given', () => {

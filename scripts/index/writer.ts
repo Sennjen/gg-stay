@@ -24,6 +24,9 @@ import { createUpstashCommands, createUpstashIndex } from '../../server/index/up
  * | one app-id batch, 100 games      | 100 × 250 ms + latency ≈ 30 s                 |
  * | one price chunk, 100 app ids     | 1.5 s throttle + a 5 s timeout and one retry  |
  * | one language batch, 50 apps      | 50 at 40/min ≈ 75 s                           |
+ * | one store-reference batch, 100   | 100 × 250 ms + latency ≈ 30 s                 |
+ * | one page of GOG's catalog        | 1 s throttle + a 10 s timeout and one retry   |
+ * | one Microsoft Store request      | 1 s throttle + a 15 s timeout and one retry   |
  * | `writeVersion`                   | refreshes the lock itself as it goes          |
  *
  * So about 90 seconds at the worst, and thirty minutes is twenty times that — margin enough for a

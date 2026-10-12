@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
+import { STORE_OPTIONS } from '#shared/catalog'
 import GameCard from '~/components/GameCard.vue'
 import LocalisationBadge from '~/components/LocalisationBadge.vue'
 import MetacriticBadge from '~/components/MetacriticBadge.vue'
@@ -22,6 +23,7 @@ const game: CardGame = {
   madeInUkraine: false,
   price: null,
   localisation: null,
+  cheaperAt: null,
 }
 
 describe('GameCard', () => {
@@ -412,6 +414,116 @@ describe('GameCard: made in Ukraine', () => {
       route: '/en/games',
     })
     expect(wrapper.get('[data-test="made-in-ukraine"]').text()).toBe('Made in Ukraine')
+  })
+})
+
+describe('GameCard: the store that is cheaper than Steam', () => {
+  /** The Witcher 3 as the index prices it on Steam: 675 ₴, down from 1 349 ₴. */
+  const priced = {
+    ...game,
+    price: {
+      bestUah: 675,
+      regularUah: 1349,
+      bestStore: 'steam',
+      discountPercent: 50,
+      isFree: false,
+      updatedAt: '2026-10-12T09:00:00.000Z',
+    },
+    localisation: { text: true, audio: true, source: 'steam' },
+  }
+  // `undefined` is an answer from a server older than the field: the card must not need it.
+  const mount = (cheaperAt: string | null | undefined, route = '/games') =>
+    mountSuspended(GameCard, { props: { game: { ...priced, cheaperAt } as CardGame }, route })
+
+  it.each([
+    ['gog', 'Дешевше в GOG'],
+    ['xbox-store', 'Дешевше в Xbox Store'],
+  ])('says so in one line when the answer names %s', async (store, line) => {
+    const wrapper = await mount(store)
+    expect(wrapper.get('[data-test="cheaper-at"]').text()).toBe(line)
+  })
+
+  it.each([
+    ['gog', 'Cheaper at GOG'],
+    ['xbox-store', 'Cheaper at Xbox Store'],
+  ])('says so in English when the answer names %s', async (store, line) => {
+    const wrapper = await mount(store, '/en/games')
+    expect(wrapper.get('[data-test="cheaper-at"]').text()).toBe(line)
+  })
+
+  it('names the store as the store filter does, so one store has one name on the site', async () => {
+    for (const { slug, name } of STORE_OPTIONS) {
+      const wrapper = await mount(slug)
+      expect(wrapper.get('[data-test="cheaper-at"]').text()).toBe(`Дешевше в ${name}`)
+    }
+    // Never the name of the company whose catalog the Xbox store's price is read from.
+    expect((await mount('xbox-store')).text()).not.toContain('Microsoft')
+  })
+
+  it.each([[null], [undefined], ['']])(
+    'has no line when the answer names nobody: %j',
+    async (none) => {
+      const wrapper = await mount(none)
+      expect(wrapper.find('[data-test="cheaper-at"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Дешевше')
+      // And nothing is kept for it: the price line is the last thing in the card.
+      const meta = wrapper.get('[data-test="price"]').element.parentElement!.parentElement!
+      expect(meta.lastElementChild).toBe(wrapper.get('[data-test="price"]').element.parentElement)
+    },
+  )
+
+  it('puts the line directly under the price line, as the last thing in the card', async () => {
+    const wrapper = await mount('gog')
+    const line = wrapper.get('[data-test="cheaper-at"]').element
+    const priceLine = wrapper.get('[data-test="price"]').element.parentElement!
+    expect(line.previousElementSibling).toBe(priceLine)
+    expect(line.parentElement!.lastElementChild).toBe(line)
+    // Inside the card's one link, so it is part of what the link is called.
+    expect(wrapper.get('a').element.contains(line)).toBe(true)
+  })
+
+  it('is small secondary text in tokens only: a fact about the price, never the sale colour', async () => {
+    const wrapper = await mount('gog')
+    const classes = wrapper.get('[data-test="cheaper-at"]').classes()
+    expect(classes).toEqual(expect.arrayContaining(['text-xs', 'text-fg-2']))
+    expect(classes.join(' ')).not.toMatch(/accent|signal|sale|#/)
+  })
+
+  it('leaves the price as it was: Steam’s, with its chip and its struck regular price', async () => {
+    const withLine = await mount('gog')
+    const without = await mount(null)
+    expect(withLine.get('[data-test="price"]').html()).toBe(
+      without.get('[data-test="price"]').html(),
+    )
+    // The line states no second price.
+    expect(withLine.get('[data-test="cheaper-at"]').text()).not.toMatch(/[₴$\d]/)
+  })
+
+  it.each([['some-new-store'], ['epic'], ['GOG'], ['<b>gog</b>']])(
+    'has no line for a store this build cannot name: %j',
+    async (slug) => {
+      // A later server may name a store this client's table lacks while a tab is still open. A
+      // slug is not copy: the card says nothing, and keeps nothing for the line either.
+      const wrapper = await mount(slug)
+      expect(wrapper.find('[data-test="cheaper-at"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Дешевше')
+      expect(wrapper.text()).not.toContain(slug)
+      const priceLine = wrapper.get('[data-test="price"]').element.parentElement!
+      expect(priceLine.parentElement!.lastElementChild).toBe(priceLine)
+    },
+  )
+
+  it('writes the store’s name as text: the line has nothing in it but the sentence', async () => {
+    const line = (await mount('gog')).get('[data-test="cheaper-at"]')
+    expect(line.element.children).toHaveLength(0)
+    expect(line.element.innerHTML.trim()).toBe('Дешевше в GOG')
+  })
+
+  it('says it in the list layout too', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: { game: { ...priced, cheaperAt: 'gog' }, layout: 'list' },
+    })
+    expect(wrapper.get('[data-test="cheaper-at"]').text()).toBe('Дешевше в GOG')
   })
 })
 

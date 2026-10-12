@@ -1,12 +1,17 @@
+import type { BankRateFetch } from './bank'
+import type { GogCatalogFetch } from './gog'
+import type { MicrosoftProductsFetch } from './microsoft'
 import type { GameIndex, GameIndexWriter } from '../../server/index/GameIndex'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamPriceFetch } from '../../server/steam/steamPriceFetch'
 
 /**
- * What every stage of the refresh job is given, and nothing more: two upstream transports, the
- * index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`, `Date.now()` or
- * the network directly — only `run.ts` builds these — so a stage runs the same on fixtures, on the
- * in-memory adapter and on a fake clock as it does against RAWG, Steam and Upstash.
+ * What every stage of the refresh job is given, and nothing more: the upstream transports — RAWG,
+ * Steam, and the three only the job talks to: GOG, the Microsoft Store and the National Bank —
+ * the index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`,
+ * `Date.now()` or the network directly — only `run.ts` builds these — so a stage runs the same on
+ * fixtures, on the in-memory adapter and on a fake clock as it does against the real services and
+ * Upstash.
  */
 
 /**
@@ -26,9 +31,40 @@ export interface JobClock {
 /** Where a stage's progress goes. Never a secret, never a raw upstream payload. */
 export type JobLog = (message: string) => void
 
+/** The longest somebody else's text is quoted in a line of the log or a cell of the summary. */
+const MAX_QUOTED_LENGTH = 200
+
+/**
+ * Somebody else's text as it may be put into a line of the job's log: on one line, and no longer
+ * than a line.
+ *
+ * The log is standard output on a GitHub runner, where a line that begins with `::` is a command
+ * to the runner. A game's slug is RAWG's text, and the reason a read failed for is a store's as
+ * often as it is this job's, so every control character and line break in either becomes a space
+ * before it is printed anywhere.
+ *
+ * The runner has an older form of command as well, `##[name]value`, and looks for that one
+ * anywhere in a line, so being in the middle of the job's own sentence is no protection against
+ * it. A space is put between the number signs and the bracket: every character of the text is
+ * still there to be read, and `## [` begins nothing.
+ */
+export function oneLine(value: unknown): string {
+  const line = String(value)
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ')
+    .trim()
+    .replaceAll('##[', '## [')
+  return Array.from(line).slice(0, MAX_QUOTED_LENGTH).join('')
+}
+
 export interface JobDeps {
   rawg: RawgFetch
   steam: SteamPriceFetch
+  /** One page of GOG's catalog for Ukraine. */
+  gog: GogCatalogFetch
+  /** The Microsoft Store's answer about a batch of product ids, for Ukraine. */
+  microsoft: MicrosoftProductsFetch
+  /** The National Bank's dollar rate for one day. */
+  bank: BankRateFetch
   writer: JobIndex
   clock: JobClock
   log: JobLog

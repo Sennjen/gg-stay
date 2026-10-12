@@ -48,11 +48,25 @@ query Game($slug: String!, $locale: String!) {
     stores {
       store
       url
+      title
       priceUah
       regularPriceUah
       discountPercent
       isFree
       updatedAt
+      foreignPrice {
+        amount
+        currency
+      }
+      foreignRegularPrice {
+        amount
+        currency
+      }
+      approxUah
+      cheapest
+    }
+    exchangeRate {
+      date
     }
     localisation {
       text

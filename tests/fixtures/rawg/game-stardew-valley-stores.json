@@ -1,6 +1,7 @@
 {
-  "count": 1, "next": null, "previous": null,
+  "count": 2, "next": null, "previous": null,
   "results": [
-    { "id": 655001, "game_id": 654, "store_id": 1, "url": "https://store.steampowered.com/app/413150/" }
+    { "id": 655001, "game_id": 654, "store_id": 1, "url": "https://store.steampowered.com/app/413150/" },
+    { "id": 655002, "game_id": 654, "store_id": 2, "url": "https://www.microsoft.com/en-us/store/p/stardew-valley/c3d891z6tnqm?cid=msft_web_chart" }
   ]
 }

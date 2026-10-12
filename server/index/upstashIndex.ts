@@ -1,7 +1,7 @@
 import { Redis } from '@upstash/redis'
 import type { Requester } from '@upstash/redis'
 import { buildIndexPlan } from './buildPlan'
-import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages, IndexedStoreRefs } from './document'
 import { isIndexableSlug } from './document'
 import type {
   BeginVersionOptions,
@@ -23,6 +23,7 @@ import {
   namesKey,
   orderKey as orderSetKey,
   slugsKey,
+  storeRefsKey,
   versionPrefix,
 } from './keys'
 import { planQuery } from './queryPlan'
@@ -76,8 +77,8 @@ import { commandBytes, createRedisResult, withKeyPrefix, withUsage } from './red
  * afterwards — every version older than the one just replaced is
  * deleted outright, which also reclaims a version an interrupted run abandoned. Exactly one
  * predecessor is kept whole, so a reader holding a stale pointer still finds its documents.
- * Neither path needs `SCAN` over a key space shared with the job's cursors and the permanent
- * Steam app ids.
+ * Neither path needs `SCAN` over a key space shared with the job's cursors, the permanent Steam
+ * app ids and the store references kept beside them.
  */
 
 /** The counter `beginVersion` draws from; outside every version, it must survive them all. */
@@ -191,6 +192,16 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return chunks
 }
 
+/**
+ * The metadata as the fields of one hash. `exchangeRate` and `offersReadAt` are always written,
+ * as JSON, and as `null` when the run has none: the publication that refreshes the metadata of
+ * the version already live is an `HSET` over the same hash, and a field it left out would go on
+ * holding what the earlier publication put there.
+ *
+ * A build that does not know a field never reads it — `decodeMeta` picks the fields it names —
+ * so the site may be older than the job that wrote the hash, and the job older than the hash it
+ * reads back.
+ */
 function encodeMeta(meta: IndexMeta): Record<string, string> {
   return {
     version: String(meta.version),
@@ -198,6 +209,22 @@ function encodeMeta(meta: IndexMeta): Record<string, string> {
     pricesUpdatedAt: JSON.stringify(meta.pricesUpdatedAt),
     gameCount: String(meta.gameCount),
     stats: JSON.stringify(meta.stats ?? null),
+    exchangeRate: JSON.stringify(meta.exchangeRate ?? null),
+    offersReadAt: JSON.stringify(meta.offersReadAt ?? null),
+  }
+}
+
+/**
+ * One JSON field of the metadata hash, or `null` when it is absent, `null`, or will not parse: an
+ * optional field that cannot be read is a field the metadata does not have, and must not cost a
+ * page the rest of it.
+ */
+function decodeOptional<T>(field: string | undefined): T | null {
+  if (!field) return null
+  try {
+    return (JSON.parse(field) as T | null) ?? null
+  } catch {
+    return null
   }
 }
 
@@ -213,6 +240,12 @@ function decodeMeta(fields: Record<string, string>): IndexMeta | null {
     gameCount: Number(fields.gameCount),
   }
   if (stats) meta.stats = stats
+  // Written by the builds that read GOG, the Microsoft Store and the bank; a hash published
+  // before them has neither field, and the metadata then has neither.
+  const exchangeRate = decodeOptional<NonNullable<IndexMeta['exchangeRate']>>(fields.exchangeRate)
+  if (exchangeRate) meta.exchangeRate = exchangeRate
+  const offersReadAt = decodeOptional<NonNullable<IndexMeta['offersReadAt']>>(fields.offersReadAt)
+  if (offersReadAt) meta.offersReadAt = offersReadAt
   return meta
 }
 
@@ -952,6 +985,57 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
     await this.send(
       chunk(pairs, this.itemsPerCommand).map((part) => {
         const values = Object.fromEntries(part.map(([id, appId]) => [appIdKey(id), appId]))
+        return {
+          add: (batch: RedisBatch) => batch.mset(values),
+          bytes: commandBytes(['MSET', ...Object.entries(values).flat()]),
+        }
+      }),
+    )
+  }
+
+  /**
+   * One request, like `getAppIds`: an `MGET` per `itemsPerCommand` games. A value is the record
+   * as JSON; one that will not parse, or parses to something that is not an object, is treated as
+   * absent, so the job asks RAWG about that game again and rewrites it.
+   *
+   * What "absent" costs is decided, not incidental. A game with no record has no reference, and
+   * an offer needs a reference (`scripts/index/offers.ts`), so the game's offers are dropped by
+   * the very next run of any kind — and only a full run asks RAWG again. Keeping the offers of a
+   * game whose record cannot be read would mean publishing prices for a product nobody can name
+   * any more; a day without them is the lesser fault, for one corrupt key at a time. The warning
+   * says so in as many words.
+   */
+  async getStoreRefs(ids: number[]): Promise<Map<number, IndexedStoreRefs>> {
+    const found = new Map<number, IndexedStoreRefs>()
+    if (ids.length === 0) return found
+    const values = await this.readKeys(ids.map((id) => storeRefsKey(id)))
+    ids.forEach((id, position) => {
+      const value = values[position]
+      if (!value) return
+      try {
+        const refs: unknown = JSON.parse(value)
+        if (refs === null || typeof refs !== 'object' || Array.isArray(refs)) {
+          throw new Error('not a record')
+        }
+        found.set(id, refs as IndexedStoreRefs)
+      } catch {
+        console.warn(
+          `[index] the store references of game ${id} are unreadable: its GOG and Microsoft ` +
+            'offers are dropped until a full run has asked RAWG about it again',
+        )
+      }
+    })
+    return found
+  }
+
+  async setStoreRefs(entries: Iterable<[number, IndexedStoreRefs]>): Promise<void> {
+    const pairs = [...entries]
+    if (pairs.length === 0) return
+    await this.send(
+      chunk(pairs, this.itemsPerCommand).map((part) => {
+        const values = Object.fromEntries(
+          part.map(([id, refs]) => [storeRefsKey(id), JSON.stringify(refs)]),
+        )
         return {
           add: (batch: RedisBatch) => batch.mset(values),
           bytes: commandBytes(['MSET', ...Object.entries(values).flat()]),

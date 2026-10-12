@@ -14,9 +14,10 @@ import type { RawgGameListItem, RawgList, RawgStoreLink } from '../../../server/
  * | 106 | Ukrainian audio on a game whose name is not the first in the language list  |
  * | 107 | a game Steam refuses to price in the region (`success: false`)              |
  * | 108 | a second priced game, so a halved run is still above the blue/green floor   |
- * | 109 | a non-Steam store only (Nintendo) — priced by nobody                        |
+ * | 109 | no Steam page (Nintendo and the Xbox store) — priced by Steam never        |
  *
- * The payload shapes follow the recorded RAWG and Steam fixtures next to this file.
+ * The payload shapes follow the recorded RAWG and Steam fixtures next to this file. What GOG and
+ * the Microsoft Store answer about games 101 and 109 is in `jobStores.ts`.
  */
 
 const PC = { platform: { id: 4, slug: 'pc', name: 'PC' } }
@@ -27,6 +28,7 @@ const STEAM = { store: { id: 1, slug: 'steam', name: 'Steam' } }
 const GOG = { store: { id: 5, slug: 'gog', name: 'GOG' } }
 const EPIC = { store: { id: 11, slug: 'epic-games', name: 'Epic Games' } }
 const NINTENDO = { store: { id: 6, slug: 'nintendo', name: 'Nintendo eShop' } }
+const XBOX = { store: { id: 2, slug: 'xbox-store', name: 'Xbox Store' } }
 
 const SINGLEPLAYER = { id: 31, slug: 'singleplayer', name: 'Singleplayer', language: 'eng' }
 const MULTIPLAYER = { id: 7, slug: 'multiplayer', name: 'Multiplayer', language: 'eng' }
@@ -204,7 +206,7 @@ export const JOB_GAMES: RawgGameListItem[] = [
     platforms: [SWITCH],
     genres: [STRATEGY],
     tags: [ATMOSPHERIC, SINGLEPLAYER],
-    stores: [NINTENDO],
+    stores: [NINTENDO, XBOX],
   },
 ]
 
@@ -305,8 +307,17 @@ export const JOB_STORE_LINKS: Record<number, RawgList<RawgStoreLink>> = {
     results: [{ id: 9, store_id: 1, url: 'https://store.steampowered.com/app/418000/' }],
   },
   109: {
-    count: 1,
-    results: [{ id: 10, store_id: 6, url: 'https://www.nintendo.com/store/products/lost-canton/' }],
+    count: 2,
+    // RAWG lists the game on Nintendo's store and on the Xbox store, and links both: the list
+    // says which games to ask about, and the link is where the reference comes from.
+    results: [
+      { id: 10, store_id: 6, url: 'https://www.nintendo.com/store/products/lost-canton/' },
+      {
+        id: 12,
+        store_id: 2,
+        url: 'https://www.microsoft.com/en-us/p/lost-canton/9nlostcant0n?cid=msft_web_chart',
+      },
+    ],
   },
   110: {
     count: 1,

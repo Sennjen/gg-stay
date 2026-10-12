@@ -22,6 +22,49 @@ export interface IndexedLocalisation {
   updatedAt?: string
 }
 
+/** The longest store title an offer carries, in characters. Real ones are a few dozen. */
+export const MAX_OFFER_TITLE_LENGTH = 200
+
+/** The stores, other than Steam, whose price the refresh job reads: RAWG's own slugs for them. */
+export const OFFER_STORES = ['gog', 'xbox-store'] as const
+export type OfferStore = (typeof OFFER_STORES)[number]
+
+/**
+ * What one store other than Steam charges a buyer in Ukraine for the game, as the refresh job read
+ * it from the store itself (`scripts/index/offers.ts`).
+ *
+ * The amounts are in minor units — cents, kopecks — and in the currency the store charges
+ * Ukraine in: GOG in US dollars, the Microsoft Store in hryvnia. A dollar amount is never
+ * converted here and never stored as hryvnia: what a visitor is shown beside it is an estimate
+ * made when the page is, from `IndexMeta.exchangeRate`.
+ *
+ * `regularAmount` is the price without the discount and is never below `amount`; the two are
+ * equal, and `discountPercent` is 0, when the game is not on sale. A free game is an offer of 0.
+ *
+ * `url` is the store's own address for the product — GOG's `storeLink`, Microsoft's product page
+ * for Ukraine — and has been through `safeExternalUrl`, like every other outbound link.
+ *
+ * `title` is what the store itself calls the product. RAWG's link sometimes names another edition
+ * than the game it is filed under — a complete season, a "Game of the Year Edition" — and the
+ * price is that edition's; the title is how a page can say so. Plain text, trimmed, at most
+ * `MAX_OFFER_TITLE_LENGTH` characters; left out when the store gave none.
+ *
+ * `updatedAt` is when the store was last read and gave this price. A read that failed leaves the
+ * offer and its date as they were, so an old date is exactly an old price: the site shows no
+ * price it cannot call fresh.
+ */
+export interface IndexedOffer {
+  store: OfferStore
+  title?: string
+  amount: number
+  regularAmount: number
+  currency: 'USD' | 'UAH'
+  discountPercent: number
+  url: string
+  /** ISO timestamp of the read the price came from. */
+  updatedAt: string
+}
+
 export interface IndexedGame {
   id: number
   slug: string
@@ -112,6 +155,15 @@ export interface IndexedGame {
    * games of the same genre.
    */
   similar?: number[]
+  /**
+   * What GOG and the Microsoft Store charge for the game in Ukraine: at most one offer a store,
+   * and only for a store the permanent mapping of store references (`storeref:{rawgId}`) names a
+   * product of. Steam's price is not among them; it stays in `priceUah` and its neighbours.
+   *
+   * Left out, not written empty, for a game no store has a price for. Optional as well because
+   * documents published before the job read these stores have none.
+   */
+  offers?: IndexedOffer[]
 }
 
 /**
@@ -128,6 +180,50 @@ export interface IndexedLanguages {
   isFree: boolean
   /** ISO timestamp of the read. */
   updatedAt: string
+}
+
+/**
+ * Which product a game is in the stores whose prices the job reads, kept outside the version
+ * prefix under `storeref:{rawgId}` beside the Steam app ids, and for as long: RAWG is asked for a
+ * game's store links once for each store it lists the game on.
+ *
+ * Each field is what RAWG's own link to that store carried, and nothing else — nothing is guessed
+ * from a title — and each has three states, because "asked" is remembered store by store:
+ *
+ * - a value: the link named a product;
+ * - `null`: RAWG lists the game on the store and gave no link the job can read. That is an answer,
+ *   and the game is not asked about that store again;
+ * - absent: the game has not been asked about the store — RAWG did not list it there when its
+ *   links were last read, or they never were. A game that gains the store later is asked then.
+ */
+export interface IndexedStoreRefs {
+  /** The slug of the game's GOG page: the path segment after `/game/` in RAWG's link. */
+  gog?: string | null
+  /** The game's Microsoft Store product, from RAWG's link to it. */
+  microsoft?: {
+    /** The twelve-character product id, in upper case, as the display catalog spells it. */
+    id: string
+    /** The name the link carried before the id. Microsoft's product page is addressed by both. */
+    name: string
+  } | null
+}
+
+/**
+ * The National Bank of Ukraine's official rate of one currency, as the refresh job read it. It
+ * turns a price in that currency into an estimate in hryvnia, and nothing else: no filter, no
+ * sort and no stored price is ever made with it.
+ */
+export interface IndexedExchangeRate {
+  currency: 'USD'
+  /** Hryvnia for one unit of the currency. */
+  uah: number
+  /** The day the bank's rate is for (`YYYY-MM-DD`): what a visitor is told the estimate rests on. */
+  date: string
+  /**
+   * ISO timestamp of the read. A run that cannot read the bank keeps the rate it found published
+   * for seven days counted from here, and publishes none after that.
+   */
+  readAt: string
 }
 
 export interface IndexRunStats {
@@ -152,6 +248,9 @@ export interface IndexRunStats {
    * collapsed candidate list.
    */
   candidateCount: number
+  /** Games published with a GOG offer, and with a Microsoft Store one. */
+  gogOfferCount: number
+  microsoftOfferCount: number
 }
 
 export interface IndexMeta {
@@ -169,6 +268,19 @@ export interface IndexMeta {
   pricesUpdatedAt: string | null
   gameCount: number
   stats?: Partial<IndexRunStats>
+  /**
+   * The rate dollar prices are estimated in hryvnia with, or nothing when the bank could not be
+   * read for a week: an estimate is then not made at all. Optional: metadata published before the
+   * job read the bank has none.
+   */
+  exchangeRate?: IndexedExchangeRate
+  /**
+   * When each store's prices were last read in full (ISO timestamps). The refresh job reads a
+   * store again once this is more than eleven hours old, whatever kind of run it is; a read that
+   * failed does not move it, so the next run tries again. Optional: a store that has never been
+   * read has no entry, and metadata published before the job read these stores has no field.
+   */
+  offersReadAt?: Partial<Record<OfferStore, string>>
 }
 
 /**

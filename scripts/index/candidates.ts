@@ -278,9 +278,10 @@ export async function collectCandidates(
 
 /**
  * Copies what the published version already knows onto freshly mapped candidates: the price, the
- * free flag and the localisation. A full run would otherwise start every game at "no price" and a
- * single bad Steam answer would publish a catalog with the price silently gone, which the price
- * stage's keep-what-we-had rule and the publication's priced-count gate both measure against.
+ * free flag, the localisation and the other stores' offers. A full run would otherwise start
+ * every game at "no price" and a single bad Steam answer would publish a catalog with the price
+ * silently gone, which the price stage's keep-what-we-had rule and the publication's priced-count
+ * gate both measure against.
  *
  * Never the made-in-Ukraine flag: the studios stage owns it, and keeps a published flag only for a
  * studio it could not read tonight, so a studio taken off the list takes its flags with it.
@@ -304,6 +305,10 @@ export async function carryPublishedForward(
     game.free = previous.free
     game.priceUpdatedAt = previous.priceUpdatedAt
     game.localisation = previous.localisation ? { ...previous.localisation } : null
+    // What GOG and the Microsoft Store charged when they were last read, dates and all: those
+    // stores are read twice a day, not on every run, and a run that does not read them publishes
+    // what the last one found (`offers.ts`).
+    if (previous.offers) game.offers = previous.offers.map((offer) => ({ ...offer }))
     carried += 1
   }
 

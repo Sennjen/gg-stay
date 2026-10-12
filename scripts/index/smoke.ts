@@ -15,7 +15,7 @@
 // what only a run with credentials can prove is the transport underneath it.
 import { pathToFileURL } from 'node:url'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../server/index/GameIndex'
-import type { IndexedGame } from '../../server/index/document'
+import type { IndexedGame, IndexedStoreRefs } from '../../server/index/document'
 import { createMemoryGameIndex } from '../../server/index/memoryIndex'
 import type { UpstashClient } from '../../server/index/upstashIndex'
 import {
@@ -251,7 +251,7 @@ async function compareWrites(
   )
   found.same('a discarded version is gone', (await live.search({})).ids, [4, 5, 6])
 
-  // App ids and cursors live outside every version and survive a publication.
+  // App ids, store references and cursors live outside every version and survive a publication.
   const appIds: [number, string][] = [
     [3328, '292030'],
     [4200, ''],
@@ -262,6 +262,20 @@ async function compareWrites(
     'getAppIds',
     [...(await live.getAppIds([3328, 4200, 5000]))],
     [...(await memory.getAppIds([3328, 4200, 5000]))],
+  )
+  // The store references beside them, the empty record included: an `MSET` of JSON read back
+  // with an `MGET`, which is all the mapping is.
+  const storeRefs: [number, IndexedStoreRefs][] = [
+    [3328, { gog: 'the_witcher_3_wild_hunt' }],
+    [654, { microsoft: { id: 'C3D891Z6TNQM', name: 'stardew-valley' } }],
+    [4200, {}],
+  ]
+  await live.setStoreRefs(storeRefs)
+  await memory.setStoreRefs(storeRefs)
+  found.same(
+    'getStoreRefs',
+    [...(await live.getStoreRefs([3328, 654, 4200, 5000]))],
+    [...(await memory.getStoreRefs([3328, 654, 4200, 5000]))],
   )
   await live.setCursor('prices', '120')
   await memory.setCursor('prices', '120')
@@ -296,7 +310,7 @@ export async function compareAdapters(
   return { mismatches: found.mismatches, versions }
 }
 
-const UNVERSIONED_FAMILIES = ['appid:', 'lang:', 'idx:lock', 'idx:draft'] as const
+const UNVERSIONED_FAMILIES = ['appid:', 'storeref:', 'lang:', 'idx:lock', 'idx:draft'] as const
 
 /** Every key under the namespace, read with SCAN — the one command the adapter deliberately lacks. */
 async function namespaceKeys(client: UpstashClient, prefix: string): Promise<string[]> {
@@ -370,8 +384,8 @@ async function main(): Promise<void> {
       `${prefix}idx:lock`,
     )
 
-    // Keys that live outside any version — the permanent app-id and language records and the
-    // writer's lock bookkeeping — have no registry, so they are found by name.
+    // Keys that live outside any version — the permanent app-id, store-reference and language
+    // records and the writer's lock bookkeeping — have no registry, so they are found by name.
     const unversioned = (await namespaceKeys(client, prefix)).filter((key) =>
       UNVERSIONED_FAMILIES.some((family) => key.startsWith(`${prefix}${family}`)),
     )

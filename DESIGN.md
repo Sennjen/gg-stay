@@ -105,7 +105,8 @@ package) provider, which does serve the full variable font file.
   active filter state, and the focus ring. It never appears as a decorative
   colour, a link colour, or a status colour.
 - **Sale (`--color-sale`) is reserved** for price-reduction status only: the
-  discount chip on `PriceTag` (catalog cards, the game page scoreboard). It is
+  discount chip on `PriceTag` (catalog cards, the game page scoreboard) and on
+  the rows of the game page's "Де купити". It is
   a deliberately separate token from accent — a discount badge is a status
   colour (a fact about the price), not a call to action, an active filter, or
   a focus ring, so it must not borrow accent's meaning. Never used for
@@ -189,6 +190,24 @@ alone says nothing about which one it picks.
   ~360px card width "Metacritic" no longer fits on the line, so the caption
   falls back to "MC" with a `title="Metacritic"` tooltip at that width only.
   The chip itself (band colour, accessible name) is unchanged.
+- **"Дешевше в GOG" is one line under the price.** When the answer names a
+  store that is clearly cheaper than Steam (`GameCard.cheaperAt`), the card
+  says so under its price line: "Дешевше в GOG" / "Cheaper at GOG", and
+  "Дешевше в Xbox Store" / "Cheaper at Xbox Store" — the store under the name
+  the store filter gives it. It is 12px `fg-2` in the interface face, the last
+  thing in the card, 7.59:1 on `surface-1`. It carries no figure and no chip,
+  and uses no accent, signal or sale colour: `sale` is the colour of a
+  discount, and this is a pointer to another store, whose price — an estimate,
+  when it is GOG's — is on the game page with the words that explain it. The
+  price above it stays Steam's and is drawn exactly as on a card without the
+  line. A card the answer names no store for has no line and keeps nothing
+  for one, so in a row of cards the one with the line is a line taller in its
+  text and the others' meta blocks stay on the row's bottom edge. The line
+  fits on one line in the narrowest card, the two-column grid at 375 px
+  (138 px for "Дешевше в Xbox Store"), and wraps rather than truncates if a
+  longer store name ever comes. It is inside the card's one link, so it ends
+  the link's accessible name. Which store is named, by what margin and how
+  fresh both prices must be is the server's rule; the card compares nothing.
 
 ### Contrast ratios computed for this PR
 
@@ -200,6 +219,8 @@ alone says nothing about which one it picks.
 | `fg` `#ECEDEF`        | `surface-1` `#13151B` | 15.58:1 | Yes                               |
 | `fg-2` `#A3A7B3`      | `surface-1` `#13151B` | 7.59:1  | Yes                               |
 | `fg-3` `#6B7080`      | `surface-2` `#1A1D25` | 3.41:1  | **No — not allowed at any size**  |
+| `fg` `#ECEDEF`        | `surface-2` `#1A1D25` | 14.38:1 | Yes                               |
+| `fg-2` `#A3A7B3`      | `surface-2` `#1A1D25` | 7.01:1  | Yes                               |
 | `on-accent` `#1A1200` | `accent` `#F5A524`    | 9.10:1  | Yes                               |
 | `on-sale` `#0B0C10`   | `sale` `#B6F36A`      | 14.91:1 | Yes                               |
 
@@ -234,7 +255,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `GegeMascot`                    | Done — the AI-picks mascot, an inline pixel-art SVG with four moods; see "Gege, the mascot" below                                                                                                             |
 | `GegeGreeter`                   | Done — the landing page's greeting: Gege rises from the corner with the deal of the day; see "Gege, the mascot" below                                                                                         |
 | `GegeSpeech`                    | Done — Gege beside a speech bubble in the page's flow (the greeter's bubble look); used by the ask page                                                                                                       |
-| `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                                                                   |
+| `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, attribution (GOG and the Xbox Store named since week 4)                                                  |
 | `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
 | `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
 | `HeroVideo`                     | Done — PR 6                                                                                                                                                                                                   |
@@ -266,14 +287,14 @@ Status values: **exists** (unchanged since before the redesign),
 | `CatalogStaleBanner`            | Done — PR 7 — above the grid when the index's prices are too old to show                                                                                                                                      |
 | `filters/RadioList`             | Replaced by `SegmentedControl` in PR 4                                                                                                                                                                        |
 | `filters/YearRange`             | Replaced by `YearRangeSlider` in PR 4                                                                                                                                                                         |
-| `GameCard`                      | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9; "Зроблено в Україні" label in week 2B    |
+| `GameCard`                      | Restyled in PR 3 (hover, score band, platform icons); title level configurable in PR 9 (`h2` in the grid, `h3` under `GameRow`); "Зроблено в Україні" label in week 2B; "Дешевше в GOG" line in week 4        |
 | `GameGrid`                      | Restyled in PR 1; passes `heading-level="2"` to `GameCard` since PR 9                                                                                                                                         |
 | `SortSelect`                    | Restyled in PR 1 (dark pass); PR 7 added the three price sorts, hid them while the index is stale and named a sort the answer dropped                                                                         |
 | `Pagination`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `states/LoadingState`           | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `states/EmptyState`             | Restyled in PR 1 (dark pass); "Опишіть словами" link to the ask page in week 3                                                                                                                                |
 | `states/ErrorState`             | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
-| `StoreLinks`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `StoreLinks`                    | Restyled in PR 1 (dark pass); week 4 — a row for every store with a price, a chip for every store without; see "Where to buy" below                                                                           |
 | `LocaleSwitcher`                | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
 | `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
@@ -292,8 +313,13 @@ the "GG Stay" logo (display face) with the same one-line tagline used for
 (`/games?sort=RELEASED_DESC`) and the project's GitHub repository (an
 inline, hand-drawn `currentColor` SVG mark, external with
 `rel="noopener noreferrer"`), and `LocaleSwitcher`. A bottom row in
-`fg-2` keeps the existing RAWG/Steam attribution sentence and the
-ownership sentence, both already present in the locale files.
+`fg-2` keeps the attribution sentence and the ownership sentence, both in
+the locale files. Since week 4 the attribution names every source of the
+site's data, each as a link to the source itself: RAWG, Steam, GOG and the
+Xbox Store. The last is named as the store filter and a game page's row name
+it (`STORE_OPTIONS`), not as the "Microsoft Store" whose catalog its prices are
+read from, and links to `https://www.xbox.com`, where a product's page for
+Ukraine ends up.
 
 ### Accessibility additions (PR 9)
 
@@ -402,10 +428,17 @@ off.
 
 The server answers a game page inside a time budget, with what it has by then
 (`docs/specs/2026-10-06-game-page-budget-design.md`). When not everything about the game had
-arrived, the page is `partial`: it may lack its description, RAWG's screenshots, the stores other
-than Steam and the genres, developer and publisher of the facts panel — or, for a Steam game the
+arrived, the page is `partial`: it may lack its description, RAWG's screenshots, some or all of
+its stores and the genres, developer and publisher of the facts panel — or, for a Steam game the
 index does not hold, only its price. Every section is simply absent until it has data — no
 skeleton, no placeholder — exactly as it is for a game that has none.
+
+Which stores a partial page has depends on how it was put together. The page built from the index
+document, when RAWG's own answer was late or failed, has Steam's row and after it a row for GOG or
+the Xbox Store wherever the index holds an offer for a store it lists the game on — with the
+store's price while that is fresh, so a partial page can already say what another store charges
+(see "Where to buy") — and lacks every other store RAWG links. A page RAWG answered before its
+store links had arrived has no store at all until they do.
 
 - **The line.** One sentence says so — "Some of this page is still loading…" on the English page
   (it names no section, because what is missing may be the description and the screenshots, the
@@ -445,6 +478,64 @@ skeleton, no placeholder — exactly as it is for a game that has none.
   announces, as on the ask page. The attempts in between neither rebuild nor reword the line, so
   it is announced once; the final sentence takes the first one's place in the same element and is
   announced once too. What arrives is not announced.
+
+### Where to buy (week 4)
+
+`StoreLinks` is the game page's "Де купити". A store with a price is a row; a store without one
+is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`).
+
+- **Two tiers.** The rows come first, in one `surface-1` panel with a `line` border and a `line`
+  rule between rows — `rounded-card`, and no wider than `max-w-2xl`, the width of the gallery above
+  it. Under the panel are the chips of the stores without a price, unchanged: `rounded-chip`,
+  `surface-1`, the store's name and the external-link glyph. A game no store has a price for is
+  the chips alone, exactly as the block was before it had rows, and nothing is reserved for a
+  price that is not there. The rows keep the order of the answer; they are not sorted by price,
+  because the mark below is what says which is the lowest.
+- **A row** is one link, to the store's own page for the product, in a new tab, and at least
+  44 px tall. The store's name is `fg` at medium weight with the glyph after it. Under it, in 12 px
+  `fg-2`, is what the store itself calls the product — only when that differs from the game's
+  name once case, the signs ™ ® © and spacing are set aside (`namesAnotherProduct`), because a
+  store's link is sometimes to another edition and the price is that edition's. It is another
+  company's text: interpolated as text and never bound as markup, given no `lang` of its own (its
+  language is not known — GOG's titles are English, the Xbox Store's are in whatever the
+  listing for Ukraine is written in), and allowed to break anywhere, so a title of 200 characters
+  wraps inside a 375 px screen.
+- **The price** follows `PriceTag`: the `sale` chip, the price in `fg` at medium weight, the
+  regular price struck through in `fg-2` with "було" for a screen reader. A chip is drawn only for
+  1 to 99 percent and only beside a regular price that is above the price; "−0 %" and "−100 %"
+  are never drawn. Hryvnia are `.font-numeric`. A price in dollars is written as the store writes
+  it — `$8.99`, the same characters on the Ukrainian page and the English one — in `.font-tabular`,
+  by the decimal rule above. After it, behind a middle dot, comes the estimate in hryvnia,
+  `≈ 404 ₴`, in `fg-2` at regular weight: visibly secondary, because it is not a sum anybody is
+  charged. A free game is "Безкоштовно" in either currency, with no estimate. Under the price, in
+  12 px `fg-2`, is its age — "оновлено 6 годин тому" — counted, as the scoreboard's is, against
+  the moment the answer on the page arrived: the server's clock for a page the server rendered,
+  carried in the payload, and the browser's when a page is opened by navigation. No component
+  reads a clock of its own.
+- **«Найдешевше»** is a chip beside the store's name on the one row the answer marks: 12 px `fg`
+  at medium weight inside a 1 px `fg-2` border, `rounded-chip`, no fill. It uses no accent, signal
+  or sale colour — it is a fact about the prices, not an action, a live state or a discount — and
+  the border is 7.59:1 against `surface-1`. Which row is marked is the server's rule; the
+  component compares nothing. No row is marked on a page whose lowest price is free: "Безкоштовно"
+  already says what the mark would, and the row that charges is not the lowest. Nor beside a
+  price that cannot be placed: a dollar price with no estimate may be the lowest on the page. And
+  a row whose price is older than 36 hours — which only Steam's can be — is shown with its age
+  and takes no part: it is not marked, and nothing is marked against it.
+- **The note** is one sentence under the whole block, 12 px `fg-2`, there only while GOG's row
+  shows an estimate: `game.estimateNote`, with the day the rate is for written as a full date.
+- **On a phone** a row stacks — the name and the mark, the title, the price, the age — and from
+  640 px the price sits opposite the name, right-aligned.
+- **Hover and focus.** A hovered row is `surface-2` (`fg` 14.38:1, `fg-2` 7.01:1 on it). Focus is
+  the site's own ring, two pixels outside the row; the focused row is raised above its neighbours
+  so that their hover colour cannot cover it.
+- **Accessible name.** A row's name is the store, the mark, the title, then the price as one
+  sentence, then its age — and the sentence has an order of its own: "−78% $8.99, було $39.99,
+  приблизно 404 ₴". On screen the estimate sits right beside the price it is an estimate of and
+  the struck price comes last; heard in that order, "було" would attach to the estimate. So the
+  sentence is written out for a screen reader (`sr-only`) with a word for the strike
+  (`price.was`) and a word for the sign (`price.approximately`), and the pieces the eye reads —
+  chip, price, dot, `≈`, estimate, struck price — are `aria-hidden` as one group. The visual
+  order is unchanged.
 
 ### Share card (week 2C)
 

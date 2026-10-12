@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_OFFER_TITLE_LENGTH } from '../../../server/index/document'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import {
   DEV_FIXTURE_GAMES,
+  DEV_FIXTURE_META_EXTRA,
+  DEV_FIXTURE_PRICES_UPDATED_AT,
   DEV_FIXTURE_SHELF_GAMES,
   DEV_FIXTURE_UKRAINIAN_GAMES,
 } from '../../fixtures/index/devGames'
+import { safeExternalUrl } from '../../../shared/url'
+import rawgStardewStores from '../../fixtures/rawg/game-stardew-valley-stores.json' with { type: 'json' }
+import rawgWitcherStores from '../../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json' with { type: 'json' }
+import bankRate from '../../fixtures/nbu/exchange.json' with { type: 'json' }
+import gogCatalog from '../../fixtures/gog/catalog.json' with { type: 'json' }
 import published from '../../fixtures/index/published.json' with { type: 'json' }
 
 /**
@@ -133,6 +141,140 @@ describe('the published index fixture', () => {
     expect((await index.search({ priceMaxUah: 300, onSaleMinPercent: 50 })).ids).toEqual([
       4200, 16944,
     ])
+  })
+
+  /**
+   * What GOG and the Microsoft Store charge, seeded so that a page has every case to render: a
+   * dollar offer and a hryvnia one, one stale, a GOG price clearly below Steam's and one that is
+   * not. The cases are measured the way the design measures them.
+   */
+  describe('the offers of the other stores', () => {
+    const HOUR = 3_600_000
+    const runAt = Date.parse(DEV_FIXTURE_PRICES_UPDATED_AT)
+    const offered = fixture.games.filter((game) => game.offers !== undefined)
+    const offerOf = (id: number, store: string) =>
+      fixture.games.find((game) => game.id === id)?.offers?.find((offer) => offer.store === store)
+    const isFresh = (updatedAt: string) => runAt - Date.parse(updatedAt) <= 36 * HOUR
+    /** A dollar amount in whole hryvnia at the fixture's rate, as a page estimates it. */
+    const estimate = (cents: number) => Math.round((cents / 100) * fixture.meta.exchangeRate!.uah)
+
+    it('carries the rate and the store stamps beside the offers', () => {
+      expect(fixture.meta).toMatchObject(DEV_FIXTURE_META_EXTRA)
+      // The National Bank's own rate, as recorded.
+      expect(fixture.meta.exchangeRate?.uah).toBe(bankRate[0]!.rate)
+      // The rate was read by the fixture's run, so it is in date.
+      expect(fixture.meta.exchangeRate?.readAt).toBe(DEV_FIXTURE_PRICES_UPDATED_AT)
+    })
+
+    it('holds a dollar offer from GOG and a hryvnia offer from the Microsoft Store', () => {
+      expect(offered.map((game) => game.slug)).toEqual([
+        'the-witcher-3-wild-hunt',
+        'stardew-valley',
+        'metro-exodus',
+        'sherlock-holmes-chapter-one',
+      ])
+      expect(offerOf(3328, 'gog')).toMatchObject({ currency: 'USD', amount: 899 })
+      expect(offerOf(654, 'xbox-store')).toMatchObject({ currency: 'UAH', amount: 38_500 })
+      for (const game of offered) {
+        // At most one a store, every amount whole minor units, and every link one a page may show.
+        expect(new Set(game.offers!.map((offer) => offer.store)).size).toBe(game.offers!.length)
+        for (const offer of game.offers!) {
+          expect(Number.isInteger(offer.amount) && Number.isInteger(offer.regularAmount)).toBe(true)
+          expect(offer.regularAmount).toBeGreaterThanOrEqual(offer.amount)
+          expect(offer.currency).toBe(offer.store === 'gog' ? 'USD' : 'UAH')
+          expect(safeExternalUrl(offer.url)).toBe(offer.url)
+        }
+      }
+    })
+
+    it('holds one game where GOG is clearly cheaper than Steam, and one where it is not', () => {
+      const witcher = fixture.games.find((game) => game.id === 3328)!
+      const metro = fixture.games.find((game) => game.id === 28201)!
+
+      // The design's own example: $8.99 is ≈ 404 ₴, and that is far more than a tenth below
+      // Steam's 675 ₴.
+      expect(estimate(offerOf(3328, 'gog')!.amount)).toBe(404)
+      expect(estimate(offerOf(3328, 'gog')!.amount)).toBeLessThanOrEqual(witcher.priceUah! * 0.9)
+      // $29.99 is ≈ 1 348 ₴, against Steam's 749 ₴.
+      expect(estimate(offerOf(28201, 'gog')!.amount)).toBe(1348)
+      expect(estimate(offerOf(28201, 'gog')!.amount)).toBeGreaterThan(metro.priceUah!)
+    })
+
+    it('holds one stale offer, which would have been the cheapest had it been fresh', () => {
+      const stale = offered
+        .flatMap((game) => game.offers!)
+        .filter((offer) => !isFresh(offer.updatedAt))
+      const sherlock = fixture.games.find((game) => game.id === 447825)!
+
+      expect(stale).toEqual([offerOf(447825, 'gog')])
+      expect(estimate(stale[0]!.amount)).toBeLessThan(sherlock.priceUah! * 0.9)
+    })
+
+    /**
+     * The store's own title travels with an offer so that a page can say which edition a price is
+     * for. A page shows it when it differs from the game's name, case and surrounding whitespace
+     * ignored — which is the comparison made here, so the seed has every outcome of it.
+     */
+    it('holds a title that names another edition, one that is the game’s name, and none', () => {
+      const sameName = (left: string, right: string) =>
+        left.trim().toLocaleLowerCase('en') === right.trim().toLocaleLowerCase('en')
+      const titleOf = (id: number, store: string) => {
+        const game = fixture.games.find((candidate) => candidate.id === id)!
+        const title = offerOf(id, store)?.title
+        return { title, differs: title === undefined ? null : !sameName(title, game.name) }
+      }
+
+      expect(titleOf(3328, 'gog')).toEqual({
+        title: 'The Witcher 3: Wild Hunt — Remastered',
+        differs: true,
+      })
+      expect(titleOf(654, 'xbox-store')).toEqual({ title: 'Stardew Valley', differs: false })
+      // The same name but for its capitals: not another edition.
+      expect(titleOf(28201, 'gog')).toEqual({ title: 'METRO EXODUS', differs: false })
+      // The store gave none: the field is not there, rather than there and empty.
+      expect(titleOf(447825, 'gog')).toEqual({ title: undefined, differs: null })
+      expect('title' in offerOf(447825, 'gog')!).toBe(false)
+
+      for (const game of offered) {
+        for (const offer of game.offers!) {
+          if (offer.title === undefined) continue
+          expect(offer.title).toBe(offer.title.trim())
+          expect(offer.title.length).toBeGreaterThan(0)
+          expect(Array.from(offer.title).length).toBeLessThanOrEqual(MAX_OFFER_TITLE_LENGTH)
+        }
+      }
+    })
+
+    /**
+     * The Witcher 3's GOG offer is the design's example, and the one a development page links
+     * out from, so it names a product GOG's catalog really holds for Ukraine: the recorded pack,
+     * at its own address and under its own title. The slug RAWG's link carries for the game is
+     * not in that catalog, and a seed naming it would lead nowhere.
+     */
+    it('names, for The Witcher 3, a product GOG’s recorded catalog holds — not the slug of RAWG’s link', () => {
+      const offer = offerOf(3328, 'gog')!
+      const product = gogCatalog.products.find((candidate) => candidate.storeLink === offer.url)
+
+      expect(product).toMatchObject({
+        slug: 'the_witcher_3_wild_hunt_game_of_the_year_edition',
+        productType: 'pack',
+        title: offer.title,
+      })
+      const linked = rawgWitcherStores.results.find((link) => link.store_id === 5)!.url
+      expect(linked.endsWith('/game/the_witcher_3_wild_hunt')).toBe(true)
+      expect(gogCatalog.products.map((candidate) => candidate.slug)).not.toContain(
+        'the_witcher_3_wild_hunt',
+      )
+    })
+
+    it('offers a store only where the game is listed on it, and RAWG’s fixture links it', () => {
+      for (const game of offered) {
+        for (const offer of game.offers!) expect(game.stores, game.slug).toContain(offer.store)
+      }
+      // The two offered games a RAWG fixture exists for: the row the offer belongs to is there.
+      expect(rawgWitcherStores.results.map((link) => link.store_id)).toContain(5)
+      expect(rawgStardewStores.results.map((link) => link.store_id)).toContain(2)
+    })
   })
 
   it('strikes a real pre-discount price through, rather than the same number twice', () => {

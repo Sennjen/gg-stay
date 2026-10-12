@@ -1097,6 +1097,27 @@ describe('runCli', () => {
       /\| Studio slugs with no games \| 4a-games, action-forms, .*whale-rock-games-2 \|/,
     )
     expect(summary).toContain('| Studio slugs unknown to RAWG | none |')
+    // The other stores, from the recorded answers beside the RAWG ones and with no network at
+    // all. RAWG's fixtures list three of the five games on GOG or the Xbox store; two were asked
+    // about with their app id and the sweep asked about the third, the studio fixture's game,
+    // whose links name a GOG edition and a Microsoft product the recordings hold
+    // (`tests/fixtures/gog`, `tests/fixtures/microsoft`). The other two links are RAWG's real
+    // ones and find nothing there: The Witcher 3's GOG page is no longer in GOG's catalog, and
+    // Stardew Valley's Microsoft product is not in the recorded answer.
+    expect(summary).toContain(
+      '| Store references | 3 of 5 games on GOG or the Xbox store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
+    )
+    expect(summary).toContain(
+      '| GOG prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
+    )
+    expect(summary).toContain(
+      '| Microsoft Store prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
+    )
+    // The recorded rate, under today's date in Kyiv whenever the suite runs.
+    expect(summary).toMatch(
+      /\| Exchange rate \| 44\.9567 UAH per USD, the National Bank's for \d{4}-\d{2}-\d{2} \|/,
+    )
+    expect(summary).toContain('| Item failures | 0 |')
     vi.restoreAllMocks()
   })
 

@@ -824,6 +824,105 @@ describe('the ask pipeline — "like X"', () => {
   })
 })
 
+describe('the ask pipeline — the store a row’s card names as cheaper than Steam', () => {
+  /**
+   * The Xbox store at 200 ₴, read three hours before the request: a third below the 300 ₴ every
+   * game here costs on Steam. In hryvnia, so no rate is asked of the index's metadata.
+   */
+  const cheaperOnXbox: Partial<IndexedGame> = {
+    stores: ['steam', 'xbox-store'],
+    offers: [
+      {
+        store: 'xbox-store',
+        amount: 20_000,
+        regularAmount: 20_000,
+        currency: 'UAH',
+        discountPercent: 0,
+        url: 'https://www.microsoft.com/uk-ua/p/alpha/9nblggh4r2r6',
+        updatedAt: PRICED_AT,
+      },
+    ],
+  }
+  const GAMES = [
+    doc(601, 'Alpha Quest', { ...cheaperOnXbox, similar: [602, 603, 604] }),
+    doc(602, 'Beta Quest', cheaperOnXbox),
+    doc(603, 'Gamma Quest'),
+    doc(604, 'Delta Quest'),
+  ]
+  const named = (answer: Awaited<ReturnType<typeof runAsk>>['answer']) =>
+    answer.items.map((item) => [item.card.id, item.card.cheaperAt ?? null])
+  const rerankAll = (candidates: readonly CandidateCard[]) =>
+    ranking(candidates.map((card) => card.id))()
+
+  it('is on the cards of a structured answer the index retrieved', async () => {
+    const context = await contextWith(GAMES)
+    const { provider } = scripted({ parse: parsing({ priceMaxUah: 1_000 }), rerank: rerankAll })
+    const { answer } = await runAsk({ q: 'under 1000', locale: 'en' }, { context, provider })
+
+    expect(answer).toMatchObject({ mode: 'structured', indexedOnly: true })
+    expect(named(answer)).toEqual([
+      ['601', 'xbox-store'],
+      ['602', 'xbox-store'],
+      ['603', null],
+      ['604', null],
+    ])
+  })
+
+  it('is on the cards of a "like X" answer, built from the stored list’s documents', async () => {
+    const context = await contextWith(GAMES)
+    const { provider } = scripted({ parse: parsing({ similarTo: 'Alpha' }), rerank: rerankAll })
+    const { answer } = await runAsk({ q: 'like Alpha Quest', locale: 'en' }, { context, provider })
+
+    expect(named(answer)).toEqual([
+      ['602', 'xbox-store'],
+      ['603', null],
+      ['604', null],
+    ])
+  })
+
+  it('is on the cards of a fallback answered by the index’s plain search', async () => {
+    const context = await contextWith(GAMES)
+    const { provider } = scripted({ parse: () => failed('unavailable') })
+    const { answer } = await runAsk({ q: 'quest', locale: 'en' }, { context, provider })
+
+    expect(answer).toMatchObject({ mode: 'fallback', indexedOnly: true })
+    expect(named(answer)).toEqual([
+      ['601', 'xbox-store'],
+      ['602', 'xbox-store'],
+      ['603', null],
+      ['604', null],
+    ])
+  })
+
+  it('is withheld with the prices while the index’s prices are stale, on each of the three', async () => {
+    const stale = await publishTestIndex(GAMES, {
+      updatedAt: '2026-09-01T06:30:00.000Z',
+      pricesUpdatedAt: '2026-09-01T06:00:00.000Z',
+    })
+    const scripts: [string, Script][] = [
+      ['under 1000', { parse: parsing({ priceMaxUah: 1_000 }), rerank: rerankAll }],
+      ['like Alpha Quest', { parse: parsing({ similarTo: 'Alpha' }), rerank: rerankAll }],
+      ['quest', { parse: () => failed('unavailable') }],
+    ]
+    for (const [q, script] of scripts) {
+      const context = await contextWith(GAMES, { index: stale })
+      const { answer } = await runAsk(
+        { q, locale: 'en' },
+        { context, provider: scripted(script).provider },
+      )
+
+      expect(answer.indexStale, q).toBe(true)
+      // The cards are the index's own, Beta Quest among them — the one that would name a store.
+      expect(ids(answer), q).toContain('602')
+      expect(answer.items.length, q).toBeGreaterThanOrEqual(3)
+      for (const { card } of answer.items) {
+        expect(card.price, q).toBeNull()
+        expect(card.cheaperAt ?? null, q).toBeNull()
+      }
+    }
+  })
+})
+
 describe('the ask pipeline — fallback', () => {
   const RAW = 'щось як Hades, але коротше'
 

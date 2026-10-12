@@ -1,21 +1,30 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { createBankRateFetch, type BankRateFetch } from './bank'
 import type { JobClock } from './deps'
+import { createGogCatalogFetch, type GogCatalogFetch } from './gog'
+import { createMicrosoftProductsFetch, type MicrosoftProductsFetch } from './microsoft'
+import type { StoreUpstreamRuntime } from './storeUpstream'
 import type { UpstreamCacheEntry } from '../../server/upstream/createUpstreamFetch'
 import { createRawgFetch, type RawgFetch } from '../../server/rawg/rawgFetch'
 import { createSteamFetch } from '../../server/steam/steamFetch'
 import { createSteamPriceFetch, type SteamPriceFetch } from '../../server/steam/steamPriceFetch'
 
 /**
- * The two upstream transports, wired for a plain Node process instead of Nitro. The app builds
- * the same objects in `server/utils/rawg.ts` and `server/utils/steam.ts` from `useRuntimeConfig`
- * and `useStorage`; here the cache is a map that dies with the process and the fixtures are read
- * off disk, but the throttling, timeouts, retries and parsing are the transports' own.
+ * The upstream transports, wired for a plain Node process instead of Nitro. The app builds the
+ * RAWG and Steam ones in `server/utils/rawg.ts` and `server/utils/steam.ts` from
+ * `useRuntimeConfig` and `useStorage`; here the cache is a map that dies with the process and the
+ * fixtures are read off disk, but the throttling, timeouts, retries and parsing are the
+ * transports' own. The three at the end — GOG, the Microsoft Store and the National Bank — are
+ * built nowhere else: only the job talks to them.
  */
 
 const FIXTURE_DIRS = {
   RAWG: new URL('../../tests/fixtures/rawg/', import.meta.url),
   STEAM: new URL('../../tests/fixtures/steam/', import.meta.url),
+  GOG: new URL('../../tests/fixtures/gog/', import.meta.url),
+  MICROSOFT: new URL('../../tests/fixtures/microsoft/', import.meta.url),
+  NBU: new URL('../../tests/fixtures/nbu/', import.meta.url),
 } as const
 
 function createMemoryCache() {
@@ -107,6 +116,70 @@ export function createJobSteam(options: UpstreamOptions): SteamPriceFetch {
     ...shared,
     steamFetch: createSteamFetch({ ...shared, cache: createMemoryCache() }),
   })
+}
+
+/**
+ * Who is asking, on every request to GOG, the Microsoft Store and the National Bank: the project
+ * by name, what it is doing, and where its source — and so its owner — can be found. None of the
+ * three documents these endpoints for anyone else, and a caller they cannot identify is the first
+ * one they would be right to turn away.
+ */
+export const STORE_USER_AGENT = 'gg-stay-index-refresh/1.0 (+https://github.com/Sennjen/gg-stay)'
+
+async function fetchStoreJson(url: string, signal: AbortSignal) {
+  const response = await fetch(url, {
+    signal,
+    headers: { 'User-Agent': STORE_USER_AGENT, Accept: 'application/json' },
+  })
+  const body: unknown = await response.json().catch(() => null)
+  return { status: response.status, body }
+}
+
+/** What the three store transports need of the job: no API key, for none of them takes one. */
+export type StoreUpstreamOptions = Omit<UpstreamOptions, 'apiKey'>
+
+function storeRuntime(options: StoreUpstreamOptions, dir: URL): StoreUpstreamRuntime {
+  return {
+    fixtures: options.fixtures,
+    fetchJson: fetchStoreJson,
+    readFixture: createFixtureReader(dir),
+    now: options.clock.now,
+    sleep: options.clock.sleep,
+    log: noAttemptLines,
+  }
+}
+
+export function createJobGog(options: StoreUpstreamOptions): GogCatalogFetch {
+  return createGogCatalogFetch(storeRuntime(options, FIXTURE_DIRS.GOG))
+}
+
+export function createJobMicrosoft(options: StoreUpstreamOptions): MicrosoftProductsFetch {
+  return createMicrosoftProductsFetch(storeRuntime(options, FIXTURE_DIRS.MICROSOFT))
+}
+
+/** `2026-10-12` as the bank's answers write a day: `12.10.2026`. */
+function asBankDay(date: string): string {
+  return date.split('-').reverse().join('.')
+}
+
+/**
+ * In fixture mode the recorded answer is served as the answer for whatever day was asked for —
+ * the rate as it was recorded, under today's date. The bank is taken at its word only when it
+ * names the day it was asked about (`parseUsdRate`), and a recording names the day it was made:
+ * served as it is, a dry run would read a rate on that one day and never again.
+ */
+export function createJobBank(options: StoreUpstreamOptions): BankRateFetch {
+  const bank = createBankRateFetch(storeRuntime(options, FIXTURE_DIRS.NBU))
+  if (!options.fixtures) return bank
+  return async (date) => {
+    const recorded = await bank(date)
+    if (!Array.isArray(recorded)) return recorded
+    return recorded.map((entry: unknown) =>
+      entry !== null && typeof entry === 'object'
+        ? { ...entry, exchangedate: asBankDay(date) }
+        : entry,
+    )
+  }
 }
 
 export const systemClock: JobClock = {

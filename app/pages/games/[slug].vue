@@ -74,12 +74,31 @@ const description = computed(() => {
   return text || t('game.metaFallback', { name: game.value?.name ?? '' })
 })
 
-// Computed once (server or first client render) and reused from then on — see the comment on
-// `currentYear` in `pages/games/index.vue`, the same pattern for the same reason: the scoreboard's
-// "updated N hours ago" is derived from this, and no component may call `Date.now()` in its own
-// render path (server and client would then compute two different values as soon as a second
-// passes between the two renders, which is the exact shape of a hydration mismatch).
+/**
+ * The moment the page's prices are aged against: "updated N hours ago" in the scoreboard and on
+ * every row of "Де купити" is counted from a price's own date to this.
+ *
+ * It is the moment the answer on the page arrived, and it is read in three places and nowhere
+ * else — no component may call `Date.now()` in its own render path:
+ *
+ * - **On the server**, when the page is rendered. The value travels in the payload, and the
+ *   browser takes the server's markup over with that same value: read again there, it would be a
+ *   second or two later, and an age that tips over an hour in between is a hydration mismatch.
+ * - **In the browser, when a game page is opened by navigation.** The answer has just arrived,
+ *   and this is its time. The state outlives the page, so without this a tab that opened one game
+ *   at ten and another at one would count the second game's prices from ten — and call a price
+ *   read at noon "updated just now".
+ * - **In the browser, when a later answer takes the page over in place**: the whole answer after
+ *   a partial one, or another game's under the same page.
+ */
 const now = useState('game-page-now', () => new Date().toISOString())
+if (import.meta.client) {
+  const arrived = () => {
+    now.value = new Date().toISOString()
+  }
+  if (!useNuxtApp().isHydrating) arrived()
+  watch(data, arrived)
+}
 
 const { absoluteUrl } = useSiteUrl()
 const robots = useRobots()
@@ -176,7 +195,13 @@ useHead({
 
           <ScreenshotGallery class="mt-8" :images="game.screenshots" :title="game.name" />
 
-          <StoreLinks class="mt-8" :offers="game.stores" />
+          <StoreLinks
+            class="mt-8"
+            :offers="game.stores"
+            :game-name="game.name"
+            :rate-date="game.exchangeRate?.date"
+            :now="now"
+          />
         </div>
 
         <dl class="h-fit space-y-3 rounded-card border border-line bg-surface-1 p-4 text-sm">

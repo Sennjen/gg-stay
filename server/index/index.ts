@@ -392,22 +392,61 @@ function guard(
   )
 }
 
+/** `iso` moved by `shift` milliseconds, or as it stands when it is not a timestamp. */
+function shiftTimestamp(iso: string, shift: number): string {
+  const recorded = Date.parse(iso)
+  return Number.isFinite(recorded) ? new Date(recorded + shift).toISOString() : iso
+}
+
 /**
  * The recorded timeline moved forward so that the run the fixture describes ends at `seededAt`.
- * A price the fixture recorded three hours before its run stays three hours old.
+ * A price the fixture recorded three hours before its run stays three hours old — and so does
+ * what another store charged: an offer the fixture read six hours before its run is still fresh
+ * on a development page, and one it read two days before is still stale.
  */
-function shiftPriceTimestamps(
-  games: readonly IndexedGame[],
-  recordedAt: string,
-  seededAt: string,
-): IndexedGame[] {
-  const shift = Date.parse(seededAt) - Date.parse(recordedAt)
-  if (!Number.isFinite(shift)) return [...games]
+function shiftPriceTimestamps(games: readonly IndexedGame[], shift: number): IndexedGame[] {
   return games.map((game) => {
-    const recorded = game.priceUpdatedAt === null ? NaN : Date.parse(game.priceUpdatedAt)
-    if (!Number.isFinite(recorded)) return game
-    return { ...game, priceUpdatedAt: new Date(recorded + shift).toISOString() }
+    const moved: IndexedGame = { ...game }
+    if (game.priceUpdatedAt !== null) {
+      moved.priceUpdatedAt = shiftTimestamp(game.priceUpdatedAt, shift)
+    }
+    if (game.offers) {
+      moved.offers = game.offers.map((offer) => ({
+        ...offer,
+        updatedAt: shiftTimestamp(offer.updatedAt, shift),
+      }))
+    }
+    return moved
   })
+}
+
+/**
+ * The same move for what the fixture's metadata dates beside the Steam prices: when each store
+ * was last read, and the bank's rate — the moment it was read, and the day it is for, which a
+ * development page names under an estimated price and which would otherwise be a day in the
+ * autumn the fixture was recorded in.
+ */
+function shiftStoreTimestamps(
+  meta: IndexMeta,
+  shift: number,
+): Pick<IndexMeta, 'exchangeRate' | 'offersReadAt'> {
+  const moved: Pick<IndexMeta, 'exchangeRate' | 'offersReadAt'> = {}
+  if (meta.exchangeRate) {
+    moved.exchangeRate = {
+      ...meta.exchangeRate,
+      date: shiftTimestamp(`${meta.exchangeRate.date}T00:00:00.000Z`, shift).slice(0, 10),
+      readAt: shiftTimestamp(meta.exchangeRate.readAt, shift),
+    }
+  }
+  if (meta.offersReadAt) {
+    moved.offersReadAt = Object.fromEntries(
+      Object.entries(meta.offersReadAt).map(([store, readAt]) => [
+        store,
+        shiftTimestamp(readAt, shift),
+      ]),
+    )
+  }
+  return moved
 }
 
 async function seedFromFixture(sources: GameIndexSources): Promise<GameIndex> {
@@ -421,12 +460,15 @@ async function seedFromFixture(sources: GameIndexSources): Promise<GameIndex> {
   // they cannot disagree with a hydrated page.
   const seededAt = (sources.seededAt ?? (() => new Date().toISOString()))()
   const recordedAt = fixture.meta.pricesUpdatedAt ?? fixture.meta.updatedAt
-  const games = shiftPriceTimestamps(fixture.games, recordedAt, seededAt)
+  const elapsed = Date.parse(seededAt) - Date.parse(recordedAt)
+  const shift = Number.isFinite(elapsed) ? elapsed : 0
+  const games = shiftPriceTimestamps(fixture.games, shift)
 
   const version = await index.beginVersion()
   await index.writeVersion(version, games)
   await index.publish(version, {
     ...fixture.meta,
+    ...shiftStoreTimestamps(fixture.meta, shift),
     version,
     gameCount: games.length,
     updatedAt: seededAt,

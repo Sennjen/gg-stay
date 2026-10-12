@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { IndexedGame } from '../../../server/index/document'
 import { MAX_SLUG_LENGTH } from '../../../server/index/document'
-import { CURRENT_VERSION_KEY, namesKey, slugsKey, versionPrefix } from '../../../server/index/keys'
+import {
+  CURRENT_VERSION_KEY,
+  metaKey,
+  namesKey,
+  slugsKey,
+  storeRefsKey,
+  versionPrefix,
+} from '../../../server/index/keys'
 import type { RedisBatch, RedisCommands } from '../../../server/index/redisCommands'
 import { commandBytes } from '../../../server/index/redisCommands'
 import type { SendCommands } from '../../../server/index/upstashIndex'
@@ -1033,6 +1040,105 @@ describe('upstashIndex', () => {
         stats: { gamesIndexed: 2, failures: 1 },
       })
     })
+
+    const RATE = {
+      currency: 'USD' as const,
+      uah: 44.9567,
+      date: '2026-09-20',
+      readAt: '2026-09-20T06:15:00.000Z',
+    }
+
+    it('writes the rate and the store stamps as two more fields of that hash, in the same command', async () => {
+      const { redis, index } = makeAdapter()
+      const version = await index.beginVersion()
+      await index.writeVersion(version, FIXTURE_GAMES.slice(0, 2))
+      redis.requests.length = 0
+
+      await index.publish(version, {
+        version,
+        updatedAt: '2026-09-20T06:30:00.000Z',
+        pricesUpdatedAt: null,
+        gameCount: 2,
+        exchangeRate: RATE,
+        offersReadAt: { gog: '2026-09-20T00:15:00.000Z' },
+      })
+
+      // One `HSET` for the whole of the metadata, as before: the publication costs no command more.
+      const sent = redis.requests.flatMap((request) => request.commands)
+      expect(sent.filter((command) => command === 'hset')).toHaveLength(1)
+      const read = redis.pipeline()
+      const fields = read.hgetall(metaKey(version))
+      await read.exec()
+      expect(Object.keys(fields.value).sort()).toEqual([
+        'exchangeRate',
+        'gameCount',
+        'offersReadAt',
+        'pricesUpdatedAt',
+        'stats',
+        'updatedAt',
+        'version',
+      ])
+      expect(JSON.parse(fields.value.exchangeRate!)).toEqual(RATE)
+      expect((await index.meta())?.offersReadAt).toEqual({ gog: '2026-09-20T00:15:00.000Z' })
+    })
+
+    it('reads the metadata the previous build wrote, which has neither field', async () => {
+      const { redis, index } = makeAdapter()
+      const version = await index.beginVersion()
+      await index.writeVersion(version, FIXTURE_GAMES.slice(0, 2))
+      await index.publish(version, {
+        version,
+        updatedAt: '2026-09-20T06:30:00.000Z',
+        pricesUpdatedAt: '2026-09-20T06:00:00.000Z',
+        gameCount: 2,
+      })
+      // The hash exactly as the build before this one wrote it: five fields.
+      const rewrite = redis.pipeline()
+      rewrite.del([metaKey(version)])
+      rewrite.hset(metaKey(version), {
+        version: String(version),
+        updatedAt: '2026-09-20T06:30:00.000Z',
+        pricesUpdatedAt: JSON.stringify('2026-09-20T06:00:00.000Z'),
+        gameCount: '2',
+        stats: JSON.stringify({ gamesIndexed: 2, failures: 0, pricedCount: 1 }),
+      })
+      await rewrite.exec()
+
+      expect(await index.meta()).toEqual({
+        version,
+        updatedAt: '2026-09-20T06:30:00.000Z',
+        pricesUpdatedAt: '2026-09-20T06:00:00.000Z',
+        gameCount: 2,
+        stats: { gamesIndexed: 2, failures: 0, pricedCount: 1 },
+      })
+    })
+
+    it.each([
+      ['will not parse', '{"currency":"USD",'],
+      ['is empty', ''],
+      ['is null', 'null'],
+    ])('reads the rest of the metadata when the rate %s', async (_what, stored) => {
+      const { redis, index } = makeAdapter()
+      const version = await index.beginVersion()
+      await index.writeVersion(version, FIXTURE_GAMES.slice(0, 2))
+      await index.publish(version, {
+        version,
+        updatedAt: '2026-09-20T06:30:00.000Z',
+        pricesUpdatedAt: null,
+        gameCount: 2,
+        exchangeRate: RATE,
+        offersReadAt: { gog: '2026-09-20T00:15:00.000Z' },
+      })
+      const damage = redis.pipeline()
+      damage.hset(metaKey(version), { exchangeRate: stored })
+      await damage.exec()
+
+      const meta = await index.meta()
+
+      expect(meta).toMatchObject({ version, gameCount: 2 })
+      expect(meta && 'exchangeRate' in meta).toBe(false)
+      expect(meta?.offersReadAt).toEqual({ gog: '2026-09-20T00:15:00.000Z' })
+    })
   })
 
   describe('the write lock', () => {
@@ -1230,6 +1336,119 @@ describe('upstashIndex: what the refresh job asks of it', () => {
       expect(await index.getLanguages([])).toEqual(new Map())
       await index.setLanguages([])
       expect(redis.requests).toHaveLength(0)
+    })
+  })
+
+  describe('store references', () => {
+    const refsOf = (id: number) => ({
+      gog: `game_${id}`,
+      microsoft: { id: `9N${String(id).padStart(10, '0')}`, name: `game-${id}` },
+    })
+
+    it('keeps them outside every version, beside the app ids, as one key a game', async () => {
+      const { redis, index } = makeAdapter()
+      await index.setStoreRefs([
+        [3328, refsOf(3328)],
+        [4200, {}],
+      ])
+      await index.setAppIds([[3328, '292030']])
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(0, 3))
+      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(3, 6))
+
+      const found = await index.getStoreRefs([3328, 4200, 654])
+
+      expect(found.get(3328)).toEqual(refsOf(3328))
+      expect(found.get(4200)).toEqual({})
+      expect(found.has(654)).toBe(false)
+      expect(storeRefsKey(3328)).toBe('storeref:3328')
+      expect(redis.keys()).toEqual(
+        expect.arrayContaining(['storeref:3328', 'storeref:4200', 'appid:3328']),
+      )
+    })
+
+    it('reads any number of them in one request', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, { itemsPerCommand: 500 })
+      const ids = Array.from({ length: 3_400 }, (_, position) => position + 1)
+      await index.setStoreRefs(ids.map((id) => [id, refsOf(id)]))
+      redis.requests.length = 0
+
+      const found = await index.getStoreRefs(ids)
+
+      expect(found.size).toBe(3_400)
+      // 3 400 games at 500 a command: seven `MGET`s, one round trip.
+      expect(redis.requests).toHaveLength(1)
+      expect(redis.requests[0]!.commands).toEqual(Array.from({ length: 7 }, () => 'mget'))
+    })
+
+    it('writes them in requests bounded by commands and by bytes', async () => {
+      const redis = createFakeRedis()
+      const index = createUpstashIndex(redis, {
+        itemsPerCommand: 25,
+        maxCommandsPerRequest: 4,
+        maxBytesPerRequest: 100_000,
+      })
+
+      await index.setStoreRefs(
+        Array.from({ length: 500 }, (_, position) => [position, refsOf(position)]),
+      )
+
+      // 500 records at 25 per MSET is 20 commands, at 4 commands per request is 5 requests.
+      expect(redis.requests).toHaveLength(5)
+      for (const request of redis.requests) {
+        expect(request.commands).toEqual(request.commands.map(() => 'mset'))
+      }
+      expect((await index.getStoreRefs([499])).get(499)).toEqual(refsOf(499))
+    })
+
+    it('counts what they cost, like everything else the job sends', async () => {
+      const { redis, index } = makeAdapter()
+      const entries: [number, ReturnType<typeof refsOf>][] = [
+        [3328, refsOf(3328)],
+        [4200, refsOf(4200)],
+      ]
+
+      await index.setStoreRefs(entries)
+      await index.getStoreRefs([3328, 4200])
+
+      expect(index.stats()).toEqual({
+        requests: 2,
+        commands: 2,
+        bytes:
+          commandBytes([
+            'MSET',
+            ...entries.flatMap(([id, refs]) => [storeRefsKey(id), JSON.stringify(refs)]),
+          ]) + commandBytes(['MGET', storeRefsKey(3328), storeRefsKey(4200)]),
+      })
+      expect(redis.requests).toHaveLength(2)
+    })
+
+    it('asks for nothing when there is nothing to ask about', async () => {
+      const { redis, index } = makeAdapter()
+      expect(await index.getStoreRefs([])).toEqual(new Map())
+      await index.setStoreRefs([])
+      expect(redis.requests).toHaveLength(0)
+    })
+
+    it('reads a record it cannot read as a game never asked about', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { redis, index } = makeAdapter()
+      await index.setStoreRefs([[1, refsOf(1)]])
+      const damage = redis.pipeline()
+      damage.mset({
+        [storeRefsKey(2)]: '{"gog":"limbo",',
+        [storeRefsKey(3)]: '"limbo"',
+        [storeRefsKey(4)]: '["limbo"]',
+        [storeRefsKey(5)]: 'null',
+      })
+      await damage.exec()
+
+      const found = await index.getStoreRefs([1, 2, 3, 4, 5])
+
+      // The job then asks RAWG about those four again and rewrites them.
+      expect([...found.keys()]).toEqual([1])
+      expect(warn).toHaveBeenCalledTimes(4)
+      warn.mockRestore()
     })
   })
 

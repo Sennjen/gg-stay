@@ -63,9 +63,11 @@
   "footer": {
     "nav": "Підвал сайту",
     "github": "GitHub",
-    "dataBy": "Дані про ігри надають {rawg} і {steam}.",
+    "dataBy": "Дані про ігри надають {rawg}, {steam}, {gog} і {xbox}.",
     "rawg": "RAWG",
     "steam": "Steam",
+    "gog": "GOG",
+    "xbox": "Xbox Store",
     "rights": "Назви та зображення належать їхнім власникам."
   },
   "states": {
@@ -177,7 +179,8 @@
   },
   "price": {
     "free": "Безкоштовно",
-    "was": "було"
+    "was": "було",
+    "approximately": "приблизно"
   },
   "localisation": {
     "text": "Українська: текст",
@@ -196,7 +199,8 @@
       "NINTENDO": "Nintendo",
       "MOBILE": "Мобільні"
     },
-    "madeInUkraine": "Зроблено в Україні"
+    "madeInUkraine": "Зроблено в Україні",
+    "cheaperAt": "Дешевше в {store}"
   },
   "drawer": {
     "title": "Фільтри",
@@ -235,6 +239,8 @@
     "gameModes": "Режими гри",
     "website": "Офіційний сайт",
     "whereToBuy": "Де купити",
+    "cheapest": "Найдешевше",
+    "estimateNote": "GOG продає в доларах США. Сума в гривні приблизна, за курсом НБУ на {date}; банк може списати іншу.",
     "about": "Про гру",
     "descriptionSourceSteam": "Опис: Steam",
     "metaFallback": "{name}: платформи, жанри, рейтинг і магазини.",

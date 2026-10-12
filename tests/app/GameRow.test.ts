@@ -17,6 +17,7 @@ const game: GamesQuery['games']['items'][number] = {
   madeInUkraine: false,
   price: null,
   localisation: null,
+  cheaperAt: null,
 }
 
 const games = Array.from({ length: 6 }, (_, index) => ({

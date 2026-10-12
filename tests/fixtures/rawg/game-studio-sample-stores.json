@@ -1,0 +1,7 @@
+{
+  "count": 2, "next": null, "previous": null,
+  "results": [
+    { "id": 999021, "game_id": 999002, "store_id": 5, "url": "https://www.gog.com/game/the_witcher_3_wild_hunt_game_of_the_year_edition" },
+    { "id": 999022, "game_id": 999002, "store_id": 2, "url": "https://www.microsoft.com/en-us/p/halo-infinite/9pp5g1f0c2b6?cid=msft_web_chart" }
+  ]
+}

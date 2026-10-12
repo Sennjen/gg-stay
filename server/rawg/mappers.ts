@@ -87,8 +87,31 @@ export function mapGameCard(raw: RawgGameListItem): GameCard {
     platforms: mapTaxonomies((raw.platforms ?? []).map((entry) => entry.platform ?? {})),
     genres: mapTaxonomies(raw.genres),
     price: null,
+    cheaperAt: null,
     localisation: null,
     madeInUkraine: false,
+  }
+}
+
+/**
+ * A store's row with no price on it: the link, and nulls for everything a price would fill. What
+ * every store row starts as; the index mappers put a price on the ones they have a fresh one for
+ * (`server/index/toGraphql.ts`). `url` has already been through `safeExternalUrl`.
+ */
+export function toStoreLink(store: string, url: string): StoreOffer {
+  return {
+    store,
+    url,
+    title: null,
+    priceUah: null,
+    regularPriceUah: null,
+    discountPercent: null,
+    isFree: null,
+    updatedAt: null,
+    foreignPrice: null,
+    foreignRegularPrice: null,
+    approxUah: null,
+    cheapest: false,
   }
 }
 
@@ -99,17 +122,7 @@ function mapStoreOffers(links: RawgStoreLink[]): StoreOffer[] {
     // exists to be clicked, so there is nothing left to render once the URL is refused.
     const url = safeExternalUrl(link.url)
     if (!store || !url) return []
-    return [
-      {
-        store,
-        url,
-        priceUah: null,
-        regularPriceUah: null,
-        discountPercent: null,
-        isFree: null,
-        updatedAt: null,
-      },
-    ]
+    return [toStoreLink(store, url)]
   })
 }
 
@@ -118,11 +131,16 @@ export function mapGame(
   storeLinks: RawgStoreLink[],
   screenshots: RawgScreenshot[] = [],
 ): Game {
-  // `price` exists on GameCard but not on Game; destructure it out so the
+  // `price` and `cheaperAt` exist on GameCard but not on Game; destructure them out so the
   // spread below doesn't carry a field the Game type doesn't declare.
   // `screenshots` (mapped from `short_screenshots` above) is also replaced: `Game.screenshots`
   // comes from the dedicated screenshots endpoint, not the max-4 card preview.
-  const { price: _price, screenshots: _cardScreenshots, ...card } = mapGameCard(raw)
+  const {
+    price: _price,
+    cheaperAt: _cheaperAt,
+    screenshots: _cardScreenshots,
+    ...card
+  } = mapGameCard(raw)
   const tags = mapTaxonomies(raw.tags)
   return {
     ...card,

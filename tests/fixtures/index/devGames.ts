@@ -1,4 +1,9 @@
-import type { IndexedGame } from '../../../server/index/document'
+import type {
+  IndexMeta,
+  IndexedExchangeRate,
+  IndexedGame,
+  IndexedOffer,
+} from '../../../server/index/document'
 
 /**
  * The index documents a development server is seeded with — one per game the RAWG fixtures
@@ -12,11 +17,119 @@ import type { IndexedGame } from '../../../server/index/document'
  *
  * `unreleased-sample` (999001) is deliberately absent: a catalog page must keep showing a game the
  * index knows nothing about, with no price line at all.
+ *
+ * Four games also carry what GOG and the Microsoft Store charge (`IndexedGame.offers`), one case
+ * each of what a page has to tell apart:
+ *
+ * | game                        | offers                           | what it is there for            |
+ * | --------------------------- | -------------------------------- | ------------------------------- |
+ * | The Witcher 3 (3328)        | GOG, $8.99                       | dollars, and clearly cheaper    |
+ * |                             |                                  | than Steam: ≈ 404 ₴ against 675 |
+ * | Stardew Valley (654)        | Microsoft Store, 385 ₴           | hryvnia, beside a free Steam    |
+ * | Metro Exodus (28201)        | GOG, $29.99                      | dollars, and not cheaper than   |
+ * |                             |                                  | Steam: ≈ 1 348 ₴ against 749    |
+ * | Sherlock Holmes: Chapter    | GOG, $7.99, read two days before | a stale offer: it would be the  |
+ * | One (447825)                | the run                          | cheapest, and is not a price    |
+ *
+ * The first two have a RAWG fixture whose store links name the same store, as the links of a
+ * game with an offer always do; the other two are index-only. The GOG amounts and the two
+ * index-only slugs are plausible, not recorded. Stardew Valley's offer is recorded: the product
+ * RAWG links and what the Microsoft Store charged for it in Ukraine on 2026-10-12. The rate is
+ * the National Bank's as recorded (`tests/fixtures/nbu/exchange.json`), so the first row is the
+ * design's own example: $8.99 is ≈ 404 ₴.
+ *
+ * The Witcher 3's GOG product is recorded too, though its price is not: the pack GOG's catalog
+ * holds for Ukraine, under its own slug and the title the catalog gave it on 2026-10-12
+ * (`tests/fixtures/gog/catalog.json`). The slug RAWG's link still carries for the game,
+ * `the_witcher_3_wild_hunt`, is in that catalog no longer, so a seed that named it would send a
+ * development page to an address GOG does not sell at. A real run reads no GOG price for this
+ * game for the same reason — nothing is guessed from a title — and the seed stands in for a game
+ * whose link does name the product.
+ *
+ * Each offer also carries, or does not, what the store calls the product (`IndexedOffer.title`)
+ * — again one case each of what a page has to tell apart from the game's own name:
+ *
+ * | game                 | the store's title                                   | against the name  |
+ * | -------------------- | --------------------------------------------------- | ----------------- |
+ * | The Witcher 3        | The Witcher 3: Wild Hunt — Remastered               | another edition   |
+ * | Stardew Valley       | Stardew Valley                                      | the same          |
+ * | Metro Exodus         | METRO EXODUS                                        | the same, but for |
+ * |                      |                                                     | its capitals      |
+ * | Sherlock Holmes: C1  | none                                                | nothing to say    |
  */
 
 /** When the fixture run finished; `priceUpdatedAt` below is relative to it. */
 export const DEV_FIXTURE_UPDATED_AT = '2026-09-20T06:30:00.000Z'
 export const DEV_FIXTURE_PRICES_UPDATED_AT = '2026-09-20T06:00:00.000Z'
+
+/**
+ * When the fixture run's stores were last read: the prices run before it, under six hours
+ * earlier. An offer dated then is fresh on a page — the site calls one stale past thirty-six
+ * hours.
+ */
+export const DEV_FIXTURE_OFFERS_READ_AT = '2026-09-20T00:15:00.000Z'
+
+/** A read two days before the run: past thirty-six hours, so an offer dated then is stale. */
+export const DEV_FIXTURE_STALE_OFFER_AT = '2026-09-18T12:15:00.000Z'
+
+/** The National Bank's dollar rate the fixture run read, for the day it ran on. */
+export const DEV_FIXTURE_EXCHANGE_RATE: IndexedExchangeRate = {
+  currency: 'USD',
+  uah: 44.9567,
+  date: '2026-09-20',
+  readAt: DEV_FIXTURE_PRICES_UPDATED_AT,
+}
+
+/** What the fixture's metadata says of the stores other than Steam, beside what it always said. */
+export const DEV_FIXTURE_META_EXTRA: Pick<IndexMeta, 'exchangeRate' | 'offersReadAt'> = {
+  exchangeRate: DEV_FIXTURE_EXCHANGE_RATE,
+  offersReadAt: {
+    gog: DEV_FIXTURE_OFFERS_READ_AT,
+    'xbox-store': DEV_FIXTURE_OFFERS_READ_AT,
+  },
+}
+
+/** A GOG offer in cents, as the refresh job writes one. */
+function gogOffer(
+  slug: string,
+  title: string | null,
+  amount: number,
+  regularAmount: number,
+  updatedAt = DEV_FIXTURE_OFFERS_READ_AT,
+): IndexedOffer {
+  return {
+    store: 'gog',
+    // Left out, not written empty, when the store gave none.
+    ...(title === null ? {} : { title }),
+    amount,
+    regularAmount,
+    currency: 'USD',
+    discountPercent: Math.round((1 - amount / regularAmount) * 100),
+    url: `https://www.gog.com/en/game/${slug}`,
+    updatedAt,
+  }
+}
+
+/** A Microsoft Store offer in kopecks, as the refresh job writes one. */
+function microsoftOffer(
+  name: string,
+  id: string,
+  title: string | null,
+  amount: number,
+  regularAmount: number,
+  updatedAt = DEV_FIXTURE_OFFERS_READ_AT,
+): IndexedOffer {
+  return {
+    store: 'xbox-store',
+    ...(title === null ? {} : { title }),
+    amount,
+    regularAmount,
+    currency: 'UAH',
+    discountPercent: Math.round((1 - amount / regularAmount) * 100),
+    url: `https://www.microsoft.com/uk-ua/p/${name}/${id}`,
+    updatedAt,
+  }
+}
 
 export const DEV_FIXTURE_GAMES: IndexedGame[] = [
   {
@@ -53,6 +166,18 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     // it — so the game page knows which Steam app to ask about, and which store page to name,
     // before RAWG has said anything. The same goes for the two games below.
     steamAppId: '292030',
+    // GOG in dollars, and clearly below Steam: $8.99 is ≈ 404 ₴ at the fixture's rate, against
+    // 675 ₴. The product is the pack GOG's catalog holds for Ukraine, and the title is the
+    // catalog's own for it, dash and all: another edition than the game's name says, which is
+    // what the title is there to tell a page.
+    offers: [
+      gogOffer(
+        'the_witcher_3_wild_hunt_game_of_the_year_edition',
+        'The Witcher 3: Wild Hunt — Remastered',
+        899,
+        3999,
+      ),
+    ],
   },
   {
     id: 4200,
@@ -95,7 +220,7 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     popularity: 9800,
     platforms: [4, 7],
     genres: ['indie', 'simulation'],
-    stores: ['steam'],
+    stores: ['steam', 'xbox-store'],
     gameModes: ['SINGLE', 'ONLINE_COOP'],
     ageRating: 'PEGI7',
     rating: 4.4,
@@ -110,6 +235,9 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     madeInUkraine: false,
     priceUpdatedAt: DEV_FIXTURE_PRICES_UPDATED_AT,
     steamAppId: '413150',
+    // The Microsoft Store in hryvnia, beside a Steam page that gives the game away: the product
+    // and the price are the store's own for Ukraine.
+    offers: [microsoftOffer('stardew-valley', 'c3d891z6tnqm', 'Stardew Valley', 38_500, 38_500)],
   },
 ]
 
@@ -145,9 +273,10 @@ interface MadeInUkraine
     | 'playtime'
   > {
   price?: { priceUah: number; regularPriceUah: number; discountPercent: number }
+  offers?: IndexedOffer[]
 }
 
-function madeInUkraine({ price, ...game }: MadeInUkraine): IndexedGame {
+function madeInUkraine({ price, offers, ...game }: MadeInUkraine): IndexedGame {
   // Spelled out in the document's own field order, so `published.json` reads like its neighbours.
   return {
     id: game.id,
@@ -173,6 +302,8 @@ function madeInUkraine({ price, ...game }: MadeInUkraine): IndexedGame {
     localisation: null,
     madeInUkraine: true,
     priceUpdatedAt: price ? DEV_FIXTURE_PRICES_UPDATED_AT : null,
+    // Left out, not written empty, as the refresh job leaves it.
+    ...(offers ? { offers } : {}),
   }
 }
 
@@ -194,6 +325,10 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     metacritic: 82,
     playtime: 18,
     price: { priceUah: 749, regularPriceUah: 1249, discountPercent: 40 },
+    // GOG at its regular price, which is not cheaper than Steam's sale: $29.99 is ≈ 1 348 ₴.
+    // The game has no RAWG fixture, so its page is the one built from this document alone.
+    // The store shouts the title; it is the game's own name all the same.
+    offers: [gogOffer('metro_exodus', 'METRO EXODUS', 2999, 2999)],
   }),
   // GSC Game World, Kyiv.
   madeInUkraine({
@@ -246,6 +381,9 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     metacritic: null,
     playtime: 12,
     price: { priceUah: 899, regularPriceUah: 899, discountPercent: 0 },
+    // A stale offer: $7.99 would be ≈ 359 ₴ and far the cheapest, and it was read two days
+    // before the run — so it is not a price, and its store is a link without one.
+    offers: [gogOffer('sherlock_holmes_chapter_one', null, 799, 3999, DEV_FIXTURE_STALE_OFFER_AT)],
   }),
   // GSC Game World, Kyiv.
   madeInUkraine({

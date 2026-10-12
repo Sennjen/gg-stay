@@ -63,9 +63,11 @@
   "footer": {
     "nav": "Footer",
     "github": "GitHub",
-    "dataBy": "Game data provided by {rawg} and {steam}.",
+    "dataBy": "Game data provided by {rawg}, {steam}, {gog} and {xbox}.",
     "rawg": "RAWG",
     "steam": "Steam",
+    "gog": "GOG",
+    "xbox": "Xbox Store",
     "rights": "Names and images belong to their respective owners."
   },
   "states": {
@@ -177,7 +179,8 @@
   },
   "price": {
     "free": "Free",
-    "was": "was"
+    "was": "was",
+    "approximately": "approximately"
   },
   "localisation": {
     "text": "Ukrainian: text",
@@ -196,7 +199,8 @@
       "NINTENDO": "Nintendo",
       "MOBILE": "Mobile"
     },
-    "madeInUkraine": "Made in Ukraine"
+    "madeInUkraine": "Made in Ukraine",
+    "cheaperAt": "Cheaper at {store}"
   },
   "drawer": {
     "title": "Filters",
@@ -235,6 +239,8 @@
     "gameModes": "Game modes",
     "website": "Official website",
     "whereToBuy": "Where to buy",
+    "cheapest": "Cheapest",
+    "estimateNote": "GOG charges in US dollars. The hryvnia amount is an estimate at the National Bank of Ukraine's rate of {date}; your bank may charge a different sum.",
     "about": "About",
     "descriptionSourceSteam": "Description: Steam",
     "metaFallback": "{name}: platforms, genres, ratings and stores.",

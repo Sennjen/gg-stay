@@ -36,6 +36,7 @@ const game: GamesQuery['games']['items'][number] = {
   madeInUkraine: false,
   price: null,
   localisation: null,
+  cheaperAt: null,
 }
 
 /** Parses a srcset into `[url, descriptor]` pairs. */

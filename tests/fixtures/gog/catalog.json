@@ -1,0 +1,69 @@
+{
+  "pages": 1,
+  "currentlyShownProductCount": 3,
+  "productCount": 3,
+  "products": [
+    {
+      "id": "1441199941",
+      "slug": "the_witcher_3_redkit",
+      "productType": "game",
+      "title": "The Witcher 3 REDkit",
+      "releaseDate": "2024.05.21",
+      "storeReleaseDate": "2024.05.21",
+      "price": {
+        "final": "$0.00",
+        "base": "$0.00",
+        "discount": null,
+        "finalMoney": {
+          "amount": "0.00",
+          "currency": "USD",
+          "discount": "0.00"
+        },
+        "baseMoney": {
+          "amount": "0.00",
+          "currency": "USD"
+        }
+      },
+      "productState": "default",
+      "storeLink": "https://www.gog.com/en/game/the_witcher_3_redkit",
+      "editions": []
+    },
+    {
+      "id": "1640424747",
+      "slug": "the_witcher_3_wild_hunt_game_of_the_year_edition",
+      "productType": "pack",
+      "title": "The Witcher 3: Wild Hunt — Remastered",
+      "releaseDate": "2016.08.30",
+      "storeReleaseDate": "2016.08.29",
+      "price": {
+        "final": "$17.49",
+        "base": "$34.99",
+        "discount": "-50%",
+        "finalMoney": {
+          "amount": "17.49",
+          "currency": "USD",
+          "discount": "17.50"
+        },
+        "baseMoney": {
+          "amount": "34.99",
+          "currency": "USD"
+        }
+      },
+      "productState": "default",
+      "storeLink": "https://www.gog.com/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition",
+      "editions": []
+    },
+    {
+      "id": "1179418179",
+      "slug": "the_witcher_3_wild_hunt_songs_of_the_past",
+      "productType": "pack",
+      "title": "The Witcher 3: Wild Hunt — Songs of the Past",
+      "releaseDate": null,
+      "storeReleaseDate": null,
+      "price": null,
+      "productState": "coming-soon",
+      "storeLink": "https://www.gog.com/en/game/the_witcher_3_wild_hunt_songs_of_the_past",
+      "editions": []
+    }
+  ]
+}

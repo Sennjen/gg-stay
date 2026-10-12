@@ -146,6 +146,77 @@ describe('createGameIndex', () => {
     expect((await index.meta())?.updatedAt).toBe('2026-09-20T07:00:00.000Z')
   })
 
+  it('keeps every seeded offer as old as the fixture recorded it: fresh ones fresh, the stale one stale', async () => {
+    // The fixture's run ended at 06:00 on its own day; the seed says it ended at 07:00 on this
+    // one, an hour on. Everything dated moves by that hour and keeps its age.
+    const index = await createGameIndex(sources())
+    const seededAt = Date.parse('2026-09-20T07:00:00.000Z')
+    const ageOf = (iso: string) => seededAt - Date.parse(iso)
+    const HOUR = 3_600_000
+
+    const witcher = await index.getOne(3328)
+    expect(witcher?.priceUpdatedAt).toBe('2026-09-20T04:00:00.000Z')
+    expect(witcher?.offers).toEqual([
+      {
+        store: 'gog',
+        title: 'The Witcher 3: Wild Hunt — Remastered',
+        amount: 899,
+        regularAmount: 3999,
+        currency: 'USD',
+        discountPercent: 78,
+        url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition',
+        // Read five and three quarter hours before the run, as recorded.
+        updatedAt: '2026-09-20T01:15:00.000Z',
+      },
+    ])
+    const stale = (await index.getOne(447825))?.offers?.[0]
+    expect(ageOf(witcher!.offers![0]!.updatedAt)).toBeLessThan(36 * HOUR)
+    expect(ageOf(stale!.updatedAt)).toBeGreaterThan(36 * HOUR)
+    // A game the fixture has no offer for is not given a field.
+    expect('offers' in (await index.getOne(4200))!).toBe(false)
+
+    const meta = await index.meta()
+    expect(meta?.offersReadAt).toEqual({
+      gog: '2026-09-20T01:15:00.000Z',
+      'xbox-store': '2026-09-20T01:15:00.000Z',
+    })
+    expect(meta?.exchangeRate).toEqual({
+      currency: 'USD',
+      uah: 44.9567,
+      date: '2026-09-20',
+      readAt: '2026-09-20T07:00:00.000Z',
+    })
+  })
+
+  it('dates the seeded rate by the day the seed is published on', async () => {
+    const index = await createGameIndex(sources({ seededAt: () => '2027-03-01T12:00:00.000Z' }))
+
+    expect((await index.meta())?.exchangeRate).toMatchObject({
+      date: '2027-03-01',
+      readAt: '2027-03-01T12:00:00.000Z',
+    })
+    // And with the stale switch, every offer is as stale as the Steam prices are.
+    const NOW = Date.parse('2026-09-20T12:00:00.000Z')
+    const stale = await createGameIndex(sources({ seededAt: staleSeedAt(true, '1', () => NOW) }))
+    const offer = (await stale.getOne(3328))?.offers?.[0]
+    expect(NOW - Date.parse(offer!.updatedAt)).toBeGreaterThan(INDEX_STALE_AFTER_MS)
+  })
+
+  it('seeds a fixture recorded before any store was read, as it always did', async () => {
+    const { exchangeRate: _rate, offersReadAt: _stamps, ...meta } = fixture.meta
+    const older: PublishedFixture = {
+      meta,
+      games: fixture.games.map(({ offers: _offers, ...game }) => game),
+    }
+    const index = await createGameIndex(sources({ readFixture: async () => older }))
+
+    const seeded = await index.meta()
+    expect(seeded?.gameCount).toBe(fixture.games.length)
+    expect(seeded && 'exchangeRate' in seeded).toBe(false)
+    expect(seeded && 'offersReadAt' in seeded).toBe(false)
+    expect((await index.getOne(3328))?.priceUpdatedAt).toBe('2026-09-20T04:00:00.000Z')
+  })
+
   it('finds a seeded game by its slug through every layer the site adds', async () => {
     const index = await createGameIndex(sources())
     expect(await index.idBySlug('portal-2')).toBe(4200)

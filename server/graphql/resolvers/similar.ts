@@ -2,6 +2,7 @@ import { toGameCard } from '../../index/toGraphql'
 import type { GraphQLContext } from '../context'
 import {
   cachedIndexPage,
+  cardTerms,
   indexEntry,
   indexFailed,
   indexState,
@@ -73,9 +74,10 @@ async function storedSimilar(
   if (wanted.length === 0) return []
   try {
     const documents = await context.index.getMany(wanted)
+    const terms = await cardTerms(context)
     return wanted.flatMap((id) => {
       const document = documents.get(id)
-      return document ? [toGameCard(document)] : []
+      return document ? [toGameCard(document, terms)] : []
     })
   } catch (error) {
     warnIndexOnce(context, 'similar games could not be read', error)

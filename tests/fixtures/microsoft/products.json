@@ -1,0 +1,131 @@
+{
+  "Products": [
+    {
+      "ProductId": "9NP1P1WFS0LB",
+      "ProductKind": "Game",
+      "PreferredSkuId": "0010",
+      "LocalizedProperties": [{"ProductTitle": "Halo Infinite", "Language": "en"}],
+      "DisplaySkuAvailabilities": [
+        {
+          "Sku": {"SkuId": "0010", "SkuType": "full", "Properties": {"IsTrial": false, "IsPreOrder": false, "IsBundle": true}},
+          "Availabilities": [
+            {"Actions": ["Details", "Purchase", "Browse", "Curate", "Redeem"], "AvailabilityId": "9T7SCMZQP472", "Conditions": {"EndDate": "2026-10-15T09:59:59.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": false, "ListPrice": 508.2, "MSRP": 1540.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": "UAH", "WholesalePrice": 296.45}}, "SkuId": "0010", "DisplayRank": 0},
+            {"Actions": ["Details", "Purchase", "Curate"], "AvailabilityId": "9RVRJZJ995KN", "Conditions": {"EndDate": "2026-10-15T09:59:59.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": "UAH", "WholesalePrice": 0.0}}, "SkuId": "0010", "DisplayRank": 1, "RemediationRequired": true, "Remediations": [{"RemediationId": "9ZNPVF4DTWVC", "Type": "Upsell", "BigId": "CFQ7TTC0KGQ8"}]},
+            {"Actions": ["Details"], "AvailabilityId": "9NLSK1L350DC", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 2},
+            {"Actions": ["Details", "Browse", "Curate", "Gift"], "AvailabilityId": "B25P1N643677", "Conditions": {"EndDate": "2026-10-15T09:59:59.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": false, "ListPrice": 508.2, "MSRP": 1540.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": "UAH", "WholesalePrice": 296.45}}, "SkuId": "0010", "DisplayRank": 3},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B4B4GGTRTH22", "Conditions": {"EndDate": "2026-10-15T09:59:59.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 4},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B1X55ML9VBBZ", "Conditions": {"EndDate": "2026-10-15T09:59:59.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 5, "AffirmationId": "B1FFW2F7JKV0"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9TMB2335GPG0", "Conditions": {"EndDate": "2026-10-15T10:00:00.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 6, "AffirmationId": "B1FFW2F7JKV0"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9QPQ7ZF6BB58", "Conditions": {"EndDate": "2026-10-15T10:00:00.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 7, "AffirmationId": "9WNZS2ZC9L74"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9VQ4KV4JSXBV", "Conditions": {"EndDate": "2026-10-15T10:00:00.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 8, "AffirmationId": "B1FFW2F7JKV0"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B2HXKSL823DL", "Conditions": {"EndDate": "2026-10-15T10:00:00.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 9, "AffirmationId": "9WNZS2ZC9L74"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9RZJ65V3J3B4", "Conditions": {"EndDate": "2026-10-15T10:00:00.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 10, "AffirmationId": "9PB5XR7X6ZTZ"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9TK6CZZC8R6X", "Conditions": {"EndDate": "2026-10-15T09:59:59.0000000Z", "StartDate": "2026-10-08T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 11}
+          ]
+        },
+        {
+          "Sku": {"SkuId": "0017", "SkuType": "full", "Properties": {"IsTrial": false, "IsPreOrder": true, "IsBundle": true}},
+          "Availabilities": [
+            {"Actions": ["Details", "Redeem"], "AvailabilityId": "B3GMWPNKVFBH", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "2021-12-08T18:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": ""}}, "SkuId": "0017", "DisplayRank": 0}
+          ]
+        }
+      ]
+    },
+    {
+      "ProductId": "BTQMHK78ZPF9",
+      "ProductKind": "Game",
+      "PreferredSkuId": "0001",
+      "LocalizedProperties": [{"ProductTitle": "LIMBO", "Language": "en-us"}],
+      "DisplaySkuAvailabilities": [
+        {
+          "Sku": {"SkuId": "0001", "SkuType": "full", "Properties": {"IsTrial": false, "IsPreOrder": false, "IsBundle": false}},
+          "Availabilities": [
+            {"Actions": ["Details", "Fulfill", "Purchase", "Browse", "Curate", "Redeem"], "AvailabilityId": "9T01RX7PH5DV", "Conditions": {"EndDate": "2026-10-21T23:59:59.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": true, "ListPrice": 250.0, "MSRP": 250.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": "UAH", "WholesalePrice": 145.83}}, "SkuId": "0001", "DisplayRank": 0},
+            {"Actions": ["Details", "Fulfill", "Browse", "Curate", "Gift"], "AvailabilityId": "9SWTNXW23943", "Conditions": {"EndDate": "2026-10-21T23:59:59.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": true, "ListPrice": 250.0, "MSRP": 250.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": "UAH", "WholesalePrice": 145.83}}, "SkuId": "0001", "DisplayRank": 1},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B252QPL4KG1Q", "Conditions": {"EndDate": "2026-10-21T23:59:59.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 2},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9N4CDFQBWT2G", "Conditions": {"EndDate": "2026-10-22T00:00:00.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 3, "AffirmationId": "9WNZS2ZC9L74"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9NCMN0MHR38M", "Conditions": {"EndDate": "2026-10-22T00:00:00.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 4},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B1ZVT0DL63KF", "Conditions": {"EndDate": "2026-10-22T00:00:00.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 5, "AffirmationId": "9XN3JJ64FMNS"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B46PT66TP18B", "Conditions": {"EndDate": "2026-10-22T00:00:00.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 6, "AffirmationId": "9SDMJKS10GQP"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9VC5MKH5V3CH", "Conditions": {"EndDate": "2026-10-22T00:00:00.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 7},
+            {"Actions": ["License", "Details"], "AvailabilityId": "9NKVC6CDX9X6", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 8},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9ZN16X5F8NP8", "Conditions": {"EndDate": "2026-10-21T23:59:59.0000000Z", "StartDate": "2026-08-16T10:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 9}
+          ]
+        },
+        {
+          "Sku": {"SkuId": "0004", "SkuType": "trial", "Properties": {"IsTrial": true, "IsPreOrder": false, "IsBundle": false}},
+          "Availabilities": [
+            {"Actions": ["Details", "License", "Fulfill"], "AvailabilityId": "9W2VHP72PQFC", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0004", "DisplayRank": 0},
+            {"Actions": ["License", "Details"], "AvailabilityId": "9PB42SV2CS2B", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0004", "DisplayRank": 1}
+          ]
+        }
+      ]
+    },
+    {
+      "ProductId": "BR765873CQJD",
+      "ProductKind": "Game",
+      "PreferredSkuId": "0001",
+      "LocalizedProperties": [{"ProductTitle": "The Witcher 3: Wild Hunt", "Language": "en-us"}],
+      "DisplaySkuAvailabilities": [
+        {
+          "Sku": {"SkuId": "0001", "SkuType": "full", "Properties": {"IsTrial": false, "IsPreOrder": false, "IsBundle": false}},
+          "Availabilities": [
+            {"Actions": ["License", "Details"], "AvailabilityId": "B125NG02FVMX", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 0},
+            {"Actions": ["Details", "License", "Fulfill"], "AvailabilityId": "9X72BKRSL7MM", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 1},
+            {"Actions": ["License", "Details"], "AvailabilityId": "9N8M48JP1GTK", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0001", "DisplayRank": 2}
+          ]
+        },
+        {
+          "Sku": {"SkuId": "0004", "SkuType": "trial", "Properties": {"IsTrial": true, "IsPreOrder": false, "IsBundle": false}},
+          "Availabilities": [
+            {"Actions": ["Details", "License", "Fulfill"], "AvailabilityId": "9TKLLGNV8VD6", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0004", "DisplayRank": 0},
+            {"Actions": ["License", "Details"], "AvailabilityId": "B299KP4KHGHG", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0004", "DisplayRank": 1}
+          ]
+        }
+      ]
+    },
+    {
+      "ProductId": "9PP5G1F0C2B6",
+      "ProductKind": "Game",
+      "PreferredSkuId": "0010",
+      "LocalizedProperties": [{"ProductTitle": "Halo Infinite", "Language": "en"}],
+      "DisplaySkuAvailabilities": [
+        {
+          "Sku": {"SkuId": "0010", "SkuType": "full", "Properties": {"IsTrial": false, "IsPreOrder": false, "IsBundle": false}},
+          "Availabilities": [
+            {"Actions": ["Details", "Fulfill", "Purchase", "Browse", "Curate", "Redeem"], "AvailabilityId": "9S40QD15N8M0", "Conditions": {"EndDate": "2799-08-24T23:59:59.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": "UAH", "WholesalePrice": 0.0}}, "SkuId": "0010", "DisplayRank": 0},
+            {"Actions": ["Details", "Purchase", "Curate"], "AvailabilityId": "9WLRB7V0PWZ5", "Conditions": {"EndDate": "2799-08-24T23:59:59.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": "UAH", "WholesalePrice": 0.0}}, "SkuId": "0010", "DisplayRank": 1, "RemediationRequired": true, "Remediations": [{"RemediationId": "9ZNPVF4DTWVC", "Type": "Upsell", "BigId": "CFQ7TTC0KGQ8"}]},
+            {"Actions": ["License", "Details"], "AvailabilityId": "9XKN74HBFTPW", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 2},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B4CK6L62B0PP", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 3},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B14TQ25S775Q", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 4},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9Z5KKQZFCDGT", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 5, "AffirmationId": "9Z6GGR6018ZS"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9TNRWMDLLGN7", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 6, "AffirmationId": "9WNZS2ZC9L74"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9S074XJSFDS4", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 7, "AffirmationId": "B1FFW2F7JKV0"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B0ZPSR7F1BD7", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 8, "AffirmationId": "9WNZS2ZC9L74"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9W9C1D68XL6K", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 9, "AffirmationId": "9Z6GGR6018ZS"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B48DP8SGX4ST", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 10, "AffirmationId": "B1FFW2F7JKV0"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9S3HSP114LNR", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 11, "AffirmationId": "9WNZS2ZC9L74"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B264STS1CC0D", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 12, "AffirmationId": "B1FFW2F7JKV0"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9MZHKBLZ6LTR", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 13, "AffirmationId": "9WNZS2ZC9L74"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B3BL587R0M8R", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 14},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "9T65577JSTTX", "Conditions": {"EndDate": "2799-08-25T00:00:00.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 15, "AffirmationId": "B1FFW2F7JKV0"},
+            {"Actions": ["License", "Browse", "Details"], "AvailabilityId": "B49QDC31MDV9", "Conditions": {"EndDate": "2799-08-24T23:59:59.0000000Z", "StartDate": "2024-08-12T14:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0010", "DisplayRank": 16}
+          ]
+        },
+        {
+          "Sku": {"SkuId": "0017", "SkuType": "full", "Properties": {"IsTrial": false, "IsPreOrder": true, "IsBundle": false}},
+          "Availabilities": [
+            {"Actions": ["Details", "Redeem"], "AvailabilityId": "9VFV40703SV2", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "UAH", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "NoApplicableTaxes", "WholesaleCurrencyCode": ""}}, "SkuId": "0017", "DisplayRank": 0}
+          ]
+        },
+        {
+          "Sku": {"SkuId": "0011", "SkuType": "trial", "Properties": {"IsTrial": true, "IsPreOrder": false, "IsBundle": false}},
+          "Availabilities": [
+            {"Actions": ["Details", "License", "Fulfill"], "AvailabilityId": "B519T42TF8MB", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0011", "DisplayRank": 0},
+            {"Actions": ["License", "Details"], "AvailabilityId": "9SFR8SK03VQH", "Conditions": {"EndDate": "9998-12-30T00:00:00.0000000Z", "StartDate": "1753-01-01T00:00:00.0000000Z"}, "Markets": ["UA"], "OrderManagementData": {"Price": {"CurrencyCode": "USD", "IsPIRequired": false, "ListPrice": 0.0, "MSRP": 0.0, "TaxType": "", "WholesaleCurrencyCode": ""}}, "SkuId": "0011", "DisplayRank": 1}
+          ]
+        }
+      ]
+    }
+  ]
+}

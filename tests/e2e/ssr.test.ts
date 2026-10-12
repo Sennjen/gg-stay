@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
+import { namesAnotherProduct } from '../../app/utils/storeOffers'
+import { STORE_OPTIONS } from '../../shared/catalog'
+import type { IndexedGame } from '../../server/index/document'
 import { NUXT_IMG_ERROR_HANDLER_HASH } from '../../server/security/headers'
+import published from '../fixtures/index/published.json' with { type: 'json' }
 
 // Build-time default and runtime override, so the server under test never calls RAWG.
 process.env.RAWG_FIXTURES = '1'
@@ -11,6 +15,24 @@ function shelfTitles(html: string): string[] {
   return [...html.matchAll(/data-test="shelf-[A-Z_]+"[\s\S]*?<h2[^>]*>\s*([^<]*?)\s*<\/h2>/g)].map(
     (match) => match[1]!,
   )
+}
+
+/**
+ * The documents the server under test was seeded with, as documents: read as plain JSON each
+ * would have a type of its own, and an offer's optional fields would exist on some and not others.
+ */
+const seeded = published.games as IndexedGame[]
+
+/** Text as the server writes it into HTML: the five characters markup is made of, escaped. */
+function asHtmlText(text: string): string {
+  const entities: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }
+  return text.replace(/[&<>"']/g, (character) => entities[character]!)
 }
 
 /** The server HTML of one landing shelf, from its section to the next one. */
@@ -208,6 +230,76 @@ describe('server-side rendering', async () => {
     expect(html).toContain('Безкоштовно')
     // One card per priced game, and no price line at all on the game the index never saw.
     expect(html.match(/data-test="price"/g)?.length).toBe(3)
+  })
+
+  it('says on a card that another store is cheaper, where the answer names one, and nowhere else', async () => {
+    // What each card should say is asked of the server the pages were rendered by — which games,
+    // and which store for each — so the seed is free to change both. It has to hold one such
+    // game, or the line is held to nothing.
+    type Named = { slug: string; cheaperAt: string | null }
+    const body = await $fetch<{
+      data: { games: { items: Named[] }; landing: { shelves: { id: string; games: Named[] }[] } }
+    }>('/api/graphql', {
+      method: 'POST',
+      body: {
+        query: `{
+          games { items { slug cheaperAt } }
+          landing { shelves { id games { slug cheaperAt } } }
+        }`,
+      },
+    })
+    const items = body.data.games.items
+    expect(items.filter((item) => item.cheaperAt !== null).length).toBeGreaterThan(0)
+
+    /** The card's sentence for what the server names: the store by its name on the site. */
+    const sentence = (words: string, slug: string | null) =>
+      slug === null ? null : `${words} ${STORE_OPTIONS.find((store) => store.slug === slug)!.name}`
+
+    /** The server HTML of every card on a page, by the slug its link opens. */
+    const cardsOf = (html: string) =>
+      new Map(
+        (html.match(/<article[\s\S]*?<\/article>/g) ?? []).map((card) => [
+          card.match(/href="(?:\/en)?\/games\/([a-z0-9-]+)"/)?.[1] ?? '',
+          card,
+        ]),
+      )
+    const lineOf = (card: string) =>
+      card.match(/data-test="cheaper-at"[^>]*>\s*([^<]*?)\s*</)?.[1] ?? null
+
+    const cards = cardsOf(await $fetch<string>('/games'))
+    expect(cards.size).toBe(items.length)
+    for (const item of items) {
+      const card = cards.get(item.slug)!
+      expect(lineOf(card), item.slug).toBe(sentence('Дешевше в', item.cheaperAt))
+      // Under the price, inside the card: the line comes after the price line it is about.
+      if (item.cheaperAt !== null) {
+        expect(card.indexOf('data-test="cheaper-at"'), item.slug).toBeGreaterThan(
+          card.indexOf('data-test="price"'),
+        )
+      }
+    }
+
+    const english = cardsOf(await $fetch<string>('/en/games'))
+    for (const item of items) {
+      expect(lineOf(english.get(item.slug)!), item.slug).toBe(
+        sentence('Cheaper at', item.cheaperAt),
+      )
+    }
+
+    // The same card on a landing shelf says the same thing: every shelf, every card on it.
+    const landing = await $fetch<string>('/')
+    const shelves = body.data.landing.shelves
+    expect(shelves.flatMap((shelf) => shelf.games).some((game) => game.cheaperAt !== null)).toBe(
+      true,
+    )
+    for (const shelf of shelves) {
+      const onShelf = cardsOf(shelfHtml(landing, shelf.id))
+      for (const game of shelf.games) {
+        expect(lineOf(onShelf.get(game.slug)!), `${shelf.id} ${game.slug}`).toBe(
+          sentence('Дешевше в', game.cheaperAt),
+        )
+      }
+    }
   })
 
   it('serves a price-filtered page from the index alone, through the running BFF', async () => {
@@ -500,6 +592,80 @@ describe('server-side rendering', async () => {
     // caption is the same string in the server HTML and after hydration. The number sits in its
     // own `font-numeric` span, so the sentence is not one contiguous string in the markup.
     expect(html).toContain('оновлено')
+  })
+
+  it('renders what GOG charges into the server HTML: dollars, the estimate, the store’s title, the mark and the note', async () => {
+    // Everything expected is read from the seed the server was started on, so the seed is free to
+    // change what GOG charges for the game and what it calls it.
+    const witcher = seeded.find((game) => game.slug === 'the-witcher-3-wild-hunt')!
+    const offer = witcher.offers!.find((entry) => entry.store === 'gog')!
+    const dollars = `$${(offer.amount / 100).toFixed(2)}`
+    const estimate = Math.round((offer.amount / 100) * published.meta.exchangeRate.uah)
+    // Of the page's two prices: the estimate wins when it is at least 5 % below Steam's, Steam's
+    // when it is the lower, and neither otherwise.
+    const steamUah = witcher.priceUah!
+    const gogIsCheapest = estimate * 100 <= steamUah * 95
+    const steamIsCheapest = steamUah < estimate
+
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    const row = html.match(/<li[^>]*data-test="store-row-gog"[\s\S]*?<\/li>/)?.[0] ?? ''
+    expect(row).toContain(`href="${offer.url}"`)
+    expect(row).toContain(dollars)
+    // The estimate in hryvnia, after the sign: grouped the Ukrainian way if it has four digits,
+    // with whatever kind of space the page writes.
+    const grouped = String(estimate).replace(/\B(?=(\d{3})+$)/g, '\\s')
+    expect(row).toMatch(new RegExp(`≈[\\s\\S]*?${grouped}\\s₴`))
+    // And for a screen reader the price is one sentence in the markup, in an order of its own:
+    // the price, the price it was when it was higher, then about how much that is.
+    const spoken = row.match(/data-test="store-price-spoken"[^>]*>([^<]*)</)?.[1] ?? ''
+    const was =
+      offer.regularAmount > offer.amount
+        ? `, було ${asHtmlText(`$${(offer.regularAmount / 100).toFixed(2)}`)}`
+        : ''
+    expect(spoken).toMatch(
+      new RegExp(
+        `${dollars.replace('$', '\\$')}${was.replace('$', '\\$')}, приблизно ${grouped}\\s₴$`,
+      ),
+    )
+    expect(spoken).not.toContain('≈')
+    // What GOG calls the product is in the row exactly when it is not the game's own name.
+    expect(row.includes(`>${asHtmlText(offer.title!)}<`)).toBe(
+      namesAnotherProduct(offer.title, witcher.name),
+    )
+    expect(row.includes('Найдешевше')).toBe(gogIsCheapest)
+    expect(row).toContain('оновлено')
+    // Steam's own row is in the same list, with its hryvnia price.
+    const steamRow = html.match(/<li[^>]*data-test="store-row-steam"[\s\S]*?<\/li>/)?.[0] ?? ''
+    expect(steamRow).toContain(String(steamUah))
+    expect(steamRow.includes('Найдешевше')).toBe(steamIsCheapest)
+    // The note names a day; which day moves with the clock the server was started on.
+    expect(html).toMatch(
+      /data-test="estimate-note"[^>]*>\s*GOG продає в доларах США\. Сума в гривні приблизна, за курсом НБУ на \d{1,2} [а-яіїєґ]+ \d{4}; банк може списати іншу\./,
+    )
+
+    const english = await $fetch<string>('/en/games/the-witcher-3-wild-hunt')
+    expect(english.includes('Cheapest')).toBe(gogIsCheapest || steamIsCheapest)
+    expect(english).toContain('approximately')
+    expect(english).toMatch(/GOG charges in US dollars\. The hryvnia amount is an estimate/)
+  })
+
+  it('renders a hryvnia price from the Microsoft Store as a row, with no note about an estimate', async () => {
+    const stardew = seeded.find((game) => game.slug === 'stardew-valley')!
+    const offer = stardew.offers!.find((entry) => entry.store === 'xbox-store')!
+
+    const html = await $fetch<string>('/games/stardew-valley')
+    const row = html.match(/<li[^>]*data-test="store-row-xbox-store"[\s\S]*?<\/li>/)?.[0] ?? ''
+    expect(row).toContain(`href="${offer.url}"`)
+    expect(row).toContain(String(Math.round(offer.amount / 100)))
+    expect(row).toContain('₴')
+    expect(row).not.toContain('≈')
+    expect(html).not.toContain('data-test="estimate-note"')
+    expect(html).not.toContain('data-test="store-estimate"')
+    // Steam gives the game away in the seed, and a page whose lowest price is free marks no row:
+    // not the free one, which says so itself, and not the store that charges.
+    expect(stardew.free && stardew.priceUah === 0).toBe(true)
+    expect(html).toContain('data-test="store-row-steam"')
+    expect(html).not.toContain('Найдешевше')
   })
 
   it('renders the game page’s status region empty: what it says, it says once it is in a browser', async () => {

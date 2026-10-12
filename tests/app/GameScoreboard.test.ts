@@ -9,6 +9,15 @@ import { formatDecimal, formatNumber } from '~/utils/format'
 
 const NOW = '2026-09-18T12:00:00.000Z'
 
+/** What a store row carries for another store's offer, as a row that has none carries it. */
+const NO_OFFER = {
+  title: null,
+  foreignPrice: null,
+  foreignRegularPrice: null,
+  approxUah: null,
+  cheapest: false,
+}
+
 const game: NonNullable<GameQuery['game']> = {
   released: '2015-05-18',
   metacritic: 92,
@@ -27,6 +36,7 @@ const game: NonNullable<GameQuery['game']> = {
   gameModes: [],
   website: null,
   partial: false,
+  exchangeRate: null,
   localizedDescription: null,
   cover: null,
   screenshots: [],
@@ -146,6 +156,7 @@ describe('GameScoreboard', () => {
             ...game,
             stores: [
               {
+                ...NO_OFFER,
                 store: 'steam',
                 url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 337,
@@ -185,6 +196,7 @@ describe('GameScoreboard', () => {
             ...game,
             stores: [
               {
+                ...NO_OFFER,
                 store: 'gog',
                 url: 'https://www.gog.com/game/the_witcher_3_wild_hunt',
                 priceUah: 500,
@@ -208,6 +220,7 @@ describe('GameScoreboard', () => {
             ...game,
             stores: [
               {
+                ...NO_OFFER,
                 store: 'steam',
                 url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 1349,
@@ -233,6 +246,7 @@ describe('GameScoreboard', () => {
             ...game,
             stores: [
               {
+                ...NO_OFFER,
                 store: 'steam',
                 url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 0,
@@ -257,6 +271,7 @@ describe('GameScoreboard', () => {
             ...game,
             stores: [
               {
+                ...NO_OFFER,
                 store: 'steam',
                 url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 0,

@@ -5,12 +5,12 @@ import { hoursSince } from '~/utils/format'
 const props = defineProps<{
   game: NonNullable<GameQuery['game']>
   /**
-   * ISO timestamp of "now", computed once (server or first client render) and reused — see
-   * `useState('game-page-now', ...)` in `pages/games/[slug].vue`. Never read directly with
-   * `Date.now()` here: that would render a different "N hours ago" on the server than on the
-   * client the moment a second passes between the two, which is exactly the kind of hydration
-   * mismatch the design rules call out. Optional so existing callers/tests that never show a
-   * price do not need to supply it.
+   * ISO timestamp of the moment the answer on the page arrived, which the page reads and hands
+   * down — see `useState('game-page-now', ...)` in `pages/games/[slug].vue`, which says when.
+   * Never read directly with `Date.now()` here: that would render a different "N hours ago" on
+   * the server than on the client the moment a second passes between the two, which is exactly
+   * the kind of hydration mismatch the design rules call out. Optional so existing callers/tests
+   * that never show a price do not need to supply it.
    */
   now?: string
 }>()

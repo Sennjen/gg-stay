@@ -73,7 +73,7 @@
         { "id": 7, "slug": "multiplayer", "name": "Multiplayer" },
         { "id": 75, "slug": "local-co-op", "name": "Local Co-Op" }
       ],
-      "stores": [{ "store": { "id": 1, "slug": "steam", "name": "Steam" } }, { "store": { "id": 6, "slug": "nintendo", "name": "Nintendo Store" } }],
+      "stores": [{ "store": { "id": 1, "slug": "steam", "name": "Steam" } }, { "store": { "id": 6, "slug": "nintendo", "name": "Nintendo Store" } }, { "store": { "id": 2, "slug": "xbox-store", "name": "Xbox Store" } }],
       "esrb_rating": { "id": 2, "slug": "everyone-10-plus", "name": "Everyone 10+" }
     },
     {

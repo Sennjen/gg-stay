@@ -4,12 +4,27 @@ import { appIdsForDocuments, attachAppIds, resolveAppIds, type AppIdMap } from '
 import { carryPublishedForward, collectCandidates, DEFAULT_CANDIDATE_PAGES } from './candidates'
 import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
+import {
+  OFFER_FLOOR_MIN_CARRIED,
+  refreshOffers,
+  type OffersResult,
+  type RateReport,
+  type StoreReadReport,
+} from './offers'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
 import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
+import { countStoreRefs, sweepStoreRefs, type StoreRefMap, type SweepStop } from './storeRefs'
 import { collectStudioGames } from './studios'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainianStudios'
-import { createJobRawg, createJobSteam, systemClock } from './upstreams'
+import {
+  createJobBank,
+  createJobGog,
+  createJobMicrosoft,
+  createJobRawg,
+  createJobSteam,
+  systemClock,
+} from './upstreams'
 import { createWriterFromEnv } from './writer'
 import type { IndexedGame } from '../../server/index/document'
 import type { IndexWriteStats } from '../../server/index/GameIndex'
@@ -23,6 +38,10 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  * nightly (the candidate list, the Ukrainian studios' games, new app ids, prices, and a budgeted
  * slice of the language work),
  * and `--mode=languages` weekly (the rest of the language sweep, at forty requests a minute).
+ *
+ * One thing keeps a cadence of its own, across all three: what GOG and the Microsoft Store charge
+ * is read by whichever run finds the last read more than eleven hours old (`offers.ts`), which
+ * is every other prices run, and the National Bank's rate by every run.
  *
  * Everything that touches the outside world is built here and handed to the stages, so the stages
  * themselves stay testable on fixtures and a fake clock. The run starts with a write probe rather
@@ -101,11 +120,45 @@ export interface StudioReport {
   appIdLookups: number
 }
 
+/**
+ * What a run knows of the stores other than Steam: which games the permanent mapping names a
+ * product for, what a full run's sweep of that mapping cost RAWG, and what reading each store and
+ * the bank came to. `null` on a run that ended before it had read the mapping.
+ */
+export interface StoresReport {
+  references: {
+    /**
+     * Games of the run; those of them RAWG lists on GOG or on the Xbox store, which are the ones
+     * asked about; and those of the listed that have been asked about already.
+     */
+    games: number
+    listed: number
+    asked: number
+    /** Games the mapping names a GOG page for, and a Microsoft Store product. */
+    gog: number
+    microsoft: number
+    /** What the sweep did, in a full run; `null` in the modes that ask RAWG nothing. */
+    sweep: {
+      attempted: number
+      failures: number
+      remaining: number
+      /** Why the sweep ended before its cap, or `null` when it did not. */
+      stopped: SweepStop | null
+    } | null
+  }
+  /** `null` on a run that ended before the stores were read. */
+  gog: StoreReadReport | null
+  microsoft: StoreReadReport | null
+  rate: RateReport | null
+}
+
 export interface JobReport {
   mode: JobMode
   dryRun: boolean
   outcome: PublishOutcome | null
   studios: StudioReport | null
+  /** Optional so that a report built by hand need not name it; `runJob` always does. */
+  stores?: StoresReport | null
   pricesFetched: number
   languagesFetched: number
   failures: number
@@ -208,6 +261,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     dryRun: false,
     outcome: null,
     studios: null,
+    stores: null,
     pricesFetched: 0,
     languagesFetched: 0,
     failures: 0,
@@ -226,6 +280,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
   let languagesFetched = 0
   let failures = 0
   let studios: StudioReport | null = null
+  let stores: StoresReport | null = null
   let candidateCount: number | undefined
   let similarWarning: string | null = null
   let tags: TagReport | null = null
@@ -241,6 +296,9 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     let appIds: AppIdMap
     /** What the documents repeat: the whole mapping for the run's games, in every mode. */
     let documentAppIds: AppIdMap
+    /** Which product each game is on GOG and on the Microsoft Store, from the permanent mapping. */
+    let storeRefs: StoreRefMap
+    let sweep: NonNullable<StoresReport['references']['sweep']> | null = null
 
     if (options.mode === 'full') {
       games = await stage('candidates', async () => {
@@ -291,6 +349,21 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       failures += resolved.failures
       const appended = new Set(found.appended.map((game) => game.id))
       studios.appIdLookups = resolved.asked.filter((id) => appended.has(id)).length
+
+      // After the app ids, which have just written the references of every game they looked up:
+      // what is left for the sweep is the games RAWG lists on GOG or on the Xbox store that no
+      // run has asked about yet, a capped number of them a night. RAWG cannot fail the run here
+      // — see `sweepStoreRefs` — but what it would not answer for is an item failure like any
+      // other.
+      const swept = await stage('store references', () => sweepStoreRefs(deps, games))
+      storeRefs = swept.refs
+      sweep = {
+        attempted: swept.attempted,
+        failures: swept.failures,
+        remaining: swept.remaining,
+        stopped: swept.stopped,
+      }
+      failures += swept.failures
     } else {
       games = await stage('published documents', async () => {
         const documents = await deps.writer.allGames()
@@ -306,6 +379,16 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       )
       // Already the mapping for every published game: there is nothing more to read.
       documentAppIds = appIds
+      // The other mapping, read the same way: one request, and RAWG is asked nothing.
+      storeRefs = await stage('published documents', () =>
+        deps.writer.getStoreRefs(games.map((game) => game.id)),
+      )
+    }
+    stores = {
+      references: { games: games.length, ...countStoreRefs(games, storeRefs), sweep },
+      gog: null,
+      microsoft: null,
+      rate: null,
     }
 
     // One rule in every mode: a document carries its game's Steam app id whenever the permanent
@@ -357,6 +440,19 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       }
     }
 
+    // What GOG and the Microsoft Store charge, and the bank's rate, in every mode: each store
+    // decides for itself whether it is due. After the Steam stages on purpose — nothing here can
+    // fail the run or move a Steam price, and a run Steam has already failed spends no request on
+    // another store.
+    const offers: OffersResult = await stage('store prices', () =>
+      refreshOffers(deps, games, storeRefs, published),
+    )
+    stores = { ...stores, gog: offers.gog, microsoft: offers.microsoft, rate: offers.rate }
+    // A store that could not be read does not fail the run, so the run has to say so some other
+    // way: the summary row is there for whoever opens it, and the annotation is on the run's
+    // page for whoever does not.
+    for (const warning of storeWarnings(stores)) deps.log(`::warning::${warning}`)
+
     // Last, over the final set of games — studio games included — so every id a list names is a
     // document of this version. The other modes carry the published lists forward with the
     // documents: their game set is the published one, so the lists still hold.
@@ -398,12 +494,15 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
         languagesFetched,
         failures,
         durationMs: deps.clock.now() - startedAt,
+        exchangeRate: offers.exchangeRate,
+        offersReadAt: offers.offersReadAt,
       }),
     )
 
     return report({
       outcome,
       studios,
+      stores,
       pricesFetched,
       languagesFetched,
       failures,
@@ -418,7 +517,15 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // What the run had already done goes out with the failure. The summary of a failed run is the
     // whole of the alert, and one full of zeroes says less than the run knew.
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
-      report: report({ studios, pricesFetched, languagesFetched, failures, similarWarning, tags }),
+      report: report({
+        studios,
+        stores,
+        pricesFetched,
+        languagesFetched,
+        failures,
+        similarWarning,
+        tags,
+      }),
     })
   }
 }
@@ -483,6 +590,162 @@ function studioRows(report: JobReport): [string, string][] {
   return rows
 }
 
+/**
+ * What is said of the offers a store lost in one run for want of a reference, or nothing when it
+ * lost none (`StoreReadReport.dropped`).
+ */
+function droppedNote(dropped: number | undefined): string | null {
+  if (!dropped) return null
+  return dropped === 1
+    ? '1 offer dropped because its game no longer has a store reference'
+    : `${dropped} offers dropped because their games no longer have a store reference`
+}
+
+/** What a store's read is called in a warning, by what came of it. */
+function readWarning(name: string, read: StoreReadReport): string[] {
+  const reason = (otherwise: string) => (read.error ?? otherwise).replace(/\s+/g, ' ')
+  const stands = 'every offer that was not read stands as it was'
+  switch (read.status) {
+    case 'failed':
+      return [`${name} prices not refreshed: ${reason('a request failed')} — ${stands}`]
+    case 'partial':
+      return [`${name} prices refreshed only in part: ${reason('a request failed')} — ${stands}`]
+    case 'references-lost':
+      return [
+        `${name} prices not refreshed: ${reason('the store references look lost')} — ` +
+          'every offer is kept as it was and the store was not read',
+      ]
+    default:
+      return []
+  }
+}
+
+/**
+ * The warnings one store is owed: what came of its read, if that is worth one, and — whatever
+ * came of the read — that the mapping cost it at least `OFFER_FLOOR_MIN_CARRIED` offers in this
+ * run. Under that count the summary's row says how many and no more: a reference is lost one
+ * game at a time, and one game is no news.
+ */
+function storeWarning(name: string, read: StoreReadReport | null): string[] {
+  if (!read) return []
+  const dropped = (read.dropped ?? 0) >= OFFER_FLOOR_MIN_CARRIED ? droppedNote(read.dropped) : null
+  return [...readWarning(name, read), ...(dropped ? [`${name}: ${dropped}`] : [])]
+}
+
+/**
+ * The warnings a run owes about the stores other than Steam: one for each store whose read
+ * failed or was only partial, one for each store whose references look lost, one for each store
+ * that lost twenty offers or more because the mapping no longer names their games, and one when
+ * the run ends with no exchange rate at all. Nothing for a store that was not due, or a rate kept
+ * from the published version — those are the design working. Each is one line, written to the
+ * log as a GitHub `::warning::` annotation, as the similar-lists warning is.
+ *
+ * They exist because a store that is down is, by design, invisible in the run's colour: the run
+ * is green, the offers are yesterday's, and without an annotation the only trace is a row of a
+ * summary nobody has a reason to open. A read that fails the same way on every run — a catalog
+ * that changed its shape, a product count that is off by one for good — repeats the warning on
+ * every run until somebody looks.
+ */
+export function storeWarnings(stores: StoresReport): string[] {
+  return [
+    ...storeWarning('GOG', stores.gog),
+    ...storeWarning('Microsoft Store', stores.microsoft),
+    ...(stores.rate?.status === 'none'
+      ? [
+          'No exchange rate: the National Bank could not be read and no rate under seven days ' +
+            'old is left, so no hryvnia estimate is published',
+        ]
+      : []),
+  ]
+}
+
+/** A value as one cell of the summary's table: on one line, and with no column of its own. */
+function cell(text: string): string {
+  return text.replace(/\s+/g, ' ').replaceAll('|', '/')
+}
+
+/**
+ * One store's row: how many references, how many prices read, how many failed — and why — and,
+ * whatever came of the read, how many offers went for want of a reference.
+ */
+function storeReadRow(name: string, read: StoreReadReport): [string, string] {
+  const dropped = droppedNote(read.dropped)
+  return [name, storeReadCell(read) + (dropped ? `; ${dropped}` : '')]
+}
+
+function storeReadCell(read: StoreReadReport): string {
+  const references = plural(read.references, 'reference', 'references')
+  const counts = `${references}, ${plural(read.pricesRead, 'price', 'prices')} read, ${read.failed} failed`
+  const offers = plural(read.offers, 'offer', 'offers')
+  const requests = plural(read.requests, 'request', 'requests')
+  switch (read.status) {
+    case 'no-references':
+      return 'no references, nothing to read'
+    case 'not-due':
+      return (
+        `${references}, not read: the last full read (${read.lastReadAt}) is under eleven hours ` +
+        `old; ${offers} carried`
+      )
+    case 'read':
+      return `${counts}; ${offers} published, ${requests}`
+    case 'partial':
+      return (
+        `${counts} (${cell(read.error ?? 'a request failed')}); ${offers} published, ${requests}; ` +
+        'the next run reads again'
+      )
+    case 'failed':
+      return (
+        `${counts} (${cell(read.error ?? 'the read failed')}); ${offers} kept as they were; ` +
+        'the next run reads again'
+      )
+    case 'references-lost':
+      return (
+        `${references}, not read (${cell(read.error ?? 'the store references look lost')}); ` +
+        `${offers} kept as they were; the next run looks again`
+      )
+  }
+}
+
+function rateRow(report: RateReport): [string, string] {
+  const rate = report.rate
+  if (report.status === 'read' && rate) {
+    return ['Exchange rate', `${rate.uah} UAH per USD, the National Bank's for ${rate.date}`]
+  }
+  if (report.status === 'kept' && rate) {
+    return [
+      'Exchange rate',
+      `not read; ${rate.uah} UAH per USD for ${rate.date} stands (read ${rate.readAt}, kept seven days)`,
+    ]
+  }
+  return ['Exchange rate', 'not read, and no rate under seven days old is left: none published']
+}
+
+/** The rows about the stores other than Steam, as far as the run got with them. */
+function storeRows(report: JobReport): [string, string][] {
+  const stores = report.stores
+  if (!stores) return []
+  const { references } = stores
+  const sweep = references.sweep
+  const rows: [string, string][] = [
+    [
+      'Store references',
+      `${references.listed} of ${references.games} games on GOG or the Xbox store at RAWG, ` +
+        `${references.asked} asked; ${references.gog} with a GOG page, ` +
+        `${references.microsoft} with a Microsoft Store product` +
+        (sweep
+          ? `; RAWG: ${plural(sweep.attempted, 'lookup', 'lookups')} this run, ${sweep.failures} failed, ` +
+            `${sweep.remaining} left for the next full run` +
+            (sweep.stopped === 'failures' ? ' (stopped early: too many failed)' : '') +
+            (sweep.stopped === 'time' ? ' (stopped early: out of its twenty minutes)' : '')
+          : ' (not looked up in this mode)'),
+    ],
+  ]
+  if (stores.gog) rows.push(storeReadRow('GOG prices', stores.gog))
+  if (stores.microsoft) rows.push(storeReadRow('Microsoft Store prices', stores.microsoft))
+  if (stores.rate) rows.push(rateRow(stores.rate))
+  return rows
+}
+
 /** The Markdown GitHub shows on the run's summary page, for a run that reached a verdict. */
 export function formatSummary(report: JobReport): string {
   const outcome = report.outcome
@@ -517,6 +780,7 @@ export function formatSummary(report: JobReport): string {
   }
 
   rows.push(...studioRows(report))
+  rows.push(...storeRows(report))
 
   const similar = outcome?.meta.stats
   if (similar?.similarCount !== undefined) {
@@ -598,6 +862,9 @@ export async function runCli(
     const deps: JobDeps = {
       rawg: createJobRawg({ apiKey, fixtures, clock }),
       steam: createJobSteam({ apiKey, fixtures, clock }),
+      gog: createJobGog({ fixtures, clock }),
+      microsoft: createJobMicrosoft({ fixtures, clock }),
+      bank: createJobBank({ fixtures, clock }),
       writer: fromEnv.writer,
       clock,
       log,
@@ -618,6 +885,7 @@ export async function runCli(
       dryRun,
       outcome: null,
       studios: reached?.studios ?? null,
+      stores: reached?.stores ?? null,
       pricesFetched: reached?.pricesFetched ?? 0,
       languagesFetched: reached?.languagesFetched ?? 0,
       failures: reached?.failures ?? 0,
