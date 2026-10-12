@@ -317,6 +317,14 @@ describe('plainReason', () => {
 })
 
 describe('modelLine', () => {
+  it('puts a comma where the model wrote a dash, and keeps the en dash of a range', () => {
+    expect(modelLine('Між боями — загадки руїн', 80)).toBe('Між боями, загадки руїн')
+    expect(modelLine('A lighthouse – and a storm, 10–40 hours', 80)).toBe(
+      'A lighthouse, and a storm, 10–40 hours',
+    )
+    expect(modelLine('— Тиха ферма —', 80)).toBe('Тиха ферма')
+  })
+
   it('cuts an over-long line at the last word that fits and marks the cut', () => {
     const line =
       'Постапокаліптичний світ Метро з українською озвучкою, атмосферний хорор про виживання'
