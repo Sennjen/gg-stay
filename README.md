@@ -79,7 +79,7 @@ flowchart LR
   a keyboard- and screen-reader-accessible screenshot gallery/lightbox, store
   links, and a row of similar games when the index has at least four. Under
   "Where to buy" a store whose price for Ukraine the index holds is a row
-  with that price: Steam and the Microsoft Store in hryvnia, GOG in US
+  with that price: Steam and the Xbox Store in hryvnia, GOG in US
   dollars with an estimate in hryvnia at the National Bank of Ukraine's
   rate, and a mark on the cheapest
   ([design](docs/specs/2026-10-12-other-store-prices-design.md)).
@@ -308,14 +308,14 @@ server itself; set `QUALITY_REUSE_SERVER=1` to run it against one already listen
 - The `quality` CI job (bundle budget, Playwright, Lighthouse CI) runs on every pull request but is not a required check: only `verify` blocks a merge.
 - Fixture mode ignores filters that RAWG would apply server-side; the index filters work there against a seeded in-memory index.
 - Steam trailer URLs carry a signed query string; how long that signature stays valid is undocumented by Steam, so a cached trailer link could go stale before its own cache entry expires. Not yet observed in practice.
-- Only a game page shows what a store other than Steam charges, and only for GOG and the Microsoft Store. The catalog's price — on a card, in the price and discount filters, the price sorts, the sale shelf and the deal of the day — is Steam's hryvnia price, and every other store RAWG links (Epic Games, PlayStation Store, Nintendo eShop) is a link without a price.
+- Only a game page shows what a store other than Steam charges, and only for GOG and the Xbox Store. The catalog's price — on a card, in the price and discount filters, the price sorts, the sale shelf and the deal of the day — is Steam's hryvnia price, and every other store RAWG links (Epic Games, PlayStation Store, Nintendo eShop) is a link without a price.
 - GOG charges Ukraine in US dollars, so its hryvnia figure is an estimate at the National Bank's official rate, marked "≈" and never used by a filter or a sort; a buyer's bank converts at its own rate. GOG is called the cheapest only when the estimate is at least 5 % below the lowest hryvnia price. Without a rate read in the last seven days there is no estimate, and GOG's dollar price is shown alone.
-- The other stores' prices are read by the refresh job twice a day, not when a page is opened, and a price older than 36 hours is not shown: its store is a plain link again. Few games have one in the Microsoft Store — nine of thirty-five products probed are sold in Ukraine in hryvnia — and how many indexed games carry a GOG or a Microsoft price has not been measured on production.
+- The other stores' prices are read by the refresh job twice a day, not when a page is opened, and a price older than 36 hours is not shown: its store is a plain link again. Few games have one in the Xbox Store — nine of thirty-five products probed in Microsoft's catalog are sold in Ukraine in hryvnia — and how many indexed games carry a GOG or an Xbox Store price has not been measured on production.
 - A store's link at RAWG sometimes leads to another edition than the game it is filed under, and the price is that edition's. The row then shows what the store calls the product, and "cheapest" still compares the prices as they are, across editions.
 
 ## Attribution
 
-Game data and images are provided by [RAWG](https://rawg.io) and [Steam](https://store.steampowered.com); prices on a game page also come from [GOG](https://www.gog.com) and the [Microsoft Store](https://www.microsoft.com/store). Names and images belong to their respective owners. On the Ukrainian site, the game description comes from Steam's Ukrainian store page when the publisher provides one; otherwise it falls back to RAWG's English text.
+Game data and images are provided by [RAWG](https://rawg.io) and [Steam](https://store.steampowered.com); prices on a game page also come from [GOG](https://www.gog.com) and the [Xbox Store](https://www.xbox.com). Names and images belong to their respective owners. On the Ukrainian site, the game description comes from Steam's Ukrainian store page when the publisher provides one; otherwise it falls back to RAWG's English text.
 
 ## License
 

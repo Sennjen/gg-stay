@@ -62,11 +62,11 @@
   "footer": {
     "nav": "Footer",
     "github": "GitHub",
-    "dataBy": "Game data provided by {rawg}, {steam}, {gog} and {microsoft}.",
+    "dataBy": "Game data provided by {rawg}, {steam}, {gog} and {xbox}.",
     "rawg": "RAWG",
     "steam": "Steam",
     "gog": "GOG",
-    "microsoft": "Microsoft Store",
+    "xbox": "Xbox Store",
     "rights": "Names and images belong to their respective owners."
   },
   "states": {

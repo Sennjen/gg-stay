@@ -9,7 +9,7 @@ describe('default layout', () => {
     expect(wrapper.get('header a[href="/games"]').text()).toBe('Каталог')
     expect(wrapper.get('footer a[href="/en"]').text()).toBe('English')
     expect(wrapper.get('footer').text()).toContain(
-      'Дані про ігри надають RAWG, Steam, GOG і Microsoft Store.',
+      'Дані про ігри надають RAWG, Steam, GOG і Xbox Store.',
     )
     const rawgLink = wrapper.get('footer a[href="https://rawg.io"]')
     expect(rawgLink.text()).toBe('RAWG')

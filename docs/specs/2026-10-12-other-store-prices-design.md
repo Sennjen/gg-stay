@@ -89,6 +89,7 @@ A Microsoft offer fills the existing hryvnia fields (`priceUah`, `regularPriceUa
 In the existing "Де купити" block each store row with a price shows it:
 
 - hryvnia stores as today's Steam row does (price, struck regular price, discount chip, "оновлено N годин тому");
+- a row is named as the site already names its store — "Xbox Store" for the store whose price comes from the Microsoft Store's catalog (`STORE_OPTIONS`, the store filter's own table);
 - GOG as `$8.99 · ≈ 404 ₴`, the estimate visibly secondary;
 - the store's own title for the product is shown under the store's name when it differs from the game's name — so a price for another edition says which edition it is for. "Differs" is decided in one function (`namesAnotherProduct`, `app/utils/storeOffers.ts`): the two are compared after lower-casing, dropping the signs ™ ® ©, collapsing every run of whitespace to one space and trimming. So `Batman™: Arkham Knight` and `METRO EXODUS` are not shown; `… - Game of the Year Edition`, `… Standard Edition` and a Ukrainian title are. The title is plain text from another company's catalog: it is rendered as text only, never as markup. It changes nothing about which row is the cheapest: that stays a rule about prices;
 - a discount chip is drawn only for 1 to 99 %, and a struck regular price only when it is above the price — a document can carry a 0 beside a higher regular price, or a 100 beside a price that is not zero, and neither is drawn;
@@ -97,11 +98,13 @@ In the existing "Де купити" block each store row with a price shows it:
 
 Rows without a price stay as they are. A partial page (the index-built one) shows the offers it has.
 
-The footer's line of sources names GOG and the Microsoft Store beside RAWG and Steam.
+The footer's line of sources names GOG and the Xbox Store beside RAWG and Steam, each as a link to the source's own front page (`https://www.xbox.com` for the last).
+
+**One name for a visitor.** Wherever a visitor reads the store's name — a row of this block, the store filter, the card's line, the footer — it is "Xbox Store". Microsoft's address for a product in Ukraine, `https://www.microsoft.com/uk-ua/p/{name}/{id}`, which a priced row links to, redirects to `https://www.xbox.com/uk-ua/games/store/{name}/{id}` and answers there (checked on 2026-10-12): the buyer lands on the Xbox store, and the site already called the store that. "The Microsoft Store" in this document is the company's catalog the refresh job reads, never a name on a page.
 
 ### 6. The catalog card
 
-One short line under the price when `cheaperAt` is set: «Дешевше в GOG» / "Cheaper at GOG" (store names: GOG, Microsoft Store). The catalog's price, its filters, its sorts, the sale shelf and the deal of the day stay Steam's hryvnia price. The `/games` JavaScript budget has 1.8 kB of headroom: the line has to fit it. If it cannot, the task stops and says so; the budget is not raised without the owner.
+One short line under the price when `cheaperAt` is set: «Дешевше в GOG» / "Cheaper at GOG" (the store's name as the site writes it everywhere else: GOG, Xbox Store — «Дешевше в Xbox Store» / "Cheaper at Xbox Store"). The catalog's price, its filters, its sorts, the sale shelf and the deal of the day stay Steam's hryvnia price. The `/games` JavaScript budget has 1.8 kB of headroom: the line has to fit it. If it cannot, the task stops and says so; the budget is not raised without the owner.
 
 ## Decided while building the game page (2026-10-12)
 

@@ -62,11 +62,11 @@
   "footer": {
     "nav": "Підвал сайту",
     "github": "GitHub",
-    "dataBy": "Дані про ігри надають {rawg}, {steam}, {gog} і {microsoft}.",
+    "dataBy": "Дані про ігри надають {rawg}, {steam}, {gog} і {xbox}.",
     "rawg": "RAWG",
     "steam": "Steam",
     "gog": "GOG",
-    "microsoft": "Microsoft Store",
+    "xbox": "Xbox Store",
     "rights": "Назви та зображення належать їхнім власникам."
   },
   "states": {

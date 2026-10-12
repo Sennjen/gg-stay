@@ -237,7 +237,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `GegeMascot`                    | Done — the AI-picks mascot, an inline pixel-art SVG with four moods; see "Gege, the mascot" below                                                                                                             |
 | `GegeGreeter`                   | Done — the landing page's greeting: Gege rises from the corner with the deal of the day; see "Gege, the mascot" below                                                                                         |
 | `GegeSpeech`                    | Done — Gege beside a speech bubble in the page's flow (the greeter's bubble look); used by the ask page                                                                                                       |
-| `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, attribution (GOG and the Microsoft Store named since week 4)                                             |
+| `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, attribution (GOG and the Xbox Store named since week 4)                                                  |
 | `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
 | `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
 | `HeroVideo`                     | Done — PR 6                                                                                                                                                                                                   |
@@ -298,7 +298,10 @@ inline, hand-drawn `currentColor` SVG mark, external with
 `fg-2` keeps the attribution sentence and the ownership sentence, both in
 the locale files. Since week 4 the attribution names every source of the
 site's data, each as a link to the source itself: RAWG, Steam, GOG and the
-Microsoft Store.
+Xbox Store. The last is named as the store filter and a game page's row name
+it (`STORE_OPTIONS`), not as the "Microsoft Store" whose catalog its prices are
+read from, and links to `https://www.xbox.com`, where a product's page for
+Ukraine ends up.
 
 ### Accessibility additions (PR 9)
 
@@ -469,7 +472,7 @@ is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`)
   name once case, the signs ™ ® © and spacing are set aside (`namesAnotherProduct`), because a
   store's link is sometimes to another edition and the price is that edition's. It is another
   company's text: interpolated as text and never bound as markup, given no `lang` of its own (its
-  language is not known — GOG's titles are English, the Microsoft Store's are in whatever the
+  language is not known — GOG's titles are English, the Xbox Store's are in whatever the
   listing for Ukraine is written in), and allowed to break anywhere, so a title of 200 characters
   wraps inside a 375 px screen.
 - **The price** follows `PriceTag`: the `sale` chip, the price in `fg` at medium weight, the
