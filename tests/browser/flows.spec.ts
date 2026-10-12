@@ -558,6 +558,67 @@ test('game page → «Де купити» → a store that charges in hryvnia ha
   await expectAccessible(page, 'game page with a hryvnia price from another store')
 })
 
+test('a game opened at 375 px → a store’s title of two hundred characters wraps inside its row', async ({
+  page,
+}) => {
+  // The longest title an offer may carry, with runs no line can hold and no space to break at.
+  // No fixture has one: the page's own request is answered with the server's real answer, and
+  // only GOG's title in it is changed on the way to the browser.
+  const LONG =
+    `${'Supercalifragilisticexpialidocious_'.repeat(2)} Edition `.repeat(3).slice(0, 199) + '!'
+  expect([...LONG]).toHaveLength(200)
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.route('**/api/graphql', async (route: Route) => {
+    if (!isGameQuery(route.request())) return route.continue()
+    const response = await route.fetch()
+    const body = (await response.json()) as {
+      data: { game: { stores: { store: string; title: string | null }[] } }
+    }
+    const game = body.data.game
+    const stores = game.stores.map((row) => (row.store === 'gog' ? { ...row, title: LONG } : row))
+    await route.fulfill({ response, json: { data: { game: { ...game, stores } } } })
+  })
+
+  await page.goto('/games')
+  await waitForHydration(page)
+  await page.locator(`a[href="${WITCHER}"]`).first().click()
+  const block = page.getByRole('region', { name: copy.game.whereToBuy })
+  const row = block.locator('[data-test="store-row-gog"]').getByRole('link')
+  const title = row.locator('[data-test="store-title"]')
+  await expect(title).toHaveText(LONG)
+
+  // Nothing makes the page scroll sideways, and nothing of the row is outside the screen.
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBe(0)
+  const rowBox = (await row.boundingBox())!
+  const titleBox = (await title.boundingBox())!
+  const priceBox = (await row.locator('[data-test="store-price-shown"]').boundingBox())!
+  for (const box of [rowBox, titleBox, priceBox]) {
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(375)
+  }
+  // The title is inside its row and takes several lines of it; the price comes under it, whole.
+  expect(titleBox.x).toBeGreaterThanOrEqual(rowBox.x)
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width)
+  const lineHeight = await title.evaluate((node) =>
+    Number.parseFloat(getComputedStyle(node).lineHeight),
+  )
+  expect(titleBox.height).toBeGreaterThanOrEqual(lineHeight * 3)
+  expect(priceBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height)
+  expect(priceBox.y + priceBox.height).toBeLessThanOrEqual(rowBox.y + rowBox.height)
+  // No text of it is clipped: the element is as tall and as wide as what it holds.
+  expect(
+    await title.evaluate(
+      (node) =>
+        node.scrollWidth <= node.clientWidth + 1 && node.scrollHeight <= node.clientHeight + 1,
+    ),
+  ).toBe(true)
+  await expectAccessible(page, 'game page with a two-hundred-character store title at 375 px')
+})
+
 test('catalog → a card says another store is cheaper → its game page has that store’s price — and the line fits a phone', async ({
   page,
 }) => {
