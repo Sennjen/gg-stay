@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import PlatformIcons from '~/components/PlatformIcons.vue'
+import type { PlatformFamilyValue } from '#shared/catalog'
 
 describe('PlatformIcons', () => {
   it('renders one text label per family, in a labelled list', async () => {
@@ -64,7 +65,7 @@ describe('PlatformIcons', () => {
   })
 
   describe('responsive mode (used by the catalog card)', () => {
-    const fiveFamilies = ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'MOBILE'] as const
+    const fiveFamilies: PlatformFamilyValue[] = ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'MOBILE']
 
     it('renders one <ul> per variant, each hidden from assistive technology', async () => {
       const wrapper = await mountSuspended(PlatformIcons, {

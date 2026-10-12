@@ -2,19 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import GameRow from '~/components/GameRow.vue'
 import GameCard from '~/components/GameCard.vue'
+import type { GamesQuery } from '~/graphql/__generated__/operations'
 
-const game = {
+/** A card as the catalog answers it for a game outside the index: no price, no localisation. */
+const game: GamesQuery['games']['items'][number] = {
   id: '3328',
   slug: 'the-witcher-3-wild-hunt',
   name: 'The Witcher 3: Wild Hunt',
   released: '2015-05-18',
-  rating: 4.65,
   metacritic: 92,
   cover: { url: 'https://media.rawg.io/media/games/618/abc.jpg' },
   screenshots: [],
-  platformFamilies: ['PC'] as const,
-  platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
-  genres: [{ id: '4', slug: 'action', name: 'Action' }],
+  platformFamilies: ['PC'],
+  madeInUkraine: false,
+  price: null,
+  localisation: null,
 }
 
 const games = Array.from({ length: 6 }, (_, index) => ({

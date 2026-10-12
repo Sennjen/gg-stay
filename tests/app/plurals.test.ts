@@ -8,6 +8,7 @@ import { readBody, setResponseHeader, setResponseStatus } from 'h3'
 import FilterDrawer from '~/components/FilterDrawer.vue'
 import GameScoreboard from '~/components/GameScoreboard.vue'
 import HeaderSearch from '~/components/HeaderSearch.vue'
+import type { GameQuery } from '~/graphql/__generated__/operations'
 import AskPage from '~/pages/ask.vue'
 import { useFiltersStore } from '~/stores/filters'
 
@@ -24,6 +25,34 @@ import { useFiltersStore } from '~/stores/filters'
  */
 
 const COUNTS = [1, 2, 5, 21] as const
+
+/** A game with nothing for the scoreboard to show; each case adds what it counts. */
+const BARE_GAME: NonNullable<GameQuery['game']> = {
+  id: '3328',
+  slug: 'the-witcher-3-wild-hunt',
+  name: 'The Witcher 3: Wild Hunt',
+  released: null,
+  rating: null,
+  ratingsCount: null,
+  metacritic: null,
+  playtime: null,
+  ageRating: null,
+  gameModes: [],
+  website: null,
+  platformFamilies: [],
+  madeInUkraine: false,
+  partial: false,
+  localizedDescription: null,
+  cover: null,
+  screenshots: [],
+  platforms: [],
+  genres: [],
+  developers: [],
+  publishers: [],
+  stores: [],
+  localisation: null,
+  similar: [],
+}
 
 /** The Ukrainian one/few/many forms, and the English singular/plural ones, per count. */
 const EXPECTED = {
@@ -222,11 +251,12 @@ describe('plural forms at the call sites', () => {
       const wrapper = await mountSuspended(GameScoreboard, {
         props: {
           game: {
+            ...BARE_GAME,
             released: '2015-05-18',
             metacritic: 92,
             rating: 4.65,
             ratingsCount: count,
-            platformFamilies: ['PC'] as const,
+            platformFamilies: ['PC'],
           },
         },
       })
@@ -243,21 +273,18 @@ describe('plural forms at the call sites', () => {
         const wrapper = await mountSuspended(GameScoreboard, {
           props: {
             game: {
-              released: null,
-              metacritic: null,
-              rating: null,
-              ratingsCount: null,
-              platformFamilies: [] as const,
+              ...BARE_GAME,
               stores: [
                 {
                   store: 'steam',
+                  url: 'https://store.steampowered.com/app/292030/',
                   priceUah: 337,
                   regularPriceUah: 1349,
                   discountPercent: 75,
+                  isFree: null,
                   updatedAt,
                 },
               ],
-              localisation: null,
             },
             now,
           },

@@ -5,19 +5,23 @@ import LocalisationBadge from '~/components/LocalisationBadge.vue'
 import MetacriticBadge from '~/components/MetacriticBadge.vue'
 import PlatformIcons from '~/components/PlatformIcons.vue'
 import PriceTag from '~/components/PriceTag.vue'
+import type { GamesQuery } from '~/graphql/__generated__/operations'
 
-const game = {
+type CardGame = GamesQuery['games']['items'][number]
+
+/** A card as the catalog answers it for a game outside the index: no price, no localisation. */
+const game: CardGame = {
   id: '3328',
   slug: 'the-witcher-3-wild-hunt',
   name: 'The Witcher 3: Wild Hunt',
   released: '2015-05-18',
-  rating: 4.65,
   metacritic: 92,
   cover: { url: 'https://media.rawg.io/media/games/618/abc.jpg' },
   screenshots: [{ url: 'https://media.rawg.io/media/screenshots/1/shot.jpg' }],
-  platformFamilies: ['PC', 'PLAYSTATION'] as const,
-  platforms: [{ id: '4', slug: 'pc', name: 'PC' }],
-  genres: [{ id: '4', slug: 'action', name: 'Action' }],
+  platformFamilies: ['PC', 'PLAYSTATION'],
+  madeInUkraine: false,
+  price: null,
+  localisation: null,
 }
 
 describe('GameCard', () => {
@@ -78,7 +82,6 @@ describe('GameCard', () => {
       price: {
         bestUah: 337,
         regularUah: 1349,
-        bestStore: 'steam',
         discountPercent: 75,
         isFree: false,
         updatedAt: '2026-09-18T09:00:00.000Z',
@@ -106,7 +109,6 @@ describe('GameCard', () => {
           price: {
             bestUah: 1349,
             regularUah: null,
-            bestStore: 'steam',
             discountPercent: 0,
             isFree: false,
             updatedAt: '2026-09-18T09:00:00.000Z',
@@ -137,7 +139,6 @@ describe('GameCard', () => {
           price: {
             bestUah: 1349,
             regularUah: null,
-            bestStore: 'steam',
             discountPercent: 0,
             isFree: false,
             updatedAt: '2026-09-18T09:00:00.000Z',
@@ -160,7 +161,6 @@ describe('GameCard', () => {
       price: {
         bestUah: 337,
         regularUah: 1349,
-        bestStore: 'steam',
         discountPercent: 75,
         isFree: false,
         updatedAt: '2026-09-18T09:00:00.000Z',
@@ -299,7 +299,7 @@ describe('GameCard', () => {
       props: {
         game: {
           ...game,
-          platformFamilies: ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO'] as const,
+          platformFamilies: ['PC', 'PLAYSTATION', 'XBOX', 'NINTENDO'],
         },
       },
     })
@@ -396,7 +396,9 @@ describe('GameCard: made in Ukraine', () => {
   })
 
   it('renders no label for any other game', async () => {
-    for (const madeInUkraine of [false, undefined]) {
+    // `undefined` is outside the field's type on purpose: an answer that lacks the field must not
+    // put the label on either.
+    for (const madeInUkraine of [false, undefined] as boolean[]) {
       const wrapper = await mountSuspended(GameCard, {
         props: { game: { ...game, madeInUkraine } },
       })
