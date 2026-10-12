@@ -133,6 +133,17 @@ function titleOf(offer: IndexedOffer): string | null {
 }
 
 /**
+ * The store's row with no price on it, at the offer's own address for the product — or `null`
+ * when that address does not pass the allow-list every outbound link passes (`safeExternalUrl`).
+ * The address a row carries is the one the check hands back, never the string the document held:
+ * what was refused is not passed on, to any caller.
+ */
+function toOfferLink(offer: Pick<IndexedOffer, 'store' | 'url'>): StoreOffer | null {
+  const url = safeExternalUrl(offer.url)
+  return url ? toStoreLink(offer.store, url) : null
+}
+
+/**
  * The percent a discount chip may show for an offer with a regular price above its price: 1 to
  * 99, and 0 — no chip — for anything else. A document can carry a 0 beside a regular price that
  * is above the price, or a 100 beside a price that is not zero: a store rounds, and the job has
@@ -159,10 +170,21 @@ function chipPercent(percent: number): number {
  *
  * Freshness is the caller's to have checked (`isFreshOffer`), and so is which row the offer
  * belongs on; `cheapest` is `withCheapest`'s to say, once every row of the page is known.
+ *
+ * `null` when the offer's address does not pass the allow-list (`toOfferLink`): a row exists to
+ * be followed, and there is no row to make of a price without an address to send anyone to. The
+ * offers a document is read through have been checked already (`readableOffers`), so a caller
+ * that went through them never sees it — but the address is checked here and not taken on that
+ * word, because this is where it leaves for a page.
  */
-export function toStoreOffer(offer: IndexedOffer, rate: IndexedExchangeRate | null): StoreOffer {
+export function toStoreOffer(
+  offer: IndexedOffer,
+  rate: IndexedExchangeRate | null,
+): StoreOffer | null {
+  const link = toOfferLink(offer)
+  if (!link) return null
   const row: StoreOffer = {
-    ...toStoreLink(offer.store, safeExternalUrl(offer.url) ?? offer.url),
+    ...link,
     title: titleOf(offer),
     isFree: offer.amount === 0,
     updatedAt: offer.updatedAt,
@@ -215,7 +237,8 @@ export function withStoreOffers(
     const offer = offers.get(row.store)
     if (!offer) return row
     offers.delete(row.store)
-    return toStoreOffer(offer, terms.rate)
+    // Without a row of the offer's own there is still the link RAWG gave.
+    return toStoreOffer(offer, terms.rate) ?? row
   })
 }
 
@@ -372,11 +395,11 @@ export function toGame(game: IndexedGame, terms: OfferTerms | null = null): Game
   const storePage = steamStorePageOf(game)
   const rows = [
     ...(storePage ? [toSteamOffer(game, storePage)] : []),
-    ...listedOffers(game).map((offer) =>
-      terms && isFreshOffer(offer, terms.now)
-        ? toStoreOffer(offer, terms.rate)
-        : toStoreLink(offer.store, safeExternalUrl(offer.url) ?? offer.url),
-    ),
+    ...listedOffers(game).flatMap((offer) => {
+      const fresh = terms !== null && isFreshOffer(offer, terms.now)
+      const row = fresh ? toStoreOffer(offer, terms.rate) : toOfferLink(offer)
+      return row ? [row] : []
+    }),
   ]
   const stores = terms ? withCheapest(rows, terms.now) : rows
   return {
