@@ -9,7 +9,7 @@ import {
   MAX_SEARCH_LENGTH,
   METACRITIC_STEPS,
   PLATFORM_OPTIONS,
-  USER_RATING_MIN,
+  USER_RATING_STEPS,
   type GameSortValue,
   type PlatformFamilyValue,
 } from '../../shared/catalog'
@@ -41,8 +41,6 @@ export const MAX_INTERPRETATION_LENGTH = 200
 export const MAX_TAGS = 3
 /** At most this many genres: a query naming more is describing, not filtering. */
 const MAX_GENRES = 5
-/** The rating threshold the catalog offers is "4 and up"; anything from 3.5 rounds to it. */
-const RATING_ROUNDS_UP_FROM = 3.5
 const MIN_YEAR = 1970
 const MAX_YEAR = 2100
 
@@ -149,8 +147,8 @@ function metacriticStep(value: number | null): number | undefined {
 }
 
 function ratingMin(value: number | null): number | undefined {
-  if (value === null || value < RATING_ROUNDS_UP_FROM || value > 5) return undefined
-  return USER_RATING_MIN
+  if (value === null || value > 5) return undefined
+  return [...USER_RATING_STEPS].reverse().find((step) => step <= value)
 }
 
 function priceCeiling(value: number | null): number | undefined {

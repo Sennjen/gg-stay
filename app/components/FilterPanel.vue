@@ -7,7 +7,7 @@ import {
   PLATFORM_OPTIONS,
   PLAYTIMES,
   STORE_OPTIONS,
-  USER_RATING_MIN,
+  USER_RATING_STEPS,
   type LocalisationValue,
 } from '#shared/catalog'
 import type { CatalogFilter } from '~/utils/filterUrl'
@@ -26,6 +26,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ change: [patch: Partial<CatalogFilter>] }>()
 const { t } = useI18n()
+const { formatDecimal } = useFormatters()
 
 const search = ref(props.filter.search ?? '')
 watch(
@@ -49,6 +50,12 @@ const playtimeOptions = computed(() =>
 )
 const metacriticOptions = computed(() =>
   METACRITIC_STEPS.map((value) => ({ value, label: t('filters.metacriticMin', { value }) })),
+)
+const ratingOptions = computed(() =>
+  USER_RATING_STEPS.map((value) => ({
+    value,
+    label: t('filters.userRatingStep', { value: formatDecimal(value) }),
+  })),
 )
 const localisationOptions = computed(() =>
   LOCALISATIONS.map((value) => ({ value, label: t(`filters.localisation${labelOf(value)}`) })),
@@ -85,6 +92,9 @@ function onDevelopersChange(value: string[]) {
 function onMetacriticChange(value: number | undefined) {
   emit('change', { metacriticMin: value })
 }
+function onRatingChange(value: number | undefined) {
+  emit('change', { ratingMin: value })
+}
 function onPlaytimeChange(value: (typeof PLAYTIMES)[number] | undefined) {
   emit('change', { playtime: value })
 }
@@ -97,12 +107,6 @@ function toggleMadeInUkraine() {
   filtersStore.openSections.origin ??= true
   emit('change', { madeInUkraine: props.filter.madeInUkraine ? undefined : true })
 }
-function toggleRating() {
-  emit('change', {
-    ratingMin: props.filter.ratingMin === USER_RATING_MIN ? undefined : USER_RATING_MIN,
-  })
-}
-
 /** Sections that hold an active value start open; toggling one afterwards is remembered in the store. */
 const sectionActive = computed(() => ({
   platform: (props.filter.platforms?.length ?? 0) > 0,
@@ -259,19 +263,13 @@ const sectionActive = computed(() => ({
       :title="t('filters.userRating')"
       :active="sectionActive.userRating"
     >
-      <button
-        type="button"
-        :aria-pressed="filter.ratingMin === USER_RATING_MIN"
-        class="rounded-chip border px-3 py-1.5 text-sm focus-visible:outline-2"
-        :class="
-          filter.ratingMin === USER_RATING_MIN
-            ? 'border-accent bg-accent text-on-accent'
-            : 'border-line bg-surface-1 text-fg-2 hover:text-fg'
-        "
-        @click="toggleRating"
-      >
-        {{ t('filters.userRating') }}
-      </button>
+      <SegmentedControl
+        :legend="t('filters.userRating')"
+        :any-label="t('catalog.any')"
+        :options="ratingOptions"
+        :model-value="filter.ratingMin"
+        @update:model-value="onRatingChange"
+      />
     </FilterSection>
 
     <FilterSection

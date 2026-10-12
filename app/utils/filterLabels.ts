@@ -1,7 +1,6 @@
 import {
   PLATFORM_OPTIONS,
   STORE_OPTIONS,
-  USER_RATING_MIN,
   type AgeRatingValue,
   type GameModeValue,
 } from '#shared/catalog'
@@ -38,6 +37,7 @@ export interface FilterLabel {
 export interface FilterLabelContext {
   t: (key: string, named?: Record<string, unknown>) => string
   formatUah: (value: number) => string
+  formatDecimal: (value: number) => string
   genres: readonly { slug: string; name: string }[]
 }
 
@@ -49,7 +49,7 @@ function without<T>(values: T[] | undefined, value: T): T[] | undefined {
 type Draft = Omit<FilterLabel, 'prose'> & { prose?: string }
 
 export function filterLabels(filter: CatalogFilter, context: FilterLabelContext): FilterLabel[] {
-  const { t, formatUah } = context
+  const { t, formatUah, formatDecimal } = context
   const list: Draft[] = []
 
   if (filter.search) {
@@ -133,11 +133,13 @@ export function filterLabels(filter: CatalogFilter, context: FilterLabelContext)
     })
   }
 
-  if (filter.ratingMin === USER_RATING_MIN) {
+  if (filter.ratingMin !== undefined) {
+    const value = formatDecimal(filter.ratingMin)
     list.push({
       key: 'rating',
       field: 'ratingMin',
-      label: t('filters.userRating'),
+      label: t('filters.userRatingMin', { value }),
+      numberPart: { keypath: 'filters.userRatingMin', slot: 'value', value },
       patch: { ratingMin: undefined },
     })
   }

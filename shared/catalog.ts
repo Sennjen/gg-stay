@@ -104,7 +104,8 @@ export const DISCOUNT_STEPS = [25, 50, 75] as const
  * number that moved with every run would be noise.
  */
 export const INDEX_GAME_COUNT = 3000
-export const USER_RATING_MIN = 4
+/** The player rating floors the "Оцінка гравців" section offers, on RAWG's 0–5 scale. */
+export const USER_RATING_STEPS = [3.5, 4, 4.5] as const
 export const DEFAULT_PAGE_SIZE = 20
 export const MAX_PAGE_SIZE = 40
 export const MAX_PAGE = 500
