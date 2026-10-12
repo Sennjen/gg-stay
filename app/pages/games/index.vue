@@ -125,7 +125,7 @@ useSeoMeta({
       <button
         ref="filtersButtonEl"
         type="button"
-        class="rounded-chip border border-line bg-surface-1 px-4 py-2 text-sm text-fg focus-visible:outline-2"
+        class="h-10 rounded-chip border border-line bg-surface-1 px-4 text-sm text-fg focus-visible:outline-2"
         @click="store.panelOpen = true"
       >
         <i18n-t v-if="appliedCount" keypath="drawer.openButton" tag="span">
