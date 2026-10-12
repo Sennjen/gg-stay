@@ -10,7 +10,7 @@ import type {
 } from './GameIndex'
 import { DEFAULT_SORT } from './GameIndex'
 import { orderKey } from './keys'
-import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages, IndexedStoreRefs } from './document'
 import type { PlannedRange, QueryPlan } from './queryPlan'
 import { planQuery } from './queryPlan'
 
@@ -21,6 +21,7 @@ interface MemoryStore {
   lastVersion: number
   previous: IndexMeta | null
   appIds: Map<number, string>
+  storeRefs: Map<number, IndexedStoreRefs>
   languages: Map<string, IndexedLanguages>
   cursors: Map<string, string>
   /** The run that may write, or `null` when nobody is writing. */
@@ -145,6 +146,7 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
       lastVersion: 0,
       previous: null,
       appIds: new Map(),
+      storeRefs: new Map(),
       languages: new Map(),
       cursors: new Map(),
       lock: null,
@@ -216,7 +218,7 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 
   async meta(): Promise<IndexMeta | null> {
-    return this.live ? { ...this.live.meta } : null
+    return this.live ? structuredClone(this.live.meta) : null
   }
 
   async allSlugs(): Promise<IndexedSlug[]> {
@@ -230,7 +232,7 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
   }
 
   async previousMeta(): Promise<IndexMeta | null> {
-    return this.store.previous ? { ...this.store.previous } : null
+    return this.store.previous ? structuredClone(this.store.previous) : null
   }
 
   async beginVersion(options: BeginVersionOptions = {}): Promise<number> {
@@ -259,7 +261,7 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     // set its keys to expire.
     if (this.live?.version === version) {
       this.assertLockIsMine()
-      this.live.meta = { ...meta }
+      this.live.meta = structuredClone(meta)
       this.releaseLock()
       return
     }
@@ -271,7 +273,7 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
     }
     // The replaced version would expire on Upstash; here it is simply dropped.
     this.store.previous = this.store.live?.meta ?? null
-    this.store.live = store(version, draft, { ...meta })
+    this.store.live = store(version, draft, structuredClone(meta))
     this.store.drafts.delete(version)
     this.releaseLock()
   }
@@ -323,6 +325,19 @@ export class MemoryGameIndex implements GameIndex, GameIndexWriter {
 
   async setAppIds(entries: Iterable<[number, string]>): Promise<void> {
     for (const [id, appId] of entries) this.store.appIds.set(id, appId)
+  }
+
+  async getStoreRefs(ids: number[]): Promise<Map<number, IndexedStoreRefs>> {
+    const found = new Map<number, IndexedStoreRefs>()
+    for (const id of ids) {
+      const refs = this.store.storeRefs.get(id)
+      if (refs !== undefined) found.set(id, structuredClone(refs))
+    }
+    return found
+  }
+
+  async setStoreRefs(entries: Iterable<[number, IndexedStoreRefs]>): Promise<void> {
+    for (const [id, refs] of entries) this.store.storeRefs.set(id, structuredClone(refs))
   }
 
   async getCursor(stage: string): Promise<string | null> {

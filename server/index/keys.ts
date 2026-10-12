@@ -14,7 +14,8 @@ import { playtimeBucketOf } from './document'
  * stores stay comparable.
  *
  * A version owns everything under `idx:v{N}:`. The pointer to the live version, the permanent
- * Steam app ids and the job's resume cursors live outside it: they must survive a publication.
+ * Steam app ids and store references, and the job's resume cursors live outside it: they must
+ * survive a publication.
  *
  * Two families of sorted sets, and they are not interchangeable:
  *
@@ -118,6 +119,14 @@ export function metaKey(version: number): string {
 /** The game's Steam app id, resolved once and kept forever (empty string: the game has none). */
 export function appIdKey(rawgId: number): string {
   return `appid:${rawgId}`
+}
+
+/**
+ * Which product the game is on GOG and on the Microsoft Store, from RAWG's store links: resolved
+ * once and kept forever, like the app id beside it (an empty record: the game has neither).
+ */
+export function storeRefsKey(rawgId: number): string {
+  return `storeref:${rawgId}`
 }
 
 /** What Steam said about one app's languages, kept for the life of the index. */

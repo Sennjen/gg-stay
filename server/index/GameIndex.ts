@@ -5,7 +5,7 @@ import type {
   LocalisationValue,
   PlaytimeValue,
 } from '../../shared/catalog'
-import type { IndexMeta, IndexedGame, IndexedLanguages } from './document'
+import type { IndexMeta, IndexedGame, IndexedLanguages, IndexedStoreRefs } from './document'
 
 /**
  * The port the catalog reads the price and localisation index through, and the port the refresh
@@ -175,9 +175,10 @@ export interface GameIndex {
  * the live version is refused for the same reason: `writeVersion` replaces a version whole, so it
  * would empty the index before filling it again, and readers would see it half-written.
  *
- * App ids and cursors live outside the version and survive publications, so a Steam app id is
- * resolved once in the life of the index. Both are batched: a run touches 3 000 games and a REST
- * round trip per game is not affordable.
+ * App ids, store references and cursors live outside the version and survive publications, so a
+ * Steam app id — and the game's product on GOG and on the Microsoft Store — is resolved once in
+ * the life of the index. All are batched: a run touches 3 000 games and a REST round trip per game
+ * is not affordable.
  */
 export interface BeginVersionOptions {
   /**
@@ -231,6 +232,18 @@ export interface GameIndexWriter {
   /** Only the ids that were resolved appear; the empty string means "has no Steam app id". */
   getAppIds(ids: number[]): Promise<Map<number, string>>
   setAppIds(entries: Iterable<[number, string]>): Promise<void>
+  /**
+   * Which product each game is on GOG and on the Microsoft Store, by RAWG id, outside the version
+   * prefix and beside the app ids: kept for the life of the index, because finding one costs the
+   * same RAWG request an app id does. Only the games that were asked about appear, and a record
+   * with no field in it means "asked, and it has neither" — which is why an absent record and an
+   * empty one are two answers, exactly as an absent app id and an empty one are.
+   *
+   * A record that cannot be read back is worth what an absent one is: the game is asked about
+   * again and its record rewritten.
+   */
+  getStoreRefs(ids: number[]): Promise<Map<number, IndexedStoreRefs>>
+  setStoreRefs(entries: Iterable<[number, IndexedStoreRefs]>): Promise<void>
   /**
    * Steam language records by app id, outside the version prefix. Only the app ids that have a
    * record appear. The refresh job's work list is "no record, or a record older than a week", so

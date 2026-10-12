@@ -630,6 +630,115 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect('steamAppId' in published.find((game) => game.id === 2)!).toBe(false)
       })
 
+      it('hands back the other stores’ offers on the documents that have them, and none on the rest', async () => {
+        const adapter = await fresh()
+        const offers: IndexedGame['offers'] = [
+          {
+            store: 'gog',
+            amount: 899,
+            regularAmount: 3999,
+            currency: 'USD',
+            discountPercent: 78,
+            url: 'https://www.gog.com/en/game/alpha_quest',
+            updatedAt: '2026-09-20T00:15:00.000Z',
+          },
+          {
+            store: 'xbox-store',
+            amount: 50_820,
+            regularAmount: 154_000,
+            currency: 'UAH',
+            discountPercent: 67,
+            url: 'https://www.microsoft.com/uk-ua/p/alpha-quest/9nkx70bbcdrn',
+            updatedAt: '2026-09-19T12:15:00.000Z',
+          },
+        ]
+        const offered = { ...FIXTURE_GAMES[0]!, offers }
+        // As every document was before the refresh job read another store: the field is not there.
+        const legacy = FIXTURE_GAMES[1]!
+        expect('offers' in legacy).toBe(false)
+        await publishGames(adapter, [offered, legacy])
+
+        expect(await adapter.index.getOne(1)).toEqual(offered)
+        expect((await adapter.index.getMany([1])).get(1)?.offers).toEqual(offers)
+        const read = await adapter.index.getOne(2)
+        expect(read).toEqual(legacy)
+        expect(read && 'offers' in read).toBe(false)
+
+        // The same from every read that hands documents out, the job's included; and an offer
+        // changes nothing a query sees — the price range and its order are Steam's hryvnia alone.
+        const page = await adapter.index.search({})
+        expect(page.games.map((game) => game.offers)).toEqual([offers, undefined])
+        expect((await adapter.index.search({ sort: 'PRICE_ASC' })).total).toBe(0)
+        expect((await adapter.index.search({ priceMaxUah: 100_000 })).total).toBe(0)
+        const published = await adapter.writer.allGames()
+        expect(published.find((game) => game.id === 1)?.offers).toEqual(offers)
+        expect('offers' in published.find((game) => game.id === 2)!).toBe(false)
+      })
+
+      it('reports the rate and the store stamps a publication carried, and none it did not', async () => {
+        const adapter = await fresh()
+        const exchangeRate = {
+          currency: 'USD' as const,
+          uah: 44.9567,
+          date: '2026-09-20',
+          readAt: '2026-09-20T06:15:00.000Z',
+        }
+        const offersReadAt = {
+          gog: '2026-09-20T00:15:00.000Z',
+          'xbox-store': '2026-09-19T12:15:00.000Z',
+        }
+        const first = await publishGames(adapter, FIXTURE_GAMES.slice(0, 2), {
+          ...FIXTURE_META,
+          exchangeRate,
+          offersReadAt,
+        })
+
+        const carried = await adapter.index.meta()
+        expect(carried).toMatchObject({ version: first, updatedAt: FIXTURE_META.updatedAt })
+        expect(carried?.exchangeRate).toEqual(exchangeRate)
+        expect(carried?.offersReadAt).toEqual(offersReadAt)
+
+        // The next publication read the bank and one store only: the metadata says exactly that.
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 2), {
+          ...FIXTURE_META,
+          offersReadAt: { gog: offersReadAt.gog },
+        })
+        const next = await adapter.index.meta()
+        expect(next?.offersReadAt).toEqual({ gog: offersReadAt.gog })
+        expect(next?.exchangeRate).toBeUndefined()
+        // And the version it replaced still says what it said.
+        expect((await adapter.writer.previousMeta())?.exchangeRate).toEqual(exchangeRate)
+
+        // Metadata as it was before any of this existed: neither field, and nothing invented.
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
+        const plain = await adapter.index.meta()
+        expect(plain?.exchangeRate).toBeUndefined()
+        expect(plain?.offersReadAt).toBeUndefined()
+        expect(plain).toMatchObject({ pricesUpdatedAt: FIXTURE_META.pricesUpdatedAt, gameCount: 2 })
+      })
+
+      it('drops a rate the refreshed metadata of the live version no longer carries', async () => {
+        const adapter = await fresh()
+        const exchangeRate = {
+          currency: 'USD' as const,
+          uah: 44.9567,
+          date: '2026-09-20',
+          readAt: '2026-09-20T06:15:00.000Z',
+        }
+        const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 2), {
+          ...FIXTURE_META,
+          exchangeRate,
+          offersReadAt: { gog: '2026-09-20T00:15:00.000Z' },
+        })
+
+        // Publishing the live version again only refreshes its metadata — all of it.
+        await adapter.writer.publish(version, { ...FIXTURE_META, version, gameCount: 2 })
+
+        const refreshed = await adapter.index.meta()
+        expect(refreshed?.exchangeRate).toBeUndefined()
+        expect(refreshed?.offersReadAt).toBeUndefined()
+      })
+
       it('files a slug two games claim under the more popular one, then the lower id', async () => {
         const adapter = await fresh()
         const claim = (id: number, slug: string, popularity: number) => ({
@@ -828,6 +937,47 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect(resolved.get(3328)).toBe('292030')
         expect(resolved.get(4200)).toBe('')
         expect(resolved.has(5000)).toBe(false)
+      })
+
+      it('stores store references in batches, the empty one included, across publications', async () => {
+        expect(await adapter.writer.getStoreRefs([3328, 4200])).toEqual(new Map())
+        const witcher = {
+          gog: 'the_witcher_3_wild_hunt',
+          microsoft: { id: 'BR765873CQJD', name: 'the-witcher-3-wild-hunt' },
+        }
+        await adapter.writer.setStoreRefs([
+          [3328, witcher],
+          // Asked about, and on neither store: an answer of its own, not an absence.
+          [4200, {}],
+          [654, { microsoft: { id: 'C3D891Z6TNQM', name: 'stardew-valley' } }],
+        ])
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
+
+        const refs = await adapter.writer.getStoreRefs([3328, 4200, 654, 5000])
+        expect(refs.get(3328)).toEqual(witcher)
+        expect(refs.get(4200)).toEqual({})
+        expect(refs.get(654)).toEqual({ microsoft: { id: 'C3D891Z6TNQM', name: 'stardew-valley' } })
+        expect(refs.has(5000)).toBe(false)
+        // Beside the app ids, and apart from them: neither mapping answers for the other.
+        expect((await adapter.writer.getAppIds([3328])).get(3328)).toBe('292030')
+        expect((await adapter.writer.getStoreRefs([4200])).get(4200)).toEqual({})
+      })
+
+      it('overwrites a game’s store references with a newer answer', async () => {
+        await adapter.writer.setStoreRefs([[7000, { gog: 'limbo' }]])
+        await adapter.writer.setStoreRefs([[7000, {}]])
+
+        expect((await adapter.writer.getStoreRefs([7000])).get(7000)).toEqual({})
+      })
+
+      it('hands out a copy of a record, not the one it keeps', async () => {
+        await adapter.writer.setStoreRefs([
+          [7001, { microsoft: { id: 'BTQMHK78ZPF9', name: 'limbo' } }],
+        ])
+        const read = (await adapter.writer.getStoreRefs([7001])).get(7001)!
+        read.microsoft!.name = 'changed-by-the-caller'
+
+        expect((await adapter.writer.getStoreRefs([7001])).get(7001)?.microsoft?.name).toBe('limbo')
       })
 
       it('stores Steam language records in batches, across publications', async () => {
