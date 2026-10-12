@@ -23,7 +23,7 @@ describe('parseSteamPrice', () => {
       { priceUah: 12, regularPriceUah: 13, discountPercent: 2, isFree: false },
       'round half up (12.25 -> 12, 12.50 -> 13)',
     ],
-  ])('parses %s -> %j (%s)', (appId, expected) => {
+  ])('parses %s -> %j (%s)', (appId, expected, _what) => {
     const entry = (pricesBatch as Record<string, unknown>)[appId]
     expect(parseSteamPrice(entry)).toEqual(expected)
   })
@@ -42,7 +42,7 @@ describe('parseSteamPrice', () => {
       { success: true, data: { price_overview: { currency: 'UAH', initial: 100 } } },
       'a price_overview missing final/discount_percent',
     ],
-  ])('returns null for %j (%s)', (entry) => {
+  ])('returns null for %j (%s)', (entry, _what) => {
     expect(parseSteamPrice(entry)).toBeNull()
   })
 

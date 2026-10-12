@@ -18,6 +18,7 @@
     "format:check": "git ls-files -z --cached --others --exclude-standard | xargs -0 prettier --check --ignore-unknown",
     "typecheck": "nuxt typecheck",
     "typecheck:scripts": "tsc --project tsconfig.scripts.json && tsc --project tests/browser/tsconfig.json",
+    "typecheck:tests": "tsc --project tsconfig.tests.json && vue-tsc --project tsconfig.tests.app.json",
     "test": "vitest run",
     "test:unit": "vitest run --project unit --project nuxt",
     "e2e": "playwright test",

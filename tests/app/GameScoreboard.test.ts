@@ -4,31 +4,43 @@ import GameScoreboard from '~/components/GameScoreboard.vue'
 import MetacriticBadge from '~/components/MetacriticBadge.vue'
 import PlatformIcons from '~/components/PlatformIcons.vue'
 import PriceTag from '~/components/PriceTag.vue'
+import type { GameQuery } from '~/graphql/__generated__/operations'
 import { formatDecimal, formatNumber } from '~/utils/format'
 
 const NOW = '2026-09-18T12:00:00.000Z'
 
-const game = {
+const game: NonNullable<GameQuery['game']> = {
   released: '2015-05-18',
   metacritic: 92,
   rating: 4.65,
   ratingsCount: 6800,
-  platformFamilies: ['PC', 'PLAYSTATION'] as const,
-  stores: [] as {
-    store: string
-    priceUah: number | null
-    regularPriceUah: number | null
-    discountPercent: number | null
-    isFree?: boolean | null
-    updatedAt: string | null
-  }[],
-  localisation: null as { text: boolean; audio: boolean } | null,
+  platformFamilies: ['PC', 'PLAYSTATION'],
+  stores: [],
+  localisation: null,
+  madeInUkraine: false,
+  // The rest of the game the page hands over. The scoreboard reads none of it.
+  id: '3328',
+  slug: 'the-witcher-3-wild-hunt',
+  name: 'The Witcher 3: Wild Hunt',
+  playtime: null,
+  ageRating: null,
+  gameModes: [],
+  website: null,
+  partial: false,
+  localizedDescription: null,
+  cover: null,
+  screenshots: [],
+  platforms: [],
+  genres: [],
+  developers: [],
+  publishers: [],
+  similar: [],
 }
 
 describe('GameScoreboard', () => {
   it('shows a visible caption for every item, not just a screen-reader label', async () => {
     const wrapper = await mountSuspended(GameScoreboard, { props: { game } })
-    expect(wrapper.get('dl').exists()).toBe(true)
+    expect(wrapper.find('dl').exists()).toBe(true)
     const dts = wrapper.findAll('dt')
     expect(dts.every((dt) => !dt.classes().includes('sr-only'))).toBe(true)
     const captions = dts.map((dt) => dt.text())
@@ -108,6 +120,7 @@ describe('GameScoreboard', () => {
     const wrapper = await mountSuspended(GameScoreboard, {
       props: {
         game: {
+          ...game,
           released: null,
           metacritic: null,
           rating: null,
@@ -134,9 +147,11 @@ describe('GameScoreboard', () => {
             stores: [
               {
                 store: 'steam',
+                url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 337,
                 regularPriceUah: 1349,
                 discountPercent: 75,
+                isFree: null,
                 updatedAt: '2026-09-18T09:00:00.000Z',
               },
             ],
@@ -171,9 +186,11 @@ describe('GameScoreboard', () => {
             stores: [
               {
                 store: 'gog',
+                url: 'https://www.gog.com/game/the_witcher_3_wild_hunt',
                 priceUah: 500,
                 regularPriceUah: null,
                 discountPercent: null,
+                isFree: null,
                 updatedAt: '2026-09-18T09:00:00.000Z',
               },
             ],
@@ -192,9 +209,11 @@ describe('GameScoreboard', () => {
             stores: [
               {
                 store: 'steam',
+                url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 1349,
                 regularPriceUah: null,
                 discountPercent: null,
+                isFree: null,
                 updatedAt: '2026-09-18T11:40:00.000Z',
               },
             ],
@@ -215,6 +234,7 @@ describe('GameScoreboard', () => {
             stores: [
               {
                 store: 'steam',
+                url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 0,
                 regularPriceUah: null,
                 discountPercent: null,
@@ -238,9 +258,11 @@ describe('GameScoreboard', () => {
             stores: [
               {
                 store: 'steam',
+                url: 'https://store.steampowered.com/app/292030/',
                 priceUah: 0,
                 regularPriceUah: null,
                 discountPercent: null,
+                isFree: null,
                 updatedAt: '2026-09-18T09:00:00.000Z',
               },
             ],
@@ -256,7 +278,7 @@ describe('GameScoreboard', () => {
   describe('localisation', () => {
     it('shows "Текст і озвучка" when the game has Ukrainian audio', async () => {
       const wrapper = await mountSuspended(GameScoreboard, {
-        props: { game: { ...game, localisation: { text: true, audio: true } } },
+        props: { game: { ...game, localisation: { text: true, audio: true, source: 'steam' } } },
       })
       expect(wrapper.text()).toContain('Українська')
       expect(wrapper.text()).toContain('Текст і озвучка')
@@ -264,7 +286,7 @@ describe('GameScoreboard', () => {
 
     it('shows "Текст" when the game has Ukrainian text only', async () => {
       const wrapper = await mountSuspended(GameScoreboard, {
-        props: { game: { ...game, localisation: { text: true, audio: false } } },
+        props: { game: { ...game, localisation: { text: true, audio: false, source: 'steam' } } },
       })
       expect(wrapper.text()).toContain('Текст')
       expect(wrapper.text()).not.toContain('Текст і озвучка')

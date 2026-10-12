@@ -19,6 +19,7 @@ import { UpstreamError } from '../../server/upstream/errors'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../server/steam/steamFetch'
 import games from '../fixtures/rawg/games.json'
+import { testContext } from './support/yoga'
 
 const steam: SteamFetch = async () => {
   throw new UpstreamError('RAWG', 'NOT_FOUND', 404)
@@ -36,7 +37,7 @@ function countingRawg() {
 }
 
 async function post(rawg: RawgFetch, body: unknown) {
-  const yoga = createYogaApp(() => ({ rawg, steam, today: '2026-09-18' }))
+  const yoga = createYogaApp(() => testContext({ rawg, steam }))
   const response = await yoga.fetch('http://test/api/graphql', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

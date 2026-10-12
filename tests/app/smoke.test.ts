@@ -95,7 +95,7 @@ describe('home page', () => {
     clearNuxtData('gql:Landing:{}')
     const wrapper = await mountSuspended(IndexPage)
     expect(wrapper.get('h1').text()).toBe('Ігри, які варто знайти')
-    expect(wrapper.get('a[href="/games"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/games"]').exists()).toBe(true)
     // No caption and no error box without a featured game.
     expect(wrapper.text()).not.toContain('Зараз на екрані')
     // The sections that need landing data are simply absent — no placeholder, no error box.

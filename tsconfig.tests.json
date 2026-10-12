@@ -1,0 +1,25 @@
+{
+  // The Vitest suites that run in Node (`tests/server`, `tests/e2e`), the TypeScript fixtures they
+  // share and the Vitest config. No check covered them: `pnpm typecheck` builds the four projects
+  // Nuxt generates, whose globs end at `app/`, `server/` and `shared/`, and Vitest strips types
+  // without reading them, so a call that had lost a required argument went on passing.
+  //
+  // It extends the generated server project instead of repeating its options, because these suites
+  // import `server/`, whose files use Nitro's auto-imports (`useRuntimeConfig`, `useStorage`) and
+  // the `#shared` and `~` aliases. `include` replaces the parent's list, so the declarations that
+  // list would have brought are named again: the two Nitro files that carry the auto-imports, and
+  // any `.d.ts` under `server/` and `shared/`. `nuxt.node.d.ts` is for the suites that import
+  // `nuxt.config.ts`, which needs `defineNuxtConfig`.
+  "extends": "./.nuxt/tsconfig.server.json",
+  "include": [
+    "./.nuxt/types/nitro-nuxt.d.ts",
+    "./.nuxt/types/nitro.d.ts",
+    "./.nuxt/nuxt.node.d.ts",
+    "server/**/*.d.ts",
+    "shared/**/*.d.ts",
+    "tests/server/**/*.ts",
+    "tests/e2e/**/*.ts",
+    "tests/fixtures/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

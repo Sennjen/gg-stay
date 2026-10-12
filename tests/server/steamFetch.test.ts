@@ -296,8 +296,8 @@ describe('whether Steam’s page about an app may be kept beyond the instance', 
     ['may not, asked for with a ttl of its own under a day', { ttl: 60 }, false],
   ])('%s', async (_what, options, shareable) => {
     const { deps, store } = makeDeps()
-    const get = vi.fn(async (key: string) => store.get(key) ?? null)
-    const set = vi.fn(async (key: string, entry: SteamCacheEntry) => void store.set(key, entry))
+    const get = vi.fn<SteamDeps['cache']['get']>(async (key) => store.get(key) ?? null)
+    const set = vi.fn<SteamDeps['cache']['set']>(async (key, entry) => void store.set(key, entry))
     deps.cache = { get, set }
 
     await createSteamFetch(deps)('292030', options)

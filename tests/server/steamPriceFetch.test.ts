@@ -77,22 +77,28 @@ describe('fetchPrices', () => {
   })
 
   it('chunks to at most 100 ids per request (250 ids -> 3 requests)', async () => {
-    const fetchJson = vi.fn(async () => ({ status: 200, body: {} }))
+    const fetchJson = vi.fn<SteamPriceFetchDeps['fetchJson']>(async () => ({
+      status: 200,
+      body: {},
+    }))
     const { deps } = makeDeps({ fetchJson })
     const ids = Array.from({ length: 250 }, (_, i) => String(i))
     await createSteamPriceFetch(deps).fetchPrices(ids)
     expect(fetchJson).toHaveBeenCalledTimes(3)
     const sizes = fetchJson.mock.calls.map(
-      ([url]) => new URL(url as string).searchParams.get('appids')!.split(',').length,
+      ([url]) => new URL(url).searchParams.get('appids')!.split(',').length,
     )
     expect(sizes).toEqual([100, 100, 50])
   })
 
   it('de-duplicates ids before chunking', async () => {
-    const fetchJson = vi.fn(async () => ({ status: 200, body: {} }))
+    const fetchJson = vi.fn<SteamPriceFetchDeps['fetchJson']>(async () => ({
+      status: 200,
+      body: {},
+    }))
     const { deps } = makeDeps({ fetchJson })
     const result = await createSteamPriceFetch(deps).fetchPrices(['1', '2', '1', '2', '1'])
-    const url = new URL(fetchJson.mock.calls[0]![0] as string)
+    const url = new URL(fetchJson.mock.calls[0]![0])
     expect(url.searchParams.get('appids')).toBe('1,2')
     expect(result.size).toBe(2)
   })

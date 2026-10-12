@@ -452,6 +452,7 @@ function contextOf(parts: Partial<GraphQLContext>): GraphQLContext {
     steam: fixtureSteam,
     today: TEST_TODAY,
     now: TEST_NOW,
+    featuredPins: [],
     index: {} as GameIndex,
     steamPrices: noSteamPrices,
     cache: noCache,
