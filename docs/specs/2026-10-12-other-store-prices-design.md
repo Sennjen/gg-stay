@@ -81,7 +81,9 @@ A Microsoft offer fills the existing hryvnia fields (`priceUah`, `regularPriceUa
 - **Fresh.** An offer older than 36 hours is not a price: its row is the bare link it is today.
 - **The rate's age.** The job drops the rate after seven days without a successful read, but only while it runs: if the job stops, the metadata keeps the last rate it wrote. So the site applies the same rule itself. A rate whose `readAt` is more than seven days old is no rate — no `exchangeRate`, no `approxUah` — and a GOG row then shows its dollar price alone and takes no part in "cheapest", having no hryvnia amount to compare.
 - **Cheapest.** Among a game's rows with a price, Steam's included: the lowest hryvnia amount, exact or approximate. An approximate amount wins only when it is at least 5 % below the lowest exact one — a bank's rate is not the National Bank's. Fewer than two priced rows, or a tie, and nothing is marked. Nothing is marked when the lowest price is zero either: «Найдешевше» beside «Безкоштовно» says nothing a visitor cannot see, and the row that charges is not the lowest.
-- **`cheaperAt`.** The store of the game's cheapest offer when it is not Steam and is at least 10 % below Steam's current price; null otherwise, and null when Steam has no fresh price.
+- **`cheaperAt`.** The store of the game's cheapest offer — by the comparison above, over Steam's price as the index holds it and the offers — when it is not Steam and is at least 10 % below Steam's current price; null otherwise, and null when Steam has no fresh price.
+- **Fresh, for a card.** Both prices have to be current by one clock: read no more than thirty-six hours ago, and not dated more than five minutes ahead of the request's clock. That holds Steam's own price to the offers' rule. The index carries a game's price forward under its old date when Steam stops answering for it, and a card goes on showing that price for as long as the index as a whole is not stale; a price from six weeks ago is not the yardstick for "cheaper", so such a card names no store. Where a card's price is withheld or absent — a stale index, a document without a price — `cheaperAt` is null with it.
+- **Free, for a card.** `cheaperAt` is null when Steam's price is zero: nothing is below nothing. A store that gives the game away while Steam charges is named — unlike the mark on a game page, the line stands beside Steam's price alone and says what that price does not.
 - Stale index prices follow the existing rule: where Steam's price is stripped, so are these.
 
 ### 5. The game page
@@ -106,6 +108,8 @@ The footer's line of sources names GOG and the Xbox Store beside RAWG and Steam,
 
 One short line under the price when `cheaperAt` is set: «Дешевше в GOG» / "Cheaper at GOG" (the store's name as the site writes it everywhere else: GOG, Xbox Store — «Дешевше в Xbox Store» / "Cheaper at Xbox Store"). The catalog's price, its filters, its sorts, the sale shelf and the deal of the day stay Steam's hryvnia price. The `/games` JavaScript budget has 1.8 kB of headroom: the line has to fit it. If it cannot, the task stops and says so; the budget is not raised without the owner.
 
+It fits. Measured on a fixture-mode production build with `pnpm check:bundle-budget`: 143 003 bytes before the card's work and 143 030 after, against 144 633 — 27 bytes more, 1 603 left.
+
 ## Decided while building the game page (2026-10-12)
 
 What sections 4 and 5 left open, as the code now answers it. Each is a decision of the implementation, recorded here so that the card (section 6) and a reviewer read one rule.
@@ -120,6 +124,18 @@ What sections 4 and 5 left open, as the code now answers it. Each is a decision 
 - **The page RAWG answers is not held to the index's staleness.** It shows Steam's index price however old, under its own date; an offer there answers to its own thirty-six hours and nothing else.
 - **What this build cannot read is passed over.** An offer for a store or in a currency the build does not know, with an amount that is not a whole non-negative number, a regular amount below the amount, a discount that is not a whole percent, or an address that fails the allow-list, is not shown at all.
 - **Where the rows are.** A store with a price is a row in a list; a store without one stays the chip it was, under the list. The rows keep the answer's order.
+
+## Decided while building the catalog card (2026-10-12)
+
+What sections 4 and 6 left open, as the code now answers it.
+
+- **Every card carries it, by one function.** `cheaperAtOf` (`server/index/offerRules.ts`) is the rule, and each path that hands out a card asks it: a catalog page the index answers, one RAWG answers once the index's data is attached, the landing's shelves, ring and featured game, a game page's similar games by both of their routes, the deal of the day, and the rows of an `/api/ask` answer. No path is left out. A path that withholds a card's price because the index's prices are stale withholds this with it.
+- **Where the comparison names nobody, the card names no store.** `cheaperAt` is the store of the _cheapest_ offer, so it inherits that rule whole: a tie names nobody, and so does an estimate that is not 5 % below a hryvnia price. A game for which GOG's estimate and the Xbox Store's price are both far below Steam's and within 5 % of each other therefore has no line, though either store is cheaper than Steam.
+- **The card weighs the index's Steam price, never a live one.** A game page asks Steam for a price older than six hours and marks its cheapest row against the answer, with no ten percent asked of it and without the index's staleness applying. So a card and the page it opens can disagree, in either direction, for as long as the index's Steam price is behind Steam's own.
+- **The line carries no figure.** It states no second price and no percentage: a card has no room to say that GOG's hryvnia figure is an estimate, and the game page says it properly.
+- **The value is kept with the page.** A catalog page the index answers is cached in the instance's memory for ten minutes with `cheaperAt` as it was worked out, so it can be ten minutes behind the thirty-six hours it measures. An `/api/ask` answer is kept for up to a day under one index version, and the landing's HTML for ten minutes at the edge. No cache that outlives a deployment holds a card, so the shared cache's schema version is unchanged.
+- **Where the line is drawn.** On `GameCard` — the catalog's grid and list, the landing's shelves, a game page's similar games — as 12 px secondary text under the price line, absent when there is nothing to say. The rows of the ask page and the mascot's deal of the day receive the field and do not draw it: a row's line is the reason a game fits, and the greeting states one price.
+- **The store's name is the store filter's.** The card reads it from `STORE_OPTIONS`, as a game page's row does, and the locale files hold only the sentence around it.
 
 ## Not in this change
 

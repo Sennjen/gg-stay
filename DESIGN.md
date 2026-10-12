@@ -190,6 +190,24 @@ alone says nothing about which one it picks.
   ~360px card width "Metacritic" no longer fits on the line, so the caption
   falls back to "MC" with a `title="Metacritic"` tooltip at that width only.
   The chip itself (band colour, accessible name) is unchanged.
+- **"Дешевше в GOG" is one line under the price.** When the answer names a
+  store that is clearly cheaper than Steam (`GameCard.cheaperAt`), the card
+  says so under its price line: "Дешевше в GOG" / "Cheaper at GOG", and
+  "Дешевше в Xbox Store" / "Cheaper at Xbox Store" — the store under the name
+  the store filter gives it. It is 12px `fg-2` in the interface face, the last
+  thing in the card, 7.59:1 on `surface-1`. It carries no figure and no chip,
+  and uses no accent, signal or sale colour: `sale` is the colour of a
+  discount, and this is a pointer to another store, whose price — an estimate,
+  when it is GOG's — is on the game page with the words that explain it. The
+  price above it stays Steam's and is drawn exactly as on a card without the
+  line. A card the answer names no store for has no line and keeps nothing
+  for one, so in a row of cards the one with the line is a line taller in its
+  text and the others' meta blocks stay on the row's bottom edge. The line
+  fits on one line in the narrowest card, the two-column grid at 375 px
+  (138 px for "Дешевше в Xbox Store"), and wraps rather than truncates if a
+  longer store name ever comes. It is inside the card's one link, so it ends
+  the link's accessible name. Which store is named, by what margin and how
+  fresh both prices must be is the server's rule; the card compares nothing.
 
 ### Contrast ratios computed for this PR
 
@@ -269,7 +287,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `CatalogStaleBanner`            | Done — PR 7 — above the grid when the index's prices are too old to show                                                                                                                                      |
 | `filters/RadioList`             | Replaced by `SegmentedControl` in PR 4                                                                                                                                                                        |
 | `filters/YearRange`             | Replaced by `YearRangeSlider` in PR 4                                                                                                                                                                         |
-| `GameCard`                      | Full restyle (hover, score band, platform icons) in PR 3; title heading level made configurable (`h2` on the catalog grid, `h3` under `GameRow`'s own `h2`) in PR 9; "Зроблено в Україні" label in week 2B    |
+| `GameCard`                      | Restyled in PR 3 (hover, score band, platform icons); title level configurable in PR 9 (`h2` in the grid, `h3` under `GameRow`); "Зроблено в Україні" label in week 2B; "Дешевше в GOG" line in week 4        |
 | `GameGrid`                      | Restyled in PR 1; passes `heading-level="2"` to `GameCard` since PR 9                                                                                                                                         |
 | `SortSelect`                    | Restyled in PR 1 (dark pass); PR 7 added the three price sorts, hid them while the index is stale and named a sort the answer dropped                                                                         |
 | `Pagination`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |

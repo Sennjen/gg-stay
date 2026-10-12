@@ -71,7 +71,9 @@ flowchart LR
 - Cards show the Steam price in hryvnia, the discount, a Ukrainian
   localisation badge and a made-in-Ukraine label for the games the index
   holds ([ADR-004](docs/adr/004-price-index.md)); a page the index answers
-  says under its result count that it searched only those games.
+  says under its result count that it searched only those games. A card
+  also says, in one line, when GOG or the Xbox Store is at least 10 %
+  cheaper than Steam.
 - A header search with a debounced instant-results dropdown, keyboard
   navigable, that reuses the catalog's own search query.
 - Grid or list view (a local preference, not part of the URL).
@@ -308,7 +310,7 @@ server itself; set `QUALITY_REUSE_SERVER=1` to run it against one already listen
 - The `quality` CI job (bundle budget, Playwright, Lighthouse CI) runs on every pull request but is not a required check: only `verify` blocks a merge.
 - Fixture mode ignores filters that RAWG would apply server-side; the index filters work there against a seeded in-memory index.
 - Steam trailer URLs carry a signed query string; how long that signature stays valid is undocumented by Steam, so a cached trailer link could go stale before its own cache entry expires. Not yet observed in practice.
-- Only a game page shows what a store other than Steam charges, and only for GOG and the Xbox Store. The catalog's price — on a card, in the price and discount filters, the price sorts, the sale shelf and the deal of the day — is Steam's hryvnia price, and every other store RAWG links (Epic Games, PlayStation Store, Nintendo eShop) is a link without a price.
+- Only a game page shows what a store other than Steam charges, and only for GOG and the Xbox Store. A card says no more than that one of the two is clearly cheaper, without a figure: at least 10 % below Steam's price, both prices read in the last 36 hours. It weighs the index's Steam price where a game page reads Steam's live one, and is kept with a cached page for up to ten minutes, so a card and the page it opens can disagree. The catalog's price — on a card, in the price and discount filters, the price sorts, the sale shelf and the deal of the day — is Steam's hryvnia price, and every other store RAWG links (Epic Games, PlayStation Store, Nintendo eShop) is a link without a price.
 - GOG charges Ukraine in US dollars, so its hryvnia figure is an estimate at the National Bank's official rate, marked "≈" and never used by a filter or a sort; a buyer's bank converts at its own rate. GOG is called the cheapest only when the estimate is at least 5 % below the lowest hryvnia price. Without a rate read in the last seven days there is no estimate, and GOG's dollar price is shown alone.
 - The other stores' prices are read by the refresh job twice a day, not when a page is opened, and a price older than 36 hours is not shown: its store is a plain link again. Few games have one in the Xbox Store — nine of thirty-five products probed in Microsoft's catalog are sold in Ukraine in hryvnia — and how many indexed games carry a GOG or an Xbox Store price has not been measured on production.
 - A store's link at RAWG sometimes leads to another edition than the game it is filed under, and the price is that edition's. The row then shows what the store calls the product, and "cheapest" still compares the prices as they are, across editions.
