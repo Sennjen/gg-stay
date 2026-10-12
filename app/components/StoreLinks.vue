@@ -32,6 +32,7 @@
  * the scoreboard.
  */
 import { STORE_OPTIONS } from '#shared/catalog'
+import { chipPercent } from '#shared/discount'
 import { safeExternalUrl } from '#shared/url'
 import { hoursSince } from '~/utils/format'
 import {
@@ -106,15 +107,6 @@ interface StoreRow {
   spoken: string
   /** Whole hours since the price was read; `null` when that cannot be said. */
   hours: number | null
-}
-
-/**
- * The discount a chip may show: 1 to 99 percent, and only beside a regular price that is above
- * the price. "−0 %" and "−100 %" are not discounts anybody can read a price off, and a struck
- * price that is not higher is not one either — whatever the answer carries.
- */
-function chipPercent(percent: number | null | undefined, onSale: boolean): number | null {
-  return onSale && percent != null && percent >= 1 && percent <= 99 ? percent : null
 }
 
 /**

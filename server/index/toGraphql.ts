@@ -1,3 +1,4 @@
+import { chipPercent } from '../../shared/discount'
 import { safeExternalUrl } from '../../shared/url'
 import type {
   ExchangeRate,
@@ -144,16 +145,6 @@ function toOfferLink(offer: Pick<IndexedOffer, 'store' | 'url'>): StoreOffer | n
 }
 
 /**
- * The percent a discount chip may show for an offer with a regular price above its price: 1 to
- * 99, and 0 — no chip — for anything else. A document can carry a 0 beside a regular price that
- * is above the price, or a 100 beside a price that is not zero: a store rounds, and the job has
- * written what it was given. Neither is drawn as "−0 %" or "−100 %".
- */
-function chipPercent(percent: number): number {
-  return percent >= 1 && percent <= 99 ? percent : 0
-}
-
-/**
  * A fresh offer as the store's row: the store's own address for the product, what it calls it,
  * and the price in the fields of the currency it charges in.
  *
@@ -197,14 +188,14 @@ export function toStoreOffer(
       ...row,
       priceUah: price,
       regularPriceUah: onSale ? regular : null,
-      discountPercent: onSale ? chipPercent(offer.discountPercent) : 0,
+      discountPercent: chipPercent(offer.discountPercent, onSale) ?? 0,
     }
   }
   const onSale = offer.regularAmount > offer.amount
   const estimate = hryvniaOf(offer, rate)
   return {
     ...row,
-    discountPercent: onSale ? chipPercent(offer.discountPercent) : 0,
+    discountPercent: chipPercent(offer.discountPercent, onSale) ?? 0,
     foreignPrice: toMoney(offer.amount, offer.currency),
     foreignRegularPrice: onSale ? toMoney(offer.regularAmount, offer.currency) : null,
     approxUah: estimate?.approximate ? estimate.uah : null,
