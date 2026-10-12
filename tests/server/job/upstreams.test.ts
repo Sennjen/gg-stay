@@ -54,9 +54,11 @@ describe('the refresh job’s transports', () => {
 
   it('keep the pacing they always had, with no burst: that is the site’s alone', async () => {
     stubNetwork(200, { results: [] })
-    // A clock that stands still, so each wait is how far behind the first request a slot was.
+    // A clock that stands still until the case moves it, so each wait is how far behind the first
+    // request of its round a slot was.
+    let now = 0
     const waits: number[] = []
-    const clock: JobClock = { now: () => 0, sleep: async (ms) => void waits.push(ms) }
+    const clock: JobClock = { now: () => now, sleep: async (ms) => void waits.push(ms) }
     const rawg = createJobRawg(options(clock))
     const steam = createJobSteam(options(clock))
 
@@ -64,12 +66,24 @@ describe('the refresh job’s transports', () => {
     await Promise.all([1, 2, 3, 4].map((page) => rawg('games', { page })))
     expect(waits.splice(0)).toEqual([250, 500, 750])
 
-    // Steam's prices, three chunks of them, and Steam's page about an app: each a request per
-    // second and a half.
-    await steam.fetchPrices(Array.from({ length: 250 }, (_, id) => String(id)))
-    expect(waits.splice(0)).toEqual([1_500, 3_000])
-    await Promise.all(['620', '292030', '413150'].map((appId) => steam.fetchAppLanguages(appId)))
-    expect(waits.splice(0)).toEqual([1_500, 3_000])
+    // Steam's prices, four chunks of them, and Steam's page about four apps: each a request per
+    // second and a half, the first three included. On the site three would leave together and
+    // the fourth a second and a half behind them (`STEAM_BURST`).
+    const prices = () => steam.fetchPrices(Array.from({ length: 350 }, (_, id) => String(id)))
+    const pagesAbout = (apps: string[]) =>
+      Promise.all(apps.map((appId) => steam.fetchAppLanguages(appId)))
+    await prices()
+    expect(waits.splice(0)).toEqual([1_500, 3_000, 4_500])
+    await pagesAbout(['620', '292030', '413150', '730'])
+    expect(waits.splice(0)).toEqual([1_500, 3_000, 4_500])
+
+    // And an hour of rest earns them nothing: a burst is an allowance an idle limiter holds, and
+    // the job's hold none.
+    now += 3_600_000
+    await prices()
+    expect(waits.splice(0)).toEqual([1_500, 3_000, 4_500])
+    await pagesAbout(['400', '570', '220', '440'])
+    expect(waits.splice(0)).toEqual([1_500, 3_000, 4_500])
   })
 
   it('write no line about a slow attempt either: how long an upstream took is the site’s question', async () => {

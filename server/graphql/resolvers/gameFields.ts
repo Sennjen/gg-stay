@@ -12,10 +12,11 @@ const STEAM_TTL = 86_400
  * How long the Ukrainian description waits for Steam before the page goes out with RAWG's text.
  *
  * Steam's store is asked for a whole app here, through a transport that gives a request five
- * seconds and one retry and sends one request every second and a half. Left unbounded, that is
- * ten seconds and more that a game page can spend on a paragraph it already has in English. Past
- * the budget the page is better served now than complete later: the request is not cancelled, so
- * its answer is on its way into the cache either way.
+ * seconds and one retry and, once the site's burst of three is spent (`STEAM_BURST`), sends one
+ * request every second and a half. Left unbounded, that is ten seconds and more that a game page
+ * can spend on a paragraph it already has in English. Past the budget the page is better served
+ * now than complete later: the request is not cancelled, so its answer is on its way into the
+ * cache either way.
  */
 export const STEAM_DESCRIPTION_BUDGET_MS = 1_500
 

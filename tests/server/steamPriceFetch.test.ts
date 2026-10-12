@@ -105,6 +105,15 @@ describe('fetchPrices', () => {
     expect(waits).toEqual([1_500, 3_000])
   })
 
+  it('lets as many requests leave together as its wiring asks for, and spaces the rest', async () => {
+    // What the site asks for; the refresh job asks for nothing, and its chunks are spaced as above.
+    const { deps } = makeDeps({ burst: 3 })
+    const ids = Array.from({ length: 450 }, (_, i) => String(i))
+    await createSteamPriceFetch(deps).fetchPrices(ids)
+    const waits = vi.mocked(deps.sleep).mock.calls.map(([ms]) => ms)
+    expect(waits).toEqual([1_500, 3_000])
+  })
+
   it('retries once on 5xx and succeeds', async () => {
     const fetchJson = vi
       .fn()

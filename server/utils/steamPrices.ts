@@ -1,12 +1,16 @@
 import { createSteamPriceFetch, type SteamPriceFetch } from '../steam/steamPriceFetch'
+import { STEAM_BURST } from './steam'
 
 let instance: SteamPriceFetch | undefined
 
 /**
- * The batched Steam price transport. The site only ever uses its per-app call, to refresh one
- * game's price on its own page; the batched side belongs to the refresh job. It is built on the
- * same cached per-app transport as the rest of the Steam reads (`useSteam`), so fixture mode and
- * the rate limit are shared rather than reimplemented.
+ * The Steam price transport. The site only ever uses its read of one app's price, to refresh one
+ * game's price on its own page; the batched side belongs to the refresh job.
+ *
+ * That read has a limiter of its own, apart from the one of Steam's page about an app
+ * (`useSteam`), with the same pace and the same burst (`STEAM_BURST` says what the two add up
+ * to). The per-app transport is handed over for the language read alone, which the site does not
+ * make.
  */
 export function useSteamPrices(): SteamPriceFetch {
   if (instance) return instance
@@ -25,6 +29,7 @@ export function useSteamPrices(): SteamPriceFetch {
     readFixture: async (name) => (await fixtures.getItem(`${name}.json`)) ?? null,
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    burst: STEAM_BURST,
     steamFetch: useSteam(),
   })
   return instance

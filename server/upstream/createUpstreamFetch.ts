@@ -9,8 +9,8 @@ import { UpstreamError, type UpstreamSource } from './errors'
  *
  * The limiter may be given a burst (`UpstreamConfig.burst`): that many requests leave together
  * when it has been idle, and the rate in the long run is still one per interval. Without one —
- * which is every transport but the site's RAWG (`server/utils/rawg.ts`) — two requests are never
- * closer than the interval.
+ * which is every transport the refresh job builds; the site's are given three (`RAWG_BURST`,
+ * `STEAM_BURST` in `server/utils`) — two requests are never closer than the interval.
  *
  * A call for something another call is already fetching joins that request instead of sending a
  * second one — see `inFlight` below for exactly which calls count as the same. That makes one rule
