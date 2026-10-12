@@ -34,10 +34,11 @@ let instance: RawgFetch | undefined
  * three refreshes leave together too, a cold landing — so a look at warm pages proves nothing.
  *
  * The site's alone. The refresh job builds its own RAWG transport (`scripts/index/upstreams.ts`)
- * and names no burst, so it walks RAWG a request per quarter of a second, as it always did; and
- * neither Steam transport has one. The job writes no attempt lines either: a request an upstream
- * refuses it is counted by the stage that made it, and the job's own run summary is where its
- * failures show.
+ * and names no burst, so it walks RAWG a request per quarter of a second, as it always did. The
+ * site's two Steam transports have a burst of their own, with its own arithmetic and its own
+ * sign to take it back (`STEAM_BURST`, `server/utils/steam.ts`). The job writes no attempt lines
+ * either: a request an upstream refuses it is counted by the stage that made it, and the job's
+ * own run summary is where its failures show.
  */
 export const RAWG_BURST = 3
 

@@ -8,8 +8,8 @@ import { projectAppDetails } from './appDetailsProjection'
 
 const BASE_URL = 'https://store.steampowered.com/api/appdetails'
 const TIMEOUT_MS = 5_000
-// Steam's undocumented limit is roughly 200 requests per 5 minutes; one request every 1.5s
-// stays comfortably under that without needing a token-bucket over a longer window.
+// Steam's limit is undocumented, and roughly 200 requests per 5 minutes. One request every 1.5s is
+// 200 in five minutes — after whatever burst the wiring gives it (`SteamDeps.burst`).
 const MIN_INTERVAL_MS = 1_500
 const MAX_ATTEMPTS = 2
 const DEFAULT_TTL = 86_400 // 24h, per the landing resolver's caching rule for Steam trailers.
@@ -25,6 +25,13 @@ export interface SteamDeps {
   sleep: (ms: number) => Promise<void>
   /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
   log?: (line: string) => void
+  /**
+   * How many requests may leave together when the limiter has been idle (`UpstreamConfig.burst`).
+   * One when omitted: a request per second and a half and nothing else, which is what the
+   * refresh job asks Steam at. Only the site names another (`STEAM_BURST`,
+   * `server/utils/steam.ts`).
+   */
+  burst?: number
 }
 
 export interface SteamFetchOptions {
@@ -62,9 +69,10 @@ function buildUrl(appId: string): string {
 
 /**
  * Steam's share of the shared upstream transport (see server/upstream/createUpstreamFetch.ts):
- * the store URL, the flat 24h ttl, the slower 1.5s limiter, and the projection that keeps only the
- * handful of fields this app reads — the full payload runs to tens of KB per game, and caching it
- * whole would waste most of the cache's entry budget.
+ * the store URL, the flat 24h ttl, the slower 1.5s limiter with the burst its wiring asks for
+ * (`SteamDeps.burst`), and the projection that keeps only the handful of fields this app reads —
+ * the full payload runs to tens of KB per game, and caching it whole would waste most of the
+ * cache's entry budget.
  *
  * No answer here has a stale window (`UpstreamConfig.staleFor`), though RAWG's pages about the
  * same game do. The payload that carries the Ukrainian description also carries the trailer's
@@ -78,6 +86,7 @@ export function createSteamFetch(deps: SteamDeps): SteamFetch {
     {
       source: 'STEAM',
       minIntervalMs: MIN_INTERVAL_MS,
+      burst: deps.burst,
       timeoutMs: TIMEOUT_MS,
       maxAttempts: MAX_ATTEMPTS,
       buildUrl: ({ appId }) => buildUrl(appId),

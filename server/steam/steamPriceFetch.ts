@@ -8,7 +8,8 @@ import type { SteamFetch } from './steamFetch'
 const BASE_URL = 'https://store.steampowered.com/api/appdetails'
 const TIMEOUT_MS = 5_000
 // Same conservative spacing as the per-app transport (see steamFetch.ts) — a batched call still
-// counts as one request against Steam's undocumented rate limit.
+// counts as one request against Steam's undocumented rate limit. It is the spacing after whatever
+// burst the wiring gives this transport (`SteamPriceFetchDeps.burst`).
 const MIN_INTERVAL_MS = 1_500
 const MAX_ATTEMPTS = 2
 // Steam's documented ceiling for `appids` on a single `appdetails` call.
@@ -27,6 +28,16 @@ export interface SteamPriceFetchDeps {
   sleep: (ms: number) => Promise<void>
   /** Where the transport's line about a slow or failed attempt goes; `console.info` when omitted. */
   log?: (line: string) => void
+  /**
+   * How many price requests — `fetchPrices`' chunks and `fetchPrice`'s one app — may leave
+   * together when their limiter has been idle (`UpstreamConfig.burst`). One when omitted: a
+   * request per second and a half and nothing else, which is what the refresh job reads its
+   * prices at. Only the site names another (`STEAM_BURST`, `server/utils/steam.ts`).
+   *
+   * It is this transport's own limiter that is given it. `steamFetch` below has another, with
+   * whatever burst it was built with.
+   */
+  burst?: number
   /** The existing per-app, cached transport (server/steam/steamFetch.ts) — `fetchAppLanguages`
    *  reuses it instead of duplicating the transport for a single-app, unfiltered call. */
   steamFetch: SteamFetch
@@ -127,6 +138,7 @@ export function createSteamPriceFetch(deps: SteamPriceFetchDeps): SteamPriceFetc
     {
       source: 'STEAM',
       minIntervalMs: MIN_INTERVAL_MS,
+      burst: deps.burst,
       timeoutMs: TIMEOUT_MS,
       maxAttempts: MAX_ATTEMPTS,
       buildUrl: ({ ids }) => buildPricesUrl(ids),

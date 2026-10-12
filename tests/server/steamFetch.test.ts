@@ -150,6 +150,15 @@ describe('createSteamFetch', () => {
     expect(waits).toEqual([1_500, 3_000])
   })
 
+  it('lets as many requests leave together as its wiring asks for, and spaces the rest', async () => {
+    // What the site asks for; the refresh job asks for nothing, and is spaced as above.
+    const { deps } = makeDeps({ burst: 3 })
+    const steam = createSteamFetch(deps)
+    await Promise.all(['1', '2', '3', '4', '5'].map((appId) => steam(appId)))
+    const waits = vi.mocked(deps.sleep).mock.calls.map(([ms]) => ms)
+    expect(waits).toEqual([1_500, 3_000])
+  })
+
   it('writes a line about a failed attempt that names the app, not the URL', async () => {
     const log = vi.fn<(line: string) => void>()
     const fetchJson = vi
