@@ -3,6 +3,7 @@ import { isoNow, type JobDeps } from './deps'
 import { walkGogCatalog } from './gog'
 import { MICROSOFT_IDS_PER_REQUEST, microsoftProductUrl, parseMicrosoftProducts } from './microsoft'
 import { usableStoreRefs, type StoreRefMap } from './storeRefs'
+import { reasonOf } from './storeUpstream'
 import {
   OFFER_STORES,
   type IndexMeta,
@@ -101,10 +102,6 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
     chunks.push(items.slice(index, index + size))
   }
   return chunks
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /** A stamp as epoch milliseconds, or `null` when it is missing, unreadable or in the future. */
@@ -226,7 +223,7 @@ async function readGog(
     return report({ pricesRead, requests, lastReadAt: readAt })
   } catch (error) {
     lock.assertHeld()
-    const reason = messageOf(error)
+    const reason = reasonOf(error)
     deps.log(
       `gog: the catalog walk failed after ${requests} requests, keeping every offer: ${reason}`,
     )
@@ -297,7 +294,7 @@ async function readMicrosoft(
     } catch (cause) {
       failedRequests += 1
       failed += ids.reduce((games, id) => games + (byId.get(id)?.length ?? 0), 0)
-      error = messageOf(cause)
+      error = reasonOf(cause)
       deps.log(
         `microsoft: a request for ${ids.length} products failed, keeping their offers: ${error}`,
       )
@@ -345,7 +342,7 @@ async function readRate(deps: JobDeps, published: IndexMeta | null): Promise<Rat
   } catch (error) {
     const kept = keptRate(published?.exchangeRate, now)
     deps.log(
-      `rate: the National Bank could not be read (${messageOf(error)}); ` +
+      `rate: the National Bank could not be read (${reasonOf(error)}); ` +
         (kept ? `keeping the rate for ${kept.date}` : 'no rate under seven days old is left'),
     )
     return kept ? { status: 'kept', rate: { ...kept } } : { status: 'none', rate: null }

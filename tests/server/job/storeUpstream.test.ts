@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { discountPercentOf, storeTitle } from '../../../scripts/index/storeUpstream'
+import { discountPercentOf, reasonOf, storeTitle } from '../../../scripts/index/storeUpstream'
 import { MAX_OFFER_TITLE_LENGTH } from '../../../server/index/document'
 
 /**
  * What the readers of GOG and of the Microsoft Store share: how a store's own title becomes the
- * plain text an offer carries, and how a discount is counted from two amounts.
+ * plain text an offer carries, how a discount is counted from two amounts, and how somebody
+ * else's words become a line of the job's log.
  */
 
 describe('storeTitle', () => {
@@ -74,5 +75,28 @@ describe('discountPercentOf', () => {
     expect(discountPercentOf(999, 999)).toBe(0)
     expect(discountPercentOf(999, 499)).toBe(0)
     expect(discountPercentOf(0, 0)).toBe(0)
+  })
+})
+
+describe('reasonOf', () => {
+  it('is an error’s message, or the thing itself as text', () => {
+    expect(reasonOf(new Error('GOG upstream failure: TIMEOUT'))).toBe(
+      'GOG upstream failure: TIMEOUT',
+    )
+    expect(reasonOf('no answer')).toBe('no answer')
+    expect(reasonOf(503)).toBe('503')
+  })
+
+  it('is one line, so nothing in it can begin a line of the runner’s log', () => {
+    // On a GitHub runner a line of standard output beginning with `::` is a command.
+    const reason = reasonOf(new Error('the catalog repeated x\n::add-mask::secret\r\n::error::y'))
+
+    expect(reason).toBe('the catalog repeated x ::add-mask::secret ::error::y')
+    expect(reason).not.toMatch(/[\r\n]/)
+    expect(reasonOf('a\u2028b\u2029c\u0085d\u0000e\tf')).toBe('a b c d e f')
+  })
+
+  it('is no longer than a line', () => {
+    expect(reasonOf(new Error('x'.repeat(5_000)))).toHaveLength(200)
   })
 })

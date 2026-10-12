@@ -77,3 +77,18 @@ export function discountPercentOf(amount: number, regularAmount: number): number
   if (regularAmount <= 0 || amount >= regularAmount) return 0
   return Math.round((1 - amount / regularAmount) * 100)
 }
+
+/** The longest a store's or an upstream's own words are quoted in a log line or the summary. */
+const MAX_REASON_LENGTH = 200
+
+/**
+ * Why a read failed, as it may be written to the job's log: on one line, and no longer than a
+ * line. The log is standard output on a GitHub runner, where a line that begins with `::` is a
+ * command to the runner; a reason is somebody else's text as often as it is this job's, so every
+ * control character and line break in it becomes a space before it is printed anywhere.
+ */
+export function reasonOf(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error)
+  const line = text.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim()
+  return Array.from(line).slice(0, MAX_REASON_LENGTH).join('')
+}
