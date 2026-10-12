@@ -6,12 +6,15 @@ import { MAX_OFFER_TITLE_LENGTH } from '../../../server/index/document'
  * What the readers of GOG and of the Microsoft Store share: how a store's own title becomes the
  * plain text an offer carries, how a discount is counted from two amounts, and how somebody
  * else's words become a line of the job's log.
+ *
+ * Every invisible character below is written as an escape, never as itself: a test about text
+ * nobody can see must at least be readable.
  */
 
 describe('storeTitle', () => {
   it('passes a title on as the store wrote it', () => {
     expect(storeTitle('Hollow Knight: Voidheart Edition')).toBe('Hollow Knight: Voidheart Edition')
-    expect(storeTitle('DARK SOULS™ III')).toBe('DARK SOULS™ III')
+    expect(storeTitle('DARK SOULS\u2122 III')).toBe('DARK SOULS\u2122 III')
     expect(storeTitle('#DRIVE Rally')).toBe('#DRIVE Rally')
     expect(storeTitle('黎明为歌 - Melody before the Dawn')).toBe(
       '黎明为歌 - Melody before the Dawn',
@@ -24,14 +27,14 @@ describe('storeTitle', () => {
     expect(storeTitle('  LIMBO  ')).toBe('LIMBO')
     expect(storeTitle('The Witcher 3:\n\tWild   Hunt\r\n')).toBe('The Witcher 3: Wild Hunt')
     expect(storeTitle('Halo\u0000Infinite\u0007')).toBe('Halo Infinite')
-    expect(storeTitle('Halo Infinite')).toBe('Halo Infinite')
+    expect(storeTitle('Halo\u00A0Infinite')).toBe('Halo Infinite')
   })
 
   it('drops the characters that only steer how text is laid out', () => {
     // A right-to-left override would print the rest of the line backwards.
-    expect(storeTitle('Limbo‮ dnuof toN')).toBe('Limbo dnuof toN')
-    expect(storeTitle('﻿Lim​bo‏')).toBe('Limbo')
-    expect(storeTitle('⁦Limbo⁩')).toBe('Limbo')
+    expect(storeTitle('Limbo\u202E dnuof toN')).toBe('Limbo dnuof toN')
+    expect(storeTitle('\uFEFFLim\u200Bbo\u200F')).toBe('Limbo')
+    expect(storeTitle('\u2066Limbo\u2069')).toBe('Limbo')
   })
 
   it('leaves markup as the text it is: a page prints a title, it does not render one', () => {
@@ -56,12 +59,20 @@ describe('storeTitle', () => {
     expect(title.startsWith('Limbo')).toBe(true)
   })
 
-  it.each([undefined, null, '', '   ', '\n\t', '​﻿', 42, true, ['Limbo'], { title: 'Limbo' }])(
-    'reads no title from %j',
-    (value) => {
-      expect(storeTitle(value)).toBeNull()
-    },
-  )
+  it.each([
+    undefined,
+    null,
+    '',
+    '   ',
+    '\n\t',
+    '\u200B\uFEFF',
+    42,
+    true,
+    ['Limbo'],
+    { title: 'Limbo' },
+  ])('reads no title from %j', (value) => {
+    expect(storeTitle(value)).toBeNull()
+  })
 })
 
 describe('discountPercentOf', () => {
