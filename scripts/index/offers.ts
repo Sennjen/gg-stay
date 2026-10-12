@@ -50,6 +50,14 @@ import { safeExternalUrl } from '../../shared/url'
  * **An offer needs a reference.** A document keeps an offer of a store only while the permanent
  * mapping (`storeRefs.ts`) names the game's product there, as it keeps a Steam app id only while
  * the mapping holds one: what the documents of a run arrived carrying is never an authority.
+ *
+ * **And the mapping is believed only so far, too** (`referencesLookLost`). That rule runs before
+ * any read and needs no store to be asked, so a mapping that came back empty — its keys gone, or
+ * every one of them answered as absent — would take every offer away in a run that ends green,
+ * with both stores reporting that they had nothing to read. The documents are no authority for
+ * one game, but twenty of them agreeing against a mapping that has forgotten most of them are
+ * evidence about the mapping: it is then not believed for that store, no offer of the store is
+ * dropped for want of a reference, the store is not read, and its stamp stays where it was.
  */
 
 /** A store's prices are read again once its last full read is older than this: eleven hours. */
@@ -96,6 +104,11 @@ export type StoreReadStatus =
   | 'not-due'
   /** The mapping names no product of this store for any game of the run; no request was made. */
   | 'no-references'
+  /**
+   * The mapping has forgotten most of the games that carry an offer of this store, and is not
+   * believed: no request was made, no offer was dropped, and the stamp stayed.
+   */
+  | 'references-lost'
 
 /** What one store's read came to, for the log and the job summary. */
 export interface StoreReadReport {
@@ -112,7 +125,10 @@ export interface StoreReadReport {
   offers: number
   /** When the store was last read in full, after this run. */
   lastReadAt: string | null
-  /** Why a read failed: the upstream's own words on one line, or what the floor saw. */
+  /**
+   * Why the store's prices were not refreshed: the upstream's own words on one line, what the
+   * floor saw of a read, or what it saw of the mapping.
+   */
   error?: string
 }
 
@@ -149,6 +165,27 @@ export function belowOfferFloor(carried: number, priced: number): string | null 
   return (
     `carried ${carried}, the read priced ${priced}: under half of the offers the store had, ` +
     'so the read is not believed and nothing is taken from it'
+  )
+}
+
+/**
+ * Why the mapping is not believed for a store, or `null` when it is: at least
+ * `OFFER_FLOOR_MIN_CARRIED` games arrived carrying an offer of the store, and the mapping names a
+ * product there for fewer than half of them (`OFFER_FLOOR_RATIO`). The same two numbers as the
+ * floor under a read, for the same reason, one step earlier.
+ *
+ * An offer exists only because a reference did, and a reference is never taken back in bulk: a
+ * record is rewritten one game at a time, when RAWG is asked about that game again. So in the
+ * ordinary way every game that carries an offer has its reference, a few may lose theirs — a
+ * record that will not parse, a link RAWG dropped — and most of them losing it at once is the
+ * mapping that is lost, not the references. Under the count, and from half up, the rule is what
+ * it always was: an offer without a reference is dropped.
+ */
+export function referencesLookLost(carrying: number, referenced: number): string | null {
+  if (carrying < OFFER_FLOOR_MIN_CARRIED || referenced >= carrying * OFFER_FLOOR_RATIO) return null
+  return (
+    `carried ${carrying}, the mapping names a product for ${referenced} of those games: ` +
+    'under half, so the store references look lost'
   )
 }
 
@@ -213,6 +250,39 @@ function createLockKeeper(deps: JobDeps) {
     assertHeld: (): void => {
       if (failure !== null) throw failure
     },
+  }
+}
+
+/**
+ * What is reported of a store whose mapping is not believed (`referencesLookLost`): nothing was
+ * asked and nothing was dropped, and the stamp is the published one.
+ *
+ * **The store is not read at all in that state**, not even for the games the mapping still
+ * names. A read of what is left could not be a read in full — it would move the stamp and put
+ * the next one off by eleven hours on the strength of a mapping nobody believes — and a read
+ * that may neither move the stamp nor remove anything is a partial read under another name, due
+ * again on every run: the job's own fault would have it ask the store twice as often as on a
+ * good day. What it costs is the freshness of the few offers that still have a reference, for as
+ * long as the mapping is away; their dates stay honest, and the site shows no price it cannot
+ * call fresh.
+ */
+function notRead(
+  deps: JobDeps,
+  name: string,
+  references: number,
+  lastReadAt: string | undefined,
+  reason: string,
+): StoreReadReport {
+  deps.log(`${name}: ${reason}; every offer is kept as it was and the store is not read`)
+  return {
+    status: 'references-lost',
+    references,
+    pricesRead: 0,
+    failed: 0,
+    requests: 0,
+    offers: 0,
+    lastReadAt: lastReadAt ?? null,
+    error: reason,
   }
 }
 
@@ -469,23 +539,43 @@ export async function refreshOffers(
     product: NonNullable<IndexedStoreRefs['microsoft']>
   }[] = []
 
-  for (const game of games) {
-    const usable = usableStoreRefs(refs.get(game.id))
+  const arrived = games.map((game) => ({
+    game,
+    usable: usableStoreRefs(refs.get(game.id)),
+    carried: (Array.isArray(game.offers) ? game.offers : []).filter((offer) =>
+      OFFER_STORES.includes(offer?.store),
+    ),
+  }))
+
+  // Before anything is dropped: is the mapping to be believed about each store at all?
+  const lost: Partial<Record<OfferStore, string>> = {}
+  for (const store of OFFER_STORES) {
+    const carrying = arrived.filter((entry) => entry.carried.some((offer) => offer.store === store))
+    const referenced = carrying.filter((entry) => hasReference(entry.usable, store)).length
+    const reason = referencesLookLost(carrying.length, referenced)
+    if (reason) lost[store] = reason
+  }
+
+  for (const { game, usable, carried } of arrived) {
     if (usable.gog) gogGames.push({ game, slug: usable.gog })
     if (usable.microsoft) microsoftGames.push({ game, product: usable.microsoft })
-    // The mapping is the only authority for which stores a game may carry an offer of.
-    const carried = Array.isArray(game.offers) ? game.offers : []
+    // The mapping is the only authority for which stores a game may carry an offer of — for as
+    // long as it is believed about that store.
     writeOffers(
       game,
       carried.filter(
-        (offer) => OFFER_STORES.includes(offer?.store) && hasReference(usable, offer.store),
+        (offer) => lost[offer.store] !== undefined || hasReference(usable, offer.store),
       ),
     )
   }
 
   const previous = published?.offersReadAt ?? {}
-  const gog = await readGog(deps, gogGames, previous.gog)
-  const microsoft = await readMicrosoft(deps, microsoftGames, previous['xbox-store'])
+  const gog = lost.gog
+    ? notRead(deps, 'gog', gogGames.length, previous.gog, lost.gog)
+    : await readGog(deps, gogGames, previous.gog)
+  const microsoft = lost['xbox-store']
+    ? notRead(deps, 'microsoft', microsoftGames.length, previous['xbox-store'], lost['xbox-store'])
+    : await readMicrosoft(deps, microsoftGames, previous['xbox-store'])
   const rate = await readRate(deps, published)
 
   gog.offers = countOffers(games, 'gog')

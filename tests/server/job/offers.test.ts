@@ -7,6 +7,7 @@ import {
   OFFER_FLOOR_RATIO,
   OFFERS_MAX_AGE_MS,
   RATE_KEPT_MS,
+  referencesLookLost,
   refreshOffers,
 } from '../../../scripts/index/offers'
 import { sweepStoreRefs, type StoreRefMap } from '../../../scripts/index/storeRefs'
@@ -898,14 +899,277 @@ describe('the floor under a full read', () => {
   })
 
   it('counts what the documents carried after the mapping has had its say', async () => {
-    // Forty games carry a GOG offer and only ten of them still have a reference: the thirty are
-    // dropped by the mapping before any read, and are no part of what a read is measured against.
-    const { harness, games, refs } = await gogGames(40, 6)
-    for (const game of games.slice(10)) refs.delete(game.id)
+    // Forty games carry a GOG offer and twenty of them still have a reference: the other twenty
+    // are dropped by the mapping before any read, and are no part of what the read is measured
+    // against. Ten priced of twenty is believed; ten of forty would not have been.
+    const { harness, games, refs } = await gogGames(40, 10)
+    for (const game of games.slice(20)) refs.delete(game.id)
 
     const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
 
-    expect(result.gog).toMatchObject({ status: 'read', references: 10, pricesRead: 6, offers: 6 })
+    expect(result.gog).toMatchObject({ status: 'read', references: 20, pricesRead: 10, offers: 10 })
+  })
+
+  /**
+   * The same floor under the mapping. An offer needs a reference, and that rule runs before any
+   * read: a mapping that came back empty would take every offer of a store away in a run that
+   * never asked the store a thing. So the mapping is believed only while it still names a product
+   * for at least half of the games that carry an offer of the store, once there are twenty.
+   */
+  describe('and under the mapping itself', () => {
+    const LOST =
+      'carried 20, the mapping names a product for 9 of those games: under half, so the store references look lost'
+
+    /** Takes out of the mapping every game from the `kept`th on. */
+    const forget = (refs: StoreRefMap, games: IndexedGame[], kept: number) => {
+      for (const game of games.slice(kept)) refs.delete(game.id)
+    }
+
+    it('is the same half of the same twenty', () => {
+      // Under twenty carried, an offer without a reference is dropped as it always was.
+      expect(referencesLookLost(0, 0)).toBeNull()
+      expect(referencesLookLost(19, 0)).toBeNull()
+      // From twenty: exactly half is believed, one under half is not.
+      expect(referencesLookLost(20, 10)).toBeNull()
+      expect(referencesLookLost(20, 9)).toBe(LOST)
+      expect(referencesLookLost(21, 11)).toBeNull()
+      expect(referencesLookLost(21, 10)).toMatch(/^carried 21, the mapping names a product for 10 /)
+      expect(referencesLookLost(1_000, 500)).toBeNull()
+      expect(referencesLookLost(1_000, 0)).toMatch(
+        /^carried 1000, the mapping names a product for 0 /,
+      )
+      expect(referencesLookLost(20, 20)).toBeNull()
+    })
+
+    it('drops GOG offers without a reference as ever while under twenty are carried', async () => {
+      const { harness, games, refs } = await gogGames(19, 19)
+      forget(refs, games, 0)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.gog).toMatchObject({ status: 'no-references', references: 0, offers: 0 })
+      expect(games.every((game) => !('offers' in game))).toBe(true)
+      expect(harness.gogPages).toHaveLength(0)
+    })
+
+    it('believes a mapping that names exactly half the games carrying a GOG offer', async () => {
+      const { harness, games, refs } = await gogGames(20, 20)
+      forget(refs, games, 10)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      // Ten offers go for want of a reference, as on any day; the other ten are read.
+      expect(result.gog).toMatchObject({
+        status: 'read',
+        references: 10,
+        pricesRead: 10,
+        offers: 10,
+        lastReadAt: noon,
+      })
+      expect(games[9]!.offers?.[0]).toMatchObject({ amount: 599, updatedAt: noon })
+      expect('offers' in games[10]!).toBe(false)
+      expect('offers' in games[19]!).toBe(false)
+    })
+
+    it('does not believe a mapping that names one under half, and drops no GOG offer for it', async () => {
+      const { harness, games, refs } = await gogGames(20, 20)
+      forget(refs, games, 9)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.gog).toEqual({
+        status: 'references-lost',
+        references: 9,
+        pricesRead: 0,
+        failed: 0,
+        requests: 0,
+        offers: 20,
+        lastReadAt: RUN_AT,
+        error: LOST,
+      })
+      // The stamp stays where it was, and the store was asked nothing.
+      expect(result.offersReadAt.gog).toBe(RUN_AT)
+      expect(harness.gogPages).toHaveLength(0)
+      // Every offer is as it arrived, date included: those of the eleven games the mapping has
+      // forgotten, and those of the nine it still names, which a read would have refreshed.
+      for (const [index, game] of games.entries()) {
+        expect(game.offers, `game ${index}`).toEqual([carriedGog(`game_${index}`)])
+      }
+      expect(harness.logs).toContain(
+        `gog: ${LOST}; every offer is kept as it was and the store is not read`,
+      )
+    })
+
+    it('heals GOG on the next run once the mapping is back', async () => {
+      const { harness, games, refs } = await gogGames(20, 20)
+      const whole: StoreRefMap = new Map(refs)
+      forget(refs, games, 0)
+
+      const lost = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+      expect(lost.gog).toMatchObject({ status: 'references-lost', references: 0, offers: 20 })
+      expect(games[19]!.offers).toEqual([carriedGog('game_19')])
+
+      // Six hours on the mapping answers again. The stamp never moved, so the store is due.
+      harness.clock.advance(6 * HOUR)
+      const healed = await refreshOffers(
+        harness.deps,
+        games,
+        whole,
+        publishedAt(RUN_AT, { offersReadAt: lost.offersReadAt }),
+      )
+
+      const evening = later(noon, 6 * HOUR)
+      expect(healed.gog).toMatchObject({
+        status: 'read',
+        references: 20,
+        pricesRead: 20,
+        offers: 20,
+        lastReadAt: evening,
+      })
+      expect(games[19]!.offers?.[0]).toMatchObject({ amount: 599, updatedAt: evening })
+    })
+
+    it('drops Microsoft offers without a reference as ever while under twenty are carried', async () => {
+      const { harness, games, refs } = await microsoftGames(19, 19)
+      forget(refs, games, 0)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.microsoft).toMatchObject({ status: 'no-references', references: 0, offers: 0 })
+      expect(games.every((game) => !('offers' in game))).toBe(true)
+      expect(harness.microsoftBatches).toHaveLength(0)
+    })
+
+    it('believes a mapping that names exactly half the games carrying a Microsoft offer', async () => {
+      const { harness, games, refs } = await microsoftGames(20, 20)
+      forget(refs, games, 10)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.microsoft).toMatchObject({
+        status: 'read',
+        references: 10,
+        pricesRead: 10,
+        offers: 10,
+        lastReadAt: noon,
+      })
+      expect(games[9]!.offers?.[0]).toMatchObject({ amount: 25_000, updatedAt: noon })
+      expect('offers' in games[10]!).toBe(false)
+      expect('offers' in games[19]!).toBe(false)
+    })
+
+    it('does not believe a mapping that names one under half, and drops no Microsoft offer for it', async () => {
+      const { harness, games, refs } = await microsoftGames(20, 20)
+      forget(refs, games, 9)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.microsoft).toEqual({
+        status: 'references-lost',
+        references: 9,
+        pricesRead: 0,
+        failed: 0,
+        requests: 0,
+        offers: 20,
+        lastReadAt: RUN_AT,
+        error: LOST,
+      })
+      expect(result.offersReadAt['xbox-store']).toBe(RUN_AT)
+      expect(harness.microsoftBatches).toHaveLength(0)
+      for (const [index, game] of games.entries()) {
+        expect(game.offers, `game ${index}`).toEqual([carriedMicrosoft(index)])
+      }
+      expect(harness.logs).toContain(
+        `microsoft: ${LOST}; every offer is kept as it was and the store is not read`,
+      )
+    })
+
+    it('heals Microsoft on the next run once the mapping is back', async () => {
+      const { harness, games, refs } = await microsoftGames(20, 20)
+      const whole: StoreRefMap = new Map(refs)
+      forget(refs, games, 0)
+
+      const lost = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+      expect(lost.microsoft).toMatchObject({ status: 'references-lost', references: 0, offers: 20 })
+      expect(games[19]!.offers).toEqual([carriedMicrosoft(19)])
+
+      harness.clock.advance(6 * HOUR)
+      const healed = await refreshOffers(
+        harness.deps,
+        games,
+        whole,
+        publishedAt(RUN_AT, { offersReadAt: lost.offersReadAt }),
+      )
+
+      const evening = later(noon, 6 * HOUR)
+      expect(healed.microsoft).toMatchObject({
+        status: 'read',
+        references: 20,
+        pricesRead: 20,
+        offers: 20,
+        lastReadAt: evening,
+      })
+      expect(games[19]!.offers?.[0]).toMatchObject({ amount: 25_000, updatedAt: evening })
+    })
+
+    it('says so on every run, due or not: it is about what is dropped, not about what is read', async () => {
+      const { harness, games, refs } = await gogGames(20, 20)
+      forget(refs, games, 0)
+      // Read in full an hour ago: on any other day this run would say "not due" and no more.
+      const anHourAgo = later(noon, -HOUR)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(anHourAgo))
+
+      expect(result.gog).toMatchObject({
+        status: 'references-lost',
+        offers: 20,
+        lastReadAt: anHourAgo,
+      })
+      expect(games[0]!.offers).toEqual([carriedGog('game_0')])
+    })
+
+    it('holds one store’s offers without holding the other store back', async () => {
+      const { harness, games, refs } = await microsoftGames(20, 20)
+      // Every game is on GOG as well, and the mapping has lost the Microsoft half of each record.
+      for (const [index, game] of games.entries()) {
+        game.offers = [carriedGog(`game_${index}`), carriedMicrosoft(index)]
+        refs.set(game.id, { gog: `game_${index}` })
+      }
+      harness.gogCatalog.products = games.map((_, index) =>
+        gogProduct(`game_${index}`, gogPrice('5.99', '9.99')),
+      )
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.gog).toMatchObject({
+        status: 'read',
+        pricesRead: 20,
+        offers: 20,
+        lastReadAt: noon,
+      })
+      expect(result.microsoft).toMatchObject({
+        status: 'references-lost',
+        references: 0,
+        requests: 0,
+        offers: 20,
+        lastReadAt: RUN_AT,
+      })
+      expect(result.microsoft.error).toMatch(/^carried 20, the mapping names a product for 0 /)
+      expect(games[7]!.offers?.[0]).toMatchObject({ store: 'gog', amount: 599, updatedAt: noon })
+      expect(games[7]!.offers?.[1]).toEqual(carriedMicrosoft(7))
+    })
+
+    it('counts a record nothing could have written as no reference at all', async () => {
+      // The keys are all there and none of them is a slug any more: lost is lost, whatever shape
+      // the loss takes.
+      const { harness, games, refs } = await gogGames(20, 20)
+      for (const game of games) refs.set(game.id, { gog: 'Not A Slug' })
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.gog).toMatchObject({ status: 'references-lost', references: 0, offers: 20 })
+      expect(harness.gogPages).toHaveLength(0)
+    })
   })
 })
 

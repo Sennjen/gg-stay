@@ -455,6 +455,27 @@ describe('runJob and its warnings about the other stores', () => {
     ])
   })
 
+  it('says when the store references look lost, with the two numbers', () => {
+    expect(
+      storeWarnings(
+        stores({
+          gog: {
+            ...read,
+            status: 'references-lost',
+            references: 12,
+            pricesRead: 0,
+            requests: 0,
+            offers: 870,
+            error:
+              'carried 870, the mapping names a product for 12 of those games: under half, so the store references look lost',
+          },
+        }),
+      ),
+    ).toEqual([
+      'GOG prices not refreshed: carried 870, the mapping names a product for 12 of those games: under half, so the store references look lost — every offer is kept as it was and the store was not read',
+    ])
+  })
+
   it('has nothing to say of a store that was read, was not due, or has no references', () => {
     expect(storeWarnings(stores({}))).toEqual([])
     expect(
@@ -832,6 +853,31 @@ describe('formatSummary and the other stores', () => {
 
     expect(summary).toContain(
       'RAWG: 231 lookups this run, 0 failed, 1469 left for the next full run (stopped early: out of its twenty minutes) |',
+    )
+  })
+
+  it('says when a store was not read because its references look lost', () => {
+    const summary = formatSummary({
+      ...base,
+      stores: {
+        references: { ...references, microsoft: 0 },
+        gog: read,
+        microsoft: {
+          ...read,
+          status: 'references-lost',
+          references: 0,
+          pricesRead: 0,
+          requests: 0,
+          offers: 380,
+          error:
+            'carried 380, the mapping names a product for 0 of those games: under half, so the store references look lost',
+        },
+        rate: null,
+      },
+    })
+
+    expect(summary).toContain(
+      '| Microsoft Store prices | 0 references, not read (carried 380, the mapping names a product for 0 of those games: under half, so the store references look lost); 380 offers kept as they were; the next run looks again |',
     )
   })
 

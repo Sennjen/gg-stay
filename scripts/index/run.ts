@@ -586,18 +586,29 @@ function studioRows(report: JobReport): [string, string][] {
 
 /** What a store's read is called in a warning, by what came of it. */
 function storeWarning(name: string, read: StoreReadReport | null): string[] {
-  if (read?.status !== 'failed' && read?.status !== 'partial') return []
-  const what = read.status === 'failed' ? 'not refreshed' : 'refreshed only in part'
-  const reason = (read.error ?? 'a request failed').replace(/\s+/g, ' ')
-  return [`${name} prices ${what}: ${reason} — every offer that was not read stands as it was`]
+  const reason = (otherwise: string) => (read?.error ?? otherwise).replace(/\s+/g, ' ')
+  const stands = 'every offer that was not read stands as it was'
+  switch (read?.status) {
+    case 'failed':
+      return [`${name} prices not refreshed: ${reason('a request failed')} — ${stands}`]
+    case 'partial':
+      return [`${name} prices refreshed only in part: ${reason('a request failed')} — ${stands}`]
+    case 'references-lost':
+      return [
+        `${name} prices not refreshed: ${reason('the store references look lost')} — ` +
+          'every offer is kept as it was and the store was not read',
+      ]
+    default:
+      return []
+  }
 }
 
 /**
  * The warnings a run owes about the stores other than Steam: one for each store whose read
- * failed or was only partial, and one when the run ends with no exchange rate at all. Nothing for
- * a store that was not due, or a rate kept from the published version — those are the design
- * working. Each is one line, written to the log as a GitHub `::warning::` annotation, as the
- * similar-lists warning is.
+ * failed or was only partial, one for each store whose references look lost, and one when the run
+ * ends with no exchange rate at all. Nothing for a store that was not due, or a rate kept from
+ * the published version — those are the design working. Each is one line, written to the log as
+ * a GitHub `::warning::` annotation, as the similar-lists warning is.
  *
  * They exist because a store that is down is, by design, invisible in the run's colour: the run
  * is green, the offers are yesterday's, and without an annotation the only trace is a row of a
@@ -651,6 +662,12 @@ function storeReadRow(name: string, read: StoreReadReport): [string, string] {
         name,
         `${counts} (${cell(read.error ?? 'the read failed')}); ${offers} kept as they were; ` +
           'the next run reads again',
+      ]
+    case 'references-lost':
+      return [
+        name,
+        `${references}, not read (${cell(read.error ?? 'the store references look lost')}); ` +
+          `${offers} kept as they were; the next run looks again`,
       ]
   }
 }
