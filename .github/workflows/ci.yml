@@ -32,6 +32,9 @@ jobs:
       # `pnpm typecheck` only covers the four projects Nuxt generates (app, server, shared, node).
       # The refresh job under `scripts/` belongs to none of them, so it gets its own project.
       - run: pnpm typecheck:scripts
+      # Nor do the Vitest suites, and Vitest runs a test without reading its types: a call that
+      # has lost a required argument still passes. Before `pnpm test`, so that is said first.
+      - run: pnpm typecheck:tests
       - run: pnpm test
       - run: pnpm build
         env:

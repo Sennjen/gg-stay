@@ -1,0 +1,18 @@
+{
+  // The component and page suites under `tests/app`, which Vitest runs in the Nuxt environment.
+  // The generated app project would have covered them under `tests/nuxt`, the folder its globs
+  // name; under `tests/app` nothing did.
+  //
+  // It extends that project, so the suites see the app as the app sees itself: the DOM library,
+  // the `~`, `#shared` and `#app` aliases, and the composables Nuxt auto-imports (`nuxt.d.ts`).
+  // `include` replaces the parent's list, so the ambient declarations it would have brought are
+  // named again. The suites import `.vue` files, which is why this one is checked with `vue-tsc`.
+  "extends": "./.nuxt/tsconfig.app.json",
+  "include": [
+    "./.nuxt/nuxt.d.ts",
+    "app/**/*.d.ts",
+    "shared/**/*.d.ts",
+    "*.d.ts",
+    "tests/app/**/*.ts"
+  ]
+}
