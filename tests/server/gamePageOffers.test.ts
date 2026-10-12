@@ -513,8 +513,9 @@ describe('what the other stores charge, on a page RAWG answered', () => {
     })
   })
 
-  it('shows a fresh offer beside a Steam price from an index too stale to price a card', async () => {
-    // This page shows Steam's old price under its own date; an offer answers for its own age.
+  it('shows a fresh offer beside a Steam price from an index too stale to price a card, and marks neither', async () => {
+    // This page shows Steam's old price under its own date, and an offer answers for its own
+    // age. But a price nine days old is no yardstick: GOG is shown, and is not called cheapest.
     const nineDaysAgo = ago(INDEX_STALE_AFTER_MS + 48 * HOUR)
     const index = await indexHolding(
       [witcher([gogOffer()], { priceUpdatedAt: nineDaysAgo })],
@@ -523,10 +524,98 @@ describe('what the other stores charge, on a page RAWG answered', () => {
 
     const answer = await page({ index, steamPrices: steamPricesReturning(() => null) })
 
-    expect(answer.stores).toEqual([
-      { ...STEAM_ROW, updatedAt: nineDaysAgo },
-      { ...GOG_ROW, cheapest: true },
-    ])
+    expect(answer.stores).toEqual([{ ...STEAM_ROW, updatedAt: nineDaysAgo }, GOG_ROW])
+    expect(answer.exchangeRate).toEqual(SHOWN_RATE)
+    expect(cheapestOf(answer)).toEqual([])
+  })
+
+  describe('the mark is weighed among fresh prices only', () => {
+    /** The Witcher at `priceUah` on Steam as of `priceUpdatedAt`, with Steam saying nothing now. */
+    const steamAsOf = async (priceUah: number, priceUpdatedAt: string, offers = [gogOffer()]) => {
+      const document = witcher(offers, { priceUah, priceUpdatedAt })
+      const index = await indexHolding([document])
+      return page({ index, steamPrices: steamPricesReturning(() => null) })
+    }
+
+    it('does not call a Steam price cheapest that Steam last confirmed weeks ago', async () => {
+      // Steam soft-fails for the game: the index carries 300 ₴ forward from the first of
+      // September, the live read answers nothing, and GOG was read six hours ago at ≈ 404 ₴.
+      const answer = await steamAsOf(300, '2026-09-01T12:00:00.000Z')
+
+      expect(answer.stores[0]).toMatchObject({
+        priceUah: 300,
+        updatedAt: '2026-09-01T12:00:00.000Z',
+      })
+      expect(answer.stores[1]).toMatchObject({ approxUah: 404 })
+      expect(cheapestOf(answer)).toEqual([])
+    })
+
+    it('weighs a Steam price thirty-six hours old to the millisecond, and not one older', async () => {
+      const edge = await steamAsOf(300, ago(OFFER_FRESH_FOR_MS))
+      const past = await steamAsOf(300, ago(OFFER_FRESH_FOR_MS + 1))
+
+      expect(cheapestOf(edge)).toEqual(['steam'])
+      expect(cheapestOf(past)).toEqual([])
+      // The row itself is the same either way: the price, and the date it was read.
+      expect(past.stores[0]).toMatchObject({
+        priceUah: 300,
+        updatedAt: ago(OFFER_FRESH_FOR_MS + 1),
+      })
+    })
+
+    it('does not call GOG cheapest against a Steam price that old, either', async () => {
+      const edge = await steamAsOf(675, ago(OFFER_FRESH_FOR_MS))
+      const past = await steamAsOf(675, ago(OFFER_FRESH_FOR_MS + 1))
+
+      expect(cheapestOf(edge)).toEqual(['gog'])
+      expect(cheapestOf(past)).toEqual([])
+    })
+
+    it('leaves a Steam price dated more than five minutes ahead of the clock out of it', async () => {
+      const believed = await steamAsOf(300, ago(-CLOCK_AHEAD_ALLOWED_MS))
+      const ahead = await steamAsOf(300, ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)))
+
+      expect(cheapestOf(believed)).toEqual(['steam'])
+      expect(cheapestOf(ahead)).toEqual([])
+    })
+
+    it('counts a price Steam has just given as fresh, whatever the date of the one it replaces', async () => {
+      const document = witcher([gogOffer()], {
+        priceUah: 300,
+        priceUpdatedAt: '2026-09-01T12:00:00.000Z',
+      })
+      const index = await indexHolding([document])
+      const steamPrices = steamPricesReturning(() => ({
+        priceUah: 380,
+        regularPriceUah: 1349,
+        discountPercent: 72,
+        isFree: false,
+      }))
+
+      const answer = await page({ index, steamPrices })
+
+      expect(answer.stores[0]).toMatchObject({ priceUah: 380, updatedAt: NOW, cheapest: true })
+    })
+
+    it('still weighs the fresh rows against each other beside an old Steam price, on the page built from the index', async () => {
+      // 300 ₴ on Steam from six weeks ago; GOG at ≈ 404 ₴ and the Xbox Store at 385 ₴, both read
+      // this morning. The old price is neither marked nor in the way of the two that are fresh.
+      const document = witcher([gogOffer(), microsoftOffer()], {
+        priceUah: 300,
+        priceUpdatedAt: '2026-09-01T12:00:00.000Z',
+        stores: ['steam', 'gog', 'xbox-store'],
+      })
+      const index = await indexHolding([document])
+
+      const answer = await indexPage({ index, steamPrices: steamPricesReturning(() => null) })
+
+      expect(answer.stores.map((row) => [row.store, row.priceUah ?? row.approxUah])).toEqual([
+        ['steam', 300],
+        ['gog', 404],
+        ['xbox-store', 385],
+      ])
+      expect(cheapestOf(answer)).toEqual(['xbox-store'])
+    })
   })
 
   describe('what it costs', () => {

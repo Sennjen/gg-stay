@@ -651,13 +651,14 @@ describe('withStoreOffers', () => {
 })
 
 describe('withCheapest', () => {
-  const steam = (priceUah: number | null): StoreOffer =>
+  /** Steam's row at `priceUah`, read six hours ago unless a case dates it otherwise. */
+  const steam = (priceUah: number | null, priceUpdatedAt: string = READ_AT): StoreOffer =>
     toSteamOffer(
-      indexed({ priceUah, priceUpdatedAt: priceUah === null ? null : READ_AT }),
+      indexed({ priceUah, priceUpdatedAt: priceUah === null ? null : priceUpdatedAt }),
       'https://store.steampowered.com/app/1/',
     )
   const marked = (rows: StoreOffer[]): string[] =>
-    withCheapest(rows)
+    withCheapest(rows, NOW)
       .filter((row) => row.cheapest)
       .map((row) => row.store)
 
@@ -728,10 +729,63 @@ describe('withCheapest', () => {
       toStoreLink('epic-games', 'https://x.test'),
       toStoreOffer(gogOffer(), RATE),
     ]
-    const after = withCheapest(rows)
+    const after = withCheapest(rows, NOW)
     expect(after.map(({ cheapest: _cheapest, ...row }) => row)).toEqual(
       rows.map(({ cheapest: _cheapest, ...row }) => row),
     )
+  })
+
+  describe('among fresh prices only', () => {
+    /** Thirty-six hours before `NOW`, to the millisecond: the oldest a price may be and count. */
+    const JUST_FRESH = '2026-10-11T00:00:00.000Z'
+    const SIX_WEEKS_AGO = '2026-09-01T12:00:00.000Z'
+    const gog = () => toStoreOffer(gogOffer(), RATE)
+    const microsoft = () => toStoreOffer(microsoftOffer(), RATE)
+
+    it('does not mark a Steam price older than an offer may be, however low it is', () => {
+      // Steam stopped answering for the game weeks ago, at 300 ₴; GOG was read this morning at
+      // about 404 ₴. The page shows both. It does not say the old one is the cheapest.
+      expect(marked([steam(300, SIX_WEEKS_AGO), gog()])).toEqual([])
+      expect(marked([steam(300, TOO_OLD), gog()])).toEqual([])
+    })
+
+    it('does not mark another store against a Steam price that old either: it is no yardstick', () => {
+      // The sale it was read during may be over, and so may the reason GOG looks cheaper.
+      expect(marked([steam(675, SIX_WEEKS_AGO), gog()])).toEqual([])
+      expect(marked([steam(675, TOO_OLD), gog()])).toEqual([])
+    })
+
+    it('weighs a Steam price read thirty-six hours ago to the millisecond', () => {
+      expect(marked([steam(675, JUST_FRESH), gog()])).toEqual(['gog'])
+      expect(marked([steam(300, JUST_FRESH), gog()])).toEqual(['steam'])
+    })
+
+    it('still weighs the fresh rows against each other beside an old one', () => {
+      // 385 ₴ exact against an estimate of 404 ₴; the 300 ₴ from six weeks ago is not in it.
+      expect(marked([steam(300, SIX_WEEKS_AGO), gog(), microsoft()])).toEqual(['xbox-store'])
+    })
+
+    it('leaves a price dated ahead of the clock out, past five minutes', () => {
+      // 12:05:00.000 is believed; a millisecond later is a date nothing can be said of.
+      expect(marked([steam(300, '2026-10-12T12:05:00.000Z'), gog()])).toEqual(['steam'])
+      expect(marked([steam(300, '2026-10-12T12:05:00.001Z'), gog()])).toEqual([])
+      expect(marked([steam(300, '2027-06-01T00:00:00.000Z'), gog()])).toEqual([])
+    })
+
+    it('leaves a price with no date, or one that is not a date, out', () => {
+      for (const updatedAt of [null, 'yesterday', '']) {
+        expect(marked([{ ...steam(300), updatedAt }, gog()]), String(updatedAt)).toEqual([])
+      }
+    })
+
+    it('weighs the same rows differently as the clock moves on, and changes nothing else', () => {
+      const rows = [steam(300), gog()]
+      const at = (now: string) => withCheapest(rows, now).map((row) => row.cheapest)
+      // Both read at 06:00 on the 12th. Fresh at noon; thirty-six hours on, neither is.
+      expect(at(NOW)).toEqual([true, false])
+      expect(at('2026-10-13T18:00:00.000Z')).toEqual([true, false])
+      expect(at('2026-10-13T18:00:00.001Z')).toEqual([false, false])
+    })
   })
 })
 

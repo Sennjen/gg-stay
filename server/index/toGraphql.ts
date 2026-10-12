@@ -21,6 +21,7 @@ import {
 import {
   cheaperAtOf,
   hryvniaOf,
+  isFreshAt,
   isFreshOffer,
   listedOffers,
   markedCheapest,
@@ -219,11 +220,20 @@ export function withStoreOffers(
 }
 
 /**
- * A row as the cheapest rule weighs it, or `null` for a row without a price: the hryvnia price
- * when the store charges in hryvnia, the estimate when it charges in another currency and there
- * is a rate, and an exact zero for a free game, whatever the currency.
+ * A row as the cheapest rule weighs it at `now`, or `null` for a row that takes no part: the
+ * hryvnia price when the store charges in hryvnia, the estimate when it charges in another
+ * currency and there is a rate, and an exact zero for a free game, whatever the currency.
+ *
+ * A row takes part only while its price is fresh by the date the page shows for it (`isFreshAt`,
+ * the offers' own thirty-six hours) — Steam's row included. The page shows Steam's price at any
+ * age, under its date, and that is honest; calling it the cheapest, or calling another store the
+ * cheapest against it, is a claim about today, and a price from last week does not support one.
+ * The index carries a price forward under its old date when Steam stops answering for a game,
+ * so this is not a rare row. A price Steam has just given is dated by the request that read it,
+ * and is fresh; another store's offer is on its row only while it is.
  */
-function pricedRowOf(row: StoreOffer): PricedRow | null {
+function pricedRowOf(row: StoreOffer, now: string): PricedRow | null {
+  if (!isFreshAt(row.updatedAt, now)) return null
   if (row.priceUah != null) return { store: row.store, uah: row.priceUah, approximate: false }
   if (row.foreignPrice?.amount === 0) return { store: row.store, uah: 0, approximate: false }
   if (row.approxUah != null) return { store: row.store, uah: row.approxUah, approximate: true }
@@ -232,13 +242,16 @@ function pricedRowOf(row: StoreOffer): PricedRow | null {
 
 /**
  * The same rows with `cheapest` set on the one the page marks (`markedCheapest`), and on no
- * other: the cheapest row, and no row at all when that one is free. It weighs the rows as the
- * page shows them, so it is applied last: after Steam's row has taken a live price, when it has
- * one, and after the other stores' offers are on theirs.
+ * other: the cheapest of the rows whose price is fresh at `now` (`pricedRowOf`), and no row at
+ * all when that one is free or when fewer than two are fresh. A row with an older price is still
+ * shown, with its age; it is neither marked nor a yardstick for the others.
+ *
+ * It weighs the rows as the page shows them, so it is applied last: after Steam's row has taken
+ * a live price, when it has one, and after the other stores' offers are on theirs.
  */
-export function withCheapest(rows: StoreOffer[]): StoreOffer[] {
+export function withCheapest(rows: StoreOffer[], now: string): StoreOffer[] {
   const priced = rows.flatMap((row) => {
-    const weighed = pricedRowOf(row)
+    const weighed = pricedRowOf(row, now)
     return weighed ? [{ ...weighed, row }] : []
   })
   const cheapest = markedCheapest(priced)?.row ?? null
@@ -327,8 +340,10 @@ export function steamStorePageOf(game: IndexedGame): string | null {
  * not is the link alone, and so is every offer when no `terms` are given — which is how a caller
  * withholds them, as it withholds Steam's price, while the index's prices are too old to show.
  * Any other store the document names is left out, as it always was: it is named by slug, and a
- * store without an address is not a link. The cheapest row is marked (`withCheapest`), and
- * `exchangeRate` is the rate an estimate on the page was made with, if one was.
+ * store without an address is not a link. The cheapest row is marked (`withCheapest`) — with
+ * `terms`, which carry the clock the prices' freshness is read against; without them no price of
+ * another store is on the page, and nothing is marked. `exchangeRate` is the rate an estimate on
+ * the page was made with, if one was.
  *
  * What only RAWG has is left empty rather than guessed: `description` and `website` are null,
  * and the platform, genre, tag, developer and publisher lists are empty, because the document
@@ -338,14 +353,15 @@ export function steamStorePageOf(game: IndexedGame): string | null {
  */
 export function toGame(game: IndexedGame, terms: OfferTerms | null = null): Game {
   const storePage = steamStorePageOf(game)
-  const stores = withCheapest([
+  const rows = [
     ...(storePage ? [toSteamOffer(game, storePage)] : []),
     ...listedOffers(game).map((offer) =>
       terms && isFreshOffer(offer, terms.now)
         ? toStoreOffer(offer, terms.rate)
         : toStoreLink(offer.store, safeExternalUrl(offer.url) ?? offer.url),
     ),
-  ])
+  ]
+  const stores = terms ? withCheapest(rows, terms.now) : rows
   return {
     id: String(game.id),
     slug: game.slug,

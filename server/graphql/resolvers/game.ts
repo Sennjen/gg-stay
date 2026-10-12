@@ -93,7 +93,9 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * store while it is fresh (`server/index/offerRules.ts`), on either page: on RAWG's own store
  * link when RAWG answered, and on a row made from the offer's own address on the page built from
  * the index. The cheapest row is marked last, over the rows as they go out — against the Steam
- * price the page actually shows, the live one when there is one.
+ * price the page actually shows, the live one when there is one. Only a fresh price takes part
+ * in that: Steam's index price is shown however old it is, under its own date, but one older
+ * than an offer may be is neither marked nor a yardstick for the others (`withCheapest`).
  *
  * Which app to ask about comes from the index document when the refresh job has published the
  * game's Steam app id there, and from RAWG's own store links otherwise, as before. When the
@@ -345,7 +347,8 @@ async function indexedGame(context: GraphQLContext, slug: string): Promise<Index
  *
  * A stale index does not withhold them here, as it does on the page the index answers by itself:
  * this page shows Steam's index price however old it is, under its own date, and an offer is held
- * to a stricter rule than that already — it is a price for thirty-six hours and no longer.
+ * to a stricter rule than that already — it is a price for thirty-six hours and no longer. What
+ * an old Steam price loses here is its part in the mark, not its place on the page.
  */
 async function offerTermsFor(
   context: GraphQLContext,
@@ -444,9 +447,13 @@ async function rawgPage(
   const priceLate = appId !== null && entry === null && price.isOut(appId)
 
   // The other stores' prices go on the rows RAWG's links made, and the cheapest is marked once
-  // every row is as it will be shown — Steam's with the live price, when there is one.
+  // every row is as it will be shown — Steam's with the live price, when there is one — among
+  // the rows whose price is fresh on this request's clock.
   const terms = await offerTermsFor(context, entry)
-  const stores = withCheapest(withStoreOffers(withSteamPrice(mapped.stores, priced), entry, terms))
+  const stores = withCheapest(
+    withStoreOffers(withSteamPrice(mapped.stores, priced), entry, terms),
+    terms.now,
+  )
 
   const partial = late.length > 0 || refused.length > 0 || priceLate
   if (partial) console.info(partialLine(refused, late, priceLate))
