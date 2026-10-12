@@ -86,15 +86,21 @@ function oneLine(value: string | null, max: number): string | null {
 }
 
 const URL_LIKE = /\b(?:https?:\/\/|www\.)\S*/gi
+/** An em dash anywhere, or an en dash set off by spaces; the en dash of a range ("10–40") stays. */
+const DASH = /\s*—\s*|\s+–\s+/g
 
 /**
  * Free text from the model — the interpretation and the reasons — as one plain line: whitespace
- * collapsed, cut to `max`, and without anything that looks like a link. The text is shown on
+ * collapsed, cut to `max`, without anything that looks like a link, and with a comma where the model put a dash: the prompt forbids one, and this holds when it writes one anyway. The text is shown on
  * shareable pages and cached, and a query can steer it; a link is the one thing in it that could
  * send a visitor somewhere.
  */
 export function modelLine(value: string | null, max: number): string | null {
-  return oneLine(value?.replace(URL_LIKE, ' ') ?? null, max)
+  const text = value
+    ?.replace(URL_LIKE, ' ')
+    .replace(DASH, ', ')
+    .replace(/^[\s,]+|[\s,]+$/g, '')
+  return oneLine(text ?? null, max)
 }
 
 /** Every code the parse schema knows: none of them belongs in a sentence a visitor reads. */

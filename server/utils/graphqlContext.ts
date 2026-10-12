@@ -1,4 +1,5 @@
 import type { GraphQLContext } from '../graphql/context'
+import { FEATURED_PINS } from '../graphql/featuredPin'
 import { useGameIndex } from '../index/index'
 import { keepRunning } from './keepRunning'
 
@@ -15,6 +16,7 @@ export async function createGraphQLContext(): Promise<GraphQLContext> {
     steam: useSteam(),
     today: now.slice(0, 10),
     now,
+    featuredPins: FEATURED_PINS,
     // Never rejects and never remembers a failure — see server/index/index.ts.
     index: await useGameIndex(),
     steamPrices: useSteamPrices(),

@@ -45,6 +45,7 @@ query Landing {
     featured {
       clipUrl
       clipSource
+      clipCredit
       game {
         slug
         name

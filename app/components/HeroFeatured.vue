@@ -9,7 +9,13 @@ const localePath = useLocalePath()
 const paused = ref(false)
 const poster = computed(() => props.featured?.game.cover ?? null)
 const clipUrl = computed(() => props.featured?.clipUrl ?? null)
-const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
+// Steam is credited as the source of a trailer it serves; a pinned game's trailer is the
+// publisher's own, and is credited to the publisher by name.
+const trailerCredit = computed(() => {
+  if (props.featured?.clipSource === 'STEAM') return t('home.hero.trailerSteam')
+  const name = props.featured?.clipCredit
+  return name ? t('home.hero.trailerCredit', { name }) : null
+})
 </script>
 
 <template>
@@ -37,11 +43,11 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
 
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/75 to-ink/25"
+      class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/30 to-transparent"
     />
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/90 via-ink/45 to-transparent"
+      class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/70 via-ink/20 to-transparent"
     />
     <!-- Keeps the transparent sticky header's nav text readable over any poster, even on the
          landing route where AppHeader has no background of its own — see DESIGN.md/#header-h.
@@ -89,8 +95,8 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
           </NuxtLink>
         </template>
       </i18n-t>
-      <p v-if="isSteamClip" class="hidden text-xs text-fg-2 md:block">
-        {{ t('home.hero.trailerSteam') }}
+      <p v-if="trailerCredit" class="hidden text-xs text-fg-2 md:block">
+        {{ trailerCredit }}
       </p>
     </div>
   </section>

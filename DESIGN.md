@@ -607,7 +607,7 @@ link that can be shared. With `q` the page is `noindex, follow` and its canonica
   the bubble's line changes with the clock — "Читаю запит…", "Шукаю ігри…" after 2 s, "Пояснюю
   вибір…" after 4 s — over the outline of three rows, the section `aria-busy`. The lines are timed,
   not reported by the endpoint. Fallback: he says the calm sentence, no colour and no alert role —
-  "ШІ-розбір зараз недоступний — показую звичайний пошук" — above the plain search's rows, and
+  "ШІ-розбір зараз недоступний, показую звичайний пошук" — above the plain search's rows, and
   stays `idle`. Empty: the bubble suggests rephrasing, and opening the filter in the catalog only
   when there is one. Rate limited: "Спробуй ще раз за N секунд" from `Retry-After` (read on the
   server and carried in the payload, never computed from a clock), or "за хвилину" without one.

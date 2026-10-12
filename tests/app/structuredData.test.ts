@@ -34,7 +34,7 @@ const witcher: GameForJsonLd = {
 const options = {
   url: 'https://gg-stay.vercel.app/games/the-witcher-3-wild-hunt',
   description: 'Ви — Ґеральт із Рівії, відьмак-мисливець на чудовиськ.',
-  title: 'The Witcher 3: Wild Hunt — GG Stay',
+  title: 'The Witcher 3: Wild Hunt | GG Stay',
   inLanguage: 'uk-UA',
   now: NOW,
 }
@@ -74,7 +74,7 @@ describe('gameJsonLd', () => {
       '@type': 'WebPage',
       '@id': `${options.url}#webpage`,
       url: options.url,
-      name: 'The Witcher 3: Wild Hunt — GG Stay',
+      name: 'The Witcher 3: Wild Hunt | GG Stay',
       description: options.description,
       inLanguage: 'uk-UA',
       mainEntity: { '@id': `${options.url}#game` },

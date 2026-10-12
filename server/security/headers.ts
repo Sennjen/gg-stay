@@ -16,6 +16,11 @@ const RAWG_MEDIA_REDIRECT = 'https://api.rawg.io'
 // (shared.akamai.steamstatic.com) only serves the movie thumbnails, which the projection in
 // server/steam/appDetailsProjection.ts never keeps — only `hls_h264` reaches the client.
 const STEAM_VIDEO = 'https://video.akamai.steamstatic.com'
+// The site's own media store (Vercel Blob, `gg-stay-media`): the trailer of a game pinned to the
+// landing (`server/graphql/featuredPin.ts`). A plain mp4 the <video> element fetches by itself, so
+// it is a `media-src` entry only — hls.js never connects to it. The host is this store's own, not
+// the `*.public.blob.vercel-storage.com` wildcard that every Vercel customer's store answers on.
+const SITE_MEDIA = 'https://ilvgxc1q6vjaiqyd.public.blob.vercel-storage.com'
 
 /**
  * `<NuxtImg>` renders `onerror="this.setAttribute('data-error', 1)"` on every server-rendered
@@ -66,7 +71,7 @@ export function contentSecurityPolicy(scriptHashes: readonly string[] = []): str
     // @nuxt/fonts downloads the Google families at build time and serves them from /_fonts.
     "font-src 'self'",
     `img-src 'self' data: ${RAWG_MEDIA} ${RAWG_MEDIA_REDIRECT}`,
-    `media-src 'self' blob: ${RAWG_MEDIA} ${STEAM_VIDEO}`,
+    `media-src 'self' blob: ${RAWG_MEDIA} ${STEAM_VIDEO} ${SITE_MEDIA}`,
     `connect-src 'self' ${STEAM_VIDEO}`,
     "worker-src 'self' blob:",
   ].join('; ')

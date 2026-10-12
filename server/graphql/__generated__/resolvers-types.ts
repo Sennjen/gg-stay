@@ -20,6 +20,8 @@ export type AgeRating =
   | 'PEGI18';
 
 export type ClipSource =
+  /** The publisher's own trailer, served by the site for a game pinned to the landing. */
+  | 'PUBLISHER'
   | 'RAWG'
   | 'STEAM';
 
@@ -37,6 +39,8 @@ export type ExchangeRate = {
 };
 
 export type FeaturedGame = {
+  /** Whose trailer it is. Set only when clipSource is PUBLISHER. */
+  clipCredit?: Maybe<Scalars['String']['output']>;
   clipSource?: Maybe<ClipSource>;
   clipUrl?: Maybe<Scalars['String']['output']>;
   game: GameCard;
@@ -485,6 +489,7 @@ export type ExchangeRateResolvers<ContextType = GraphQLContext, ParentType exten
 };
 
 export type FeaturedGameResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['FeaturedGame'] = ResolversParentTypes['FeaturedGame']> = {
+  clipCredit?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   clipSource?: Resolver<Maybe<ResolversTypes['ClipSource']>, ParentType, ContextType>;
   clipUrl?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   game?: Resolver<ResolversTypes['GameCard'], ParentType, ContextType>;

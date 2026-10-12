@@ -15,11 +15,12 @@ const uk = readLocale('uk')
 const en = readLocale('en')
 
 describe('WhyCards', () => {
-  it('renders a display-face section title and exactly three cards', async () => {
+  it('renders a display-face section title, the lead under it and exactly four cards', async () => {
     const wrapper = await mountSuspended(WhyCards)
     expect(wrapper.get('h2').classes()).toContain('font-display-heading')
     expect(wrapper.get('h2').text()).toBe(uk.why.title)
-    expect(wrapper.findAll('article')).toHaveLength(3)
+    expect(wrapper.get('[data-test="why-lead"]').text()).toBe(uk.why.lead)
+    expect(wrapper.findAll('article')).toHaveLength(4)
   })
 
   it('shows a title and one-sentence description per card, from the uk locale', async () => {
@@ -35,12 +36,20 @@ describe('WhyCards', () => {
     expect(Object.keys(en.why.cards).sort()).toEqual(Object.keys(uk.why.cards).sort())
   })
 
-  it('gives each card a hand-written inline svg icon, hidden from assistive tech', async () => {
+  it('gives each card an inline svg icon — Gege himself on his card — hidden from assistive tech', async () => {
     const wrapper = await mountSuspended(WhyCards)
     const icons = wrapper.findAll('svg')
-    expect(icons).toHaveLength(3)
+    expect(icons).toHaveLength(4)
     for (const icon of icons) {
       expect(icon.attributes('aria-hidden')).toBe('true')
     }
+  })
+
+  it('links only the Gege card, to the ask page', async () => {
+    const wrapper = await mountSuspended(WhyCards)
+    const links = wrapper.findAll('a')
+    expect(links).toHaveLength(1)
+    expect(links[0]!.attributes('href')).toBe('/ask')
+    expect(links[0]!.text()).toBe(uk.why.cards.gege.action)
   })
 })

@@ -239,6 +239,13 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
           expect(ascending.at(-1)).toBe(13)
         })
 
+        it('starts the newest-first order at today when it is told the date', async () => {
+          // Game 13 is still to come; game 41 is released exactly on `FIXTURE_TODAY`.
+          const newest = await adapter.index.search({ sort: 'RELEASED_DESC', today: FIXTURE_TODAY })
+          expect(newest.total).toBe(FIXTURE_GAMES.length - 2)
+          expect(newest.ids[0]).toBe(41)
+        })
+
         it('orders by name', async () => {
           const ordered = await adapter.index.search({ sort: 'NAME_ASC' })
           expect(ordered.total).toBe(FIXTURE_GAMES.length)

@@ -22,10 +22,11 @@ exists.
 | Week 2     | A made-in-Ukraine shelf, label and filter built from a list of 25 studios; similar games on the game page                                               |
 | Week 2     | Page metadata, JSON-LD and sitemaps; Vercel Speed Insights; CI quality gates (bundle budget, Playwright with axe, Lighthouse CI)                        |
 | Week 3     | Natural-language search at `/ask`                                                                                                                       |
+| Week 4     | What GOG and the Xbox Store charge in Ukraine on a game page, and a line on a card when one of them is clearly cheaper than Steam                       |
 
-| Next   | Scope              |
-| ------ | ------------------ |
-| Week 4 | Cross-store prices |
+| Next   | Scope                                                                |
+| ------ | -------------------------------------------------------------------- |
+| Week 4 | A feasibility probe of Epic Games Store and PlayStation Store prices |
 
 ## Architecture
 
@@ -56,10 +57,12 @@ flowchart LR
 - A cover ring of the catalog's most-added titles — pause on hover, drag or
   arrow-key rotation, click through to a game page; a static marquee below
   768 px and under reduced motion.
-- "Why GG Stay", up to five shelves — made in Ukraine, with Ukrainian
-  localisation, on sale (30 % off or more), best of this year, upcoming — each
-  linking to the catalog page it is the start of, and a closing call to
-  action. A shelf with fewer than four games is not shown.
+- Four cards on what makes the catalog Ukrainian: the language, hryvnia
+  prices, Ukrainian-made games and Gege.
+- Up to five shelves — made in Ukraine, with Ukrainian localisation, on sale
+  (30 % off or more), best of this year, upcoming — each linking to the
+  catalog page it is the start of, and a closing call to action. A shelf with
+  fewer than four games is not shown.
 
 ## Catalog and game page
 
@@ -91,7 +94,7 @@ Decisions are recorded in [docs/adr](docs/adr); the design of each cycle is in
 
 ## Search engines
 
-- Every page has a title ending in "— GG Stay" (the landing keeps its own), a description in the
+- Every page has a title ending in "| GG Stay" (the landing keeps its own), a description in the
   page's language, a canonical link without the query string, the uk/en hreflang pair, Open Graph
   and Twitter tags. The game page describes itself with the description it shows (the Ukrainian
   Steam text on `/games/…`), and emits `VideoGame` JSON-LD; the landing emits `WebSite` with a
@@ -207,7 +210,7 @@ How it works, how answers are ranked and the full path of checks behind it:
 
 `POST /api/ask` `{ q, locale }` turns a description — "кооператив для двох на
 Switch до 500 грн" — into the catalog filter it means and a short ranked list
-with one reason per game, using Claude Haiku 4.5 through the official
+with one reason per game, using Claude Haiku 5.5 through the official
 Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
 query to a filter (re-validated against the live taxonomy) plus up to three
 mood tags, one picks up to 8 of the 24 most relevant candidates and says why
@@ -246,7 +249,7 @@ are `false`/empty when no page answered.
 - **Limits:** 10 questions per address per minute and 40 model-backed answers
   per address per UTC day (cached answers are free); a per-instance daily
   ceiling of model calls (`ASK_DAILY_LLM_CALLS`, default 500); queries up to
-  200 characters; 500/1 200 output tokens, an 8 s timeout and one retry per
+  200 characters; 650/1 600 output tokens, an 8 s timeout and one retry per
   call; one 15 s deadline per request, fallback search included, with the
   rerank given 7 s from the end of the parse (never past 14 s). The hard cap
   on spend is the account's prepaid credit balance, which does not reload by

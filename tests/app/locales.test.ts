@@ -28,32 +28,6 @@ function messagesOf(locale: 'uk' | 'en'): [key: string, text: string][] {
   return collect(JSON.parse(readFileSync(path, 'utf-8')), '')
 }
 
-/**
- * The messages that carried an em dash when the rule against one was made, here and on the main
- * branch. They are reworded in a change of their own; a key leaves this list when its dash goes,
- * and the list goes when it is empty.
- */
-const WRITTEN_BEFORE_THE_RULE = [
-  'home.title',
-  'home.shareImageAlt',
-  'gege.greeter.pitch',
-  'catalog.indexedOnlyNote',
-  'catalog.descriptionFiltered',
-  'game.metaFallback',
-  'gallery.thumbnailAlt',
-  'why.lead',
-  'why.cards.language.description',
-  'why.cards.filters.description',
-  'why.cards.stores.description',
-  'why.cards.ukrainianGames.description',
-  'why.cards.gege.description',
-  'ask.titleQuery',
-  'ask.description',
-  'ask.fallbackNote',
-  'ask.emptyHint',
-  'ask.emptyHintNoFilter',
-]
-
 describe('locale files', () => {
   it('have exactly the same set of nested keys', () => {
     expect(collectKeys(uk).sort()).toEqual(collectKeys(en).sort())
@@ -61,9 +35,9 @@ describe('locale files', () => {
 
   // The site's own copy is written without the em dash: a sentence that wants one is reworded,
   // not re-punctuated with a hyphen. An en dash in a range is another sign and is left alone.
-  it.each(['uk', 'en'] as const)('carry no new em dash: %s', (locale) => {
+  it.each(['uk', 'en'] as const)('carry no em dash: %s', (locale) => {
     const withOne = messagesOf(locale)
-      .filter(([key, text]) => text.includes('—') && !WRITTEN_BEFORE_THE_RULE.includes(key))
+      .filter(([, text]) => text.includes('—'))
       .map(([key]) => key)
     expect(withOne).toEqual([])
   })

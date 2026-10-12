@@ -120,8 +120,8 @@ describe('the ask page on the server', async () => {
 
   it('serves the page without a question as an indexable page with a form', async () => {
     for (const [path, title, canonical] of [
-      ['/ask', 'Опишіть гру словами — GG Stay', `${SITE}/ask`],
-      ['/en/ask', 'Describe a game in your own words — GG Stay', `${SITE}/en/ask`],
+      ['/ask', 'Опишіть гру словами | GG Stay', `${SITE}/ask`],
+      ['/en/ask', 'Describe a game in your own words | GG Stay', `${SITE}/en/ask`],
     ] as const) {
       const { response, body, ...head } = await page(path)
       expect(response.status).toBe(200)
@@ -140,7 +140,7 @@ describe('the ask page on the server', async () => {
     expect(head.robots).toBe(NOT_INDEXABLE)
     // The canonical is the page without the question.
     expect(head.canonical).toBe(`${SITE}/ask`)
-    expect(head.title).toBe(`«${HORROR}» — підбір ігор — GG Stay`)
+    expect(head.title).toBe(`«${HORROR}»: підбір ігор | GG Stay`)
 
     expect(text(body)).toContain('Зрозумів так: Атмосферні горори з українською локалізацією')
     expect(text(body)).toContain('Зрозумілий фільтр: Українська: будь-яка')
@@ -175,7 +175,7 @@ describe('the ask page on the server', async () => {
 
   it('says calmly that the AI part did not run for a question it cannot read', async () => {
     const { body } = await page(askUrl(UNKNOWN))
-    expect(text(body)).toContain('ШІ-розбір зараз недоступний — показую звичайний пошук')
+    expect(text(body)).toContain('ШІ-розбір зараз недоступний, показую звичайний пошук')
     expect(text(body)).toContain(`Звичайний пошук: «${UNKNOWN}»`)
     expect(body).not.toContain('data-test="ask-interpretation"')
     expect(body).not.toContain('data-test="ask-reason"')

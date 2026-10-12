@@ -1,8 +1,9 @@
 # Natural-language search: evaluation
 
 How well `POST /api/ask` understands a question, measured on a fixed set of thirty questions
-against the deployed site. Production runs Claude Haiku 4.5 (`claude-haiku-4-5`); this set
-measures that model only. A comparison with other providers is not part of it yet.
+against the deployed site. Production runs Claude Haiku 5.5 (`claude-haiku-5-5`), measured by
+the run of 2026-10-12; the earlier runs were made on Claude Haiku 4.5, which it replaced. A
+comparison with other providers is not part of it yet.
 
 ## What is measured
 
@@ -71,13 +72,16 @@ The scorer, the report and the runner's pacing have unit tests on recorded answe
 
 ## Cost
 
-- **Per run:** each uncached answer is two Haiku 4.5 calls, about $0.007–0.008. A full run of 30 questions costs about **$0.25**.
+- **Per run:** each uncached answer is two Haiku 5.5 calls, about $0.0009. A full run of 30 questions costs about **$0.03**; on Haiku 4.5 it was about $0.20.
 - **Reading the cost:** it is not visible over HTTP. The endpoint logs `costUsd` on its `[ask]` line for every request. Sum those lines in the Vercel function logs of `/api/ask` for the run's time window, which the report prints, and fill in the report's "Cost (USD)" cell.
 
 ## Results
 
-Claude Haiku 4.5 (`claude-haiku-4-5`), 30 cases, run against production.
+30 cases, run against production.
 
-| Date                             | Structured rate | Field accuracy | Tag accuracy | Reasons coverage | p50 / p95 (tookMs) | Cost    |
-| -------------------------------- | --------------- | -------------- | ------------ | ---------------- | ------------------ | ------- |
-| [2026-10-02](eval-2026-10-02.md) | 90 % (27/30)    | 95 % (104/110) | 100 % (5/5)  | 78 % (145/185)   | 7.3 / 15.0 s       | ≈ $0.17 |
+| Date                                      | Model     | Structured rate | Field accuracy  | Tag accuracy | Reasons coverage | p50 / p95 (tookMs) | Cost    |
+| ----------------------------------------- | --------- | --------------- | --------------- | ------------ | ---------------- | ------------------ | ------- |
+| [2026-10-02](eval-2026-10-02.md)          | Haiku 4.5 | 90 % (27/30)    | 95 % (104/110)  | 100 % (5/5)  | 78 % (145/185)   | 7.3 / 15.0 s       | ≈ $0.17 |
+| [2026-10-02, run 2](eval-2026-10-02-2.md) | Haiku 4.5 | 100 % (30/30)   | 99 % (109/110)  | 100 % (5/5)  | 96 % (200/208)   | 6.0 / 7.4 s        | ≈ $0.20 |
+| [2026-10-12](eval-2026-10-12.md)          | Haiku 5.5 | 100 % (30/30)   | 100 % (110/110) | 100 % (5/5)  | 100 % (212/213)  | 5.1 / 5.8 s        | ≈ $0.03 |
+| [2026-10-12, run 2](eval-2026-10-12-2.md) | Haiku 5.5 | 100 % (30/30)   | 100 % (110/110) | 100 % (5/5)  | 100 % (213/213)  | 5.1 / 6.0 s        | ≈ $0.03 |
