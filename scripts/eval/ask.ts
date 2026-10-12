@@ -14,9 +14,10 @@ import { readAnswer, readCases, scoreCase, type AskCase } from './askScore'
  * suffix, no rewording — and the answer is scored (`askScore.ts`). The report goes to
  * `docs/llm/eval-<date>.md` and the raw answers to `docs/llm/runs/eval-<date>.json`.
  *
- * It calls the live model, so it costs money (about $0.25 for the thirty cases) and spends 30 of
- * the 40 model-backed answers one address gets per UTC day. The endpoint allows 10 requests a
- * minute per address, so requests start at least seven seconds apart, however many run at once.
+ * It calls the live model, so it costs money (about $0.03 for the thirty cases, by Haiku 5.5's
+ * list prices) and spends 30 of the 40 model-backed answers one address gets per UTC day. The
+ * endpoint allows 10 requests a minute per address, so requests start at least seven seconds
+ * apart, however many run at once.
  * A question asked within the last 24 h comes back from the response cache: such answers are
  * flagged (`tookMs` under 300 ms) rather than avoided, since changing the text would change the
  * question.

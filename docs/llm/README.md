@@ -1,8 +1,9 @@
 # Natural-language search: evaluation
 
 How well `POST /api/ask` understands a question, measured on a fixed set of thirty questions
-against the deployed site. Production runs Claude Haiku 4.5 (`claude-haiku-4-5`); this set
-measures that model only. A comparison with other providers is not part of it yet.
+against the deployed site. Production runs Claude Haiku 5.5 (`claude-haiku-5-5`). The runs
+recorded below were made on Claude Haiku 4.5, which it replaced; a run on Haiku 5.5 is still to
+be recorded. A comparison with other providers is not part of it yet.
 
 ## What is measured
 
@@ -71,7 +72,7 @@ The scorer, the report and the runner's pacing have unit tests on recorded answe
 
 ## Cost
 
-- **Per run:** each uncached answer is two Haiku 4.5 calls, about $0.007–0.008. A full run of 30 questions costs about **$0.25**.
+- **Per run:** on Haiku 4.5 each uncached answer was two calls and about $0.007–0.008, so a full run of 30 questions cost about **$0.25**. Haiku 5.5's list prices are a tenth of that for about 30 % more tokens, which makes a full run about **$0.03** — an estimate until the first run on it is recorded.
 - **Reading the cost:** it is not visible over HTTP. The endpoint logs `costUsd` on its `[ask]` line for every request. Sum those lines in the Vercel function logs of `/api/ask` for the run's time window, which the report prints, and fill in the report's "Cost (USD)" cell.
 
 ## Results

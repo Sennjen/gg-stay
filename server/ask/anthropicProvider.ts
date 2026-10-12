@@ -18,7 +18,7 @@ import {
 import { AskParseSchema, AskRerankSchema, readParse, readRerank } from './schemas'
 
 /**
- * The production provider: Claude Haiku 4.5 through the official SDK, with structured outputs.
+ * The production provider: Claude Haiku 5.5 through the official SDK, with structured outputs.
  *
  * The zod schema goes to the API as `output_config.format` (`zodOutputFormat`), so the model is
  * constrained to the shape. The answer is read with `messages.create` rather than
@@ -27,8 +27,10 @@ import { AskParseSchema, AskRerankSchema, readParse, readRerank } from './schema
  * billed call would be reported as free and as the wrong failure. Here the stop reason and the
  * usage are read first, and the text is then parsed as JSON and read with the server's own
  * lenient rules (`readParse`/`readRerank`), which drop or cut what they do not accept instead of
- * failing. No thinking: Haiku 4.5 would need a budget for it, and the latency is not worth it for
- * a filter. Temperature 0, so the same query keeps the same reading.
+ * failing. Thinking is switched off: this model thinks unless told not to, and neither the wait nor
+ * the output tokens it would take from the ceilings below are worth it for a filter. No sampling
+ * parameters: the model rejects them, so what keeps one query to one reading is the schema and the
+ * answer cache.
  *
  * Every failure comes back typed (see `AskFailure`), never thrown, with the tokens it cost when the
  * API reported them; a call it never answered (a timeout, an error status) is counted as unpriced.
@@ -36,18 +38,26 @@ import { AskParseSchema, AskRerankSchema, readParse, readRerank } from './schema
  * allows may then bill a second time — the worst case of one counted call is two billed ones.
  */
 
-export const ASK_MODEL = 'claude-haiku-4-5'
-export const PARSE_MAX_TOKENS = 500
+export const ASK_MODEL = 'claude-haiku-5-5'
 /**
- * Eight reasons of at most 80 characters, in Cyrillic, are about 400–500 tokens; the rest is
- * headroom. Fewer output tokens are the one real lever on the rerank's latency.
+ * Both ceilings were set for Haiku 4.5 (500 and 1 200) and grew by the 30 % more tokens this
+ * model's tokenizer counts for the same text, so an answer has the room it had.
  */
-export const RERANK_MAX_TOKENS = 1_200
+export const PARSE_MAX_TOKENS = 650
+/**
+ * Eight reasons of at most 80 characters, in Cyrillic, were about 400–500 tokens as Haiku 4.5
+ * counted them; the rest is headroom. Fewer output tokens are the one real lever on the rerank's
+ * latency.
+ */
+export const RERANK_MAX_TOKENS = 1_600
 export const MAX_RETRIES = 1
 export { REQUEST_TIMEOUT_MS }
 
-/** Haiku 4.5 list prices, in US dollars per million tokens. */
-export const PRICE_PER_MILLION_TOKENS = { input: 1, output: 5 } as const
+/**
+ * Haiku 5.5 list prices, in US dollars per million tokens, for a prompt of up to 100 000 tokens.
+ * These prompts are a few thousand; a longer one would be billed at five times as much.
+ */
+export const PRICE_PER_MILLION_TOKENS = { input: 0.1, output: 0.5 } as const
 
 const PARSE_FORMAT = zodOutputFormat(AskParseSchema)
 const RERANK_FORMAT = zodOutputFormat(AskRerankSchema)
@@ -118,7 +128,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): LlmP
         {
           model: ASK_MODEL,
           max_tokens: request.maxTokens,
-          temperature: 0,
+          thinking: { type: 'disabled' },
           system: request.system,
           messages: [{ role: 'user', content: request.user }],
           output_config: { format },

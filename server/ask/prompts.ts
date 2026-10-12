@@ -9,8 +9,9 @@ import { ASK_PLATFORM_FAMILIES, type AskLocale } from './schemas'
  * candidate cards travel in the user turn, wrapped in tags and described as data; the schema the
  * answer is constrained to (`server/ask/schemas.ts`) is what really limits what comes back.
  *
- * Prompt caching is deliberately not used: Haiku 4.5 caches nothing shorter than 4 096 tokens, and
- * both system prompts are far below that.
+ * Prompt caching is deliberately not used. The parse prompt is long enough for Haiku 5.5 to cache
+ * (its minimum is 512 tokens), but a cache entry lives five minutes and costs a quarter more to
+ * write than plain input, and questions here seldom arrive that close together.
  */
 
 const LANGUAGE: Record<AskLocale, string> = { uk: 'Ukrainian', en: 'English' }
