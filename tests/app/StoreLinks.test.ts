@@ -426,7 +426,7 @@ describe('StoreLinks', () => {
     it('is under the block while GOG’s row shows an estimate, with the day of the rate', async () => {
       const wrapper = await mount([steam, gog], { rateDate: '2026-10-09' })
       expect(wrapper.get('[data-test="estimate-note"]').text()).toBe(
-        'GOG продає в доларах США. Сума в гривні — приблизна, за курсом НБУ на 9 жовтня 2026; банк може списати іншу.',
+        'GOG продає в доларах США. Сума в гривні приблизна, за курсом НБУ на 9 жовтня 2026; банк може списати іншу.',
       )
     })
 

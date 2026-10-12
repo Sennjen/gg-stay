@@ -550,7 +550,7 @@ describe('server-side rendering', async () => {
     expect(steamRow.includes('Найдешевше')).toBe(steamIsCheapest)
     // The note names a day; which day moves with the clock the server was started on.
     expect(html).toMatch(
-      /data-test="estimate-note"[^>]*>\s*GOG продає в доларах США\. Сума в гривні — приблизна, за курсом НБУ на \d{1,2} [а-яіїєґ]+ \d{4}; банк може списати іншу\./,
+      /data-test="estimate-note"[^>]*>\s*GOG продає в доларах США\. Сума в гривні приблизна, за курсом НБУ на \d{1,2} [а-яіїєґ]+ \d{4}; банк може списати іншу\./,
     )
 
     const english = await $fetch<string>('/en/games/the-witcher-3-wild-hunt')
