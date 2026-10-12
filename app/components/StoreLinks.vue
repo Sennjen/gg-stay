@@ -27,8 +27,9 @@
  * sentence is written out for a screen reader (`PricedRow.spoken`) and the pieces the eye reads are
  * hidden from it, sign and dot included.
  *
- * Nothing in a render path reads a clock: a price's age is counted against `now`, which the page
- * reads once and hands down (`pages/games/[slug].vue`), as the scoreboard's is.
+ * Nothing in a render path reads a clock: a price's age is counted against `now`, the moment the
+ * answer on the page arrived, which the page hands down (`pages/games/[slug].vue`) as it does to
+ * the scoreboard.
  */
 import { STORE_OPTIONS } from '#shared/catalog'
 import { safeExternalUrl } from '#shared/url'
@@ -56,7 +57,7 @@ const props = defineProps<{
   gameName?: string | null
   /** The day the bank's rate behind the estimates is for (`Game.exchangeRate.date`). */
   rateDate?: string | null
-  /** ISO timestamp of "now", read once by the page. Without it no row says how old its price is. */
+  /** ISO timestamp of the answer's arrival, from the page. Without it no row tells a price's age. */
   now?: string
 }>()
 const { t } = useI18n()

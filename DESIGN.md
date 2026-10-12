@@ -508,8 +508,10 @@ is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`)
   by the decimal rule above. After it, behind a middle dot, comes the estimate in hryvnia,
   `≈ 404 ₴`, in `fg-2` at regular weight: visibly secondary, because it is not a sum anybody is
   charged. A free game is "Безкоштовно" in either currency, with no estimate. Under the price, in
-  12 px `fg-2`, is its age — "оновлено 6 годин тому" — counted against the `now` the page reads
-  once, as the scoreboard's is.
+  12 px `fg-2`, is its age — "оновлено 6 годин тому" — counted, as the scoreboard's is, against
+  the moment the answer on the page arrived: the server's clock for a page the server rendered,
+  carried in the payload, and the browser's when a page is opened by navigation. No component
+  reads a clock of its own.
 - **«Найдешевше»** is a chip beside the store's name on the one row the answer marks: 12 px `fg`
   at medium weight inside a 1 px `fg-2` border, `rounded-chip`, no fill. It uses no accent, signal
   or sale colour — it is a fact about the prices, not an action, a live state or a discount — and
