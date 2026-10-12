@@ -67,7 +67,8 @@ const microsoft = {
   cheapest: false,
 }
 
-type Offer = Partial<typeof gog> & { store: string; url: string }
+/** One store as the component takes it: the rows of the BFF's answer, every price field optional. */
+type Offer = InstanceType<typeof StoreLinks>['$props']['offers'][number]
 
 const mount = (offers: Offer[], props: Record<string, unknown> = {}) =>
   mountSuspended(StoreLinks, {
@@ -407,10 +408,10 @@ describe('StoreLinks', () => {
       [null, 'no percent at all'],
     ])(
       'draws no chip for a discount of %j (%s), and still strikes the higher price',
-      async (percent) => {
+      async (percent, _what) => {
         const wrapper = await mount([
-          { ...steam, discountPercent: percent as number },
-          { ...gog, discountPercent: percent as number },
+          { ...steam, discountPercent: percent },
+          { ...gog, discountPercent: percent },
         ])
         expect(wrapper.find('.bg-sale').exists()).toBe(false)
         expect(wrapper.text()).not.toContain('%')
