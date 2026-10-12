@@ -98,8 +98,9 @@ export type GameCard = {
   /**
    * The slug of a store other than Steam whose price for the game is clearly lower: the store of
    * the game's cheapest offer, when that is not Steam's and is at least 10 % below Steam's price.
-   * Null otherwise — and whenever "price" is null, Steam's price is zero, or either of the two
-   * prices was read more than 36 hours ago.
+   * Null otherwise — and whenever "price" is null, Steam's price is zero, either of the two
+   * prices was read more than 36 hours ago or is dated more than five minutes ahead of the clock,
+   * or the comparison names no store at all: a tie, or an estimate too close to a hryvnia price.
    */
   cheaperAt?: Maybe<Scalars['String']['output']>;
   cover?: Maybe<Image>;
@@ -315,9 +316,11 @@ export type StoreOffer = {
   approxUah?: Maybe<Scalars['Int']['output']>;
   /**
    * True for the one offer that is cheapest: the lowest hryvnia amount among the game's rows with a
-   * price, where an approximate amount counts only when it is at least 5 % below the lowest exact
-   * one. False on every row when fewer than two have a price, when the lowest is shared, or when
-   * the lowest is free.
+   * fresh price, where an approximate amount counts only when it is at least 5 % below the lowest
+   * exact one. A price is fresh when "updatedAt" is no more than 36 hours old and not more than
+   * five minutes ahead of the clock; a row with an older price is not weighed. False on every row
+   * when fewer than two have a fresh price, when the lowest is shared or free, or while a row
+   * shows a fresh price that cannot be weighed (a foreign price with no "approxUah").
    */
   cheapest: Scalars['Boolean']['output'];
   discountPercent?: Maybe<Scalars['Int']['output']>;

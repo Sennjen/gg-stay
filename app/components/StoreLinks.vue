@@ -7,7 +7,7 @@
  * was, a chip that is a link, in a row of chips under the list; a game no store has a price for
  * is the row of chips alone, exactly as before.
  *
- * - **Hryvnia** (Steam, the Microsoft Store): the discount chip, the price and the struck regular
+ * - **Hryvnia** (Steam, the Xbox Store): the discount chip, the price and the struck regular
  *   price, in the order and the classes of the catalog's `PriceTag`.
  * - **Dollars** (GOG): the price as the store writes it, `$8.99`, and beside it an estimate in
  *   hryvnia at the National Bank's rate — `≈ 404 ₴`, in the secondary colour and weight, because

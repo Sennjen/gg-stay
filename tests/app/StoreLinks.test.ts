@@ -51,7 +51,7 @@ const gog = {
   cheapest: true,
 }
 
-/** The Microsoft Store at 385 ₴, at its regular price. */
+/** The Xbox Store at 385 ₴, at its regular price. */
 const microsoft = {
   store: 'xbox-store',
   url: MICROSOFT_URL,
@@ -228,7 +228,7 @@ describe('StoreLinks', () => {
       expect(heard(row)).toBe('Steam −50% 675 ₴, було 1 349 ₴ оновлено 3 години тому')
     })
 
-    it('shows the Microsoft Store’s price the same way, under the name the site knows the store by', async () => {
+    it('shows the Xbox Store’s price the same way, under the name the store filter gives it', async () => {
       const onSale = { ...microsoft, priceUah: 193, regularPriceUah: 385, discountPercent: 50 }
       const wrapper = await mount([onSale], { gameName: 'Stardew Valley' })
       const row = wrapper.get('[data-test="store-row-xbox-store"]')

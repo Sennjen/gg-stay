@@ -106,12 +106,14 @@ export function toSteamOffer(game: IndexedGame, url: string): StoreOffer {
 }
 
 /**
- * What a page has to be told before it can put another store's price on a row. Neither comes
- * from the document: the clock is the request's (`GraphQLContext.now`) and the rate is in the
- * index's metadata (`exchangeRateAt`), which the page has read by then.
+ * What has to be known before a document's other stores' prices can be used at all: by a game
+ * page, to put one on a store's row and to mark the cheapest, and by a card, to say that another
+ * store is cheaper (`cheaperAtOf`). Neither comes from the document: the clock is the request's
+ * (`GraphQLContext.now`) and the rate is in the index's metadata (`exchangeRateAt`), which the
+ * request has read by then.
  */
 export interface OfferTerms {
-  /** An offer is a price for thirty-six hours from the read it is dated by (`isFreshOffer`). */
+  /** What a price's freshness is read against: thirty-six hours from its date (`isFreshAt`). */
   now: string
   /** What dollar prices are estimated in hryvnia with, or `null` when there is no rate to use. */
   rate: IndexedExchangeRate | null
