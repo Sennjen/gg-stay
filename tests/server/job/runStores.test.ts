@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   formatSummary,
   runJob,
@@ -611,6 +611,59 @@ describe('runJob and the other stores, through the Upstash adapter', () => {
       requests: redis.requests.length - before.requests,
       commands: sent().length - before.commands,
     })
+  })
+})
+
+/**
+ * A decision, pinned so that it stays one: a `storeref:` record that cannot be read is a game
+ * with no reference, and a game with no reference keeps no offer — not even a good one it carried
+ * — until a full run has asked RAWG about it again. The other way round the job would go on
+ * publishing a price for a product it can no longer name.
+ */
+describe('runJob and a store reference record that cannot be read', () => {
+  it('drops the game’s offers until the next full run, and says so', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const redis = createFakeRedis()
+    const reader = createUpstashIndex(redis.readOnly(), { currentVersionTtlMs: 0 })
+    const run = (runId: string, start: string) =>
+      createJobHarness({ start, writer: createUpstashIndex(redis, { runId }) })
+    await runJob(run('the-first-night', RUN_AT).deps, FULL)
+    expect((await reader.getOne(101))?.offers).toEqual([gogOffer(RUN_AT)])
+
+    // The record of game 101 is damaged where it lies.
+    const damage = redis.pipeline()
+    damage.mset({ 'storeref:101': '{"gog":"hollow_cradle",' })
+    await damage.exec()
+
+    const noon = later(RUN_AT, 12 * HOUR)
+    const prices = run('the-prices-run', noon)
+    const report = await runJob(prices.deps, PRICES)
+
+    // Published, with the game's Steam price and without its GOG offer; nobody asked GOG, for no
+    // game names a page there any more. The other game's offer is refreshed as on any day.
+    expect(report.outcome?.published).toBe(true)
+    expect(await reader.getOne(101)).toMatchObject({ priceUah: 675, steamAppId: '411000' })
+    expect('offers' in (await reader.getOne(101))!).toBe(false)
+    expect(report.stores).toMatchObject({
+      references: { listed: 2, asked: 1, gog: 0, microsoft: 1 },
+      gog: { status: 'no-references' },
+      microsoft: { status: 'read' },
+    })
+    expect(prices.calls).toHaveLength(0)
+    expect((await reader.getOne(109))?.offers).toEqual([microsoftOffer(noon)])
+    expect(warn).toHaveBeenCalledWith(
+      '[index] the store references of game 101 are unreadable: its GOG and Microsoft offers are dropped until a full run has asked RAWG about it again',
+    )
+
+    // The next full run asks RAWG about that game alone, rewrites the record, and the offer is
+    // back with the read that follows.
+    const nextNight = later(RUN_AT, 24 * HOUR)
+    const full = run('the-next-night', nextNight)
+    await runJob(full.deps, FULL)
+
+    expect(full.storeCalls().map((call) => call.path)).toEqual(['games/hollow-cradle/stores'])
+    expect((await reader.getOne(101))?.offers).toEqual([gogOffer(nextNight)])
+    warn.mockRestore()
   })
 })
 

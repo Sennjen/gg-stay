@@ -997,6 +997,13 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
    * One request, like `getAppIds`: an `MGET` per `itemsPerCommand` games. A value is the record
    * as JSON; one that will not parse, or parses to something that is not an object, is treated as
    * absent, so the job asks RAWG about that game again and rewrites it.
+   *
+   * What "absent" costs is decided, not incidental. A game with no record has no reference, and
+   * an offer needs a reference (`scripts/index/offers.ts`), so the game's offers are dropped by
+   * the very next run of any kind — and only a full run asks RAWG again. Keeping the offers of a
+   * game whose record cannot be read would mean publishing prices for a product nobody can name
+   * any more; a day without them is the lesser fault, for one corrupt key at a time. The warning
+   * says so in as many words.
    */
   async getStoreRefs(ids: number[]): Promise<Map<number, IndexedStoreRefs>> {
     const found = new Map<number, IndexedStoreRefs>()
@@ -1012,7 +1019,10 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
         }
         found.set(id, refs as IndexedStoreRefs)
       } catch {
-        console.warn(`[index] the store references of game ${id} are unreadable; asking again`)
+        console.warn(
+          `[index] the store references of game ${id} are unreadable: its GOG and Microsoft ` +
+            'offers are dropped until a full run has asked RAWG about it again',
+        )
       }
     })
     return found
