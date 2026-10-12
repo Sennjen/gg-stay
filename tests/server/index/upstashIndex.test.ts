@@ -87,6 +87,7 @@ function manyGames(count: number): IndexedGame[] {
       slug: `a-reasonably-long-game-slug-number-${id}`,
       name: `A Reasonably Long Game Title Number ${id}`,
       cover: `https://media.rawg.io/media/games/${id % 97}/${id}-cover-image.jpg`,
+      preview: null,
       released: '2020-06-01',
       popularity: count - position,
       platforms: [4, 18, 7, id % 11],

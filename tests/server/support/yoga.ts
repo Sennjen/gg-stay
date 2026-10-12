@@ -211,7 +211,7 @@ export interface QueryResult {
 }
 
 /** The context a suite's resolvers run in: the doubles above, and whatever the suite replaces. */
-function testContext(context: TestContext): GraphQLContext {
+export function testContext(context: TestContext): GraphQLContext {
   return {
     rawg: fixtureRawg,
     steam: fixtureSteam,
