@@ -13,11 +13,19 @@ import {
   jobGamesPage,
   jobStudioPage,
 } from '../../fixtures/index/jobCatalog'
+import {
+  bankAnswer,
+  gogCatalogPage,
+  JOB_BANK_RATE,
+  JOB_GOG_PRODUCTS,
+  JOB_MICROSOFT_PRODUCTS,
+} from '../../fixtures/index/jobStores'
 
 /**
  * The refresh job's stages under test: the real in-memory index, a clock that only moves when the
  * job sleeps, and RAWG and Steam stand-ins that answer from `tests/fixtures/index/jobCatalog.ts`
- * and count every call. Counting is the point — most of the job's rules ("never re-resolve an app
+ * — and GOG, Microsoft Store and National Bank stand-ins that answer from `jobStores.ts` beside
+ * it — and count every call. Counting is the point — most of the job's rules ("never re-resolve an app
  * id", "at most forty language requests a minute", "resume without repeating a page") are
  * statements about which upstream requests happen, not about the data that comes back.
  */
@@ -206,7 +214,90 @@ export function createFakeSteam(clock: JobClock): FakeSteam {
   }
 }
 
-export interface JobHarness extends FakeRawg, FakeSteam {
+export interface FakeStores {
+  gog: JobDeps['gog']
+  microsoft: JobDeps['microsoft']
+  bank: JobDeps['bank']
+  /** GOG's catalog as the fake pages through it; a test may replace or edit the products. */
+  gogCatalog: { products: unknown[]; pageSize: number }
+  /** The pages of the catalog that were asked for, in order. */
+  gogPages: number[]
+  /** Makes every later request for this page of the catalog reject, as a GOG outage does. */
+  failGogPage: (page: number) => void
+  /** Makes the first later request for this page resolve with `body` instead of the page. */
+  answerGogPageWith: (page: number, body: unknown) => void
+  /** What the Microsoft Store has, by product id; an id it does not hold is left out of an answer. */
+  microsoftProducts: Record<string, unknown>
+  /** The batches of product ids that were asked about, in order. */
+  microsoftBatches: string[][]
+  /** Makes every later batch containing this product id reject. */
+  failMicrosoftBatchWith: (id: string) => void
+  /** Makes the first later batch resolve with `body` instead of the store's answer. */
+  answerMicrosoftWith: (body: unknown) => void
+  /** The rate the bank answers; a test may change it, or set what the bank answers instead. */
+  bankState: { rate: number; down: boolean; answer: unknown }
+  /** The days the bank was asked about, in order. */
+  bankDays: string[]
+}
+
+/**
+ * GOG, the Microsoft Store and the National Bank as the job's stages see them: each answers from
+ * a small world a test may edit, records what it was asked, and can be made to fail.
+ */
+export function createFakeStores(): FakeStores {
+  const gogCatalog = { products: [...JOB_GOG_PRODUCTS] as unknown[], pageSize: 100 }
+  const gogPages: number[] = []
+  const gogFailures = new Set<number>()
+  const gogAnswers = new Map<number, unknown>()
+  const microsoftProducts: Record<string, unknown> = { ...JOB_MICROSOFT_PRODUCTS }
+  const microsoftBatches: string[][] = []
+  const microsoftFailures = new Set<string>()
+  const microsoftAnswers: unknown[] = []
+  const bankState = { rate: JOB_BANK_RATE, down: false, answer: undefined as unknown }
+  const bankDays: string[] = []
+
+  return {
+    gog: async (page) => {
+      gogPages.push(page)
+      if (gogFailures.has(page)) throw new Error(`GOG upstream failure (page ${page})`)
+      if (gogAnswers.has(page)) {
+        const body = gogAnswers.get(page)
+        gogAnswers.delete(page)
+        return body
+      }
+      return gogCatalogPage(gogCatalog.products, page, gogCatalog.pageSize)
+    },
+    microsoft: async (ids) => {
+      microsoftBatches.push([...ids])
+      if (ids.some((id) => microsoftFailures.has(id))) {
+        throw new Error('MICROSOFT upstream failure (batch)')
+      }
+      if (microsoftAnswers.length > 0) return microsoftAnswers.shift()
+      // As `actionFilter=Purchase` answers: the products it has, and nothing about the rest.
+      return {
+        Products: ids.flatMap((id) => (id in microsoftProducts ? [microsoftProducts[id]] : [])),
+      }
+    },
+    bank: async (date) => {
+      bankDays.push(date)
+      if (bankState.down) throw new Error('NBU upstream failure')
+      return bankState.answer === undefined ? bankAnswer(date, bankState.rate) : bankState.answer
+    },
+    gogCatalog,
+    gogPages,
+    failGogPage: (page) => void gogFailures.add(page),
+    answerGogPageWith: (page, body) => void gogAnswers.set(page, body),
+    microsoftProducts,
+    microsoftBatches,
+    failMicrosoftBatchWith: (id) => void microsoftFailures.add(id),
+    answerMicrosoftWith: (body) => void microsoftAnswers.push(body),
+    bankState,
+    bankDays,
+  }
+}
+
+export interface JobHarness
+  extends FakeRawg, FakeSteam, Omit<FakeStores, 'gog' | 'microsoft' | 'bank'> {
   deps: JobDeps
   writer: JobIndex
   clock: FakeClock
@@ -223,18 +314,23 @@ export function createJobHarness(
   const clock = createFakeClock(options.start)
   const fakeRawg = createFakeRawg(options.studios)
   const fakeSteam = createFakeSteam(clock)
+  const { gog, microsoft, bank, ...fakeStores } = createFakeStores()
   const writer = options.writer ?? createMemoryGameIndex()
   const logs: string[] = []
 
   return {
     ...fakeRawg,
     ...fakeSteam,
+    ...fakeStores,
     clock,
     writer,
     logs,
     deps: {
       rawg: fakeRawg.rawg,
       steam: fakeSteam.steam,
+      gog,
+      microsoft,
+      bank,
       writer,
       clock,
       log: (message) => void logs.push(message),

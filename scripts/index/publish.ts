@@ -1,5 +1,10 @@
 import { isoNow, type JobDeps } from './deps'
-import type { IndexMeta, IndexedGame } from '../../server/index/document'
+import type {
+  IndexMeta,
+  IndexedExchangeRate,
+  IndexedGame,
+  OfferStore,
+} from '../../server/index/document'
 import { median } from './similarity'
 
 /**
@@ -49,6 +54,13 @@ export interface PublishInput {
   languagesFetched: number
   failures: number
   durationMs: number
+  /**
+   * The National Bank's rate this run read or kept, and when GOG and the Microsoft Store were
+   * last read in full (`offers.ts`). Both go into the metadata as they are; neither is weighed by
+   * the checks below — a store or a bank that is down is never a reason to refuse a version.
+   */
+  exchangeRate?: IndexedExchangeRate
+  offersReadAt?: Partial<Record<OfferStore, string>>
 }
 
 export interface PublishOutcome {
@@ -69,7 +81,13 @@ export function countIndexed(games: IndexedGame[]) {
     madeInUkraineCount: games.filter((game) => game.madeInUkraine).length,
     similarCount: games.filter((game) => (game.similar?.length ?? 0) > 0).length,
     similarMedianLength: median(games.map((game) => game.similar?.length ?? 0)),
+    gogOfferCount: offerCount(games, 'gog'),
+    microsoftOfferCount: offerCount(games, 'xbox-store'),
   }
+}
+
+function offerCount(games: IndexedGame[], store: OfferStore): number {
+  return games.filter((game) => game.offers?.some((offer) => offer.store === store)).length
 }
 
 /**
@@ -117,8 +135,15 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
       madeInUkraineCount: counts.madeInUkraineCount,
       similarCount: counts.similarCount,
       similarMedianLength: counts.similarMedianLength,
+      gogOfferCount: counts.gogOfferCount,
+      microsoftOfferCount: counts.microsoftOfferCount,
       ...(candidateCount === undefined ? {} : { candidateCount }),
     },
+    // Left out rather than written empty, like every optional field of the metadata.
+    ...(input.exchangeRate ? { exchangeRate: input.exchangeRate } : {}),
+    ...(input.offersReadAt && Object.keys(input.offersReadAt).length > 0
+      ? { offersReadAt: input.offersReadAt }
+      : {}),
   }
 
   const previouslyPriced = previous?.stats?.pricedCount ?? 0

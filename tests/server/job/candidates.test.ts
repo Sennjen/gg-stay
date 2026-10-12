@@ -208,6 +208,40 @@ describe('carryPublishedForward', () => {
     expect(games.find((game) => game.id === 102)).toMatchObject({ priceUah: null })
   })
 
+  it('copies the offers of the other stores, with the dates they were read at', async () => {
+    const harness = createJobHarness()
+    const offers: IndexedGame['offers'] = [
+      {
+        store: 'gog',
+        amount: 999,
+        regularAmount: 1999,
+        currency: 'USD',
+        discountPercent: 50,
+        url: 'https://www.gog.com/en/game/hollow_cradle',
+        updatedAt: '2026-09-19T12:15:00.000Z',
+      },
+    ]
+    const version = await harness.writer.beginVersion()
+    await harness.writer.writeVersion(version, [
+      { ...published, offers },
+      // Published before any store was read: there is nothing to carry, and no field appears.
+      { ...published, id: 102, slug: 'neon-district' },
+    ])
+    await harness.writer.publish(version, {
+      version,
+      updatedAt: '2026-09-19T21:00:00.000Z',
+      pricesUpdatedAt: '2026-09-19T21:00:00.000Z',
+      gameCount: 2,
+    })
+    const { games } = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
+
+    await carryPublishedForward(harness.deps, games)
+
+    expect(games.find((game) => game.id === 101)?.offers).toEqual(offers)
+    expect('offers' in games.find((game) => game.id === 102)!).toBe(false)
+    expect('offers' in games.find((game) => game.id === 103)!).toBe(false)
+  })
+
   it('leaves the made-in-Ukraine flag to the studios stage, whatever was published', async () => {
     const harness = createJobHarness()
     const version = await harness.writer.beginVersion()

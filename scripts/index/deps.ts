@@ -1,12 +1,17 @@
+import type { BankRateFetch } from './bank'
+import type { GogCatalogFetch } from './gog'
+import type { MicrosoftProductsFetch } from './microsoft'
 import type { GameIndex, GameIndexWriter } from '../../server/index/GameIndex'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamPriceFetch } from '../../server/steam/steamPriceFetch'
 
 /**
- * What every stage of the refresh job is given, and nothing more: two upstream transports, the
- * index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`, `Date.now()` or
- * the network directly — only `run.ts` builds these — so a stage runs the same on fixtures, on the
- * in-memory adapter and on a fake clock as it does against RAWG, Steam and Upstash.
+ * What every stage of the refresh job is given, and nothing more: the upstream transports — RAWG,
+ * Steam, and the three only the job talks to: GOG, the Microsoft Store and the National Bank —
+ * the index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`,
+ * `Date.now()` or the network directly — only `run.ts` builds these — so a stage runs the same on
+ * fixtures, on the in-memory adapter and on a fake clock as it does against the real services and
+ * Upstash.
  */
 
 /**
@@ -29,6 +34,12 @@ export type JobLog = (message: string) => void
 export interface JobDeps {
   rawg: RawgFetch
   steam: SteamPriceFetch
+  /** One page of GOG's catalog for Ukraine. */
+  gog: GogCatalogFetch
+  /** The Microsoft Store's answer about a batch of product ids, for Ukraine. */
+  microsoft: MicrosoftProductsFetch
+  /** The National Bank's dollar rate for one day. */
+  bank: BankRateFetch
   writer: JobIndex
   clock: JobClock
   log: JobLog

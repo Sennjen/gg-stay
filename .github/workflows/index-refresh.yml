@@ -7,7 +7,9 @@ name: Index refresh
 # be told to re-enable them, so a long quiet spell is worth checking for here.
 on:
   schedule:
-    # Prices every six hours — one batched Steam call over the published documents.
+    # Prices every six hours — one batched Steam call over the published documents. Every other
+    # one also reads GOG and the Microsoft Store: whichever run finds a store's last read more
+    # than eleven hours old reads it, so those are read twice a day whatever else is scheduled.
     - cron: '15 */6 * * *'
     # The whole catalog nightly at 02:30 UTC: candidates, Ukrainian studios' games, new app ids,
     # prices, due languages.

@@ -58,8 +58,100 @@ describe('publishVersion', () => {
         madeInUkraineCount: 0,
         similarCount: 0,
         similarMedianLength: 0,
+        gogOfferCount: 0,
+        microsoftOfferCount: 0,
       },
+      // And no rate and no store stamps: a field the run has nothing for is left out, not
+      // written empty.
     })
+  })
+
+  it('publishes the rate and the store stamps it is handed, and counts the offers', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const games = await indexedGames(harness)
+    const offer = (store: 'gog' | 'xbox-store') => ({
+      store,
+      amount: 999,
+      regularAmount: 1999,
+      currency: store === 'gog' ? ('USD' as const) : ('UAH' as const),
+      discountPercent: 50,
+      url: 'https://www.gog.com/en/game/hollow_cradle',
+      updatedAt: RUN_AT,
+    })
+    games[0]!.offers = [offer('gog'), offer('xbox-store')]
+    games[1]!.offers = [offer('gog')]
+    const exchangeRate = {
+      currency: 'USD' as const,
+      uah: 44.9567,
+      date: '2026-09-20',
+      readAt: RUN_AT,
+    }
+    const offersReadAt = { gog: RUN_AT }
+
+    const version = await harness.deps.writer.beginVersion()
+    const outcome = await publishVersion(harness.deps, {
+      version,
+      games,
+      pricesUpdatedAt: RUN_AT,
+      pricesFetched: 6,
+      languagesFetched: 6,
+      failures: 0,
+      durationMs: 1_234,
+      exchangeRate,
+      offersReadAt,
+    })
+
+    expect(outcome.published).toBe(true)
+    const meta = await harness.writer.meta()
+    expect(meta?.exchangeRate).toEqual(exchangeRate)
+    expect(meta?.offersReadAt).toEqual(offersReadAt)
+    expect(meta?.stats).toMatchObject({ gogOfferCount: 2, microsoftOfferCount: 1 })
+    expect((await harness.writer.getOne(games[0]!.id))?.offers).toEqual(games[0]!.offers)
+  })
+
+  it('leaves out store stamps that name no store', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const version = await harness.deps.writer.beginVersion()
+
+    await publishVersion(harness.deps, {
+      version,
+      games: await indexedGames(harness),
+      pricesUpdatedAt: RUN_AT,
+      pricesFetched: 6,
+      languagesFetched: 6,
+      failures: 0,
+      durationMs: 1_234,
+      offersReadAt: {},
+    })
+
+    const meta = await harness.writer.meta()
+    expect(meta && 'offersReadAt' in meta).toBe(false)
+    expect(meta && 'exchangeRate' in meta).toBe(false)
+  })
+
+  it('never weighs another store against a version: no offers at all is no reason to refuse', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    const games = await indexedGames(harness)
+    games[0]!.offers = [
+      {
+        store: 'gog',
+        amount: 999,
+        regularAmount: 1999,
+        currency: 'USD',
+        discountPercent: 50,
+        url: 'https://www.gog.com/en/game/hollow_cradle',
+        updatedAt: RUN_AT,
+      },
+    ]
+    await publish(harness.deps, games)
+
+    // The next run has lost every offer and the rate, and is published all the same.
+    const next = createJobHarness({ writer: harness.writer, start: RUN_AT })
+    const bare = (await indexedGames(next)).map(({ offers: _offers, ...game }) => game)
+    const outcome = await publish(next.deps, bare)
+
+    expect(outcome.published).toBe(true)
+    expect(outcome.meta.stats).toMatchObject({ gogOfferCount: 0 })
   })
 
   it('leaves the documents and facets a reader query needs', async () => {
