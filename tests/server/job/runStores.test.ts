@@ -14,6 +14,8 @@ import type {
   IndexedOffer,
 } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
+import { exchangeRateAt, isFreshOffer, readableOffers } from '../../../server/index/offerRules'
+import { toStoreOffer } from '../../../server/index/toGraphql'
 import { createUpstashIndex } from '../../../server/index/upstashIndex'
 import { JOB_APP_IDS, JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
 import {
@@ -125,6 +127,30 @@ describe('runJob and the other stores', () => {
     expect(harness.storeCalls().map((call) => call.path)).not.toContain(
       'games/paper-harbour/stores',
     )
+  })
+
+  // The job's tests and the site's tests each read their own fixtures; this is the one place what
+  // the job really writes is put through what the site really reads. A field renamed, a discount
+  // out of range or an address on another host would pass both sides' suites and turn every
+  // offer into "no price" in production.
+  it('writes offers and a rate that the site reads as they stand', async () => {
+    const harness = createJobHarness({ start: RUN_AT })
+    await runJob(harness.deps, FULL)
+
+    const meta = await harness.writer.meta()
+    const published = exchangeRateAt(meta, RUN_AT)
+    expect(published).not.toBeNull()
+    expect(published).toEqual(meta?.exchangeRate)
+
+    for (const id of [101, 109]) {
+      const game = (await harness.writer.getOne(id))!
+      expect(game.offers).toHaveLength(1)
+      expect(readableOffers(game)).toEqual(game.offers)
+      for (const offer of readableOffers(game)) {
+        expect(isFreshOffer(offer, RUN_AT)).toBe(true)
+        expect(toStoreOffer(offer, published)).not.toBeNull()
+      }
+    }
   })
 
   it('reads the stores twice a day, with whichever run finds them due', async () => {
