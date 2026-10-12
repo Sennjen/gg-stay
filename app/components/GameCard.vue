@@ -37,10 +37,11 @@ const hasPriceLine = computed(
 // The store the answer names as clearly cheaper than Steam (`GameCard.cheaperAt`), under the name
 // the store filter and a game page's row give it. Which store that is, and by how much it has to
 // undercut, is the server's rule (`cheaperAtOf`, server/index/offerRules.ts): nothing is compared
-// here, and the card states no second price — the game page has both.
+// here, and the card states no second price — the game page has both. A store this build has no
+// name for is not named at all: a slug is an address, not copy, and the card has no line then.
 const cheaperStore = computed(() => {
   const slug = props.game.cheaperAt
-  return slug && (STORE_OPTIONS.find((store) => store.slug === slug)?.name ?? slug)
+  return slug && STORE_OPTIONS.find((store) => store.slug === slug)?.name
 })
 
 // Grid markup/classes stay byte-identical to before this prop existed; list only adds a

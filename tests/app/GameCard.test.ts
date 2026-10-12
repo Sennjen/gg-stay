@@ -495,11 +495,24 @@ describe('GameCard: the store that is cheaper than Steam', () => {
     expect(withLine.get('[data-test="cheaper-at"]').text()).not.toMatch(/[₴$\d]/)
   })
 
-  it('shows a store this build has no name for by its slug, as text and nothing more', async () => {
-    const wrapper = await mount('<b>new-store</b>')
-    const line = wrapper.get('[data-test="cheaper-at"]')
-    expect(line.text()).toBe('Дешевше в <b>new-store</b>')
-    expect(line.find('b').exists()).toBe(false)
+  it.each([['some-new-store'], ['epic'], ['GOG'], ['<b>gog</b>']])(
+    'has no line for a store this build cannot name: %j',
+    async (slug) => {
+      // A later server may name a store this client's table lacks while a tab is still open. A
+      // slug is not copy: the card says nothing, and keeps nothing for the line either.
+      const wrapper = await mount(slug)
+      expect(wrapper.find('[data-test="cheaper-at"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Дешевше')
+      expect(wrapper.text()).not.toContain(slug)
+      const priceLine = wrapper.get('[data-test="price"]').element.parentElement!
+      expect(priceLine.parentElement!.lastElementChild).toBe(priceLine)
+    },
+  )
+
+  it('writes the store’s name as text: the line has nothing in it but the sentence', async () => {
+    const line = (await mount('gog')).get('[data-test="cheaper-at"]')
+    expect(line.element.children).toHaveLength(0)
+    expect(line.element.innerHTML.trim()).toBe('Дешевше в GOG')
   })
 
   it('says it in the list layout too', async () => {
