@@ -60,6 +60,8 @@ type Money { amount: Float!  currency: String! }
 
 type StoreOffer {
   …existing fields…
+  "What the store itself calls the product the price is for. Null without a price, or when the store gave none."
+  title: String
   "A price in another currency, from a store that does not sell in hryvnia."
   foreignPrice: Money
   foreignRegularPrice: Money
@@ -77,6 +79,7 @@ type GameCard { …  "The store slug of an offer clearly below Steam's price, or
 A Microsoft offer fills the existing hryvnia fields (`priceUah`, `regularPriceUah`, `discountPercent`, `updatedAt`); a GOG offer fills `foreignPrice`, `foreignRegularPrice`, `discountPercent`, `updatedAt` and, when there is a rate, `approxUah`. Offers attach to the store rows RAWG's links already produce, by store; a store RAWG does not link is not added.
 
 - **Fresh.** An offer older than 36 hours is not a price: its row is the bare link it is today.
+- **The rate's age.** The job drops the rate after seven days without a successful read, but only while it runs: if the job stops, the metadata keeps the last rate it wrote. So the site applies the same rule itself. A rate whose `readAt` is more than seven days old is no rate — no `exchangeRate`, no `approxUah` — and a GOG row then shows its dollar price alone and takes no part in "cheapest", having no hryvnia amount to compare.
 - **Cheapest.** Among a game's rows with a price, Steam's included: the lowest hryvnia amount, exact or approximate. An approximate amount wins only when it is at least 5 % below the lowest exact one — a bank's rate is not the National Bank's. Fewer than two priced rows, or a tie, and nothing is marked.
 - **`cheaperAt`.** The store of the game's cheapest offer when it is not Steam and is at least 10 % below Steam's current price; null otherwise, and null when Steam has no fresh price.
 - Stale index prices follow the existing rule: where Steam's price is stripped, so are these.
@@ -87,7 +90,8 @@ In the existing "Де купити" block each store row with a price shows it:
 
 - hryvnia stores as today's Steam row does (price, struck regular price, discount chip, "оновлено N годин тому");
 - GOG as `$8.99 · ≈ 404 ₴`, the estimate visibly secondary;
-- the store's own title for the product is shown under the store's name when it differs from the game's name, case and surrounding whitespace ignored — so a price for another edition says which edition it is for. It changes nothing about which row is the cheapest: that stays a rule about prices;
+- the store's own title for the product is shown under the store's name when it differs from the game's name — so a price for another edition says which edition it is for. "Differs" is decided in one function (`namesAnotherProduct`, `app/utils/storeOffers.ts`): the two are compared after lower-casing, dropping the signs ™ ® ©, collapsing every run of whitespace to one space and trimming. So `Batman™: Arkham Knight` and `METRO EXODUS` are not shown; `… - Game of the Year Edition`, `… Standard Edition` and a Ukrainian title are. The title is plain text from another company's catalog: it is rendered as text only, never as markup. It changes nothing about which row is the cheapest: that stays a rule about prices;
+- a discount chip is drawn only for 1 to 99 %, and a struck regular price only when it is above the price — a document can carry a 0 beside a higher regular price, or a 100 beside a price that is not zero, and neither is drawn;
 - the cheapest row carries «Найдешевше» / "Cheapest";
 - under the block, only when a GOG price is shown: «GOG продає в доларах США. Сума в гривні — приблизна, за курсом НБУ на {date}; банк може списати іншу.» / "GOG charges in US dollars. The hryvnia amount is an estimate at the National Bank of Ukraine's rate of {date}; your bank may charge a different sum."
 
@@ -98,6 +102,21 @@ The footer's line of sources names GOG and the Microsoft Store beside RAWG and S
 ### 6. The catalog card
 
 One short line under the price when `cheaperAt` is set: «Дешевше в GOG» / "Cheaper at GOG" (store names: GOG, Microsoft Store). The catalog's price, its filters, its sorts, the sale shelf and the deal of the day stay Steam's hryvnia price. The `/games` JavaScript budget has 1.8 kB of headroom: the line has to fit it. If it cannot, the task stops and says so; the budget is not raised without the owner.
+
+## Decided while building the game page (2026-10-12)
+
+What sections 4 and 5 left open, as the code now answers it. Each is a decision of the implementation, recorded here so that the card (section 6) and a reviewer read one rule.
+
+- **An estimate that undercuts by less than 5 % marks nothing.** When the lowest amount is approximate and is not 5 % below the lowest exact one, neither row is the cheapest: not the estimate, which has not won clearly, and not the exact price above it, which the page shows beside a lower number. An exact price that is the lowest wins with no margin.
+- **A free game is an exact zero.** Nothing at any rate is nothing: a free GOG game takes part in "cheapest" with or without a rate, is shown as «Безкоштовно», and has no `approxUah`.
+- **Kopecks.** The Microsoft Store charges kopecks during a sale (508.20 ₴). `priceUah` is whole hryvnia, rounded to the nearest, and "cheapest" compares the amounts as the page shows them, so two rows that show the same number tie.
+- **A priced row links to the store's own address for the product** (`IndexedOffer.url`), the page the price is charged on, in place of RAWG's link — which, for the Microsoft Store, is the listing for another market. A row without a fresh price keeps RAWG's link.
+- **`exchangeRate` is null unless a row on the page carries an `approxUah`.** A page with no estimate on it is told of no rate.
+- **The note needs an estimate.** It is shown only while GOG's row shows one. A dollar price with no rate behind it is shown alone and without the note, whose sentence is about the estimate and names the day of a rate.
+- **The page built from the index** shows, after Steam, a row for every offer whose store the document lists the game on (`IndexedGame.stores`) — the condition its Steam row already meets, so the two pages of one game never disagree about where it is sold. A fresh offer carries its price; a stale one is a link to the same address. While the index's prices are too old to show, every offer is a link, beside a live Steam price too.
+- **The page RAWG answers is not held to the index's staleness.** It shows Steam's index price however old, under its own date; an offer there answers to its own thirty-six hours and nothing else.
+- **What this build cannot read is passed over.** An offer for a store or in a currency the build does not know, with an amount that is not a whole non-negative number, a regular amount below the amount, a discount that is not a whole percent, or an address that fails the allow-list, is not shown at all.
+- **Where the rows are.** A store with a price is a row in a list; a store without one stays the chip it was, under the list. The rows keep the answer's order.
 
 ## Not in this change
 

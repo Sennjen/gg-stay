@@ -105,7 +105,8 @@ package) provider, which does serve the full variable font file.
   active filter state, and the focus ring. It never appears as a decorative
   colour, a link colour, or a status colour.
 - **Sale (`--color-sale`) is reserved** for price-reduction status only: the
-  discount chip on `PriceTag` (catalog cards, the game page scoreboard). It is
+  discount chip on `PriceTag` (catalog cards, the game page scoreboard) and on
+  the rows of the game page's "Де купити". It is
   a deliberately separate token from accent — a discount badge is a status
   colour (a fact about the price), not a call to action, an active filter, or
   a focus ring, so it must not borrow accent's meaning. Never used for
@@ -200,6 +201,8 @@ alone says nothing about which one it picks.
 | `fg` `#ECEDEF`        | `surface-1` `#13151B` | 15.58:1 | Yes                               |
 | `fg-2` `#A3A7B3`      | `surface-1` `#13151B` | 7.59:1  | Yes                               |
 | `fg-3` `#6B7080`      | `surface-2` `#1A1D25` | 3.41:1  | **No — not allowed at any size**  |
+| `fg` `#ECEDEF`        | `surface-2` `#1A1D25` | 14.38:1 | Yes                               |
+| `fg-2` `#A3A7B3`      | `surface-2` `#1A1D25` | 7.01:1  | Yes                               |
 | `on-accent` `#1A1200` | `accent` `#F5A524`    | 9.10:1  | Yes                               |
 | `on-sale` `#0B0C10`   | `sale` `#B6F36A`      | 14.91:1 | Yes                               |
 
@@ -234,7 +237,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `GegeMascot`                    | Done — the AI-picks mascot, an inline pixel-art SVG with four moods; see "Gege, the mascot" below                                                                                                             |
 | `GegeGreeter`                   | Done — the landing page's greeting: Gege rises from the corner with the deal of the day; see "Gege, the mascot" below                                                                                         |
 | `GegeSpeech`                    | Done — Gege beside a speech bubble in the page's flow (the greeter's bubble look); used by the ask page                                                                                                       |
-| `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, RAWG/Steam attribution                                                                                   |
+| `AppFooter`                     | Added in PR 9 — extracted from `layouts/default`: logo/tagline, nav links, GitHub, `LocaleSwitcher`, attribution (GOG and the Microsoft Store named since week 4)                                             |
 | `HeaderSearch`                  | Done — PR 5; mobile-expanded search fixed to a full-bleed overlay (no logo overlap) in PR 9                                                                                                                   |
 | `HeroFeatured`                  | Done — PR 6                                                                                                                                                                                                   |
 | `HeroVideo`                     | Done — PR 6                                                                                                                                                                                                   |
@@ -273,7 +276,7 @@ Status values: **exists** (unchanged since before the redesign),
 | `states/LoadingState`           | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `states/EmptyState`             | Restyled in PR 1 (dark pass); "Опишіть словами" link to the ask page in week 3                                                                                                                                |
 | `states/ErrorState`             | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
-| `StoreLinks`                    | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
+| `StoreLinks`                    | Restyled in PR 1 (dark pass); week 4 — a row for every store with a price, a chip for every store without; see "Where to buy" below                                                                           |
 | `LocaleSwitcher`                | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
 | `layouts/default`               | Header extracted to `AppHeader` in PR 1; footer extracted to `AppFooter`, skip link and `#main-content` landing target added in PR 9. Owns the single `<main>` of every route — pages render sections into it |
 | `error.vue`                     | Restyled in PR 1 (dark pass)                                                                                                                                                                                  |
@@ -292,8 +295,10 @@ the "GG Stay" logo (display face) with the same one-line tagline used for
 (`/games?sort=RELEASED_DESC`) and the project's GitHub repository (an
 inline, hand-drawn `currentColor` SVG mark, external with
 `rel="noopener noreferrer"`), and `LocaleSwitcher`. A bottom row in
-`fg-2` keeps the existing RAWG/Steam attribution sentence and the
-ownership sentence, both already present in the locale files.
+`fg-2` keeps the attribution sentence and the ownership sentence, both in
+the locale files. Since week 4 the attribution names every source of the
+site's data, each as a link to the source itself: RAWG, Steam, GOG and the
+Microsoft Store.
 
 ### Accessibility additions (PR 9)
 
@@ -445,6 +450,54 @@ skeleton, no placeholder — exactly as it is for a game that has none.
   announces, as on the ask page. The attempts in between neither rebuild nor reword the line, so
   it is announced once; the final sentence takes the first one's place in the same element and is
   announced once too. What arrives is not announced.
+
+### Where to buy (week 4)
+
+`StoreLinks` is the game page's "Де купити". A store with a price is a row; a store without one
+is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`).
+
+- **Two tiers.** The rows come first, in one `surface-1` panel with a `line` border and a `line`
+  rule between rows — `rounded-card`, and no wider than `max-w-2xl`, the width of the gallery above
+  it. Under the panel are the chips of the stores without a price, unchanged: `rounded-chip`,
+  `surface-1`, the store's name and the external-link glyph. A game no store has a price for is
+  the chips alone, exactly as the block was before it had rows, and nothing is reserved for a
+  price that is not there. The rows keep the order of the answer; they are not sorted by price,
+  because the mark below is what says which is the lowest.
+- **A row** is one link, to the store's own page for the product, in a new tab, and at least
+  44 px tall. The store's name is `fg` at medium weight with the glyph after it. Under it, in 12 px
+  `fg-2`, is what the store itself calls the product — only when that differs from the game's
+  name once case, the signs ™ ® © and spacing are set aside (`namesAnotherProduct`), because a
+  store's link is sometimes to another edition and the price is that edition's. It is another
+  company's text: interpolated as text and never bound as markup, given no `lang` of its own (its
+  language is not known — GOG's titles are English, the Microsoft Store's are in whatever the
+  listing for Ukraine is written in), and allowed to break anywhere, so a title of 200 characters
+  wraps inside a 375 px screen.
+- **The price** follows `PriceTag`: the `sale` chip, the price in `fg` at medium weight, the
+  regular price struck through in `fg-2` with "було" for a screen reader. A chip is drawn only for
+  1 to 99 percent and only beside a regular price that is above the price; "−0 %" and "−100 %"
+  are never drawn. Hryvnia are `.font-numeric`. A price in dollars is written as the store writes
+  it — `$8.99`, the same characters on the Ukrainian page and the English one — in `.font-tabular`,
+  by the decimal rule above. After it, behind a middle dot, comes the estimate in hryvnia,
+  `≈ 404 ₴`, in `fg-2` at regular weight: visibly secondary, because it is not a sum anybody is
+  charged. A free game is "Безкоштовно" in either currency, with no estimate. Under the price, in
+  12 px `fg-2`, is its age — "оновлено 6 годин тому" — counted against the `now` the page reads
+  once, as the scoreboard's is.
+- **«Найдешевше»** is a chip beside the store's name on the one row the answer marks: 12 px `fg`
+  at medium weight inside a 1 px `fg-2` border, `rounded-chip`, no fill. It uses no accent, signal
+  or sale colour — it is a fact about the prices, not an action, a live state or a discount — and
+  the border is 7.59:1 against `surface-1`. Which row is marked is the server's rule; the
+  component compares nothing.
+- **The note** is one sentence under the whole block, 12 px `fg-2`, there only while GOG's row
+  shows an estimate: `game.estimateNote`, with the day the rate is for written as a full date.
+- **On a phone** a row stacks — the name and the mark, the title, the price, the age — and from
+  640 px the price sits opposite the name, right-aligned.
+- **Hover and focus.** A hovered row is `surface-2` (`fg` 14.38:1, `fg-2` 7.01:1 on it). Focus is
+  the site's own ring, two pixels outside the row; the focused row is raised above its neighbours
+  so that their hover colour cannot cover it.
+- **Accessible name.** A row's name is its content in order: the store, the mark, the title, the
+  discount, the price, the estimate, the price it was, the age. The `≈` and the middle dot are
+  `aria-hidden`, and "приблизно" (`price.approximately`) stands in for the sign, so the estimate
+  is read as "приблизно 404 ₴".
 
 ### Share card (week 2C)
 
