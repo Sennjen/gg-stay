@@ -186,7 +186,7 @@ So this step records a lower landing median and does not attribute it to the mas
 
 ### Cold start
 
-A request that lands on a function instance that has just started waits for the instance. On 2026-10-02 that was measured from one client as 3–4.7 s on top of any page (GraphQL `games`: 4.7 s cold, 0.5 s warm). One more production sample from 2026-10-06 narrows it: `{ __typename }`, a query that calls no upstream and reads no index, took 2.29 s on the first request after a quiet period and 0.39–0.51 s on the next three (time to first byte after the TLS handshake: 1.74 s against 0.17–0.24 s). About 1.5 s of a cold start is therefore spent before the function asks anyone anything; the rest of the 3–4.7 s is the first request's own upstream work, which a cold instance always does in full because its RAWG cache is empty (0.6–1.7 s for an uncached catalog page, see step 6).
+A request that lands on a function instance that has just started waits for the instance. On 2026-10-02 that was measured from one client as 3–4.7 s on top of any page (GraphQL `games`: 4.7 s cold, 0.5 s warm). One more production sample from 2026-10-06 narrows it: `{ __typename }`, a query that calls no upstream and reads no index, took 2.29 s on the first request after a quiet period and 0.39–0.51 s on the next three (time to first byte after the TLS handshake: 1.74 s against 0.17–0.24 s). About 1.5 s of a cold start is therefore spent before the function asks anyone anything; the rest of the 3–4.7 s is the first request's own upstream work, which a cold instance then always did in full because its RAWG cache was empty (0.6–1.7 s for an uncached catalog page, see step 6). Since #72 a cold instance takes a game's RAWG and Steam answers from the shared cache when any instance has asked for them (step 9); a catalog list is still its own.
 
 Vercel's logs are not readable from here, so what follows is **measured locally**: the Vercel-preset function (`NITRO_PRESET=vercel pnpm build`, `.vercel/output/functions/__fallback.func` — every route is a link to this one function), imported in a fresh Node 22.21.1 process per sample on a laptop, in fixture mode, median of 15 samples. A laptop has a warm disk cache and a faster core than a function instance, so these are lower bounds and the proportions matter more than the milliseconds.
 
@@ -266,6 +266,44 @@ Of the sixty, RAWG's detail missed its 2.5 s for four games; each was answered f
 The median did not move — it is the three RAWG requests, sent 250 ms apart, and RAWG's own time — and the two samples were taken three days and one region apart, so only the tail is this change's: nothing waits for RAWG past its budget when the index holds the game. A game outside the index still does.
 
 An answer says where its time went. For one of the four: `rawg;dur=2694;desc="RAWG x3", steam;dur=191;desc="Steam x1", index;dur=11;desc="Index x4", total;dur=2701`.
+
+## Step 9 — a cache every instance shares, and RAWG's three requests together
+
+Measured on production from one client in Europe on 2026-10-12, on commit `5f4c628` (#72, the shared cache, deployed on 2026-10-09; #73, the burst of three, deployed that morning). The `game` query as the page sends it, one game at a time with 1.5–2 s between them.
+
+### How the earlier first-open figures were taken, and what that did to them
+
+Steps 7 and 8 opened games back to back. The site allows itself one Steam request per 1.5 s per instance, and the Ukrainian description of each game is a Steam request, so each page waited for its turn behind the previous page's: on 2026-10-09 the Steam wait was 545 ms at the median, and on 2026-10-12, with RAWG answering sooner, 1 042 ms — the server's total stayed at about 1.2 s whatever RAWG did. The medians of 1.4–1.6 s recorded there are therefore the pace of the measuring loop, not what one visitor waits; the maxima and the partial counts are not affected. From this step on, pages are opened with a pause.
+
+### The shared cache
+
+The sixty games opened on 2026-10-09 (when every one of them asked RAWG: 0 hits in 237 shared reads) were opened again three days and two deployments later.
+
+|                               | Median | p90    | Maximum |
+| ----------------------------- | ------ | ------ | ------- |
+| The same sixty, three days on | 0.44 s | 0.57 s | 0.66 s  |
+
+No answer waited for RAWG: all 180 reads of the three RAWG entries of a game were hits, every answer was whole, and the server's total was 248 ms at the median (the Steam description, a day-old entry asked again) and 27 ms for a game with no Steam page. The entries were past their 24 hours, so they were served from the stale window and refreshed behind the answers. A shared read took 6–8 ms at the median on a warm instance; on a cold one, measured on the pull request's preview, 63, 68 and 106 ms — which is why its deadline is 300 ms.
+
+### The burst, against the pacing it replaced, in the same hour
+
+Sixty fresh games through the previous build (one RAWG request per 250 ms, the preview of #72) and sixty through production (three together), alternating.
+
+|                                    | One per 250 ms | Three together |
+| ---------------------------------- | -------------- | -------------- |
+| First open, median                 | 0.90 s         | 0.48 s         |
+| First open, p90                    | 2.07 s         | 1.69 s         |
+| RAWG as the request waited, median | 636 ms         | 259 ms         |
+| RAWG's detail past its 2.5 s       | 6 of 60        | 6 of 60        |
+| Partial answers                    | 8              | 9              |
+
+RAWG refused nothing: no `RATE_LIMITED` line in any window. Its slow answers were as frequent on either side — one game page in ten that morning — so they are RAWG's own. Four whole answers came without store links, one paced and three in a burst; asked again they still had none, from the cache: RAWG lists no store for those games.
+
+One window does not read as cleanly. While the sixty stale pages above were being refreshed in the background, two minutes of the log held seventeen `TIMEOUT` lines in about 180 requests, where the paced pass of 2026-10-09 had one. Twenty-four single-request catalog lists in the minutes after were all answered in 0.26–1.1 s, and a second refresh of the ten games concerned failed for one. The comparison above was run because of it; it is the reason the burst stays.
+
+### What is left of a first open
+
+For one visitor, a game nobody has opened in a week costs RAWG's three requests (about a quarter of a second, a tenth of the time much more) and, on the Ukrainian page, Steam's one (about 0.2 s). Opened by anyone in the last week, it costs neither. Pages opened faster than one per 1.5 s on one instance — a visitor clicking through, two visitors at once — still queue for Steam.
 
 ## JavaScript budget for `/games`, measured
 
