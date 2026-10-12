@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
 import { namesAnotherProduct } from '../../app/utils/storeOffers'
 import { STORE_OPTIONS } from '../../shared/catalog'
+import type { IndexedGame } from '../../server/index/document'
 import { NUXT_IMG_ERROR_HANDLER_HASH } from '../../server/security/headers'
 import published from '../fixtures/index/published.json' with { type: 'json' }
 
@@ -15,6 +16,12 @@ function shelfTitles(html: string): string[] {
     (match) => match[1]!,
   )
 }
+
+/**
+ * The documents the server under test was seeded with, as documents: read as plain JSON each
+ * would have a type of its own, and an offer's optional fields would exist on some and not others.
+ */
+const seeded = published.games as IndexedGame[]
 
 /** Text as the server writes it into HTML: the five characters markup is made of, escaped. */
 function asHtmlText(text: string): string {
@@ -590,7 +597,7 @@ describe('server-side rendering', async () => {
   it('renders what GOG charges into the server HTML: dollars, the estimate, the store’s title, the mark and the note', async () => {
     // Everything expected is read from the seed the server was started on, so the seed is free to
     // change what GOG charges for the game and what it calls it.
-    const witcher = published.games.find((game) => game.slug === 'the-witcher-3-wild-hunt')!
+    const witcher = seeded.find((game) => game.slug === 'the-witcher-3-wild-hunt')!
     const offer = witcher.offers!.find((entry) => entry.store === 'gog')!
     const dollars = `$${(offer.amount / 100).toFixed(2)}`
     const estimate = Math.round((offer.amount / 100) * published.meta.exchangeRate.uah)
@@ -643,7 +650,7 @@ describe('server-side rendering', async () => {
   })
 
   it('renders a hryvnia price from the Microsoft Store as a row, with no note about an estimate', async () => {
-    const stardew = published.games.find((game) => game.slug === 'stardew-valley')!
+    const stardew = seeded.find((game) => game.slug === 'stardew-valley')!
     const offer = stardew.offers!.find((entry) => entry.store === 'xbox-store')!
 
     const html = await $fetch<string>('/games/stardew-valley')
