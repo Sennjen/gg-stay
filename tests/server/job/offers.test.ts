@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { collectCandidates } from '../../../scripts/index/candidates'
 import {
+  belowOfferFloor,
   isOffersReadDue,
+  OFFER_FLOOR_MIN_CARRIED,
+  OFFER_FLOOR_RATIO,
   OFFERS_MAX_AGE_MS,
   RATE_KEPT_MS,
   refreshOffers,
@@ -659,6 +662,253 @@ describe('the Microsoft Store’s requests', () => {
   })
 })
 
+/**
+ * A read that every request of was answered, and that would take most of a store's offers away,
+ * is the job misreading the store far more often than the store ceasing to sell: a field renamed,
+ * a link under another path, a 200 with an empty list. So a full read is believed only if it
+ * leaves at least half of the offers the documents carried, once there are twenty to speak of.
+ */
+describe('the floor under a full read', () => {
+  const noon = later(RUN_AT, 12 * HOUR)
+
+  it('is half of what was carried, from twenty offers up', () => {
+    expect(OFFER_FLOOR_MIN_CARRIED).toBe(20)
+    expect(OFFER_FLOOR_RATIO).toBe(0.5)
+    // Under twenty carried, no read is doubted, whatever it prices.
+    expect(belowOfferFloor(0, 0)).toBeNull()
+    expect(belowOfferFloor(19, 0)).toBeNull()
+    // From twenty: exactly half stands, one under half does not.
+    expect(belowOfferFloor(20, 10)).toBeNull()
+    expect(belowOfferFloor(20, 9)).toMatch(/^carried 20, the read priced 9: /)
+    expect(belowOfferFloor(21, 11)).toBeNull()
+    expect(belowOfferFloor(21, 10)).toMatch(/^carried 21, the read priced 10: /)
+    expect(belowOfferFloor(1_000, 500)).toBeNull()
+    expect(belowOfferFloor(1_000, 499)).toMatch(/^carried 1000, the read priced 499: /)
+    expect(belowOfferFloor(20, 0)).toMatch(/^carried 20, the read priced 0: /)
+    // A read that prices more than was carried is the first sweeps filling in.
+    expect(belowOfferFloor(20, 400)).toBeNull()
+  })
+
+  /** `count` games with a GOG page each, carrying last night's offer; `priced` of them on sale today. */
+  async function gogGames(count: number, priced: number, storeLink?: (slug: string) => string) {
+    const { harness, byId } = await runAt(noon)
+    const games: IndexedGame[] = []
+    const refs: StoreRefMap = new Map()
+    for (let index = 0; index < count; index += 1) {
+      const slug = `game_${index}`
+      const game = { ...structuredClone(byId(101)), id: 2000 + index, slug: `game-${index}` }
+      game.offers = [{ ...GOG_OFFER, url: `https://www.gog.com/en/game/${slug}` }]
+      games.push(game)
+      refs.set(game.id, { gog: slug })
+    }
+    // The catalog is never empty: the products that are not these games' are still there.
+    harness.gogCatalog.products = [
+      gogProduct('amber_archive', gogPrice('4.99', '4.99')),
+      ...games
+        .slice(0, priced)
+        .map((_, index) =>
+          gogProduct(
+            `game_${index}`,
+            gogPrice('5.99', '9.99'),
+            storeLink ? { storeLink: storeLink(`game_${index}`) } : {},
+          ),
+        ),
+    ]
+    return { harness, games, refs }
+  }
+
+  const carriedGog = (slug: string): IndexedOffer => ({
+    ...GOG_OFFER,
+    url: `https://www.gog.com/en/game/${slug}`,
+  })
+
+  it('does not hold a GOG read to it under twenty carried offers', async () => {
+    const { harness, games, refs } = await gogGames(19, 0)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    // Nineteen offers and none priced today: believed, and all nineteen go.
+    expect(result.gog).toMatchObject({ status: 'read', pricesRead: 0, offers: 0, lastReadAt: noon })
+    expect(games.every((game) => !('offers' in game))).toBe(true)
+  })
+
+  it('believes a GOG read that leaves exactly half', async () => {
+    const { harness, games, refs } = await gogGames(20, 10)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.gog).toMatchObject({
+      status: 'read',
+      pricesRead: 10,
+      failed: 0,
+      offers: 10,
+      lastReadAt: noon,
+    })
+    expect(games[0]!.offers?.[0]).toMatchObject({ amount: 599, updatedAt: noon })
+    expect('offers' in games[10]!).toBe(false)
+  })
+
+  it('does not believe a GOG read that leaves one under half, and takes nothing from it', async () => {
+    const { harness, games, refs } = await gogGames(20, 9)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.gog).toEqual({
+      status: 'failed',
+      references: 20,
+      pricesRead: 0,
+      failed: 20,
+      requests: 1,
+      offers: 20,
+      // The stamp stays where it was, so the very next run walks again.
+      lastReadAt: RUN_AT,
+      error:
+        'carried 20, the read priced 9: under half of the offers the store had, so the read is not believed and nothing is taken from it',
+    })
+    expect(result.offersReadAt.gog).toBe(RUN_AT)
+    // Every offer as it was, date and all — the nine the walk did price included.
+    for (const [index, game] of games.entries()) {
+      expect(game.offers, `game ${index}`).toEqual([carriedGog(`game_${index}`)])
+    }
+    expect(harness.logs).toContain(
+      'gog: the catalog was walked in 1 requests and carried 20, the read priced 9: under half of the offers the store had, so the read is not believed and nothing is taken from it',
+    )
+    // The other store and the bank are none the worse.
+    expect(result.rate.status).toBe('read')
+  })
+
+  it('keeps every GOG offer when the catalog changes the shape of what it says', async () => {
+    // Every product is there and priced, and its link has moved to a path this job does not
+    // know: a whole walk, and not one product it can make an offer of.
+    const { harness, games, refs } = await gogGames(
+      40,
+      40,
+      (slug) => `https://www.gog.com/en/games/${slug}`,
+    )
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.gog).toMatchObject({
+      status: 'failed',
+      pricesRead: 0,
+      failed: 40,
+      offers: 40,
+      lastReadAt: RUN_AT,
+    })
+    expect(result.gog.error).toMatch(/^carried 40, the read priced 0: /)
+    expect(games[39]!.offers).toEqual([carriedGog('game_39')])
+  })
+
+  /** `count` games carrying last night's Microsoft offer; the store sells `priced` of them today. */
+  async function microsoftGames(count: number, priced: number) {
+    const { harness, byId } = await runAt(noon)
+    const games: IndexedGame[] = []
+    const refs: StoreRefMap = new Map()
+    for (let index = 0; index < count; index += 1) {
+      const id = `9N${String(index).padStart(10, '0')}`
+      const game = { ...structuredClone(byId(109)), id: 3000 + index, slug: `game-${index}` }
+      game.offers = [carriedMicrosoft(index)]
+      games.push(game)
+      refs.set(game.id, { microsoft: { id, name: `game-${index}` } })
+      if (index < priced) harness.microsoftProducts[id] = microsoftProduct(id, 250)
+    }
+    return { harness, games, refs }
+  }
+
+  const carriedMicrosoft = (index: number): IndexedOffer => ({
+    ...MICROSOFT_OFFER,
+    url: `https://www.microsoft.com/uk-ua/p/game-${index}/9n${String(index).padStart(10, '0')}`,
+  })
+
+  it('does not hold a Microsoft read to it under twenty carried offers', async () => {
+    const { harness, games, refs } = await microsoftGames(19, 0)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.microsoft).toMatchObject({
+      status: 'read',
+      pricesRead: 0,
+      offers: 0,
+      lastReadAt: noon,
+    })
+    expect(games.every((game) => !('offers' in game))).toBe(true)
+  })
+
+  it('believes a Microsoft read that leaves exactly half', async () => {
+    const { harness, games, refs } = await microsoftGames(20, 10)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.microsoft).toMatchObject({
+      status: 'read',
+      pricesRead: 10,
+      failed: 0,
+      offers: 10,
+      lastReadAt: noon,
+    })
+    expect(games[9]!.offers?.[0]).toMatchObject({ amount: 25_000, updatedAt: noon })
+    expect('offers' in games[10]!).toBe(false)
+  })
+
+  it('does not believe a Microsoft read that leaves one under half, and takes nothing from it', async () => {
+    const { harness, games, refs } = await microsoftGames(20, 9)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.microsoft).toEqual({
+      status: 'failed',
+      references: 20,
+      pricesRead: 0,
+      failed: 20,
+      requests: 1,
+      offers: 20,
+      lastReadAt: RUN_AT,
+      error:
+        'carried 20, the read priced 9: under half of the offers the store had, so the read is not believed and nothing is taken from it',
+    })
+    expect(result.offersReadAt['xbox-store']).toBe(RUN_AT)
+    // Not even the nine prices it was given: an answer that is not believed is not half believed.
+    for (const [index, game] of games.entries()) {
+      expect(game.offers, `game ${index}`).toEqual([carriedMicrosoft(index)])
+    }
+    expect(harness.logs).toContain(
+      'microsoft: every one of 1 requests was answered and carried 20, the read priced 9: under half of the offers the store had, so the read is not believed and nothing is taken from it',
+    )
+  })
+
+  it('keeps every Microsoft offer when the store answers 200 with nothing in it', async () => {
+    const { harness, games, refs } = await microsoftGames(250, 250)
+    // Three requests, each answered — with an empty list.
+    for (let request = 0; request < 3; request += 1) harness.answerMicrosoftWith({ Products: [] })
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(harness.microsoftBatches).toHaveLength(3)
+    expect(result.microsoft).toMatchObject({
+      status: 'failed',
+      pricesRead: 0,
+      failed: 250,
+      requests: 3,
+      offers: 250,
+      lastReadAt: RUN_AT,
+    })
+    expect(result.microsoft.error).toMatch(/^carried 250, the read priced 0: /)
+    expect(games[0]!.offers).toEqual([carriedMicrosoft(0)])
+    expect(games[249]!.offers).toEqual([carriedMicrosoft(249)])
+  })
+
+  it('counts what the documents carried after the mapping has had its say', async () => {
+    // Forty games carry a GOG offer and only ten of them still have a reference: the thirty are
+    // dropped by the mapping before any read, and are no part of what a read is measured against.
+    const { harness, games, refs } = await gogGames(40, 6)
+    for (const game of games.slice(10)) refs.delete(game.id)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.gog).toMatchObject({ status: 'read', references: 10, pricesRead: 6, offers: 6 })
+  })
+})
+
 describe('an offer needs a reference', () => {
   it('drops an offer the mapping names no product for, whatever the document arrived carrying', async () => {
     // Under eleven hours after a read: nothing is asked, and the documents still come out right.
@@ -844,8 +1094,9 @@ describe('the write lock', () => {
     await expect(refreshOffers(harness.deps, games, refs, null)).rejects.toThrow(
       'the index is unreachable',
     )
-    // The walk itself was whole, and nothing in the log blames the store.
-    expect(byId(101).offers).toEqual([GOG_OFFER])
+    // The walk itself was whole, and nothing in the log blames the store. Nothing of it is put
+    // on a document either: the run is over, and a version nobody publishes needs no offers.
+    expect('offers' in byId(101)).toBe(false)
     expect(harness.logs.filter((line) => line.startsWith('gog:'))).toEqual([])
   })
 })

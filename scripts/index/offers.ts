@@ -41,6 +41,12 @@ import { safeExternalUrl } from '../../shared/url'
  * that is failing some of its requests is the store most likely to answer others with half of
  * what it has.
  *
+ * **And a full read is believed only so far** (`OFFER_FLOOR_MIN_CARRIED`). Every check above is
+ * about whether the store answered; none is about whether this job still understands the answer.
+ * A read that would take most of a store's offers away at once is far more likely a store that
+ * changed the shape of what it says than a store that stopped selling, so it is reported as
+ * failed and nothing is taken from it.
+ *
  * **An offer needs a reference.** A document keeps an offer of a store only while the permanent
  * mapping (`storeRefs.ts`) names the game's product there, as it keeps a Steam app id only while
  * the mapping holds one: what the documents of a run arrived carrying is never an authority.
@@ -51,6 +57,33 @@ export const OFFERS_MAX_AGE_MS = 11 * 3_600_000
 
 /** How long a rate that could not be read again goes on being published: seven days. */
 export const RATE_KEPT_MS = 7 * 86_400_000
+
+/**
+ * How many offers of a store the documents must arrive carrying before a read is held to the
+ * floor below. Under twenty, halves are noise: a store with eight offers that prices three of
+ * them tonight has not broken, it has had three delistings or a small first sweep.
+ */
+export const OFFER_FLOOR_MIN_CARRIED = 20
+
+/**
+ * A full read must leave at least this share of the offers the documents carried, or it is not
+ * believed.
+ *
+ * It is `MIN_PRICED_RATIO` of `publish.ts`, for the same shape of failure and by the same
+ * reasoning: prices silently gone are worse than yesterday's prices. A read counts as full when
+ * every request was answered — and a store that renames one field, or answers 200 with an empty
+ * list, answers every request. Read at face value such an answer says "this store sells none of
+ * these any more", every offer is removed in a run that ends green, and nothing but a zero in a
+ * summary row says so. Real churn between two reads twelve hours apart is a handful of products;
+ * losing more than half of them at once is the job misreading the store.
+ *
+ * It is a floor inside the stage and not a gate on the publication: the run publishes as it would
+ * have, this store's offers, their dates and its stamp stay exactly as they were, and the next
+ * run reads again. If the store really has stopped selling, the offers go stale on the site after
+ * thirty-six hours and are shown as links without a price, and the warning repeats on every run
+ * until somebody looks.
+ */
+export const OFFER_FLOOR_RATIO = 0.5
 
 export type StoreReadStatus =
   /** Every request was answered; the store's stamp moved. */
@@ -79,7 +112,7 @@ export interface StoreReadReport {
   offers: number
   /** When the store was last read in full, after this run. */
   lastReadAt: string | null
-  /** Why a read failed, in the upstream's own words. */
+  /** Why a read failed: the upstream's own words on one line, or what the floor saw. */
   error?: string
 }
 
@@ -104,6 +137,19 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
     chunks.push(items.slice(index, index + size))
   }
   return chunks
+}
+
+/**
+ * Why a full read is not believed, or `null` when it is: the documents carried enough offers of
+ * the store for a half to mean something, and the read would leave fewer than half of them
+ * (`OFFER_FLOOR_RATIO`). The reason says what was seen, in the two numbers that decide it.
+ */
+export function belowOfferFloor(carried: number, priced: number): string | null {
+  if (carried < OFFER_FLOOR_MIN_CARRIED || priced >= carried * OFFER_FLOOR_RATIO) return null
+  return (
+    `carried ${carried}, the read priced ${priced}: under half of the offers the store had, ` +
+    'so the read is not believed and nothing is taken from it'
+  )
 }
 
 /** A stamp as epoch milliseconds, or `null` when it is missing, unreadable or in the future. */
@@ -172,8 +218,9 @@ function createLockKeeper(deps: JobDeps) {
 
 /**
  * GOG: one walk of the catalog, and every referenced slug looked up in it. All or nothing — a
- * walk that fails at any page, or cannot prove itself whole (`walkGogCatalog`), publishes nothing
- * new and takes nothing away.
+ * walk that fails at any page, or cannot prove itself whole (`walkGogCatalog`), or would leave
+ * under half the offers the documents carried (`belowOfferFloor`), publishes nothing new and
+ * takes nothing away.
  */
 async function readGog(
   deps: JobDeps,
@@ -194,6 +241,10 @@ async function readGog(
   if (!isOffersReadDue(lastReadAt, deps.clock.now())) return report({ status: 'not-due' })
 
   const lock = createLockKeeper(deps)
+  const carried = countOffers(
+    referenced.map((entry) => entry.game),
+    'gog',
+  )
   let requests = 0
   try {
     const walk = await walkGogCatalog((page) => {
@@ -201,8 +252,9 @@ async function readGog(
       return deps.gog(page)
     }, lock.renew)
     const readAt = isoNow(deps.clock)
-    let pricesRead = 0
-    for (const { game, slug } of referenced) {
+    // Worked out for every game before any document is touched: whether the read is believed
+    // at all is decided on the whole of it.
+    const read = referenced.map(({ game, slug }) => {
       const product = walk.products.get(slug)
       const offer: IndexedOffer | null =
         product?.price && product.url
@@ -215,10 +267,23 @@ async function readGog(
               updatedAt: readAt,
             }
           : null
-      setOffer(game, 'gog', offer)
-      if (offer) pricesRead += 1
-    }
+      return { game, offer }
+    })
+    const pricesRead = read.filter((entry) => entry.offer !== null).length
     lock.assertHeld()
+
+    const unbelieved = belowOfferFloor(carried, pricesRead)
+    if (unbelieved) {
+      deps.log(`gog: the catalog was walked in ${requests} requests and ${unbelieved}`)
+      return report({
+        status: 'failed',
+        failed: referenced.length,
+        requests,
+        error: unbelieved,
+      })
+    }
+
+    for (const { game, offer } of read) setOffer(game, 'gog', offer)
     deps.log(
       `gog: ${referenced.length} references, ${pricesRead} prices read in ${requests} requests`,
     )
@@ -240,7 +305,9 @@ async function readGog(
  *
  * - **every request answered** — a full read. Every referenced game is settled by it: a priced
  *   product gets today's offer, and a product the store left out, or left without a price anyone
- *   can pay, loses the offer it had. The store's stamp moves.
+ *   can pay, loses the offer it had. The store's stamp moves. Unless the read would leave under
+ *   half the offers the documents carried (`belowOfferFloor`): then it is reported as failed, and
+ *   nothing at all is taken from it.
  * - **some request failed** — the prices the answered requests gave are published, under today's
  *   date, and **no offer is removed**, not even of a product an answered request left out:
  *   nothing proves a Microsoft answer whole the way a GOG walk is proved, and a store failing one
@@ -273,6 +340,10 @@ async function readMicrosoft(
   }
 
   const lock = createLockKeeper(deps)
+  const carried = countOffers(
+    referenced.map((entry) => entry.game),
+    'xbox-store',
+  )
   /** What the answered requests said of each game: an offer, or `null` for "not sold". */
   const answered: { game: IndexedGame; offer: IndexedOffer | null }[] = []
   let requests = 0
@@ -331,6 +402,12 @@ async function readMicrosoft(
       requests,
       ...(error === undefined ? {} : { error }),
     })
+  }
+
+  const unbelieved = belowOfferFloor(carried, priced.length)
+  if (unbelieved) {
+    deps.log(`microsoft: every one of ${requests} requests was answered and ${unbelieved}`)
+    return report({ status: 'failed', failed: referenced.length, requests, error: unbelieved })
   }
 
   for (const { game, offer } of answered) setOffer(game, 'xbox-store', offer)
