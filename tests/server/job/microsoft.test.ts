@@ -164,6 +164,45 @@ describe('microsoftPurchasePrice', () => {
     expect(priceOf(one(microsoftAvailability(385, 385, { conditions })))).toBeNull()
   })
 
+  it.each([
+    [
+      'a start that names no zone',
+      { StartDate: '2026-01-01T00:00:00', EndDate: '9998-12-30T00:00:00.0000000Z' },
+    ],
+    [
+      'an end that names no zone',
+      { StartDate: '2026-01-01T00:00:00.0000000Z', EndDate: '9998-12-30T00:00:00' },
+    ],
+    ['a date without a time', { StartDate: '2026-01-01', EndDate: '9998-12-30' }],
+    [
+      'a time with a space for the T',
+      { StartDate: '2026-01-01 00:00:00Z', EndDate: '9998-12-30 00:00:00Z' },
+    ],
+    ['a number', { StartDate: 0, EndDate: 253370592000000 }],
+  ])('reads no price from a window with %s: local time is no time', (_what, conditions) => {
+    // `Date.parse` would read the first two as the runner's own time zone, and open and close
+    // the window at a different moment on a laptop in Kyiv than on a runner in UTC.
+    expect(
+      priceOf(one(microsoftAvailability(385, 385, { conditions: conditions as never }))),
+    ).toBeNull()
+  })
+
+  it('reads a window written with an offset, and with any number of fraction digits', () => {
+    // 12:15 UTC on the 12th, the moment of these cases, is 15:15 at +03:00.
+    const open = (StartDate: string, EndDate: string) =>
+      priceOf(one(microsoftAvailability(385, 385, { conditions: { StartDate, EndDate } })))
+
+    expect(open('2026-10-12T15:00:00+03:00', '2026-10-12T15:30:00+03:00')).toEqual(
+      price(38_500, 38_500, 0),
+    )
+    expect(open('2026-10-12T15:20:00+03:00', '2026-10-12T15:30:00+03:00')).toBeNull()
+    expect(open('2026-10-12T12:15:00Z', '2026-10-12T12:15:00.9Z')).toEqual(price(38_500, 38_500, 0))
+    expect(open('2026-10-12T12:14:59.9999999Z', '2026-10-12T12:15:00.0000000Z')).toEqual(
+      price(38_500, 38_500, 0),
+    )
+    expect(open('2026-10-12T12:15:00.0010000Z', '2026-10-12T13:00:00.0000000Z')).toBeNull()
+  })
+
   it('reads a price up to the last second of its window', () => {
     const conditions = {
       StartDate: '2026-10-12T12:15:00.0000000Z',

@@ -106,12 +106,25 @@ function kopecksOf(value: unknown): number | null {
   return Math.abs(value * 100 - kopecks) < 1e-6 && Number.isSafeInteger(kopecks) ? kopecks : null
 }
 
-/** A catalog timestamp (`2026-10-15T09:59:59.0000000Z`) as epoch milliseconds, or `null`. */
+/** An ISO timestamp that says which zone it is in — `Z`, or an offset — with any fraction. */
+const ZONED_TIMESTAMP = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/
+
+/**
+ * A catalog timestamp (`2026-10-15T09:59:59.0000000Z`) as epoch milliseconds, or `null`.
+ *
+ * Only one that names its zone. `Date.parse` reads a date-time without one as local time, so the
+ * same answer would open and close its windows at different moments on a runner in UTC and on a
+ * laptop in Kyiv — and a window is what decides whether a price is today's. The catalog has
+ * always written `Z`; a timestamp that does not is one this job does not know how to read.
+ */
 function instantOf(value: unknown): number | null {
   if (typeof value !== 'string') return null
+  const stamp = ZONED_TIMESTAMP.exec(value)
+  if (!stamp) return null
   // The catalog writes seven fractional digits; three are all a date carries, and all `Date`
   // promises to read.
-  const instant = Date.parse(value.replace(/(\.\d{3})\d+/, '$1'))
+  const millis = (stamp[2] ?? '').slice(0, 3).padEnd(3, '0')
+  const instant = Date.parse(`${stamp[1]}.${millis}${stamp[3]}`)
   return Number.isFinite(instant) ? instant : null
 }
 
