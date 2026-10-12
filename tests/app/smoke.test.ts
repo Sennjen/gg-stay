@@ -73,7 +73,7 @@ describe('home page', () => {
     // 900 934 rounds down to 900 000, per the friendly-figure rule.
     expect(wrapper.text()).toContain('900')
     expect(wrapper.text()).toContain('000+')
-    expect(wrapper.text()).toContain('Чому GG Stay')
+    expect(wrapper.text()).toContain('Каталог з українським характером')
     expect(wrapper.text()).toContain('Найкращі цього року')
     expect(wrapper.text()).toContain('Очікувані')
     // The two shelves both show the same fixture game (reused for brevity above).
@@ -105,7 +105,7 @@ describe('home page', () => {
     expect(wrapper.text()).not.toContain('Найкращі цього року')
     expect(wrapper.text()).not.toContain('Stardew Valley')
     // WhyCards and the closing call to action have no data dependency and still render.
-    expect(wrapper.text()).toContain('Чому GG Stay')
+    expect(wrapper.text()).toContain('Каталог з українським характером')
     expect(wrapper.text()).toContain('Готові знайти свою наступну гру?')
   })
 })
