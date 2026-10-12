@@ -540,6 +540,23 @@ describe('sweepStoreRefs', () => {
     expect(await third.writer.getCursor(STORE_REF_CURSOR)).toBeNull()
   })
 
+  it('writes the name of a game it could not read on one line, whatever RAWG calls it', async () => {
+    const harness = createJobHarness()
+    const games = allOnGog(await candidatesOf(harness))
+    // A slug is RAWG's text, and the log is a runner's standard output, where a line that begins
+    // with `::` is a command to the runner.
+    const index = games.findIndex((game) => game.slug === 'quiet-orbit')
+    games[index] = { ...games[index]!, slug: 'quiet-orbit\n::add-mask::secret' }
+
+    const result = await sweepStoreRefs(harness.deps, games)
+
+    expect(result.failures).toBe(1)
+    expect(harness.logs).toContain(
+      'store references: quiet-orbit ::add-mask::secret could not be read, leaving it for a later run',
+    )
+    expect(harness.logs.some((line) => /[\r\n]/.test(line))).toBe(false)
+  })
+
   it('writes no record for a lookup that failed and asks again on the next run', async () => {
     const harness = createJobHarness()
     const games = allOnGog(await candidatesOf(harness))

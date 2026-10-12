@@ -1,4 +1,4 @@
-import { assertWithinFailureBudget, type JobDeps } from './deps'
+import { assertWithinFailureBudget, oneLine, type JobDeps } from './deps'
 import { storeLinksOf, storeRefsFromLinks } from './storeRefs'
 import type { IndexedGame, IndexedStoreRefs } from '../../server/index/document'
 import type { RawgList, RawgStoreLink } from '../../server/rawg/types'
@@ -156,7 +156,9 @@ export async function resolveAppIds(
         if (batch.length >= batchSize) await flush()
       } catch {
         failures += 1
-        deps.log(`app ids: ${game.slug} could not be resolved, leaving it for the next run`)
+        deps.log(
+          `app ids: ${oneLine(game.slug)} could not be resolved, leaving it for the next run`,
+        )
       }
     }
   } finally {

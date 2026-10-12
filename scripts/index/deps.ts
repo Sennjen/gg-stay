@@ -31,6 +31,25 @@ export interface JobClock {
 /** Where a stage's progress goes. Never a secret, never a raw upstream payload. */
 export type JobLog = (message: string) => void
 
+/** The longest somebody else's text is quoted in a line of the log or a cell of the summary. */
+const MAX_QUOTED_LENGTH = 200
+
+/**
+ * Somebody else's text as it may be put into a line of the job's log: on one line, and no longer
+ * than a line.
+ *
+ * The log is standard output on a GitHub runner, where a line that begins with `::` is a command
+ * to the runner. A game's slug is RAWG's text, and the reason a read failed for is a store's as
+ * often as it is this job's, so every control character and line break in either becomes a space
+ * before it is printed anywhere.
+ */
+export function oneLine(value: unknown): string {
+  const line = String(value)
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ')
+    .trim()
+  return Array.from(line).slice(0, MAX_QUOTED_LENGTH).join('')
+}
+
 export interface JobDeps {
   rawg: RawgFetch
   steam: SteamPriceFetch

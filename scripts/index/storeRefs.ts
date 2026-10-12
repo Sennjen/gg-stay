@@ -1,4 +1,4 @@
-import { MAX_ITEM_FAILURE_RATIO, type JobDeps } from './deps'
+import { MAX_ITEM_FAILURE_RATIO, oneLine, type JobDeps } from './deps'
 import {
   OFFER_STORES,
   type IndexedGame,
@@ -363,7 +363,9 @@ export async function sweepStoreRefs(
         batch.push([game.id, refs])
       } catch {
         failures += 1
-        deps.log(`store references: ${game.slug} could not be read, leaving it for a later run`)
+        deps.log(
+          `store references: ${oneLine(game.slug)} could not be read, leaving it for a later run`,
+        )
         if (
           failures > STORE_REF_TOLERATED_FAILURES &&
           failures > attempted * MAX_ITEM_FAILURE_RATIO
