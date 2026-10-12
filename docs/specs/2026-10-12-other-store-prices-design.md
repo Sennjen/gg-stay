@@ -158,3 +158,18 @@ Probed with the product ids of 35 real RAWG links: those of the 30 most popular 
 - **Shape**: a JSON array of one object, `{ "r030": 840, "txt": "…", "rate": 44.9567, "cc": "USD", "exchangedate": "13.10.2026", "special": "N" }` — `txt` is the currency's name in Ukrainian.
 - **Without a date it answers the newest rate the bank has set, which in the afternoon is tomorrow's**: asked on 12.10.2026 at 17:06 Kyiv time it answered 44.9567, the rate of 13.10.2026. With `&date=YYYYMMDD` it answers the rate in force on that day and repeats the day in `exchangedate`: asked for `20261012` the same afternoon, it answered 44.8894 for 12.10.2026. The job asks for the day it runs on, in Kyiv, and takes an answer only if it names that day.
 - **A weekend or a holiday**: the rate in force that day, under that day's date. Saturday 10.10.2026 and Sunday 11.10.2026 both answered 44.8526; 01.01.2026 answered 42.3532 (with `special: null`). There is no day it answers nothing for.
+
+### RAWG's list of a game's stores, and its links
+
+What the sweep of section 1 relies on: that a game with a GOG or a Microsoft link is a game RAWG lists on that store.
+
+- **How a document's `stores` is filled**: from `stores[].store.id` of the game's entry in RAWG's list, mapped to the site's slugs (`STORE_OPTIONS`: 5 is `gog`, 2 is `xbox-store`), by the same function for the popularity list and for the studios' lists. It is the list the app-id stage has always used to decide which games to ask about Steam.
+- **The list and the links are one table.** In RAWG's own record of a game, each store row carries the id of the row `games/{slug}/stores` answers with (the recorded fixtures of The Witcher 3 show both); the links add the URL.
+- **They agreed in every case checked, in both directions**: all 30 games RAWG lists on the Xbox store had a Microsoft link; all 13 games found with a GOG link are among the 80 most popular RAWG lists on GOG; the three first-party games found by their slug with a Microsoft link are listed on the Xbox store.
+- **How many games that is.** Asked through the index with a price filter, which is the only way the site's GraphQL answers from the index without RAWG: of 2 552 priced games, 1 093 are listed on GOG, 999 on the Xbox store and **1 597 on one or the other** (495 on both). The 1 093 and 999 of "Sources" above are these same counts, so they too are of the games with a Steam price. Games without one that are listed on either store are not in the 1 597; the index holds at most some 850 games without a price, so the sweep is between 1 597 and about 2 400 lookups — two full runs at 1 200 a run — where asking every indexed game was about 3 400.
+
+### What a store calls a product
+
+- **GOG**: `title` on the product (`"The Witcher 3: Wild Hunt — Remastered"` under the slug `the_witcher_3_wild_hunt_game_of_the_year_edition` — a title moves and a slug does not).
+- **Microsoft**: `LocalizedProperties[].ProductTitle`. An answer carries one listing a product, in the best match for `languages=uk-UA,en-US`; `Language` says which. All nine products sold in Ukraine answered in English (`en` or `en-us`); of the 35, one — not sold here — answered in Ukrainian. So the title is the one on the product's page for Ukraine, and in practice English.
+- **Titles differ from RAWG's names in ways that are not editions**: `LIMBO` for Limbo, `Batman™: Arkham Knight`. And in ways that are: `Hollow Knight: Voidheart Edition`, `Forza Horizon 5 Standard Edition`, `Sea of Thieves: 2026 Edition`.
