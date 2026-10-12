@@ -70,12 +70,19 @@ export function storeTitle(value: unknown): string | null {
 }
 
 /**
- * The whole percent a price is below its regular price, as both stores' own labels round it: 0
- * when there is no regular price to be below, and never negative.
+ * The whole percent a price is below its regular price, as both stores' own labels round it — and
+ * never a number that says something the two amounts do not:
+ *
+ * - 0 when the price is the regular price, or there is no regular price to be below;
+ * - 100 only when the price is zero: a game given away for a while;
+ * - between 1 and 99 for everything in between, however the division rounds. One cent off two
+ *   dollars is not "−100 %", and a price a cent under a thousand is still a discount of 1 %, or a
+ *   page would strike the regular price through beside no discount at all.
  */
 export function discountPercentOf(amount: number, regularAmount: number): number {
   if (regularAmount <= 0 || amount >= regularAmount) return 0
-  return Math.round((1 - amount / regularAmount) * 100)
+  if (amount <= 0) return 100
+  return Math.min(99, Math.max(1, Math.round((1 - amount / regularAmount) * 100)))
 }
 
 /** The longest a store's or an upstream's own words are quoted in a log line or the summary. */

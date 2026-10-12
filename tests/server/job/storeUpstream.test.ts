@@ -68,13 +68,29 @@ describe('discountPercentOf', () => {
   it('is the whole percent a price is below its regular price', () => {
     expect(discountPercentOf(1749, 3499)).toBe(50)
     expect(discountPercentOf(50_820, 154_000)).toBe(67)
-    expect(discountPercentOf(0, 999)).toBe(100)
+    expect(discountPercentOf(599, 999)).toBe(40)
   })
 
   it('is zero when there is nothing to be below', () => {
     expect(discountPercentOf(999, 999)).toBe(0)
     expect(discountPercentOf(999, 499)).toBe(0)
     expect(discountPercentOf(0, 0)).toBe(0)
+    expect(discountPercentOf(999, 0)).toBe(0)
+  })
+
+  it('is a hundred only for a price of nothing', () => {
+    expect(discountPercentOf(0, 999)).toBe(100)
+    // One cent is not free, whatever the division rounds to.
+    expect(discountPercentOf(1, 200)).toBe(99)
+    expect(discountPercentOf(5, 1000)).toBe(99)
+    expect(discountPercentOf(1, 1_000_000)).toBe(99)
+  })
+
+  it('is at least one for any price below the regular one', () => {
+    // A cent under a thousand rounds to nothing, and is still a discount.
+    expect(discountPercentOf(999, 1000)).toBe(1)
+    expect(discountPercentOf(153_999, 154_000)).toBe(1)
+    expect(discountPercentOf(996, 1000)).toBe(1)
   })
 })
 
