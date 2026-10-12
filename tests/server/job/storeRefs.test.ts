@@ -557,6 +557,20 @@ describe('sweepStoreRefs', () => {
     expect(harness.logs.some((line) => /[\r\n]/.test(line))).toBe(false)
   })
 
+  it('writes no name that could begin a command in the runner’s older form', async () => {
+    const harness = createJobHarness()
+    const games = allOnGog(await candidatesOf(harness))
+    const index = games.findIndex((game) => game.slug === 'quiet-orbit')
+    games[index] = { ...games[index]!, slug: '##[stop-commands]x' }
+
+    await sweepStoreRefs(harness.deps, games)
+
+    expect(harness.logs).toContain(
+      'store references: ## [stop-commands]x could not be read, leaving it for a later run',
+    )
+    expect(harness.logs.some((line) => line.includes('##['))).toBe(false)
+  })
+
   it('writes no record for a lookup that failed and asks again on the next run', async () => {
     const harness = createJobHarness()
     const games = allOnGog(await candidatesOf(harness))

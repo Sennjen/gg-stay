@@ -289,6 +289,20 @@ describe('resolveAppIds when RAWG misbehaves', () => {
     expect(harness.logs.some((line) => /[\r\n]/.test(line))).toBe(false)
   })
 
+  it('writes no name that could begin a command in the runner’s older form', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    const index = games.findIndex((game) => game.slug === 'amber-trail')
+    games[index] = { ...games[index]!, slug: '##[error]x' }
+
+    await resolveAppIds(harness.deps, games)
+
+    expect(harness.logs).toContain(
+      'app ids: ## [error]x could not be resolved, leaving it for the next run',
+    )
+    expect(harness.logs.some((line) => line.includes('##['))).toBe(false)
+  })
+
   it('ends the stage when more than a twentieth of the games fail', async () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)

@@ -174,6 +174,23 @@ describe('reasonOf', () => {
     expect(reasonOf('a\u2028b\u2029c\u0085d\u0000e\tf')).toBe('a b c d e f')
   })
 
+  it('cannot begin a command in the runner’s older form either', () => {
+    // `##[name]` is read as a command wherever it stands in a line, not only at its start, so a
+    // space is put between the two signs and the bracket: the text is all there and no command.
+    expect(reasonOf('##[stop-commands]x')).toBe('## [stop-commands]x')
+    expect(reasonOf(new Error('GOG said ##[error]x'))).toBe('GOG said ## [error]x')
+    for (const text of [
+      '###[error]x',
+      '##[##[warning]y',
+      '#\n#[error]x ##\t[group]z ##[',
+      '####[[',
+    ]) {
+      expect(reasonOf(text), text).not.toContain('##[')
+    }
+    // Nothing else of a number sign or a bracket is touched.
+    expect(reasonOf('#1 [beta] ## two')).toBe('#1 [beta] ## two')
+  })
+
   it('is no longer than a line', () => {
     expect(reasonOf(new Error('x'.repeat(5_000)))).toHaveLength(200)
   })

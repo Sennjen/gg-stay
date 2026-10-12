@@ -42,11 +42,17 @@ const MAX_QUOTED_LENGTH = 200
  * to the runner. A game's slug is RAWG's text, and the reason a read failed for is a store's as
  * often as it is this job's, so every control character and line break in either becomes a space
  * before it is printed anywhere.
+ *
+ * The runner has an older form of command as well, `##[name]value`, and looks for that one
+ * anywhere in a line, so being in the middle of the job's own sentence is no protection against
+ * it. A space is put between the number signs and the bracket: every character of the text is
+ * still there to be read, and `## [` begins nothing.
  */
 export function oneLine(value: unknown): string {
   const line = String(value)
     .replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ')
     .trim()
+    .replaceAll('##[', '## [')
   return Array.from(line).slice(0, MAX_QUOTED_LENGTH).join('')
 }
 
