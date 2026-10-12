@@ -523,10 +523,14 @@ is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`)
 - **Hover and focus.** A hovered row is `surface-2` (`fg` 14.38:1, `fg-2` 7.01:1 on it). Focus is
   the site's own ring, two pixels outside the row; the focused row is raised above its neighbours
   so that their hover colour cannot cover it.
-- **Accessible name.** A row's name is its content in order: the store, the mark, the title, the
-  discount, the price, the estimate, the price it was, the age. The `≈` and the middle dot are
-  `aria-hidden`, and "приблизно" (`price.approximately`) stands in for the sign, so the estimate
-  is read as "приблизно 404 ₴".
+- **Accessible name.** A row's name is the store, the mark, the title, then the price as one
+  sentence, then its age — and the sentence has an order of its own: "−78% $8.99, було $39.99,
+  приблизно 404 ₴". On screen the estimate sits right beside the price it is an estimate of and
+  the struck price comes last; heard in that order, "було" would attach to the estimate. So the
+  sentence is written out for a screen reader (`sr-only`) with a word for the strike
+  (`price.was`) and a word for the sign (`price.approximately`), and the pieces the eye reads —
+  chip, price, dot, `≈`, estimate, struck price — are `aria-hidden` as one group. The visual
+  order is unchanged.
 
 ### Share card (week 2C)
 

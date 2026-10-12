@@ -33,7 +33,7 @@ const copy = JSON.parse(readFileSync(resolve(process.cwd(), 'i18n/locales/uk.jso
     cheapest: string
     estimateNote: string
   }
-  price: { approximately: string }
+  price: { approximately: string; was: string }
   card: { cheaperAt: string }
   gallery: { heading: string }
 }
@@ -397,7 +397,9 @@ interface StoreRow {
   title: string | null
   priceUah: number | null
   isFree: boolean | null
+  discountPercent: number | null
   foreignPrice: { amount: number; currency: string } | null
+  foreignRegularPrice: { amount: number; currency: string } | null
   approxUah: number | null
   cheapest: boolean
 }
@@ -418,8 +420,9 @@ async function storesOf(
         game(slug: $slug) {
           name
           stores {
-            store url title priceUah isFree approxUah cheapest
+            store url title priceUah isFree discountPercent approxUah cheapest
             foreignPrice { amount currency }
+            foreignRegularPrice { amount currency }
           }
           exchangeRate { date }
         }
@@ -458,22 +461,27 @@ test('game page → «Де купити» → what GOG charges in dollars, about
   await waitForHydration(page)
   const block = page.getByRole('region', { name: copy.game.whereToBuy })
 
-  // A row is one link, to the store's own page for the product, and it reads as one phrase:
-  // the price, then the estimate in a word a screen reader can say.
+  // A row is one link, to the store's own page for the product. On screen the estimate sits
+  // right beside the price it is an estimate of.
   const gogRow = block.locator('[data-test="store-row-gog"]').getByRole('link')
   await expect(gogRow).toHaveAttribute('href', gog.url)
   const dollars = `$${gog.foreignPrice!.amount.toFixed(2)}`
-  await expect(gogRow.locator('[data-test="store-price"]')).toContainText(dollars)
+  await expect(gogRow.locator('[data-test="store-price-shown"]')).toContainText(dollars)
   await expect(gogRow.locator('[data-test="store-estimate"]')).toHaveText(
-    new RegExp(`^≈\\s${copy.price.approximately}\\s${hryvnia(gog.approxUah!)}$`),
+    new RegExp(`^≈\\s${hryvnia(gog.approxUah!)}$`),
   )
+  // Its name is the price as one sentence, in an order of its own: what it costs, what it cost
+  // when the server names a higher regular price, then about how much that is — each with a
+  // word a screen reader can say, and never the sign.
+  const chip = gog.discountPercent ? `−${gog.discountPercent}%\\s` : ''
+  const was = gog.foreignRegularPrice
+    ? `,\\s${copy.price.was}\\s${escaped(`$${gog.foreignRegularPrice.amount.toFixed(2)}`)}`
+    : ''
+  const about = `,\\s${copy.price.approximately}\\s${hryvnia(gog.approxUah!)}`
   await expect(gogRow).toHaveAccessibleName(
-    new RegExp(
-      `^GOG\\s.*${escaped(dollars)}\\s+${copy.price.approximately}\\s+${hryvnia(gog.approxUah!)}`,
-    ),
+    new RegExp(`^GOG\\s.*${chip}${escaped(dollars)}${was}${about}\\s`),
   )
-  // The sign is for the eye only.
-  await expect(gogRow).not.toHaveAccessibleName(/≈/)
+  await expect(gogRow).not.toHaveAccessibleName(/[≈·]/)
 
   // What the store calls the product is under its name exactly when it is not the game's own.
   const title = gogRow.locator('[data-test="store-title"]')
@@ -539,7 +547,7 @@ test('game page → «Де купити» → a store that charges in hryvnia ha
 
   const row = block.locator('[data-test="store-row-xbox-store"]').getByRole('link')
   await expect(row).toHaveAttribute('href', microsoft.url)
-  await expect(row.locator('[data-test="store-price"]')).toHaveText(
+  await expect(row.locator('[data-test="store-price-shown"]')).toHaveText(
     new RegExp(`^${hryvnia(microsoft.priceUah!)}$`),
   )
   await expect(block.locator('[data-test="store-estimate"]')).toHaveCount(0)

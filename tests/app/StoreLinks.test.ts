@@ -75,20 +75,28 @@ const mount = (offers: Offer[], props: Record<string, unknown> = {}) =>
   })
 
 /**
- * An element's text as it is read out: one run of text after another, a space between them, and
- * every kind of space — the no-break ones included — a plain one. The pieces of a price are boxes
- * of their own, laid out with a gap and with no space character between them, so the markup's own
- * `textContent` runs them together where neither an eye nor a screen reader does.
+ * An element's text, one run after another with a space between them and every kind of space —
+ * the no-break ones included — a plain one, leaving out whatever sits inside an element that
+ * matches `skip`. The pieces of a price are boxes of their own, laid out with a gap and with no
+ * space character between them, so the markup's own `textContent` runs them together where
+ * neither an eye nor a screen reader does.
  */
-function read(wrapper: { element: Element }): string {
-  const walker = document.createTreeWalker(wrapper.element, NodeFilter.SHOW_TEXT)
+function textRuns(root: Element, skip: string): string {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   const runs: string[] = []
   while (walker.nextNode()) {
+    if (walker.currentNode.parentElement?.closest(skip)) continue
     const run = (walker.currentNode.textContent ?? '').replace(/\s+/g, ' ').trim()
     if (run) runs.push(run)
   }
   return runs.join(' ')
 }
+
+/** What a screen reader says of the element: everything but what is hidden from it. */
+const heard = (wrapper: { element: Element }) => textRuns(wrapper.element, '[aria-hidden="true"]')
+
+/** What is on screen: everything but what is there for a screen reader alone. */
+const seen = (wrapper: { element: Element }) => textRuns(wrapper.element, '.sr-only')
 
 /**
  * Switches the messages the component renders with — see `tests/app/plurals.test.ts`, whose
@@ -213,25 +221,27 @@ describe('StoreLinks', () => {
     it('shows the price, the price it was, the discount and how long ago it was read', async () => {
       const wrapper = await mount([steam])
       const row = wrapper.get('[data-test="store-row-steam"]')
-      expect(read(row)).toBe('Steam −50% 675 ₴ було 1 349 ₴ оновлено 3 години тому')
+      expect(seen(row)).toBe('Steam −50% 675 ₴ 1 349 ₴ оновлено 3 години тому')
       expect(row.get('s').text().replace(/\s/g, ' ')).toBe('1 349 ₴')
       expect(row.get('.bg-sale').text()).toBe('−50%')
       // "було" is for a screen reader; the strike says it to the eye.
-      expect(row.get('.sr-only').text()).toBe('було')
+      expect(heard(row)).toBe('Steam −50% 675 ₴, було 1 349 ₴ оновлено 3 години тому')
     })
 
     it('shows the Microsoft Store’s price the same way, under the name the site knows the store by', async () => {
       const onSale = { ...microsoft, priceUah: 193, regularPriceUah: 385, discountPercent: 50 }
       const wrapper = await mount([onSale], { gameName: 'Stardew Valley' })
       const row = wrapper.get('[data-test="store-row-xbox-store"]')
-      expect(read(row)).toBe('Xbox Store −50% 193 ₴ було 385 ₴ оновлено 6 годин тому')
+      expect(seen(row)).toBe('Xbox Store −50% 193 ₴ 385 ₴ оновлено 6 годин тому')
+      expect(heard(row)).toBe('Xbox Store −50% 193 ₴, було 385 ₴ оновлено 6 годин тому')
       expect(row.get('a').attributes('href')).toBe(MICROSOFT_URL)
     })
 
     it('shows a price with no discount chip and nothing struck when there is no sale', async () => {
       const wrapper = await mount([microsoft], { gameName: 'Stardew Valley' })
       const row = wrapper.get('[data-test="store-row-xbox-store"]')
-      expect(read(row.get('[data-test="store-price"]'))).toBe('385 ₴')
+      expect(seen(row.get('[data-test="store-price"]'))).toBe('385 ₴')
+      expect(heard(row.get('[data-test="store-price"]'))).toBe('385 ₴')
       expect(row.find('s').exists()).toBe(false)
       expect(row.find('.bg-sale').exists()).toBe(false)
     })
@@ -265,24 +275,53 @@ describe('StoreLinks', () => {
   })
 
   describe('a store that charges in dollars', () => {
-    it('shows the dollar price, then the estimate, then the price it was', async () => {
+    it('shows the dollar price, then the estimate right beside it, then the price it was', async () => {
       const wrapper = await mount([steam, gog])
       const row = wrapper.get('[data-test="store-row-gog"]')
-      // Read as a screen reader reads it: the sign is hidden and the word stands in for it.
-      expect(read(row.get('[data-test="store-price"]'))).toBe(
-        '−78% $8.99 · ≈ приблизно 404 ₴ було $39.99',
-      )
+      expect(seen(row.get('[data-test="store-price"]'))).toBe('−78% $8.99 · ≈ 404 ₴ $39.99')
       expect(row.get('s').text()).toBe('$39.99')
       expect(row.text()).toContain('оновлено 6 годин тому')
     })
 
-    it('hides the sign and the dot from a screen reader, and says "приблизно" in their place', async () => {
+    it('is heard in another order: the price, the price it was, then about how much that is', async () => {
+      // On screen "було" has a strike to stand for it and the estimate sits by its price. Read
+      // out in that order, "було $39.99" would follow the estimate and seem to be about it.
+      const wrapper = await mount([steam, gog])
+      const row = wrapper.get('[data-test="store-row-gog"]')
+      expect(heard(row.get('[data-test="store-price"]'))).toBe(
+        '−78% $8.99, було $39.99, приблизно 404 ₴',
+      )
+      expect(heard(row)).toBe(
+        `GOG Найдешевше ${EDITION} −78% $8.99, було $39.99, приблизно 404 ₴ оновлено 6 годин тому`,
+      )
+    })
+
+    it('says the price in one sentence and hides the pieces the eye reads, sign and dot with them', async () => {
       const wrapper = await mount([steam, gog])
       const price = wrapper.get('[data-test="store-row-gog"] [data-test="store-price"]')
-      const hidden = price.findAll('[aria-hidden="true"]').map((node) => read(node))
-      expect(hidden).toEqual(['·', '≈'])
-      const spoken = price.findAll('.sr-only').map((node) => read(node))
-      expect(spoken).toEqual(['приблизно', 'було'])
+      const spoken = price.get('[data-test="store-price-spoken"]')
+      expect(spoken.classes()).toContain('sr-only')
+      expect(spoken.text().replace(/\s/g, ' ')).toBe('−78% $8.99, було $39.99, приблизно 404 ₴')
+      const shown = price.get('[data-test="store-price-shown"]')
+      expect(shown.attributes('aria-hidden')).toBe('true')
+      expect(shown.text()).toContain('≈')
+      expect(shown.text()).toContain('·')
+      // Nothing a screen reader is told has a sign in it to stumble over.
+      expect(heard(price)).not.toMatch(/[≈·]/)
+      // And nothing else sits beside the two: each word of the price is said once.
+      expect(price.element.children).toHaveLength(2)
+    })
+
+    it('says only the parts a price has', async () => {
+      const said = async (offer: Offer) => {
+        const wrapper = await mount([offer])
+        return heard(wrapper.get('[data-test="store-price"]'))
+      }
+      const noSale = { ...gog, discountPercent: 0, foreignRegularPrice: null }
+      expect(await said(noSale)).toBe('$8.99, приблизно 404 ₴')
+      expect(await said({ ...gog, approxUah: null })).toBe('−78% $8.99, було $39.99')
+      expect(await said({ ...noSale, approxUah: null })).toBe('$8.99')
+      expect(await said({ ...steam, discountPercent: 0, regularPriceUah: null })).toBe('675 ₴')
     })
 
     it('sets the estimate apart as secondary: the dollar price is the price', async () => {
@@ -302,7 +341,8 @@ describe('StoreLinks', () => {
         rateDate: null,
       })
       const price = wrapper.get('[data-test="store-row-gog"] [data-test="store-price"]')
-      expect(read(price)).toBe('−78% $8.99 було $39.99')
+      expect(seen(price)).toBe('−78% $8.99 $39.99')
+      expect(heard(price)).toBe('−78% $8.99, було $39.99')
       expect(price.text()).not.toContain('≈')
       expect(wrapper.find('[data-test="store-estimate"]').exists()).toBe(false)
     })
@@ -338,7 +378,7 @@ describe('StoreLinks', () => {
         ])
         expect(wrapper.find('.bg-sale').exists()).toBe(false)
         expect(wrapper.text()).not.toContain('%')
-        expect(wrapper.findAll('s').map((node) => read(node))).toEqual(['1 349 ₴', '$39.99'])
+        expect(wrapper.findAll('s').map((node) => seen(node))).toEqual(['1 349 ₴', '$39.99'])
       },
     )
 
@@ -452,11 +492,14 @@ describe('StoreLinks', () => {
         ],
         { rateDate: '2026-10-09' },
       )
-      expect(read(wrapper.get('[data-test="store-row-steam"]'))).toBe(
-        'Steam −50% 675 ₴ was 1,349 ₴ updated 3 hours ago',
+      expect(heard(wrapper.get('[data-test="store-row-steam"]'))).toBe(
+        'Steam −50% 675 ₴, was 1,349 ₴ updated 3 hours ago',
       )
-      expect(read(wrapper.get('[data-test="store-row-gog"]'))).toBe(
-        `GOG Cheapest ${EDITION} −78% $8.99 · ≈ approximately 1,348 ₴ was $39.99 updated 6 hours ago`,
+      expect(heard(wrapper.get('[data-test="store-row-gog"]'))).toBe(
+        `GOG Cheapest ${EDITION} −78% $8.99, was $39.99, approximately 1,348 ₴ updated 6 hours ago`,
+      )
+      expect(seen(wrapper.get('[data-test="store-row-gog"]'))).toBe(
+        `GOG Cheapest ${EDITION} −78% $8.99 · ≈ 1,348 ₴ $39.99 updated 6 hours ago`,
       )
       expect(wrapper.get('[data-test="estimate-note"]').text()).toBe(
         "GOG charges in US dollars. The hryvnia amount is an estimate at the National Bank of Ukraine's rate of October 9, 2026; your bank may charge a different sum.",
@@ -466,13 +509,17 @@ describe('StoreLinks', () => {
     it('writes the dollar price exactly as the Ukrainian page does, and groups the estimate its own way', async () => {
       const offers = [{ ...gog, approxUah: 1348 }]
       const ukrainian = await mount(offers)
-      const uk = read(ukrainian.get('[data-test="store-price"]'))
+      // Read before the switch: the mounted page follows the locale it is in.
+      const uk = ukrainian.get('[data-test="store-price"]')
+      const [ukSeen, ukHeard] = [seen(uk), heard(uk)]
       await switchLocale('en')
       const english = await mount(offers)
-      const en = read(english.get('[data-test="store-price"]'))
+      const en = english.get('[data-test="store-price"]')
 
-      expect(uk).toBe('−78% $8.99 · ≈ приблизно 1 348 ₴ було $39.99')
-      expect(en).toBe('−78% $8.99 · ≈ approximately 1,348 ₴ was $39.99')
+      expect(ukSeen).toBe('−78% $8.99 · ≈ 1 348 ₴ $39.99')
+      expect(seen(en)).toBe('−78% $8.99 · ≈ 1,348 ₴ $39.99')
+      expect(ukHeard).toBe('−78% $8.99, було $39.99, приблизно 1 348 ₴')
+      expect(heard(en)).toBe('−78% $8.99, was $39.99, approximately 1,348 ₴')
     })
   })
 })

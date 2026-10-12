@@ -20,9 +20,12 @@
  *   to win by a margin, is the server's rule (`server/index/offerRules.ts`); nothing is compared
  *   here.
  *
- * A row is one link, and its accessible name is its content read in order: the store, the mark,
- * the title, the price, the estimate ("приблизно 404 ₴" — the sign is not left to a screen reader
- * to pronounce), the price it was, and its age.
+ * A row is one link, and its accessible name is read in an order of its own: the store, the
+ * mark, the title, then the price as one sentence — "−78% $8.99, було $39.99, приблизно 404 ₴" —
+ * and its age. The eye takes the estimate right beside the price it is an estimate of, with the
+ * struck price after both; heard in that order, "було" would attach to the estimate. So the
+ * sentence is written out for a screen reader (`PricedRow.spoken`) and the pieces the eye reads are
+ * hidden from it, sign and dot included.
  *
  * Nothing in a render path reads a clock: a price's age is counted against `now`, which the page
  * reads once and hands down (`pages/games/[slug].vue`), as the scoreboard's is.
@@ -86,6 +89,11 @@ interface PricedRow {
   estimate: string | null
   regular: string | null
   discount: number | null
+  /**
+   * The price as a screen reader says it: the discount and the price, then the price it was,
+   * then the estimate — each with its word, a comma between them. "Безкоштовно" needs none.
+   */
+  spoken: string
   /** Whole hours since the price was read; `null` when that cannot be said. */
   hours: number | null
 }
@@ -97,6 +105,23 @@ interface PricedRow {
  */
 function chipPercent(percent: number | null | undefined, onSale: boolean): number | null {
   return onSale && percent != null && percent >= 1 && percent <= 99 ? percent : null
+}
+
+/**
+ * The sentence of a price for a screen reader (`PricedRow.spoken`): what it costs, what it cost,
+ * about how much that is. In that order whatever the order on screen, and with the words the
+ * strike and the sign stand for.
+ */
+function spokenPrice(
+  parts: Pick<PricedRow, 'price' | 'regular' | 'estimate' | 'discount'>,
+): string {
+  return [
+    `${parts.discount ? `−${parts.discount}% ` : ''}${parts.price}`,
+    parts.regular ? `${t('price.was')} ${parts.regular}` : '',
+    parts.estimate ? `${t('price.approximately')} ${parts.estimate}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ')
 }
 
 function pricedRow(offer: Offer): PricedRow | null {
@@ -114,29 +139,25 @@ function pricedRow(offer: Offer): PricedRow | null {
     // itself is already 0 — never a formatted "0 ₴".
     const free = offer.isFree ?? offer.priceUah === 0
     const onSale = !free && offer.regularPriceUah != null && offer.regularPriceUah > offer.priceUah
-    return {
-      ...row,
-      free,
+    const parts = {
       price: formatUah(offer.priceUah),
-      decimal: false,
       estimate: null,
       regular: onSale ? formatUah(offer.regularPriceUah!) : null,
       discount: chipPercent(offer.discountPercent, onSale),
     }
+    return { ...row, ...parts, free, decimal: false, spoken: spokenPrice(parts) }
   }
   const free = offer.isFree ?? foreign!.amount === 0
   const was = offer.foreignRegularPrice ?? null
   const onSale =
     !free && !!was && was.currency === foreign!.currency && was.amount > foreign!.amount
-  return {
-    ...row,
-    free,
+  const parts = {
     price: formatForeignPrice(foreign!),
-    decimal: true,
     estimate: !free && offer.approxUah != null ? formatUah(offer.approxUah) : null,
     regular: onSale ? formatForeignPrice(was!) : null,
     discount: chipPercent(offer.discountPercent, onSale),
   }
+  return { ...row, ...parts, free, decimal: true, spoken: spokenPrice(parts) }
 }
 
 /** Every store once, read once: with its priced row when it has a price to show. */
@@ -220,33 +241,39 @@ const estimateNote = computed(() => {
           </span>
 
           <span class="flex shrink-0 flex-col gap-0.5 sm:items-end">
-            <span data-test="store-price" class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span data-test="store-price">
               <span v-if="row.free" class="font-medium text-fg">{{ t('price.free') }}</span>
               <template v-else>
+                <!-- Said: the sentence. Seen: the pieces, in the order the eye wants them. -->
+                <span data-test="store-price-spoken" class="sr-only">{{ row.spoken }}</span>
                 <span
-                  v-if="row.discount"
-                  class="font-numeric inline-flex items-center rounded-chip bg-sale px-1.5 py-0.5 text-xs font-semibold text-on-sale"
-                  >−{{ row.discount }}%</span
+                  data-test="store-price-shown"
+                  aria-hidden="true"
+                  class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5"
                 >
-                <span
-                  class="font-medium text-fg"
-                  :class="row.decimal ? 'font-tabular' : 'font-numeric'"
-                  >{{ row.price }}</span
-                >
-                <template v-if="row.estimate">
-                  <span aria-hidden="true" class="text-fg-2">·</span>
-                  <span data-test="store-estimate" class="text-fg-2"
-                    ><span aria-hidden="true">≈&nbsp;</span
-                    ><span class="sr-only">{{ t('price.approximately') }}&nbsp;</span
-                    ><span class="font-numeric">{{ row.estimate }}</span></span
+                  <span
+                    v-if="row.discount"
+                    class="font-numeric inline-flex items-center rounded-chip bg-sale px-1.5 py-0.5 text-xs font-semibold text-on-sale"
+                    >−{{ row.discount }}%</span
                   >
-                </template>
-                <template v-if="row.regular">
-                  <span class="sr-only">{{ t('price.was') }}</span>
-                  <s class="text-fg-2" :class="row.decimal ? 'font-tabular' : 'font-numeric'">{{
-                    row.regular
-                  }}</s>
-                </template>
+                  <span
+                    class="font-medium text-fg"
+                    :class="row.decimal ? 'font-tabular' : 'font-numeric'"
+                    >{{ row.price }}</span
+                  >
+                  <template v-if="row.estimate">
+                    <span class="text-fg-2">·</span>
+                    <span data-test="store-estimate" class="text-fg-2"
+                      >≈&nbsp;<span class="font-numeric">{{ row.estimate }}</span></span
+                    >
+                  </template>
+                  <s
+                    v-if="row.regular"
+                    class="text-fg-2"
+                    :class="row.decimal ? 'font-tabular' : 'font-numeric'"
+                    >{{ row.regular }}</s
+                  >
+                </span>
               </template>
             </span>
             <span v-if="row.hours === 0" class="text-xs text-fg-2">{{

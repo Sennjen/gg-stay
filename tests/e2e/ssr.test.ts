@@ -580,11 +580,23 @@ describe('server-side rendering', async () => {
     const row = html.match(/<li[^>]*data-test="store-row-gog"[\s\S]*?<\/li>/)?.[0] ?? ''
     expect(row).toContain(`href="${offer.url}"`)
     expect(row).toContain(dollars)
-    expect(row).toContain('приблизно')
     // The estimate in hryvnia, after the sign: grouped the Ukrainian way if it has four digits,
     // with whatever kind of space the page writes.
     const grouped = String(estimate).replace(/\B(?=(\d{3})+$)/g, '\\s')
     expect(row).toMatch(new RegExp(`≈[\\s\\S]*?${grouped}\\s₴`))
+    // And for a screen reader the price is one sentence in the markup, in an order of its own:
+    // the price, the price it was when it was higher, then about how much that is.
+    const spoken = row.match(/data-test="store-price-spoken"[^>]*>([^<]*)</)?.[1] ?? ''
+    const was =
+      offer.regularAmount > offer.amount
+        ? `, було ${asHtmlText(`$${(offer.regularAmount / 100).toFixed(2)}`)}`
+        : ''
+    expect(spoken).toMatch(
+      new RegExp(
+        `${dollars.replace('$', '\\$')}${was.replace('$', '\\$')}, приблизно ${grouped}\\s₴$`,
+      ),
+    )
+    expect(spoken).not.toContain('≈')
     // What GOG calls the product is in the row exactly when it is not the game's own name.
     expect(row.includes(`>${asHtmlText(offer.title!)}<`)).toBe(
       namesAnotherProduct(offer.title, witcher.name),
