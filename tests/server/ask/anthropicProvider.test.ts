@@ -22,7 +22,7 @@ function message(text: string | null, overrides: Record<string, unknown> = {}): 
     id: 'msg_test',
     type: 'message',
     role: 'assistant',
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-haiku-5-5',
     content: text === null ? [] : [{ type: 'text', text }],
     stop_reason: 'end_turn',
     stop_sequence: null,
@@ -110,15 +110,24 @@ describe('the Anthropic provider', () => {
     expect(result).toEqual({
       ok: true,
       value: PARSE_ANSWER,
-      usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015, unpricedCalls: 0 },
+      usage: {
+        calls: 1,
+        inputTokens: 1_000,
+        outputTokens: 100,
+        costUsd: 0.00015,
+        unpricedCalls: 0,
+      },
     })
     expect(requests).toHaveLength(1)
     const body = requests[0]!.body
     expect(requests[0]!.url).toMatch(/\/v1\/messages$/)
-    expect(body.model).toBe('claude-haiku-4-5')
-    expect(body.max_tokens).toBe(500)
-    expect(body.temperature).toBe(0)
-    expect(body).not.toHaveProperty('thinking')
+    expect(body.model).toBe('claude-haiku-5-5')
+    expect(body.max_tokens).toBe(650)
+    expect(body.thinking).toEqual({ type: 'disabled' })
+    // The model rejects any sampling parameter it is sent.
+    expect(body).not.toHaveProperty('temperature')
+    expect(body).not.toHaveProperty('top_p')
+    expect(body).not.toHaveProperty('top_k')
     expect(body.system).toContain('action, indie')
     expect(body.messages).toEqual([{ role: 'user', content: expect.stringContaining(QUERY) }])
     expect(body.output_config).toMatchObject({ format: { type: 'json_schema' } })
@@ -134,8 +143,9 @@ describe('the Anthropic provider', () => {
 
     expect(result).toMatchObject({ ok: true, value: answer })
     const body = requests[0]!.body
-    expect(body.max_tokens).toBe(1_200)
-    expect(body.temperature).toBe(0)
+    expect(body.max_tokens).toBe(1_600)
+    expect(body.thinking).toEqual({ type: 'disabled' })
+    expect(body).not.toHaveProperty('temperature')
     expect(JSON.stringify(body.messages)).toContain('3328 | The Witcher 3: Wild Hunt')
   })
 
@@ -147,7 +157,7 @@ describe('the Anthropic provider', () => {
     expect(result).toEqual({
       ok: false,
       failure: 'refusal',
-      usage: { calls: 1, inputTokens: 800, outputTokens: 2, costUsd: 0.00081, unpricedCalls: 0 },
+      usage: { calls: 1, inputTokens: 800, outputTokens: 2, costUsd: 0.000081, unpricedCalls: 0 },
     })
   })
 
@@ -168,7 +178,13 @@ describe('the Anthropic provider', () => {
     expect(result).toEqual({
       ok: false,
       failure: 'max_tokens',
-      usage: { calls: 1, inputTokens: 2_000, outputTokens: 500, costUsd: 0.0045, unpricedCalls: 0 },
+      usage: {
+        calls: 1,
+        inputTokens: 2_000,
+        outputTokens: 500,
+        costUsd: 0.00045,
+        unpricedCalls: 0,
+      },
     })
   })
 
@@ -208,7 +224,13 @@ describe('the Anthropic provider', () => {
     expect(result).toEqual({
       ok: false,
       failure: 'schema',
-      usage: { calls: 1, inputTokens: 1_000, outputTokens: 100, costUsd: 0.0015, unpricedCalls: 0 },
+      usage: {
+        calls: 1,
+        inputTokens: 1_000,
+        outputTokens: 100,
+        costUsd: 0.00015,
+        unpricedCalls: 0,
+      },
     })
   })
 

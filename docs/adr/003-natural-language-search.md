@@ -10,7 +10,9 @@ A player should be able to describe a game in their own words — "коопер�
 
 ## Decision
 
-Two calls to Claude Haiku 4.5 (`claude-haiku-4-5`) through the Anthropic SDK — one turns the question into the catalog's own filter, one ranks real candidates and explains each — around a retrieval step that runs on the project's own index. Every step has a deadline and a fallback, and the model can only ever choose among games the catalog found.
+Two calls to Claude Haiku 5.5 (`claude-haiku-5-5`) through the Anthropic SDK — one turns the question into the catalog's own filter, one ranks real candidates and explains each — around a retrieval step that runs on the project's own index. Every step has a deadline and a fallback, and the model can only ever choose among games the catalog found.
+
+The model was Claude Haiku 4.5 (`claude-haiku-4-5`) through evaluation runs 1 and 2. Haiku 5.5 replaced it for its price, a tenth of Haiku 4.5's per token. The request changed with it: thinking, which the new model does by default, is switched off; `temperature: 0` is gone, because the model rejects sampling parameters; and both output ceilings grew by 30 %, the extra tokens its tokenizer counts for the same text. The times, token counts and costs below were measured on Haiku 4.5 and stand until an evaluation run on Haiku 5.5 replaces them.
 
 ### How an answer is put together
 
@@ -25,7 +27,7 @@ Two calls to Claude Haiku 4.5 (`claude-haiku-4-5`) through the Anthropic SDK —
 ### Time, money and abuse
 
 - One deadline per request of 15 s. Parse and retrieval must finish by 12 s so a fallback still has time; the rerank gets 7 s from the end of the parse, never past 14 s. Each call has an 8 s timeout; the Vercel function may run 30 s.
-- About $0.007 per ranked answer and $0.0034 when the question stops after the parse. Prompt caching is not used: Haiku 4.5's minimum cacheable prefix (4 096 tokens) is larger than these prompts. Answers are cached for 24 h (degraded ones for 10 min).
+- On Haiku 4.5, about $0.007 per ranked answer and $0.0034 when the question stops after the parse; by Haiku 5.5's list prices ($0.10 / $0.50 per million tokens against $1 / $5, for about 30 % more tokens), roughly $0.001 and $0.0005. Prompt caching is not used: the parse prompt is long enough for Haiku 5.5 to cache (its minimum is 512 tokens), but a cache entry lives five minutes and costs a quarter more to write than plain input, and questions seldom arrive that close together. Answers are cached for 24 h (degraded ones for 10 min).
 - 10 questions a minute and 40 model-backed answers a day per client address (the platform's client header, IPv6 by /64), a per-instance daily ceiling, 200 characters, 4 KB bodies. The hard cap is the prepaid balance.
 - **Fallback** (no key, a limit reached, credits exhausted, any parse error, refusal or timeout): the question as a plain search over the index's game names, RAWG only if the index is down; the page says the AI part did not run. Never an error page.
 
@@ -46,4 +48,4 @@ A comparison with a free OpenRouter model was planned and left out by the owner'
 - The model decides what the question means and which of the found games fit best; it never decides what exists. Everything it returns is checked before a visitor sees it.
 - The ranking is now the bulk of the time (2–6 s, all of it output tokens for eight reasons). The remaining lever is fewer or shorter reasons, not the prompt.
 - Answers cover the index's ~3 300 games unless the question names a title; the page says so with the catalog's own note.
-- Recorded answers in fixture mode test the code, not the model; quality is measured only by the evaluation run against the live site, about $0.20 a run.
+- Recorded answers in fixture mode test the code, not the model; quality is measured only by the evaluation run against the live site, about $0.20 a run on Haiku 4.5 and, by list price, about $0.03 on Haiku 5.5.

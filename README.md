@@ -202,7 +202,7 @@ How it works, how answers are ranked and the full path of checks behind it:
 
 `POST /api/ask` `{ q, locale }` turns a description — "кооператив для двох на
 Switch до 500 грн" — into the catalog filter it means and a short ranked list
-with one reason per game, using Claude Haiku 4.5 through the official
+with one reason per game, using Claude Haiku 5.5 through the official
 Anthropic SDK (`server/ask/`). Two model calls per question: one maps the
 query to a filter (re-validated against the live taxonomy) plus up to three
 mood tags, one picks up to 8 of the 24 most relevant candidates and says why
@@ -241,7 +241,7 @@ are `false`/empty when no page answered.
 - **Limits:** 10 questions per address per minute and 40 model-backed answers
   per address per UTC day (cached answers are free); a per-instance daily
   ceiling of model calls (`ASK_DAILY_LLM_CALLS`, default 500); queries up to
-  200 characters; 500/1 200 output tokens, an 8 s timeout and one retry per
+  200 characters; 650/1 600 output tokens, an 8 s timeout and one retry per
   call; one 15 s deadline per request, fallback search included, with the
   rerank given 7 s from the end of the parse (never past 14 s). The hard cap
   on spend is the account's prepaid credit balance, which does not reload by
