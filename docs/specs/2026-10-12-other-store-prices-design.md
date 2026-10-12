@@ -115,7 +115,7 @@ Manual full runs finish the sweep of store references (three runs at 1 200 a run
 
 ## Verified on 2026-10-12
 
-Established with 34 plain GET requests to the three endpoints (18 to GOG, 10 to Microsoft, 6 to the bank), at most one a second, under a `User-Agent` naming this repository; and 13 read-only queries to this site's own GraphQL for the store links RAWG gives 36 games. All but three were made before any code was written. The last three went through the refresh job's own transports and parsers once they existed — one page of the catalog, one batch of the 35 product ids, one day's rate — and read what the probes had: 100 products, 99 of them priced and every `storeLink` the product's own; the same nine prices; the rate of the day asked for. Where a fact contradicts a section above, the fact stands and the code follows it.
+Established with 36 plain GET requests to the three endpoints (20 to GOG, 10 to Microsoft, 6 to the bank), at most one a second, under a `User-Agent` naming this repository; and 13 read-only queries to this site's own GraphQL for the store links RAWG gives 36 games. All but five were made before any code was written. Three of those went through the refresh job's own transports and parsers once they existed — one page of the catalog, one batch of the 35 product ids, one day's rate — and read what the probes had: 100 products, 99 of them priced and every `storeLink` the product's own; the same nine prices; the rate of the day asked for. Where a fact contradicts a section above, the fact stands and the code follows it.
 
 ### GOG — `https://catalog.gog.com/v1/catalog`
 
@@ -127,6 +127,7 @@ Established with 34 plain GET requests to the three endpoints (18 to GOG, 10 to 
 - **`price`**: `{ final: "$5.99", base: "$9.99", discount: "-40%", finalMoney: { amount: "5.99", currency: "USD", discount: "4.00" }, baseMoney: { amount: "9.99", currency: "USD" } }`. Amounts are decimal strings with two places. `discount` is `null` when there is none. Rounding `1 − final/base` to a whole percent reproduced GOG's own label on every discounted product checked.
 - **A free game** (Beneath a Steel Sky, GWENT, a demo): the same object with `"0.00"` in both amounts and `discount: null`.
 - **A game not yet released**: `productState: "coming-soon"` and `price: null`.
+- **`productState`** was `default`, `early-access` or `coming-soon` on all 943 products seen. The first two always had a price and the third never did — the hundred first upcoming products included — so a product has a price exactly when it can be bought, and the price itself is the test.
 - **`game` and `pack`.** Each has a slug and a price of its own, and the slug in RAWG's link names one of them exactly: an edition is a `pack` under its own slug (`blair_witch` and `blair_witch_deluxe_edition`). Matching the link's slug is therefore exact for either type.
 - **A link RAWG still gives can lead nowhere.** `the_witcher_3_wild_hunt`, the slug of RAWG's link for The Witcher 3, is not in the catalog for Ukraine: only `the_witcher_3_wild_hunt_game_of_the_year_edition` (a `pack`) is. Nothing is guessed from a title, so that game has no GOG price.
 - **RAWG's links, as seen** (13 of them): `https://www.gog.com/game/{slug}`, `http://www.gog.com/game/{slug}`, `https://www.gog.com/en/game/{slug}`, `https://www.gog.com/fr/game/{slug}`.
@@ -151,6 +152,6 @@ Probed with the product ids of 35 real RAWG links: those of the 30 most popular 
 
 ### The National Bank — `https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=USD&json`
 
-- **Shape**: a JSON array of one object, `{ "r030": 840, "txt": "Долар США", "rate": 44.9567, "cc": "USD", "exchangedate": "13.10.2026", "special": "N" }`.
+- **Shape**: a JSON array of one object, `{ "r030": 840, "txt": "…", "rate": 44.9567, "cc": "USD", "exchangedate": "13.10.2026", "special": "N" }` — `txt` is the currency's name in Ukrainian.
 - **Without a date it answers the newest rate the bank has set, which in the afternoon is tomorrow's**: asked on 12.10.2026 at 17:06 Kyiv time it answered 44.9567, the rate of 13.10.2026. With `&date=YYYYMMDD` it answers the rate in force on that day and repeats the day in `exchangedate`: asked for `20261012` the same afternoon, it answered 44.8894 for 12.10.2026. The job asks for the day it runs on, in Kyiv, and takes an answer only if it names that day.
 - **A weekend or a holiday**: the rate in force that day, under that day's date. Saturday 10.10.2026 and Sunday 11.10.2026 both answered 44.8526; 01.01.2026 answered 42.3532 (with `special: null`). There is no day it answers nothing for.
