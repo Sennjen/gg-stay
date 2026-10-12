@@ -436,6 +436,10 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       refreshOffers(deps, games, storeRefs, published),
     )
     stores = { ...stores, gog: offers.gog, microsoft: offers.microsoft, rate: offers.rate }
+    // A store that could not be read does not fail the run, so the run has to say so some other
+    // way: the summary row is there for whoever opens it, and the annotation is on the run's
+    // page for whoever does not.
+    for (const warning of storeWarnings(stores)) deps.log(`::warning::${warning}`)
 
     // Last, over the final set of games — studio games included — so every id a list names is a
     // document of this version. The other modes carry the published lists forward with the
@@ -572,6 +576,40 @@ function studioRows(report: JobReport): [string, string][] {
     ['Studio slugs with no games', listOrNone(studios.emptySlugs)],
   )
   return rows
+}
+
+/** What a store's read is called in a warning, by what came of it. */
+function storeWarning(name: string, read: StoreReadReport | null): string[] {
+  if (read?.status !== 'failed' && read?.status !== 'partial') return []
+  const what = read.status === 'failed' ? 'not refreshed' : 'refreshed only in part'
+  const reason = (read.error ?? 'a request failed').replace(/\s+/g, ' ')
+  return [`${name} prices ${what}: ${reason} — every offer that was not read stands as it was`]
+}
+
+/**
+ * The warnings a run owes about the stores other than Steam: one for each store whose read
+ * failed or was only partial, and one when the run ends with no exchange rate at all. Nothing for
+ * a store that was not due, or a rate kept from the published version — those are the design
+ * working. Each is one line, written to the log as a GitHub `::warning::` annotation, as the
+ * similar-lists warning is.
+ *
+ * They exist because a store that is down is, by design, invisible in the run's colour: the run
+ * is green, the offers are yesterday's, and without an annotation the only trace is a row of a
+ * summary nobody has a reason to open. A read that fails the same way on every run — a catalog
+ * that changed its shape, a product count that is off by one for good — repeats the warning on
+ * every run until somebody looks.
+ */
+export function storeWarnings(stores: StoresReport): string[] {
+  return [
+    ...storeWarning('GOG', stores.gog),
+    ...storeWarning('Microsoft Store', stores.microsoft),
+    ...(stores.rate?.status === 'none'
+      ? [
+          'No exchange rate: the National Bank could not be read and no rate under seven days ' +
+            'old is left, so no hryvnia estimate is published',
+        ]
+      : []),
+  ]
 }
 
 /** A value as one cell of the summary's table: on one line, and with no column of its own. */

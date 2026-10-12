@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { formatSummary, runJob, type JobReport } from '../../../scripts/index/run'
+import {
+  formatSummary,
+  runJob,
+  storeWarnings,
+  type JobReport,
+  type StoresReport,
+} from '../../../scripts/index/run'
 import type {
   IndexMeta,
   IndexedExchangeRate,
@@ -317,6 +323,160 @@ describe('runJob when a store is down', () => {
     // A run Steam has already failed asks no other store anything.
     expect(failing.gogPages).toHaveLength(0)
     expect(failing.bankDays).toHaveLength(0)
+  })
+})
+
+/**
+ * A store that is down does not turn a run red, by design — so a run has to say it some other
+ * way, or the only trace is a row of a summary nobody has a reason to open. It writes a GitHub
+ * `::warning::` annotation, as the similar-lists warning does.
+ */
+describe('runJob and its warnings about the other stores', () => {
+  const noon = later(RUN_AT, 12 * HOUR)
+  const warnings = (harness: JobHarness) =>
+    harness.logs.filter((line) => /^::warning::(GOG|Microsoft Store|No exchange rate)/.test(line))
+
+  it('writes none in a run that read everything, or had nothing due', async () => {
+    const night = createJobHarness({ start: RUN_AT })
+    await runJob(night.deps, FULL)
+    expect(warnings(night)).toEqual([])
+
+    // Not due is the design working, not a store failing.
+    const morning = nextRun(night, later(RUN_AT, 6 * HOUR))
+    await runJob(morning.deps, PRICES)
+    expect(warnings(morning)).toEqual([])
+  })
+
+  it('writes one for a GOG walk that failed, with the reason', async () => {
+    const down = nextRun(await firstNight(), noon)
+    down.failGogPage(1)
+
+    const report = await runJob(down.deps, PRICES)
+
+    expect(report.outcome?.published).toBe(true)
+    expect(warnings(down)).toEqual([
+      '::warning::GOG prices not refreshed: GOG upstream failure (page 1) — every offer that was not read stands as it was',
+    ])
+  })
+
+  it('writes one for a Microsoft read that failed', async () => {
+    const down = nextRun(await firstNight(), noon)
+    down.failMicrosoftBatchWith(JOB_MICROSOFT_ID)
+
+    await runJob(down.deps, PRICES)
+
+    expect(warnings(down)).toEqual([
+      '::warning::Microsoft Store prices not refreshed: MICROSOFT upstream failure (batch) — every offer that was not read stands as it was',
+    ])
+  })
+
+  it('writes one when the run ends with no rate, and none while an old one stands', async () => {
+    // A first run with the bank down: nothing to keep.
+    const first = createJobHarness({ start: RUN_AT })
+    first.bankState.down = true
+    const report = await runJob(first.deps, FULL)
+
+    expect(report.outcome?.published).toBe(true)
+    expect(warnings(first)).toEqual([
+      '::warning::No exchange rate: the National Bank could not be read and no rate under seven days old is left, so no hryvnia estimate is published',
+    ])
+
+    // The bank down for a day, after a run that read it: yesterday's rate stands, and that is
+    // what the seven days are for.
+    const kept = nextRun(await firstNight(), later(RUN_AT, 6 * HOUR))
+    kept.bankState.down = true
+    await runJob(kept.deps, PRICES)
+    expect(warnings(kept)).toEqual([])
+  })
+
+  it('writes all three when everything is down, and still publishes', async () => {
+    const down = nextRun(await firstNight(), later(RUN_AT, 8 * 24 * HOUR))
+    down.failGogPage(1)
+    down.failMicrosoftBatchWith(JOB_MICROSOFT_ID)
+    down.bankState.down = true
+
+    const report = await runJob(down.deps, PRICES)
+
+    expect(report.outcome?.published).toBe(true)
+    expect(warnings(down).map((line) => line.split(':')[4])).toEqual([
+      'GOG prices not refreshed',
+      'Microsoft Store prices not refreshed',
+      'No exchange rate',
+    ])
+  })
+
+  const read = {
+    status: 'read' as const,
+    references: 999,
+    pricesRead: 240,
+    failed: 0,
+    requests: 10,
+    offers: 240,
+    lastReadAt: RUN_AT,
+  }
+  const stores = (extra: Partial<StoresReport>): StoresReport => ({
+    references: {
+      games: 3_400,
+      listed: 1_700,
+      asked: 1_700,
+      gog: 410,
+      microsoft: 380,
+      sweep: null,
+    },
+    gog: read,
+    microsoft: read,
+    rate: { status: 'read', rate: rate('2026-09-20', RUN_AT) },
+    ...extra,
+  })
+
+  it('names a read in part as one, and a read the floor refused by what it saw', () => {
+    expect(
+      storeWarnings(
+        stores({
+          microsoft: {
+            ...read,
+            status: 'partial',
+            failed: 100,
+            error: 'MICROSOFT upstream failure: TIMEOUT',
+          },
+          gog: {
+            ...read,
+            status: 'failed',
+            pricesRead: 0,
+            failed: 1_093,
+            error: 'carried 870, the read priced 12: under half of the offers the store had',
+          },
+        }),
+      ),
+    ).toEqual([
+      'GOG prices not refreshed: carried 870, the read priced 12: under half of the offers the store had — every offer that was not read stands as it was',
+      'Microsoft Store prices refreshed only in part: MICROSOFT upstream failure: TIMEOUT — every offer that was not read stands as it was',
+    ])
+  })
+
+  it('has nothing to say of a store that was read, was not due, or has no references', () => {
+    expect(storeWarnings(stores({}))).toEqual([])
+    expect(
+      storeWarnings(
+        stores({
+          gog: { ...read, status: 'not-due' },
+          microsoft: { ...read, status: 'no-references' },
+          rate: { status: 'kept', rate: rate('2026-09-19', RUN_AT) },
+        }),
+      ),
+    ).toEqual([])
+    // A run that never reached the stores has no verdict on them.
+    expect(storeWarnings(stores({ gog: null, microsoft: null, rate: null }))).toEqual([])
+  })
+
+  it('writes every warning on one line, whatever a reason holds', () => {
+    const [warning] = storeWarnings(
+      stores({ gog: { ...read, status: 'failed', error: 'a\n::error::b\r\n\tc' } }),
+    )
+
+    expect(warning).toBe(
+      'GOG prices not refreshed: a ::error::b c — every offer that was not read stands as it was',
+    )
   })
 })
 
