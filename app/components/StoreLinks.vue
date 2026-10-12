@@ -34,7 +34,12 @@
 import { STORE_OPTIONS } from '#shared/catalog'
 import { safeExternalUrl } from '#shared/url'
 import { hoursSince } from '~/utils/format'
-import { formatForeignPrice, namesAnotherProduct, type ForeignMoney } from '~/utils/storeOffers'
+import {
+  formatForeignPrice,
+  isPriceAmount,
+  namesAnotherProduct,
+  type ForeignMoney,
+} from '~/utils/storeOffers'
 
 interface Offer {
   store: string
@@ -128,8 +133,12 @@ function spokenPrice(parts: Pick<StoreRow, 'price' | 'regular' | 'estimate' | 'd
 }
 
 function storeRow(offer: Offer): StoreRow | null {
-  const foreign = offer.foreignPrice ?? null
-  if (offer.priceUah == null && !foreign) return null
+  // An amount below zero, or one that is not a number, is not a price: its store is a link
+  // without one, like a store nobody has a price for. The server sends neither; nothing that
+  // could be mistaken for a price is formatted on its word alone.
+  const priceUah = isPriceAmount(offer.priceUah) ? offer.priceUah : null
+  const foreign = isPriceAmount(offer.foreignPrice?.amount) ? offer.foreignPrice! : null
+  if (priceUah === null && !foreign) return null
   const row = {
     store: offer.store,
     url: offer.url,
@@ -137,13 +146,13 @@ function storeRow(offer: Offer): StoreRow | null {
     title: namesAnotherProduct(offer.title, props.gameName) ? (offer.title ?? null) : null,
     hours: offer.updatedAt && props.now ? hoursSince(offer.updatedAt, props.now) : null,
   }
-  if (offer.priceUah != null) {
+  if (priceUah !== null) {
     // A missing `isFree` flag (an older/partial index entry) still reads as free when the price
     // itself is already 0 — never a formatted "0 ₴".
-    const free = offer.isFree ?? offer.priceUah === 0
-    const onSale = !free && offer.regularPriceUah != null && offer.regularPriceUah > offer.priceUah
+    const free = offer.isFree ?? priceUah === 0
+    const onSale = !free && offer.regularPriceUah != null && offer.regularPriceUah > priceUah
     const parts = {
-      price: formatUah(offer.priceUah),
+      price: formatUah(priceUah),
       estimate: null,
       regular: onSale ? formatUah(offer.regularPriceUah!) : null,
       discount: chipPercent(offer.discountPercent, onSale),

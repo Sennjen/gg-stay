@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { formatUah } from '~/utils/format'
-import { formatForeignPrice, namesAnotherProduct } from '~/utils/storeOffers'
+import { formatForeignPrice, isPriceAmount, namesAnotherProduct } from '~/utils/storeOffers'
 
 const usd = (amount: number) => ({ amount, currency: 'USD' })
 
@@ -41,6 +41,25 @@ describe('formatForeignPrice', () => {
 
   it('writes a currency it has no sign for by its code, after the number, on one line', () => {
     expect(formatForeignPrice({ amount: 7.5, currency: 'EUR' })).toBe('7.50\u00a0EUR')
+  })
+})
+
+describe('isPriceAmount', () => {
+  it.each([0, 0.01, 8.99, 675, 1_349])('takes %j for a price', (amount) => {
+    expect(isPriceAmount(amount)).toBe(true)
+  })
+
+  it.each([
+    [-0.01],
+    [-8.99],
+    [-675],
+    [Number.NaN],
+    [Number.NEGATIVE_INFINITY],
+    [null],
+    [undefined],
+    ['8.99'],
+  ])('does not take %j for one', (amount) => {
+    expect(isPriceAmount(amount as number)).toBe(false)
   })
 })
 

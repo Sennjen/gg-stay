@@ -17,6 +17,17 @@ export interface ForeignMoney {
 }
 
 /**
+ * Whether a number can be a price: zero or more. An amount below zero is not a price, and neither
+ * is one that is not a number — the server passes over an offer that carries either
+ * (`readableOffers`, `server/index/offerRules.ts`), and the block asks this again before it
+ * formats anything, so that what is not a price is shown as a store without one and never as a
+ * figure with a sign in it.
+ */
+export function isPriceAmount(amount: number | null | undefined): amount is number {
+  return typeof amount === 'number' && amount >= 0
+}
+
+/**
  * A price in the currency a store charges in, written the way the store itself writes it:
  * "$8.99". The same characters in both locales, on purpose — it is the store's own figure, the
  * one the visitor will see on the store's page and on a bank statement, so it is quoted rather
@@ -27,9 +38,12 @@ export interface ForeignMoney {
  * separator. Cents are always two digits; thousands are grouped with a comma, as the store would.
  * Only the dollar has a symbol here, because it is the only foreign currency the index carries —
  * anything else is written with its code after the number rather than guessed at.
+ *
+ * The amount is a price (`isPriceAmount`): the block hands over nothing else, and nothing here
+ * tidies one that is not — a sign quietly dropped would turn a broken amount into a wrong price.
  */
 export function formatForeignPrice(price: ForeignMoney): string {
-  const cents = Math.round(Math.abs(price.amount) * 100)
+  const cents = Math.round(price.amount * 100)
   const figure = `${groupInteger(Math.floor(cents / 100), 'en')}.${String(cents % 100).padStart(2, '0')}`
   return price.currency === 'USD' ? `$${figure}` : `${figure}\u00a0${price.currency}`
 }

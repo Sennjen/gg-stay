@@ -363,6 +363,42 @@ describe('StoreLinks', () => {
     })
   })
 
+  describe('an amount that is not a price', () => {
+    it.each([
+      ['a hryvnia price below zero', { ...steam, priceUah: -675 }, 'Steam'],
+      ['a hryvnia price that is not a number', { ...steam, priceUah: Number.NaN }, 'Steam'],
+      [
+        'a dollar price below zero',
+        { ...gog, foreignPrice: { amount: -8.99, currency: 'USD' } },
+        'GOG',
+      ],
+      [
+        'a dollar price that is not a number',
+        { ...gog, foreignPrice: { amount: Number.NaN, currency: 'USD' } },
+        'GOG',
+      ],
+    ])('shows no price for %s: the store is a link without one', async (_what, offer, name) => {
+      const wrapper = await mount([offer as Offer])
+      // No row, no figure, no sign: what the visitor is left with is where the game is sold.
+      expect(wrapper.find('[data-test="store-prices"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="store-price"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="estimate-note"]').exists()).toBe(false)
+      const chips = wrapper.get('[data-test="store-links"]').findAll('a')
+      expect(chips.map((chip) => chip.text())).toEqual([name])
+      expect(wrapper.text()).not.toMatch(/[-−$₴\d]/)
+    })
+
+    it('still shows the price of the store beside it', async () => {
+      const broken = { ...gog, foreignPrice: { amount: -8.99, currency: 'USD' } }
+      const wrapper = await mount([steam, broken])
+      expect(wrapper.findAll('[data-test="store-prices"] a')).toHaveLength(1)
+      expect(seen(wrapper.get('[data-test="store-row-steam"] [data-test="store-price"]'))).toBe(
+        '−50% 675 ₴ 1 349 ₴',
+      )
+      expect(wrapper.get('[data-test="store-links"]').text()).toBe('GOG')
+    })
+  })
+
   describe('a discount', () => {
     it.each([
       [0, 'nothing'],
