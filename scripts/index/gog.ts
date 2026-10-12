@@ -243,6 +243,12 @@ export interface GogCatalogWalk {
  * fails, nothing is published from it, and the next run walks again. The alternative is a walk
  * that quietly loses a game's price for half a day, and nobody could tell which.
  *
+ * What this does not prove: that nothing changed. One product removed before the walk's position
+ * and another added after it, both inside the same second between two requests, leave the count
+ * as it was and repeat nothing, and the product that slid across the page boundary is never
+ * seen. It takes two changes of the catalog in one second of a two-minute walk, it costs one game
+ * its GOG price until the next read, and no check that is cheaper than a second walk catches it.
+ *
  * `onPage` is called after each page, for a caller that has a lock to keep alive.
  */
 export async function walkGogCatalog(

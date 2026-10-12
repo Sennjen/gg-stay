@@ -314,6 +314,12 @@ async function readGog(
  *   request in three is the store most likely to answer another with products missing. The
  *   products of a failed request keep the offers they had. The stamp stays, so the next run
  *   reads again.
+ *
+ * Known and left as it is: a request that fails every time is never narrowed down. Should one id
+ * ever make the catalog refuse its whole request, the hundred games beside it would never be
+ * refreshed and the stamp would never move, so every run would repeat all the requests instead of
+ * every other one. The warning a failed read now writes (`run.ts`) is what would show it; the
+ * remedy, if it is ever seen, is to ask a failed request again in two halves.
  */
 async function readMicrosoft(
   deps: JobDeps,
