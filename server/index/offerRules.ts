@@ -27,8 +27,9 @@ import {
 /**
  * How old an offer may be and still be a price: thirty-six hours from the read it is dated by.
  *
- * The job reads each store twice a day, so a healthy offer is under twelve hours old; thirty-six
- * lets two reads in a row fail before a page stops quoting the store. The job itself never drops
+ * The job reads each store twice a day, so a healthy offer is under twelve hours old, and a read
+ * that failed is tried again by the next run, six hours on; thirty-six hours lets about five
+ * reads in a row fail before a page stops quoting the store. The job itself never drops
  * an offer for its age — a store that keeps failing leaves its old offers on the documents, under
  * their old dates — so this is the only place an old price is told from a current one.
  */

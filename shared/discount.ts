@@ -4,9 +4,8 @@
  *
  * "−0 %" and "−100 %" are not discounts anybody can read a price off, and a percent with no
  * higher price beside it has nothing to be a discount on. The refresh job writes 0, 1 to 99, or
- * 100 for a game given away; documents from before it was held to that can carry a 0 beside a
- * higher regular price, or a 100 beside a price that is not zero, and a document is in any case
- * whatever the store holds.
+ * 100 for a game given away; but a document is whatever the store holds, and one that carries a 0
+ * beside a higher regular price, or a 100 beside a price that is not zero, gets no chip.
  *
  * One rule for both sides of the answer about another store's price: the server serves a
  * discount by it (`toStoreOffer`, `server/index/toGraphql.ts`), and the game page's block draws a
