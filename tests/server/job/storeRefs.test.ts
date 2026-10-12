@@ -8,6 +8,7 @@ import {
   microsoftProductFromUrl,
   needsStoreLookup,
   STORE_REF_CURSOR,
+  STORE_REF_SWEEP_BUDGET_MS,
   STORE_REF_SWEEP_PER_RUN,
   storeLinksOf,
   storeRefsFromLinks,
@@ -352,7 +353,7 @@ describe('sweepStoreRefs', () => {
 
     // Of nine games, two: 101 is on GOG and 109 on the Xbox store.
     expect(asked(harness)).toEqual(storesOf('hollow-cradle', 'lost-canton'))
-    expect(result).toMatchObject({ attempted: 2, failures: 0, remaining: 0, stopped: false })
+    expect(result).toMatchObject({ attempted: 2, failures: 0, remaining: 0, stopped: null })
     expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
     expect(result.refs.get(109)).toEqual(LOST_CANTON)
     // A game on neither store was not asked, and nothing is remembered about it.
@@ -431,6 +432,58 @@ describe('sweepStoreRefs', () => {
     expect(after.calls).toHaveLength(0)
   })
 
+  it('stops for the night once it has used its twenty minutes, and keeps what it read', async () => {
+    expect(STORE_REF_SWEEP_BUDGET_MS).toBe(20 * 60_000)
+    const harness = createJobHarness()
+    const games = allOnGog(await candidatesOf(harness))
+    // RAWG answers every lookup, and takes six minutes over each: nothing fails, nothing is fast.
+    const slow = { ...harness.deps }
+    slow.rawg = async (path, params) => {
+      harness.clock.advance(6 * 60_000)
+      return harness.deps.rawg(path, params)
+    }
+
+    const result = await sweepStoreRefs(slow, games)
+
+    // Asked at 0, 6, 12 and 18 minutes; at 24 the fifth is not begun.
+    expect(asked(harness)).toEqual(storesOf(...SLUGS.slice(0, 4)))
+    expect(result).toMatchObject({ attempted: 4, failures: 0, remaining: 5, stopped: 'time' })
+    expect(result.refs.size).toBe(4)
+    expect(await harness.writer.getStoreRefs([101, 104, 105])).toEqual(
+      new Map<number, IndexedStoreRefs>([
+        [101, { gog: 'hollow_cradle' }],
+        [104, { gog: null }],
+      ]),
+    )
+    expect(await harness.writer.getCursor(STORE_REF_CURSOR)).toBe('104')
+    expect(harness.logs.at(-1)).toBe(
+      'store references: 4 games read this run, 0 failed, 5 left for the next full run — stopped early, the sweep had used its twenty minutes',
+    )
+
+    // The next full run goes on from there, with a budget of its own.
+    const nextNight = createJobHarness({ writer: harness.writer })
+    const rest = await sweepStoreRefs(nextNight.deps, games)
+    expect(asked(nextNight)).toEqual(storesOf(...SLUGS.slice(4)))
+    expect(rest).toMatchObject({ attempted: 5, remaining: 0, stopped: null })
+  })
+
+  it('does not stop a sweep that is merely long: the budget is time, not lookups', async () => {
+    const harness = createJobHarness()
+    const games = allOnGog(await candidatesOf(harness))
+    const steady = { ...harness.deps }
+    // Two minutes a lookup: the ninth begins at sixteen minutes, inside the twenty.
+    steady.rawg = async (path, params) => {
+      harness.clock.advance(2 * 60_000)
+      return harness.deps.rawg(path, params)
+    }
+
+    expect(await sweepStoreRefs(steady, games)).toMatchObject({
+      attempted: 9,
+      remaining: 0,
+      stopped: null,
+    })
+  })
+
   it('spends twelve hundred lookups a run unless told otherwise', () => {
     expect(STORE_REF_SWEEP_PER_RUN).toBe(1200)
   })
@@ -471,7 +524,7 @@ describe('sweepStoreRefs', () => {
 
     const first = await sweepStoreRefs(harness.deps, games)
 
-    expect(first).toMatchObject({ attempted: 9, failures: 1, remaining: 1, stopped: false })
+    expect(first).toMatchObject({ attempted: 9, failures: 1, remaining: 1, stopped: null })
     expect(first.refs.has(105)).toBe(false)
     // Not written as "no link to read": that would make one timeout permanent.
     expect(await harness.writer.getStoreRefs([105])).toEqual(new Map())
@@ -532,7 +585,12 @@ describe('sweepStoreRefs', () => {
     const result = await sweepStoreRefs(harness.deps, games)
 
     // Five failures are shrugged off; the sixth, with nothing answered, ends the sweep.
-    expect(result).toMatchObject({ attempted: 6, failures: 6, remaining: 9, stopped: true })
+    expect(result).toMatchObject({
+      attempted: 6,
+      failures: 6,
+      remaining: 9,
+      stopped: 'failures',
+    })
     expect(result.refs.size).toBe(0)
     expect(harness.logs.at(-1)).toMatch(/9 left for the next full run — stopped early/)
   })
@@ -546,7 +604,7 @@ describe('sweepStoreRefs', () => {
 
     const result = await sweepStoreRefs(harness.deps, games)
 
-    expect(result).toMatchObject({ attempted: 9, failures: 4, remaining: 4, stopped: false })
+    expect(result).toMatchObject({ attempted: 9, failures: 4, remaining: 4, stopped: null })
   })
 
   it('writes in batches, moves the cursor with each and renews the lock', async () => {

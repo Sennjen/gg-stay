@@ -49,6 +49,25 @@ export const STORE_REF_BATCH_SIZE = 100
 export const STORE_REF_CURSOR = 'storerefs'
 
 /**
+ * How long the sweep may run in one night: twenty minutes, on the job's clock.
+ *
+ * The failure budget below ends a sweep RAWG is refusing. It does nothing about a RAWG that
+ * answers every lookup, slowly: twelve hundred answers at five seconds each are a hundred minutes
+ * on top of a full run that is given a hundred and fifty in all, and a run GitHub ends at its
+ * ceiling publishes nothing and leaves its lock behind. A sweep at RAWG's usual pace is five to
+ * ten minutes, so twenty is room for a slow night and no more; what was not asked waits for the
+ * next full run, exactly as it does past the cap.
+ */
+export const STORE_REF_SWEEP_BUDGET_MS = 20 * 60_000
+
+/** Why a sweep ended before it had asked about everything it meant to that night. */
+export type SweepStop =
+  /** Too many lookups failed: RAWG is refusing, and the rest would fail too. */
+  | 'failures'
+  /** The sweep's time for the night ran out: RAWG is answering, slowly. */
+  | 'time'
+
+/**
  * Failures the sweep shrugs off before it starts measuring them against what it has attempted.
  * Past both this and the share a stage tolerates (`MAX_ITEM_FAILURE_RATIO`) it stops for the
  * night: see `sweepStoreRefs`.
@@ -254,8 +273,8 @@ export interface StoreRefsResult {
   failures: number
   /** Games still waiting to be asked about when the stage ended: the next full run's work. */
   remaining: number
-  /** Whether the sweep gave up for the night because too many lookups failed. */
-  stopped: boolean
+  /** Why the sweep gave up for the night before its cap, or `null` when it did not. */
+  stopped: SweepStop | null
 }
 
 /**
@@ -278,8 +297,9 @@ export interface StoreRefsResult {
  * **It cannot cost the run.** These references only add prices to a catalog that is complete
  * without them, so the stage does not hold a failing RAWG to the budget the app ids do: past
  * `STORE_REF_TOLERATED_FAILURES` failures and a twentieth of what it attempted, it stops and
- * leaves the rest for the next full run. That also bounds its time — an outage answers each
- * lookup with two timeouts, and twelve hundred of those would outlast the workflow.
+ * leaves the rest for the next full run. Nor may it take the run's time: it stops as well once
+ * `STORE_REF_SWEEP_BUDGET_MS` has passed on the job's clock, whatever the reason each lookup was
+ * slow. Either way what it had read is kept, and the result says which of the two ended it.
  */
 export async function sweepStoreRefs(
   deps: JobDeps,
@@ -295,7 +315,7 @@ export async function sweepStoreRefs(
     .sort((left, right) => left.id - right.id)
   if (pending.length === 0) {
     deps.log(`store references: none of ${games.length} games is waiting to be asked about`)
-    return { refs: known, attempted: 0, failures: 0, remaining: 0, stopped: false }
+    return { refs: known, attempted: 0, failures: 0, remaining: 0, stopped: null }
   }
 
   const stored = await deps.writer.getCursor(STORE_REF_CURSOR)
@@ -303,9 +323,10 @@ export async function sweepStoreRefs(
   const start = Number.isFinite(after) ? pending.findIndex((game) => game.id > after) : 0
   const queue = [...pending.slice(Math.max(start, 0)), ...pending.slice(0, Math.max(start, 0))]
 
+  const startedAt = deps.clock.now()
   let attempted = 0
   let failures = 0
-  let stopped = false
+  let stopped: SweepStop | null = null
   let batch: [number, IndexedStoreRefs][] = []
   let lastAsked: number | null = null
 
@@ -320,6 +341,12 @@ export async function sweepStoreRefs(
 
   try {
     for (const game of queue.slice(0, Math.max(0, limit))) {
+      // Looked at before a lookup is started, never in the middle of one: the game that would
+      // have been next is simply first in line on the next full run.
+      if (deps.clock.now() - startedAt >= STORE_REF_SWEEP_BUDGET_MS) {
+        stopped = 'time'
+        break
+      }
       attempted += 1
       lastAsked = game.id
       try {
@@ -335,7 +362,7 @@ export async function sweepStoreRefs(
           failures > STORE_REF_TOLERATED_FAILURES &&
           failures > attempted * MAX_ITEM_FAILURE_RATIO
         ) {
-          stopped = true
+          stopped = 'failures'
           break
         }
       }
@@ -352,7 +379,8 @@ export async function sweepStoreRefs(
 
   deps.log(
     `store references: ${attempted - failures} games read this run, ${failures} failed, ${remaining} left for the next full run` +
-      (stopped ? ' — stopped early, too many lookups failed' : ''),
+      (stopped === 'failures' ? ' — stopped early, too many lookups failed' : '') +
+      (stopped === 'time' ? ' — stopped early, the sweep had used its twenty minutes' : ''),
   )
   return { refs: known, attempted, failures, remaining, stopped }
 }

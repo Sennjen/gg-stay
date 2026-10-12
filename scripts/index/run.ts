@@ -8,7 +8,7 @@ import { refreshOffers, type OffersResult, type RateReport, type StoreReadReport
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
 import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
-import { countStoreRefs, sweepStoreRefs, type StoreRefMap } from './storeRefs'
+import { countStoreRefs, sweepStoreRefs, type StoreRefMap, type SweepStop } from './storeRefs'
 import { collectStudioGames } from './studios'
 import { UKRAINIAN_STUDIO_SLUGS } from '../../shared/ukrainianStudios'
 import {
@@ -132,7 +132,13 @@ export interface StoresReport {
     gog: number
     microsoft: number
     /** What the sweep did, in a full run; `null` in the modes that ask RAWG nothing. */
-    sweep: { attempted: number; failures: number; remaining: number; stopped: boolean } | null
+    sweep: {
+      attempted: number
+      failures: number
+      remaining: number
+      /** Why the sweep ended before its cap, or `null` when it did not. */
+      stopped: SweepStop | null
+    } | null
   }
   /** `null` on a run that ended before the stores were read. */
   gog: StoreReadReport | null
@@ -678,7 +684,8 @@ function storeRows(report: JobReport): [string, string][] {
         (sweep
           ? `; RAWG: ${plural(sweep.attempted, 'lookup', 'lookups')} this run, ${sweep.failures} failed, ` +
             `${sweep.remaining} left for the next full run` +
-            (sweep.stopped ? ' (stopped early: too many failed)' : '')
+            (sweep.stopped === 'failures' ? ' (stopped early: too many failed)' : '') +
+            (sweep.stopped === 'time' ? ' (stopped early: out of its twenty minutes)' : '')
           : ' (not looked up in this mode)'),
     ],
   ]

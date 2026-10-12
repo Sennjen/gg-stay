@@ -111,7 +111,7 @@ describe('runJob and the other stores', () => {
         asked: 2,
         gog: 1,
         microsoft: 1,
-        sweep: { attempted: 1, failures: 0, remaining: 0, stopped: false },
+        sweep: { attempted: 1, failures: 0, remaining: 0, stopped: null },
       },
       gog: { status: 'read', references: 1, pricesRead: 1, failed: 0 },
       microsoft: { status: 'read', references: 1, pricesRead: 1, failed: 0 },
@@ -191,7 +191,7 @@ describe('runJob and the other stores', () => {
       attempted: 0,
       failures: 0,
       remaining: 0,
-      stopped: false,
+      stopped: null,
     })
   })
 
@@ -536,7 +536,7 @@ describe('runJob over what the previous build published', () => {
       asked: 2,
       gog: 1,
       microsoft: 1,
-      sweep: { attempted: 2, failures: 0, remaining: 0, stopped: false },
+      sweep: { attempted: 2, failures: 0, remaining: 0, stopped: null },
     })
     expect(nextNight.storeCalls().map((call) => call.path)).toEqual([
       'games/hollow-cradle/stores',
@@ -706,7 +706,7 @@ describe('formatSummary and the other stores', () => {
       stores: {
         references: {
           ...references,
-          sweep: { attempted: 1_200, failures: 14, remaining: 514, stopped: true },
+          sweep: { attempted: 1_200, failures: 14, remaining: 514, stopped: 'failures' },
         },
         gog: { ...read, references: 1_093, pricesRead: 870, requests: 83, offers: 870 },
         microsoft: {
@@ -732,6 +732,26 @@ describe('formatSummary and the other stores', () => {
     )
     expect(summary).toContain(
       '| Exchange rate | not read, and no rate under seven days old is left: none published |',
+    )
+  })
+
+  it('says when the sweep stopped because its time ran out', () => {
+    const summary = formatSummary({
+      ...base,
+      mode: 'full',
+      stores: {
+        references: {
+          ...references,
+          sweep: { attempted: 231, failures: 0, remaining: 1_469, stopped: 'time' },
+        },
+        gog: null,
+        microsoft: null,
+        rate: null,
+      },
+    })
+
+    expect(summary).toContain(
+      'RAWG: 231 lookups this run, 0 failed, 1469 left for the next full run (stopped early: out of its twenty minutes) |',
     )
   })
 
