@@ -14,9 +14,10 @@ import type { RawgGameListItem, RawgList, RawgStoreLink } from '../../../server/
  * | 106 | Ukrainian audio on a game whose name is not the first in the language list  |
  * | 107 | a game Steam refuses to price in the region (`success: false`)              |
  * | 108 | a second priced game, so a halved run is still above the blue/green floor   |
- * | 109 | a non-Steam store only (Nintendo) — priced by nobody                        |
+ * | 109 | no Steam page (Nintendo, and a Microsoft Store link) — priced by Steam never |
  *
- * The payload shapes follow the recorded RAWG and Steam fixtures next to this file.
+ * The payload shapes follow the recorded RAWG and Steam fixtures next to this file. What GOG and
+ * the Microsoft Store answer about games 101 and 109 is in `jobStores.ts`.
  */
 
 const PC = { platform: { id: 4, slug: 'pc', name: 'PC' } }
@@ -305,8 +306,17 @@ export const JOB_STORE_LINKS: Record<number, RawgList<RawgStoreLink>> = {
     results: [{ id: 9, store_id: 1, url: 'https://store.steampowered.com/app/418000/' }],
   },
   109: {
-    count: 1,
-    results: [{ id: 10, store_id: 6, url: 'https://www.nintendo.com/store/products/lost-canton/' }],
+    count: 2,
+    // RAWG's list entry for the game names Nintendo alone, and its links have a Microsoft Store
+    // one as well: the links, not the list, are where a store reference comes from.
+    results: [
+      { id: 10, store_id: 6, url: 'https://www.nintendo.com/store/products/lost-canton/' },
+      {
+        id: 12,
+        store_id: 2,
+        url: 'https://www.microsoft.com/en-us/p/lost-canton/9nlostcant0n?cid=msft_web_chart',
+      },
+    ],
   },
   110: {
     count: 1,

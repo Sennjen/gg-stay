@@ -1,5 +1,6 @@
 import { assertWithinFailureBudget, type JobDeps } from './deps'
-import type { IndexedGame } from '../../server/index/document'
+import { storeLinksOf, storeRefsFromLinks } from './storeRefs'
+import type { IndexedGame, IndexedStoreRefs } from '../../server/index/document'
 import type { RawgList, RawgStoreLink } from '../../server/rawg/types'
 import { steamAppIdFromUrl } from '../../server/steam/steam'
 
@@ -22,6 +23,10 @@ import { steamAppIdFromUrl } from '../../server/steam/steam'
  * is likely rather than exceptional. A failed game is counted and left unresolved — never written
  * as `''`, which would make the failure permanent — and the next run picks it up. Only a stage
  * failing beyond the run's tolerance ends the run.
+ *
+ * The same response carries every other store's link to the game, so the game's GOG page and its
+ * Microsoft product (`storeRefs.ts`) are read from it here and written beside its app id: a game
+ * new to the index costs RAWG one request for all three, not two.
  */
 
 export const APP_ID_BATCH_SIZE = 100
@@ -111,11 +116,17 @@ export async function resolveAppIds(
 
   const pending = candidates.filter((game) => !known.has(game.id))
   let batch: [number, string][] = []
+  let storeRefs: [number, IndexedStoreRefs][] = []
 
   async function flush(): Promise<void> {
     if (batch.length === 0) return
     await deps.writer.setAppIds(batch)
     batch = []
+    // In the same flush, so the two mappings move together. A run cut off between the two writes
+    // loses one request a game at the most: those games have an app id and no store references,
+    // and the sweep asks about them like any game it has no record of.
+    if (storeRefs.length > 0) await deps.writer.setStoreRefs(storeRefs)
+    storeRefs = []
     // The stage is the longest stretch of a first run; the lock needs a sign of life in it.
     await deps.writer.renewLock()
   }
@@ -135,6 +146,10 @@ export async function resolveAppIds(
 
         known.set(game.id, appId)
         batch.push([game.id, appId])
+        // Only from an answer that is a list of links: one that is not says nothing about the
+        // game's other stores, and the sweep asks about it again rather than remember "neither".
+        const links = storeLinksOf(response)
+        if (links) storeRefs.push([game.id, storeRefsFromLinks(links)])
         if (batch.length >= batchSize) await flush()
       } catch {
         failures += 1

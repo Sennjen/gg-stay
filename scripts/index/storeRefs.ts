@@ -1,0 +1,321 @@
+import { MAX_ITEM_FAILURE_RATIO, type JobDeps } from './deps'
+import type { IndexedGame, IndexedStoreRefs } from '../../server/index/document'
+import type { RawgStoreLink } from '../../server/rawg/types'
+
+/**
+ * Which product a game is on GOG and on the Microsoft Store — the two stores, other than Steam,
+ * whose prices the job reads (`offers.ts`) — and the sweep that finds it for the games the index
+ * already held when those prices were added.
+ *
+ * The source is the one the Steam app id has: RAWG's `games/{slug}/stores`, which carries every
+ * store's own link to the game. A link is read by its shape and by nothing else. One that does not
+ * have the shape is no reference, and nothing is ever guessed from a title: a wrong product would
+ * be a wrong price under the game's name, which is the one thing this whole feature must not
+ * show.
+ *
+ * The answer is kept where the app ids are, outside the version prefix and for the life of the
+ * index (`storeref:{rawgId}`), and for the same reason: it costs a RAWG request a game, and RAWG's
+ * monthly quota is what the nightly run lives on. "This game has neither store" is kept too, as
+ * an empty record, or every such game would be asked about again every night.
+ *
+ * A game new to the index gets its references with its app id, from the very same response
+ * (`resolveAppIds`), at no request of its own. Everything else — the games resolved before this
+ * existed, and the games RAWG does not list on Steam, which `resolveAppIds` never asks about — is
+ * swept here: at most `STORE_REF_SWEEP_PER_RUN` lookups in a full run, until every indexed game
+ * has been asked about once.
+ */
+
+/** RAWG lookups one full run may spend on games that have no record yet. */
+export const STORE_REF_SWEEP_PER_RUN = 1200
+
+/** How many records to accumulate before one `setStoreRefs` round trip, as the app ids do. */
+export const STORE_REF_BATCH_SIZE = 100
+
+/** The cursor the sweep keeps: the RAWG id of the last game it asked about. */
+export const STORE_REF_CURSOR = 'storerefs'
+
+/**
+ * Failures the sweep shrugs off before it starts measuring them against what it has attempted.
+ * Past both this and the share a stage tolerates (`MAX_ITEM_FAILURE_RATIO`) it stops for the
+ * night: see `sweepStoreRefs`.
+ */
+export const STORE_REF_TOLERATED_FAILURES = 5
+
+/** The RAWG store ids of GOG and of the Xbox store; `store_id` on a store link row. */
+const GOG_STORE_ID = 5
+const XBOX_STORE_ID = 2
+
+const GOG_HOSTS = new Set(['www.gog.com', 'gog.com'])
+const MICROSOFT_HOSTS = new Set(['www.microsoft.com', 'microsoft.com'])
+const XBOX_HOSTS = new Set(['www.xbox.com', 'xbox.com'])
+
+/** A GOG slug as the catalog spells every one of them: lower-case letters, digits, underscores. */
+const GOG_SLUG = /^[a-z0-9_]{1,200}$/
+/** A Microsoft product id: twelve letters and digits, in either case in a link. */
+const MICROSOFT_PRODUCT_ID = /^[0-9a-z]{12}$/i
+/** The name a Microsoft link carries before the id: letters, digits and hyphens. */
+const MICROSOFT_PRODUCT_NAME = /^[a-z0-9-]{1,200}$/i
+/** A locale as a store puts one in a path: `en`, `fr`, `en-us`, `en-US`. */
+const LOCALE_SEGMENT = /^[a-z]{2}(?:-[a-z]{2,4})?$/i
+
+/** RAWG id to the game's store references; a game that is absent has never been asked about. */
+export type StoreRefMap = Map<number, IndexedStoreRefs>
+
+/**
+ * The segments of an http(s) URL's path on one of `hosts`, or `null` for anything else. Parsed
+ * with `URL`, as `safeExternalUrl` parses, so a host is compared as a host: `gog.com.example` and
+ * `example.com/gog.com/` are neither of them GOG. A query string and a fragment are not part of
+ * the path and are ignored, and so is one trailing slash; any other empty segment is not.
+ */
+function pathSegments(raw: string | null | undefined, hosts: ReadonlySet<string>): string[] | null {
+  if (!raw) return null
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  if (!hosts.has(url.hostname) || url.port !== '') return null
+  const segments = url.pathname.split('/').slice(1)
+  if (segments.at(-1) === '') segments.pop()
+  return segments.some((segment) => segment === '') ? null : segments
+}
+
+/**
+ * The slug of a GOG game page: the one path segment after `/game/`, with or without a locale in
+ * front of it — `https://www.gog.com/game/cyberpunk_2077`, `http://www.gog.com/game/limbo`,
+ * `https://www.gog.com/fr/game/doom_2016` — which is every shape RAWG's links were seen in
+ * (`docs/specs/2026-10-12-other-store-prices-design.md`, "Verified"). `null` for anything else: a
+ * search page, a forum thread, a path with more after the slug, a slug GOG could not have written.
+ */
+export function gogSlugFromUrl(raw: string | null | undefined): string | null {
+  const segments = pathSegments(raw, GOG_HOSTS)
+  if (!segments) return null
+  if (segments.length === 3 && LOCALE_SEGMENT.test(segments[0]!)) segments.shift()
+  if (segments.length !== 2 || segments[0] !== 'game') return null
+  const slug = segments[1]!
+  return GOG_SLUG.test(slug) ? slug : null
+}
+
+/**
+ * The product a Microsoft Store link names: the twelve-character id that ends its path, and the
+ * name in front of it. The shapes are the ones RAWG's links were seen in —
+ * `microsoft.com/en-us/p/{name}/{id}`, `/en-us/store/p/{name}/{id}` and `/en-us/store/r/{name}/{id}`
+ * — and `xbox.com/en-us/games/store/{name}/{id}`, which the design names and no link seen had.
+ * The locale may be missing; a query string (`?cid=msft_web_chart`) is ignored.
+ *
+ * The id comes back in upper case, as Microsoft's catalog spells it, and the name in lower case.
+ * `null` for anything else — an id of eleven or thirteen characters, a path that goes on after
+ * the id, an app page, the Xbox 360 marketplace.
+ */
+export function microsoftProductFromUrl(
+  raw: string | null | undefined,
+): NonNullable<IndexedStoreRefs['microsoft']> | null {
+  const onMicrosoft = pathSegments(raw, MICROSOFT_HOSTS)
+  const segments = onMicrosoft ?? pathSegments(raw, XBOX_HOSTS)
+  if (!segments) return null
+  if (segments.length > 0 && LOCALE_SEGMENT.test(segments[0]!)) segments.shift()
+
+  // What is left has to be one of the product paths, whole: `p/…` and `store/p/…` or `store/r/…`
+  // on microsoft.com, `games/store/…` on xbox.com, and then exactly a name and an id.
+  const marker = segments.slice(0, -2).join('/')
+  const expected = onMicrosoft ? ['p', 'store/p', 'store/r'] : ['games/store']
+  if (segments.length < 3 || !expected.includes(marker)) return null
+
+  const [name, id] = segments.slice(-2) as [string, string]
+  if (!MICROSOFT_PRODUCT_NAME.test(name) || !MICROSOFT_PRODUCT_ID.test(id)) return null
+  return { id: id.toUpperCase(), name: name.toLowerCase() }
+}
+
+/**
+ * The references in one game's store links: the first GOG row whose link is a GOG game page, and
+ * the first Xbox-store row whose link is a Microsoft product. A row is taken for a store only
+ * when RAWG files it under that store *and* the link has that store's shape, so a link in the
+ * wrong row is not a reference either. An empty record when there is neither — which is an answer
+ * worth keeping.
+ */
+export function storeRefsFromLinks(
+  links: readonly RawgStoreLink[] | null | undefined,
+): IndexedStoreRefs {
+  const refs: IndexedStoreRefs = {}
+  for (const link of links ?? []) {
+    if (link?.store_id === GOG_STORE_ID && refs.gog === undefined) {
+      const slug = gogSlugFromUrl(link.url)
+      if (slug) refs.gog = slug
+    }
+    if (link?.store_id === XBOX_STORE_ID && refs.microsoft === undefined) {
+      const product = microsoftProductFromUrl(link.url)
+      if (product) refs.microsoft = product
+    }
+  }
+  return refs
+}
+
+/**
+ * A record as the price stages may use it: only the fields that are what this module would have
+ * written. The mapping outlives every build that writes it, and what is read back from a store is
+ * about to become part of a request to somebody else's server and of a link on a page, so nothing
+ * is taken from it on trust.
+ */
+export function usableStoreRefs(record: IndexedStoreRefs | undefined): IndexedStoreRefs {
+  const refs: IndexedStoreRefs = {}
+  if (typeof record?.gog === 'string' && GOG_SLUG.test(record.gog)) refs.gog = record.gog
+  const product = record?.microsoft
+  if (
+    product &&
+    typeof product.id === 'string' &&
+    /^[0-9A-Z]{12}$/.test(product.id) &&
+    typeof product.name === 'string' &&
+    MICROSOFT_PRODUCT_NAME.test(product.name)
+  ) {
+    refs.microsoft = { id: product.id, name: product.name.toLowerCase() }
+  }
+  return refs
+}
+
+/**
+ * The store links of one RAWG answer to `games/{slug}/stores`, or `null` when the body is not such
+ * an answer. RAWG has been seen sending an empty body under a 200; read as "no links", that would
+ * be remembered for good as "this game has neither store".
+ */
+export function storeLinksOf(body: unknown): RawgStoreLink[] | null {
+  if (body === null || typeof body !== 'object') return null
+  const results = (body as { results?: unknown }).results
+  return Array.isArray(results) ? (results as RawgStoreLink[]) : null
+}
+
+export interface StoreRefsOptions {
+  /** RAWG lookups this run may spend; `STORE_REF_SWEEP_PER_RUN` when omitted. */
+  limit?: number
+  /** How many records to accumulate before one `setStoreRefs` round trip. */
+  batchSize?: number
+}
+
+export interface StoreRefsResult {
+  /** The record of every game of the run that has been asked about, this run or before it. */
+  refs: StoreRefMap
+  /** Games asked about in this run: RAWG requests, whatever came of them. */
+  attempted: number
+  /** Those RAWG would not answer for; they have no record and are asked about again. */
+  failures: number
+  /** Games still without a record when the stage ended: the next full run's work. */
+  remaining: number
+  /** Whether the sweep gave up for the night because too many lookups failed. */
+  stopped: boolean
+}
+
+/**
+ * The stage of a full run that asks RAWG about the games with no record, and hands every stage
+ * after it the mapping for the run's games.
+ *
+ * **Progress is the mapping itself**, as it is for the app ids: a game with a record has been
+ * asked about and is never asked again, so a run that dies has lost at most one unwritten batch.
+ * **The cursor is only where the next run starts.** The games without a record are taken in the
+ * order of their RAWG ids, beginning after the last one the sweep asked about and wrapping round,
+ * so a game RAWG keeps refusing to answer for is met again after all the others have had their
+ * turn rather than first thing every night, at the head of the cap.
+ *
+ * A lookup that fails writes nothing — never the empty "has neither store", which would make one
+ * timeout permanent — and the game is asked about again on a later run.
+ *
+ * **It cannot cost the run.** These references only add prices to a catalog that is complete
+ * without them, so the stage does not hold a failing RAWG to the budget the app ids do: past
+ * `STORE_REF_TOLERATED_FAILURES` failures and a twentieth of what it attempted, it stops and
+ * leaves the rest for the next full run. That also bounds its time — an outage answers each
+ * lookup with two timeouts, and twelve hundred of those would outlast the workflow.
+ */
+export async function sweepStoreRefs(
+  deps: JobDeps,
+  games: IndexedGame[],
+  options: StoreRefsOptions = {},
+): Promise<StoreRefsResult> {
+  const limit = options.limit ?? STORE_REF_SWEEP_PER_RUN
+  const batchSize = options.batchSize ?? STORE_REF_BATCH_SIZE
+  const known = await deps.writer.getStoreRefs(games.map((game) => game.id))
+
+  const pending = games
+    .filter((game) => !known.has(game.id))
+    .sort((left, right) => left.id - right.id)
+  if (pending.length === 0) {
+    deps.log(`store references: every one of ${games.length} games has been asked about`)
+    return { refs: known, attempted: 0, failures: 0, remaining: 0, stopped: false }
+  }
+
+  const stored = await deps.writer.getCursor(STORE_REF_CURSOR)
+  const after = stored === null ? Number.NaN : Number(stored)
+  const start = Number.isFinite(after) ? pending.findIndex((game) => game.id > after) : 0
+  const queue = [...pending.slice(Math.max(start, 0)), ...pending.slice(0, Math.max(start, 0))]
+
+  let attempted = 0
+  let failures = 0
+  let stopped = false
+  let batch: [number, IndexedStoreRefs][] = []
+  let lastAsked: number | null = null
+
+  async function flush(): Promise<void> {
+    if (batch.length > 0) await deps.writer.setStoreRefs(batch)
+    batch = []
+    if (lastAsked !== null) await deps.writer.setCursor(STORE_REF_CURSOR, String(lastAsked))
+    lastAsked = null
+    // Twelve hundred lookups are five minutes of a run; the lock needs a sign of life in them.
+    await deps.writer.renewLock()
+  }
+
+  try {
+    for (const game of queue.slice(0, Math.max(0, limit))) {
+      attempted += 1
+      lastAsked = game.id
+      try {
+        const links = storeLinksOf(await deps.rawg(`games/${game.slug}/stores`))
+        if (!links) throw new Error('RAWG answered without a list of store links')
+        const refs = storeRefsFromLinks(links)
+        known.set(game.id, refs)
+        batch.push([game.id, refs])
+      } catch {
+        failures += 1
+        deps.log(`store references: ${game.slug} could not be read, leaving it for a later run`)
+        if (
+          failures > STORE_REF_TOLERATED_FAILURES &&
+          failures > attempted * MAX_ITEM_FAILURE_RATIO
+        ) {
+          stopped = true
+          break
+        }
+      }
+      if (attempted % batchSize === 0) await flush()
+    }
+  } finally {
+    // Whatever was read before the stage ended is quota already spent, and worth keeping.
+    await flush()
+  }
+
+  const remaining = pending.length - (attempted - failures)
+  // Nothing left to sweep: the cursor has done its work, and a key nobody reads is not kept.
+  if (remaining === 0) await deps.writer.clearCursor(STORE_REF_CURSOR)
+
+  deps.log(
+    `store references: ${attempted - failures} games read this run, ${failures} failed, ${remaining} left for the next full run` +
+      (stopped ? ' — stopped early, too many lookups failed' : ''),
+  )
+  return { refs: known, attempted, failures, remaining, stopped }
+}
+
+/** How many of the run's games the mapping names a GOG page and a Microsoft product for. */
+export function countStoreRefs(
+  games: readonly IndexedGame[],
+  refs: StoreRefMap,
+): { asked: number; gog: number; microsoft: number } {
+  let asked = 0
+  let gog = 0
+  let microsoft = 0
+  for (const game of games) {
+    const record = refs.get(game.id)
+    if (record === undefined) continue
+    asked += 1
+    const usable = usableStoreRefs(record)
+    if (usable.gog) gog += 1
+    if (usable.microsoft) microsoft += 1
+  }
+  return { asked, gog, microsoft }
+}
