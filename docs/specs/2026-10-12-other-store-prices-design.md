@@ -115,7 +115,7 @@ Manual full runs finish the sweep of store references (three runs at 1 200 a run
 
 ## Verified on 2026-10-12
 
-Established before any code was written, with 31 plain GET requests to the three endpoints (17 to GOG, 9 to Microsoft, 5 to the bank), at most one a second, under a `User-Agent` naming this repository; and 13 read-only queries to this site's own GraphQL for the store links RAWG gives 36 games. Where a fact contradicts a section above, the fact stands and the code follows it.
+Established with 34 plain GET requests to the three endpoints (18 to GOG, 10 to Microsoft, 6 to the bank), at most one a second, under a `User-Agent` naming this repository; and 13 read-only queries to this site's own GraphQL for the store links RAWG gives 36 games. All but three were made before any code was written. The last three went through the refresh job's own transports and parsers once they existed — one page of the catalog, one batch of the 35 product ids, one day's rate — and read what the probes had: 100 products, 99 of them priced and every `storeLink` the product's own; the same nine prices; the rate of the day asked for. Where a fact contradicts a section above, the fact stands and the code follows it.
 
 ### GOG — `https://catalog.gog.com/v1/catalog`
 
@@ -152,5 +152,5 @@ Probed with the product ids of 35 real RAWG links: those of the 30 most popular 
 ### The National Bank — `https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=USD&json`
 
 - **Shape**: a JSON array of one object, `{ "r030": 840, "txt": "Долар США", "rate": 44.9567, "cc": "USD", "exchangedate": "13.10.2026", "special": "N" }`.
-- **Without a date it answers the newest rate the bank has set, which in the afternoon is tomorrow's**: asked on 12.10.2026 at 17:06 Kyiv time it answered the rate of 13.10.2026. With `&date=YYYYMMDD` it answers the rate in force on that day and repeats the day in `exchangedate`. The job asks for the day it runs on, in Kyiv, and takes an answer only if it names that day.
+- **Without a date it answers the newest rate the bank has set, which in the afternoon is tomorrow's**: asked on 12.10.2026 at 17:06 Kyiv time it answered 44.9567, the rate of 13.10.2026. With `&date=YYYYMMDD` it answers the rate in force on that day and repeats the day in `exchangedate`: asked for `20261012` the same afternoon, it answered 44.8894 for 12.10.2026. The job asks for the day it runs on, in Kyiv, and takes an answer only if it names that day.
 - **A weekend or a holiday**: the rate in force that day, under that day's date. Saturday 10.10.2026 and Sunday 11.10.2026 both answered 44.8526; 01.01.2026 answered 42.3532 (with `special: null`). There is no day it answers nothing for.
