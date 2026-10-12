@@ -449,7 +449,8 @@ describe('cheaperAt on the deal of the day', () => {
 describe('the two things every path shares', () => {
   it('reads the rate out of the request’s one read of the metadata, and the request’s clock', async () => {
     const index = countCalls(await publishTestIndex(SEED, META))
-    const shared = { index, now: NOW, today: TODAY } as Parameters<typeof cardTerms>[0]
+    // The clock and the index are all `cardTerms` reads of a request.
+    const shared = { index, now: NOW, today: TODAY } as unknown as Parameters<typeof cardTerms>[0]
 
     expect(await cardTerms(shared)).toEqual({ now: NOW, rate: DEV_FIXTURE_EXCHANGE_RATE })
     await cardTerms(shared)
