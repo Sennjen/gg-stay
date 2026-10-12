@@ -306,7 +306,7 @@ describe('POST /api/ask — the response cache', () => {
     const { tookMs: _first, ...firstAnswer } = first.body as Record<string, unknown>
     const { tookMs: _second, ...secondAnswer } = second.body as Record<string, unknown>
     expect(secondAnswer).toEqual(firstAnswer)
-    expect(logs.map((line) => line.cache)).toEqual(['miss', 'hit'])
+    expect(logs.map((line) => ('cache' in line ? line.cache : undefined))).toEqual(['miss', 'hit'])
   })
 
   it('keeps the locales apart', async () => {

@@ -84,14 +84,14 @@ describe('the landing shelves', () => {
   })
 
   it('rank only "best of this year" themselves: forty most added, twenty votes or more', () => {
-    expect(shelfDefinition('BEST_THIS_YEAR').ratingPick).toEqual({ pool: 40, minRatings: 20 })
+    expect(shelfDefinition('BEST_THIS_YEAR')!.ratingPick).toEqual({ pool: 40, minRatings: 20 })
     expect(SHELVES.filter((shelf) => shelf.ratingPick).map((shelf) => shelf.id)).toEqual([
       'BEST_THIS_YEAR',
     ])
   })
 
   it('say so on the link when it opens the pool rather than the shelf', () => {
-    expect(shelfDefinition('BEST_THIS_YEAR').moreLabelKey).toBe('home.shelves.bestThisYearAll')
+    expect(shelfDefinition('BEST_THIS_YEAR')!.moreLabelKey).toBe('home.shelves.bestThisYearAll')
     expect(SHELVES.filter((shelf) => shelf.moreLabelKey).map((shelf) => shelf.id)).toEqual([
       'BEST_THIS_YEAR',
     ])

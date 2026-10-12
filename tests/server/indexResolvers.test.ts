@@ -643,7 +643,7 @@ describe('a slow but healthy index', () => {
     // A call that "takes" `ms` finishes at the later of (the clock when it started + ms) and the
     // clock as it stands, and drags the clock with it — the shape of a wall clock under work that
     // may or may not overlap.
-    const take = async <T>(name: string, ms: number, value: T): Promise<T> => {
+    const take = async <T>(name: string, ms: number, value: T | Promise<T>): Promise<T> => {
       const startedAt = now
       await Promise.resolve()
       const endsAt = startedAt + ms
