@@ -13,6 +13,7 @@ import { safeExternalUrl } from '../../../shared/url'
 import rawgStardewStores from '../../fixtures/rawg/game-stardew-valley-stores.json' with { type: 'json' }
 import rawgWitcherStores from '../../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json' with { type: 'json' }
 import bankRate from '../../fixtures/nbu/exchange.json' with { type: 'json' }
+import gogCatalog from '../../fixtures/gog/catalog.json' with { type: 'json' }
 import published from '../../fixtures/index/published.json' with { type: 'json' }
 
 /**
@@ -224,7 +225,7 @@ describe('the published index fixture', () => {
       }
 
       expect(titleOf(3328, 'gog')).toEqual({
-        title: 'The Witcher 3: Wild Hunt - Game of the Year Edition',
+        title: 'The Witcher 3: Wild Hunt — Remastered',
         differs: true,
       })
       expect(titleOf(654, 'xbox-store')).toEqual({ title: 'Stardew Valley', differs: false })
@@ -242,6 +243,28 @@ describe('the published index fixture', () => {
           expect(Array.from(offer.title).length).toBeLessThanOrEqual(MAX_OFFER_TITLE_LENGTH)
         }
       }
+    })
+
+    /**
+     * The Witcher 3's GOG offer is the design's example, and the one a development page links
+     * out from, so it names a product GOG's catalog really holds for Ukraine: the recorded pack,
+     * at its own address and under its own title. The slug RAWG's link carries for the game is
+     * not in that catalog, and a seed naming it would lead nowhere.
+     */
+    it('names, for The Witcher 3, a product GOG’s recorded catalog holds — not the slug of RAWG’s link', () => {
+      const offer = offerOf(3328, 'gog')!
+      const product = gogCatalog.products.find((candidate) => candidate.storeLink === offer.url)
+
+      expect(product).toMatchObject({
+        slug: 'the_witcher_3_wild_hunt_game_of_the_year_edition',
+        productType: 'pack',
+        title: offer.title,
+      })
+      const linked = rawgWitcherStores.results.find((link) => link.store_id === 5)!.url
+      expect(linked.endsWith('/game/the_witcher_3_wild_hunt')).toBe(true)
+      expect(gogCatalog.products.map((candidate) => candidate.slug)).not.toContain(
+        'the_witcher_3_wild_hunt',
+      )
     })
 
     it('offers a store only where the game is listed on it, and RAWG’s fixture links it', () => {

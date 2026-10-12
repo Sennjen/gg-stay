@@ -159,12 +159,12 @@ describe('createGameIndex', () => {
     expect(witcher?.offers).toEqual([
       {
         store: 'gog',
-        title: 'The Witcher 3: Wild Hunt - Game of the Year Edition',
+        title: 'The Witcher 3: Wild Hunt — Remastered',
         amount: 899,
         regularAmount: 3999,
         currency: 'USD',
         discountPercent: 78,
-        url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt',
+        url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition',
         // Read five and three quarter hours before the run, as recorded.
         updatedAt: '2026-09-20T01:15:00.000Z',
       },

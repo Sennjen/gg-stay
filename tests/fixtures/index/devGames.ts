@@ -38,12 +38,20 @@ import type {
  * the National Bank's as recorded (`tests/fixtures/nbu/exchange.json`), so the first row is the
  * design's own example: $8.99 is ≈ 404 ₴.
  *
+ * The Witcher 3's GOG product is recorded too, though its price is not: the pack GOG's catalog
+ * holds for Ukraine, under its own slug and the title the catalog gave it on 2026-10-12
+ * (`tests/fixtures/gog/catalog.json`). The slug RAWG's link still carries for the game,
+ * `the_witcher_3_wild_hunt`, is in that catalog no longer, so a seed that named it would send a
+ * development page to an address GOG does not sell at. A real run reads no GOG price for this
+ * game for the same reason — nothing is guessed from a title — and the seed stands in for a game
+ * whose link does name the product.
+ *
  * Each offer also carries, or does not, what the store calls the product (`IndexedOffer.title`)
  * — again one case each of what a page has to tell apart from the game's own name:
  *
  * | game                 | the store's title                                   | against the name  |
  * | -------------------- | --------------------------------------------------- | ----------------- |
- * | The Witcher 3        | The Witcher 3: Wild Hunt - Game of the Year Edition | another edition   |
+ * | The Witcher 3        | The Witcher 3: Wild Hunt — Remastered               | another edition   |
  * | Stardew Valley       | Stardew Valley                                      | the same          |
  * | Metro Exodus         | METRO EXODUS                                        | the same, but for |
  * |                      |                                                     | its capitals      |
@@ -158,13 +166,14 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     // it — so the game page knows which Steam app to ask about, and which store page to name,
     // before RAWG has said anything. The same goes for the two games below.
     steamAppId: '292030',
-    // GOG in dollars, at the page RAWG's store-link fixture names, and clearly below Steam:
-    // $8.99 is ≈ 404 ₴ at the fixture's rate, against 675 ₴. What GOG sells there is another
-    // edition than the game's name says, and its title says which.
+    // GOG in dollars, and clearly below Steam: $8.99 is ≈ 404 ₴ at the fixture's rate, against
+    // 675 ₴. The product is the pack GOG's catalog holds for Ukraine, and the title is the
+    // catalog's own for it, dash and all: another edition than the game's name says, which is
+    // what the title is there to tell a page.
     offers: [
       gogOffer(
-        'the_witcher_3_wild_hunt',
-        'The Witcher 3: Wild Hunt - Game of the Year Edition',
+        'the_witcher_3_wild_hunt_game_of_the_year_edition',
+        'The Witcher 3: Wild Hunt — Remastered',
         899,
         3999,
       ),
