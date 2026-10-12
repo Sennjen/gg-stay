@@ -4,7 +4,9 @@ import { collectCandidates } from '../../../scripts/index/candidates'
 import {
   countStoreRefs,
   gogSlugFromUrl,
+  listedOfferStores,
   microsoftProductFromUrl,
+  needsStoreLookup,
   STORE_REF_CURSOR,
   STORE_REF_SWEEP_PER_RUN,
   storeLinksOf,
@@ -12,6 +14,7 @@ import {
   sweepStoreRefs,
   usableStoreRefs,
 } from '../../../scripts/index/storeRefs'
+import type { IndexedGame, IndexedStoreRefs } from '../../../server/index/document'
 import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
 import { JOB_MICROSOFT_ID } from '../../fixtures/index/jobStores'
 import { createJobHarness, type JobHarness } from './harness'
@@ -167,12 +170,40 @@ describe('storeRefsFromLinks', () => {
     ).toEqual({ gog: 'cyberpunk_2077', microsoft: { id: 'BX3M8L83BBRW', name: 'cyberpunk-2077' } })
   })
 
-  it('answers with an empty record for a game with neither, which is an answer', () => {
-    expect(
-      storeRefsFromLinks([{ store_id: 1, url: 'https://store.steampowered.com/app/620/' }]),
-    ).toEqual({})
+  it('says nothing about a store the game is neither linked to nor listed on', () => {
+    const steamOnly = [{ store_id: 1, url: 'https://store.steampowered.com/app/620/' }]
+
+    expect(storeRefsFromLinks(steamOnly)).toEqual({})
+    expect(storeRefsFromLinks(steamOnly, ['steam', 'epic-games'])).toEqual({})
     expect(storeRefsFromLinks([])).toEqual({})
     expect(storeRefsFromLinks(null)).toEqual({})
+  })
+
+  it('records a store the game is listed on and has no link for as asked, with nothing to read', () => {
+    const steamOnly = [{ store_id: 1, url: 'https://store.steampowered.com/app/620/' }]
+
+    expect(storeRefsFromLinks(steamOnly, ['steam', 'gog'])).toEqual({ gog: null })
+    expect(storeRefsFromLinks(steamOnly, ['xbox-store'])).toEqual({ microsoft: null })
+    expect(storeRefsFromLinks([], ['gog', 'xbox-store'])).toEqual({ gog: null, microsoft: null })
+    // A link of the store that is not a product page is no link to read either.
+    expect(
+      storeRefsFromLinks(
+        [{ store_id: 5, url: 'https://www.gog.com/en/games?query=limbo' }],
+        ['gog'],
+      ),
+    ).toEqual({ gog: null })
+  })
+
+  it('keeps a reference a link gives, whether or not the list names the store', () => {
+    const links = [
+      { store_id: 5, url: 'https://www.gog.com/game/limbo' },
+      { store_id: 2, url: 'https://www.microsoft.com/en-us/p/limbo/btqmhk78zpf9' },
+    ]
+    const both = { gog: 'limbo', microsoft: { id: 'BTQMHK78ZPF9', name: 'limbo' } }
+
+    expect(storeRefsFromLinks(links, [])).toEqual(both)
+    expect(storeRefsFromLinks(links, ['gog'])).toEqual(both)
+    expect(storeRefsFromLinks(links, ['gog', 'xbox-store'])).toEqual(both)
   })
 
   it('takes a link only from the row of its own store', () => {
@@ -222,6 +253,11 @@ describe('usableStoreRefs', () => {
     expect(usableStoreRefs(undefined)).toEqual({})
   })
 
+  it('has no reference for a store recorded as asked with nothing to read', () => {
+    expect(usableStoreRefs({ gog: null, microsoft: null })).toEqual({})
+    expect(usableStoreRefs({ gog: 'limbo', microsoft: null })).toEqual({ gog: 'limbo' })
+  })
+
   it('drops a field no link could have produced, and keeps the other', () => {
     const corrupt = (record: unknown) => usableStoreRefs(record as never)
     expect(
@@ -237,11 +273,57 @@ describe('usableStoreRefs', () => {
   })
 })
 
+describe('needsStoreLookup', () => {
+  const game = (...stores: string[]) => ({ stores })
+  const limbo = { id: 'BTQMHK78ZPF9', name: 'limbo' }
+
+  it('is the documents’ own list of stores that says which games are asked about', () => {
+    // The slugs the site knows the two stores by, which is what a document's `stores` holds.
+    expect(listedOfferStores(game('steam', 'gog', 'xbox-store', 'nintendo'))).toEqual([
+      'gog',
+      'xbox-store',
+    ])
+    expect(listedOfferStores(game('steam', 'epic-games', 'playstation-store'))).toEqual([])
+    expect(listedOfferStores(game())).toEqual([])
+  })
+
+  it('never asks about a game on neither store, whatever its record', () => {
+    expect(needsStoreLookup(game('steam', 'nintendo'), undefined)).toBe(false)
+    expect(needsStoreLookup(game(), undefined)).toBe(false)
+    expect(needsStoreLookup(game('steam'), {})).toBe(false)
+  })
+
+  it('asks about a listed game with no record, and not again once the store has an answer', () => {
+    expect(needsStoreLookup(game('gog'), undefined)).toBe(true)
+    expect(needsStoreLookup(game('gog'), {})).toBe(true)
+    expect(needsStoreLookup(game('gog'), { gog: 'limbo' })).toBe(false)
+    // "No link to read" is an answer.
+    expect(needsStoreLookup(game('gog'), { gog: null })).toBe(false)
+    expect(needsStoreLookup(game('xbox-store'), { microsoft: limbo })).toBe(false)
+    expect(needsStoreLookup(game('xbox-store'), { microsoft: null })).toBe(false)
+  })
+
+  it('asks again when the game gains a store its record says nothing about', () => {
+    expect(needsStoreLookup(game('gog', 'xbox-store'), { gog: 'limbo' })).toBe(true)
+    expect(needsStoreLookup(game('gog', 'xbox-store'), { microsoft: null })).toBe(true)
+    expect(needsStoreLookup(game('gog', 'xbox-store'), { gog: null, microsoft: limbo })).toBe(false)
+    // A reference a link gave before the list named the store counts as its answer.
+    expect(needsStoreLookup(game('xbox-store'), { gog: 'limbo', microsoft: limbo })).toBe(false)
+  })
+})
+
 async function candidatesOf(harness: JobHarness) {
   const { games } = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
   harness.calls.length = 0
   return games
 }
+
+/**
+ * The same games with RAWG listing every one of them on GOG, so that all nine wait to be asked.
+ * Their links are the catalog's own: one GOG page (101), one Microsoft product (109).
+ */
+const allOnGog = (games: IndexedGame[]): IndexedGame[] =>
+  games.map((game) => ({ ...game, stores: [...new Set([...game.stores, 'gog'])] }))
 
 const asked = (harness: JobHarness) => harness.storeCalls().map((call) => call.path)
 const storesOf = (...slugs: string[]) => slugs.map((slug) => `games/${slug}/stores`)
@@ -259,47 +341,94 @@ const SLUGS = [
   'lost-canton',
 ]
 
+const LOST_CANTON = { microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' } }
+
 describe('sweepStoreRefs', () => {
-  it('asks RAWG about every game with no record and keeps what the links say', async () => {
+  it('asks RAWG about the games it lists on GOG or on the Xbox store, and about no other', async () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)
 
     const result = await sweepStoreRefs(harness.deps, games)
 
-    expect(asked(harness)).toEqual(storesOf(...SLUGS))
-    expect(result).toMatchObject({ attempted: 9, failures: 0, remaining: 0, stopped: false })
+    // Of nine games, two: 101 is on GOG and 109 on the Xbox store.
+    expect(asked(harness)).toEqual(storesOf('hollow-cradle', 'lost-canton'))
+    expect(result).toMatchObject({ attempted: 2, failures: 0, remaining: 0, stopped: false })
     expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
-    expect(result.refs.get(109)).toEqual({
-      microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' },
-    })
-    // Asked, and neither store: an empty record, not a missing one.
-    expect(result.refs.get(102)).toEqual({})
-    expect(result.refs.get(103)).toEqual({})
-    expect(result.refs.size).toBe(9)
-    expect(await harness.writer.getStoreRefs([101, 103, 109, 999])).toEqual(
-      new Map([
+    expect(result.refs.get(109)).toEqual(LOST_CANTON)
+    // A game on neither store was not asked, and nothing is remembered about it.
+    expect(result.refs.size).toBe(2)
+    expect(await harness.writer.getStoreRefs(games.map((game) => game.id))).toEqual(
+      new Map<number, IndexedStoreRefs>([
         [101, { gog: 'hollow_cradle' }],
-        [103, {}],
-        [109, { microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' } }],
+        [109, LOST_CANTON],
       ]),
     )
-    expect(countStoreRefs(games, result.refs)).toEqual({ asked: 9, gog: 1, microsoft: 1 })
+    expect(countStoreRefs(games, result.refs)).toEqual({
+      listed: 2,
+      asked: 2,
+      gog: 1,
+      microsoft: 1,
+    })
   })
 
-  it('asks about a game once in the life of the index, the ones with neither store included', async () => {
+  it('remembers a listed store it found no link for, and does not ask about it again', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
-    await sweepStoreRefs(harness.deps, games)
+    const games = allOnGog(await candidatesOf(harness))
+
+    const result = await sweepStoreRefs(harness.deps, games)
+
+    expect(asked(harness)).toEqual(storesOf(...SLUGS))
+    expect(result).toMatchObject({ attempted: 9, failures: 0, remaining: 0 })
+    expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    // Listed on GOG, and RAWG has no GOG link for it: an answer, kept as one.
+    expect(result.refs.get(102)).toEqual({ gog: null })
+    expect(result.refs.get(103)).toEqual({ gog: null })
+    expect(result.refs.get(109)).toEqual({ gog: null, ...LOST_CANTON })
+    expect(countStoreRefs(games, result.refs)).toEqual({
+      listed: 9,
+      asked: 9,
+      gog: 1,
+      microsoft: 1,
+    })
 
     const nextNight = createJobHarness({ writer: harness.writer })
     const getCursor = vi.spyOn(nextNight.writer, 'getCursor')
-    const result = await sweepStoreRefs(nextNight.deps, games)
+    const again = await sweepStoreRefs(nextNight.deps, games)
 
     expect(nextNight.calls).toHaveLength(0)
     // Nothing to sweep, so not even the cursor is read.
     expect(getCursor).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ attempted: 0, failures: 0, remaining: 0 })
-    expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    expect(again).toMatchObject({ attempted: 0, failures: 0, remaining: 0 })
+    expect(again.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+  })
+
+  it('asks about a game when it gains one of the two stores, and not before', async () => {
+    const harness = createJobHarness()
+    const games = await candidatesOf(harness)
+    await sweepStoreRefs(harness.deps, games)
+    const byId = (list: IndexedGame[], id: number) => list.find((game) => game.id === id)!
+
+    // A later night: RAWG now lists 102 on GOG, which it was on neither store before, and 101,
+    // already asked about GOG, on the Xbox store as well.
+    const later = games.map((game) => ({ ...game, stores: [...game.stores] }))
+    byId(later, 102).stores.push('gog')
+    byId(later, 101).stores.push('xbox-store')
+    const nextNight = createJobHarness({ writer: harness.writer })
+    nextNight.answerNextWith((call) => call.path === 'games/neon-district/stores', {
+      results: [{ store_id: 5, url: 'https://www.gog.com/game/neon_district' }],
+    })
+
+    const result = await sweepStoreRefs(nextNight.deps, later)
+
+    expect(asked(nextNight)).toEqual(storesOf('hollow-cradle', 'neon-district'))
+    expect(result.refs.get(102)).toEqual({ gog: 'neon_district' })
+    // The whole of what RAWG links now: the GOG page it had, and no Microsoft product to read.
+    expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle', microsoft: null })
+    expect(result).toMatchObject({ attempted: 2, remaining: 0 })
+
+    const after = createJobHarness({ writer: harness.writer })
+    await sweepStoreRefs(after.deps, later)
+    expect(after.calls).toHaveLength(0)
   })
 
   it('spends twelve hundred lookups a run unless told otherwise', () => {
@@ -308,7 +437,7 @@ describe('sweepStoreRefs', () => {
 
   it('stops at the cap and goes on from the cursor on the next run', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
 
     const first = await sweepStoreRefs(harness.deps, games, { limit: 4 })
 
@@ -316,6 +445,7 @@ describe('sweepStoreRefs', () => {
     expect(first).toMatchObject({ attempted: 4, failures: 0, remaining: 5 })
     // The id of the last game asked about.
     expect(await harness.writer.getCursor(STORE_REF_CURSOR)).toBe('104')
+    expect(countStoreRefs(games, first.refs)).toMatchObject({ listed: 9, asked: 4 })
 
     const second = createJobHarness({ writer: harness.writer })
     expect(await sweepStoreRefs(second.deps, games, { limit: 4 })).toMatchObject({
@@ -330,20 +460,20 @@ describe('sweepStoreRefs', () => {
     expect(asked(third)).toEqual(storesOf('lost-canton'))
     expect(last).toMatchObject({ attempted: 1, remaining: 0 })
     expect(last.refs.size).toBe(9)
-    // Every game has been asked about: the cursor is not kept for nobody to read.
+    // Every listed game has been asked about: the cursor is not kept for nobody to read.
     expect(await third.writer.getCursor(STORE_REF_CURSOR)).toBeNull()
   })
 
   it('writes no record for a lookup that failed and asks again on the next run', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
     harness.failNext((call) => call.path === 'games/quiet-orbit/stores')
 
     const first = await sweepStoreRefs(harness.deps, games)
 
     expect(first).toMatchObject({ attempted: 9, failures: 1, remaining: 1, stopped: false })
     expect(first.refs.has(105)).toBe(false)
-    // Not written as "has neither store": that would make one timeout permanent.
+    // Not written as "no link to read": that would make one timeout permanent.
     expect(await harness.writer.getStoreRefs([105])).toEqual(new Map())
     expect(harness.logs).toContain(
       'store references: quiet-orbit could not be read, leaving it for a later run',
@@ -354,10 +484,10 @@ describe('sweepStoreRefs', () => {
 
     expect(asked(nextNight)).toEqual(storesOf('quiet-orbit'))
     expect(second).toMatchObject({ attempted: 1, failures: 0, remaining: 0 })
-    expect(second.refs.get(105)).toEqual({})
+    expect(second.refs.get(105)).toEqual({ gog: null })
   })
 
-  it('does not remember an answer that is no list of links as "neither store"', async () => {
+  it('does not remember an answer that is no list of links as "no link to read"', async () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)
     harness.answerNextWith((call) => call.path === 'games/hollow-cradle/stores', null)
@@ -370,7 +500,7 @@ describe('sweepStoreRefs', () => {
 
   it('meets a game RAWG keeps failing on after the others, not first every night', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
     const failing = (call: { path: string }) => call.path === 'games/hollow-cradle/stores'
 
     harness.failNext(failing)
@@ -396,7 +526,7 @@ describe('sweepStoreRefs', () => {
 
   it('gives up for the night, without failing the run, when RAWG fails wholesale', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
     for (const slug of SLUGS) harness.failNext((call) => call.path === `games/${slug}/stores`)
 
     const result = await sweepStoreRefs(harness.deps, games)
@@ -409,7 +539,7 @@ describe('sweepStoreRefs', () => {
 
   it('carries on through scattered failures', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
     for (const slug of ['hollow-cradle', 'frost-relay', 'amber-trail', 'silent-meridian']) {
       harness.failNext((call) => call.path === `games/${slug}/stores`)
     }
@@ -421,7 +551,7 @@ describe('sweepStoreRefs', () => {
 
   it('writes in batches, moves the cursor with each and renews the lock', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
     const setStoreRefs = vi.spyOn(harness.writer, 'setStoreRefs')
     const setCursor = vi.spyOn(harness.writer, 'setCursor')
     const renewLock = vi.spyOn(harness.writer, 'renewLock')
@@ -443,7 +573,7 @@ describe('sweepStoreRefs', () => {
 
   it('keeps what it had read when the stage dies between two batches', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
     // The index takes the first batch and refuses every one after it: the stage fails, and that
     // is the index failing, not RAWG.
     const write = harness.writer.setStoreRefs.bind(harness.writer)
@@ -469,7 +599,7 @@ describe('sweepStoreRefs', () => {
 })
 
 describe('resolveAppIds and the store references', () => {
-  it('writes the references of every game it looks up, from the same response', async () => {
+  it('writes the references of a game it looks up, from the same response', async () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)
 
@@ -478,12 +608,12 @@ describe('resolveAppIds and the store references', () => {
     // Seven Steam candidates, seven requests — none of them made twice for the other stores.
     expect(harness.storeCalls()).toHaveLength(7)
     const refs = await harness.writer.getStoreRefs(games.map((game) => game.id))
-    expect([...refs.keys()].sort()).toEqual([101, 102, 104, 105, 106, 107, 108])
-    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
-    expect(refs.get(104)).toEqual({})
+    // One of the seven is on GOG. The other six are on neither store: nothing is written about
+    // them, so that a game which gains a store later is still asked about it.
+    expect(refs).toEqual(new Map([[101, { gog: 'hollow_cradle' }]]))
   })
 
-  it('leaves the sweep only the games it never asks about', async () => {
+  it('leaves the sweep only the listed games it never asks about', async () => {
     const harness = createJobHarness()
     const games = await candidatesOf(harness)
     await resolveAppIds(harness.deps, games)
@@ -491,17 +621,37 @@ describe('resolveAppIds and the store references', () => {
 
     const result = await sweepStoreRefs(harness.deps, games)
 
-    // 103 has no store at all and 109 is not on Steam: nobody had asked about them.
-    expect(asked(harness)).toEqual(storesOf('paper-harbour', 'lost-canton'))
-    expect(result.refs.get(109)).toEqual({
-      microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' },
-    })
-    expect(result.refs.size).toBe(9)
+    // 109 is on the Xbox store and not on Steam: nobody had asked about it. 103, on no store at
+    // all, is asked about by nobody.
+    expect(asked(harness)).toEqual(storesOf('lost-canton'))
+    expect(result.refs.get(109)).toEqual(LOST_CANTON)
+    expect(result.refs.size).toBe(2)
   })
 
-  it('writes no references for a lookup that failed, and none of "neither" for a bad answer', async () => {
+  it('records a listed store the response has no link for, and a link the list does not name', async () => {
     const harness = createJobHarness()
-    const games = await candidatesOf(harness)
+    const games = allOnGog(await candidatesOf(harness))
+    // 102's links name a Microsoft product though RAWG's list does not put it on the Xbox store.
+    harness.answerNextWith((call) => call.path === 'games/neon-district/stores', {
+      results: [
+        { store_id: 1, url: 'https://store.steampowered.com/app/412000/' },
+        { store_id: 2, url: 'https://www.microsoft.com/en-us/p/neon-district/9nneondistr1' },
+      ],
+    })
+
+    await resolveAppIds(harness.deps, games)
+
+    const refs = await harness.writer.getStoreRefs([102, 104])
+    expect(refs.get(102)).toEqual({
+      gog: null,
+      microsoft: { id: '9NNEONDISTR1', name: 'neon-district' },
+    })
+    expect(refs.get(104)).toEqual({ gog: null })
+  })
+
+  it('writes no references for a lookup that failed, and none for a bad answer', async () => {
+    const harness = createJobHarness()
+    const games = allOnGog(await candidatesOf(harness))
     harness.failNext((call) => call.path === 'games/amber-trail/stores')
     // An answer without a list: the app id stage has always read it as "no Steam page".
     harness.answerNextWith((call) => call.path === 'games/deep-signal/stores', { count: 0 })
@@ -512,5 +662,13 @@ describe('resolveAppIds and the store references', () => {
     expect(refs.has(106)).toBe(false)
     expect(refs.has(107)).toBe(false)
     expect(await harness.writer.getAppIds([107])).toEqual(new Map([[107, '']]))
+
+    // Both are on GOG, so the sweep asks about them — and about 103 and 109, which are not on
+    // Steam and were never the app id stage's to ask about.
+    harness.calls.length = 0
+    await sweepStoreRefs(harness.deps, games)
+    expect(asked(harness)).toEqual(
+      storesOf('paper-harbour', 'amber-trail', 'deep-signal', 'lost-canton'),
+    )
   })
 })

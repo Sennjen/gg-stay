@@ -949,16 +949,25 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         }
         await adapter.writer.setStoreRefs([
           [3328, witcher],
-          // Asked about, and on neither store: an answer of its own, not an absence.
+          // A record that says nothing of either store, which is not the same as no record.
           [4200, {}],
           [654, { microsoft: { id: 'C3D891Z6TNQM', name: 'stardew-valley' } }],
+          // Asked about GOG, and there was no link to read: `null` is the answer, and is kept.
+          [13537, { gog: null }],
+          [41494, { gog: 'cyberpunk_2077', microsoft: null }],
         ])
         await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
 
-        const refs = await adapter.writer.getStoreRefs([3328, 4200, 654, 5000])
+        const refs = await adapter.writer.getStoreRefs([3328, 4200, 654, 13537, 41494, 5000])
         expect(refs.get(3328)).toEqual(witcher)
         expect(refs.get(4200)).toEqual({})
         expect(refs.get(654)).toEqual({ microsoft: { id: 'C3D891Z6TNQM', name: 'stardew-valley' } })
+        // A store that was asked about and one that was not come back as what they went in as.
+        expect(refs.get(13537)).toEqual({ gog: null })
+        expect('gog' in refs.get(13537)!).toBe(true)
+        expect('microsoft' in refs.get(13537)!).toBe(false)
+        expect(refs.get(41494)).toEqual({ gog: 'cyberpunk_2077', microsoft: null })
+        expect(refs.get(41494)!.microsoft).toBeNull()
         expect(refs.has(5000)).toBe(false)
         // Beside the app ids, and apart from them: neither mapping answers for the other.
         expect((await adapter.writer.getAppIds([3328])).get(3328)).toBe('292030')

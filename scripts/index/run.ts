@@ -121,8 +121,12 @@ export interface StudioReport {
  */
 export interface StoresReport {
   references: {
-    /** Games of the run, and how many of them have been asked about at all. */
+    /**
+     * Games of the run; those of them RAWG lists on GOG or on the Xbox store, which are the ones
+     * asked about; and those of the listed that have been asked about already.
+     */
     games: number
+    listed: number
     asked: number
     /** Games the mapping names a GOG page for, and a Microsoft Store product. */
     gog: number
@@ -335,9 +339,10 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       studios.appIdLookups = resolved.asked.filter((id) => appended.has(id)).length
 
       // After the app ids, which have just written the references of every game they looked up:
-      // what is left for the sweep is the games no run has asked about yet, a capped number of
-      // them a night. RAWG cannot fail the run here — see `sweepStoreRefs` — but what it would
-      // not answer for is an item failure like any other.
+      // what is left for the sweep is the games RAWG lists on GOG or on the Xbox store that no
+      // run has asked about yet, a capped number of them a night. RAWG cannot fail the run here
+      // — see `sweepStoreRefs` — but what it would not answer for is an item failure like any
+      // other.
       const swept = await stage('store references', () => sweepStoreRefs(deps, games))
       storeRefs = swept.refs
       sweep = {
@@ -629,7 +634,8 @@ function storeRows(report: JobReport): [string, string][] {
   const rows: [string, string][] = [
     [
       'Store references',
-      `${references.asked} of ${references.games} games asked, ${references.gog} with a GOG page, ` +
+      `${references.listed} of ${references.games} games on GOG or the Xbox store at RAWG, ` +
+        `${references.asked} asked; ${references.gog} with a GOG page, ` +
         `${references.microsoft} with a Microsoft Store product` +
         (sweep
           ? `; RAWG: ${plural(sweep.attempted, 'lookup', 'lookups')} this run, ${sweep.failures} failed, ` +

@@ -26,7 +26,8 @@ import { steamAppIdFromUrl } from '../../server/steam/steam'
  *
  * The same response carries every other store's link to the game, so the game's GOG page and its
  * Microsoft product (`storeRefs.ts`) are read from it here and written beside its app id: a game
- * new to the index costs RAWG one request for all three, not two.
+ * new to the index costs RAWG one request for all three, not two. A game with neither link, on
+ * neither store, has nothing written about it.
  */
 
 export const APP_ID_BATCH_SIZE = 100
@@ -147,9 +148,11 @@ export async function resolveAppIds(
         known.set(game.id, appId)
         batch.push([game.id, appId])
         // Only from an answer that is a list of links: one that is not says nothing about the
-        // game's other stores, and the sweep asks about it again rather than remember "neither".
+        // game's other stores, and the sweep asks about it again rather than remember "no link".
+        // And only a record that says something: a game on neither store needs none.
         const links = storeLinksOf(response)
-        if (links) storeRefs.push([game.id, storeRefsFromLinks(links)])
+        const refs = links ? storeRefsFromLinks(links, game.stores) : {}
+        if (Object.keys(refs).length > 0) storeRefs.push([game.id, refs])
         if (batch.length >= batchSize) await flush()
       } catch {
         failures += 1

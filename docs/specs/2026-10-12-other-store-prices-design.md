@@ -28,7 +28,9 @@ RAWG's `games/{slug}/stores` — the request the job already makes to find a Ste
 - the GOG slug: the path segment after `/game/` in a `gog.com` link (with or without a locale segment);
 - the Microsoft product id: the twelve-character id that ends the path of a `microsoft.com/…/p/…` or `xbox.com/…/store/…` link.
 
-A link that does not match is no reference; nothing is guessed from a title. New games get their references with their app id, at no extra request. Games resolved before this change are swept: at most `STORE_REF_SWEEP_PER_RUN = 1200` RAWG requests in a full run, by a cursor, until every indexed game has been asked once; a game with neither store is remembered as such and not asked again.
+A link that does not match is no reference; nothing is guessed from a title. New games get their references with their app id, at no extra request. Games resolved before this change are swept: at most `STORE_REF_SWEEP_PER_RUN = 1200` RAWG requests in a full run, by a cursor, until every indexed game RAWG lists on GOG or on the Xbox store has been asked.
+
+Which games those are is in the documents already: `IndexedGame.stores` is RAWG's own list of the stores a game is on, under the site's slugs (`gog`, `xbox-store`), read from the same list the game came from. A game listed on neither store is not asked and needs no mark. "Asked" is remembered store by store: a store the game is listed on with no link the job can read is recorded as such and not asked about again, and a game that gains one of the two stores later is asked then.
 
 ### 2. Reading the prices (the refresh job only)
 
@@ -112,11 +114,11 @@ The Epic Games Store and the PlayStation Store (probed next); other currencies t
 
 ## After the merge
 
-Manual full runs finish the sweep of store references (three runs at 1 200 a run), then a measurement on production: how many indexed games carry a GOG price and a Microsoft price, twenty of each compared by hand with the store's own page for Ukraine, and how many games show another store cheaper than Steam.
+Manual full runs finish the sweep of store references (two runs at 1 200 a run: 1 597 of the index's 2 552 priced games are listed on GOG or the Xbox store, and the games without a Steam price that are listed there come on top), then a measurement on production: how many indexed games carry a GOG price and a Microsoft price, twenty of each compared by hand with the store's own page for Ukraine, and how many games show another store cheaper than Steam.
 
 ## Verified on 2026-10-12
 
-Established with 36 plain GET requests to the three endpoints (20 to GOG, 10 to Microsoft, 6 to the bank), at most one a second, under a `User-Agent` naming this repository; and 13 read-only queries to this site's own GraphQL for the store links RAWG gives 36 games. All but five were made before any code was written. Three of those went through the refresh job's own transports and parsers once they existed — one page of the catalog, one batch of the 35 product ids, one day's rate — and read what the probes had: 100 products, 99 of them priced and every `storeLink` the product's own; the same nine prices; the rate of the day asked for. Where a fact contradicts a section above, the fact stands and the code follows it.
+Established with 37 plain GET requests to the three endpoints (20 to GOG, 11 to Microsoft, 6 to the bank), at most one a second, under a `User-Agent` naming this repository; and 18 read-only queries to this site's own GraphQL, for the store links RAWG gives 36 games and for what the index holds. All but six were made before any code was written. Three of those went through the refresh job's own transports and parsers once they existed — one page of the catalog, one batch of the 35 product ids, one day's rate — and read what the probes had: 100 products, 99 of them priced and every `storeLink` the product's own; the same nine prices; the rate of the day asked for. Where a fact contradicts a section above, the fact stands and the code follows it.
 
 ### GOG — `https://catalog.gog.com/v1/catalog`
 

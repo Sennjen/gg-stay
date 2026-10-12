@@ -97,20 +97,27 @@ describe('runJob and the other stores', () => {
     expect(meta?.stats).toMatchObject({ gogOfferCount: 1, microsoftOfferCount: 1 })
 
     expect(report.stores).toMatchObject({
-      // Seven games were asked about with their app id; the sweep asked about the other two.
+      // RAWG lists two of the nine on GOG or the Xbox store. One was asked about with its app
+      // id; the sweep asked about the other, and about nobody else.
       references: {
         games: 9,
-        asked: 9,
+        listed: 2,
+        asked: 2,
         gog: 1,
         microsoft: 1,
-        sweep: { attempted: 2, failures: 0, remaining: 0, stopped: false },
+        sweep: { attempted: 1, failures: 0, remaining: 0, stopped: false },
       },
       gog: { status: 'read', references: 1, pricesRead: 1, failed: 0 },
       microsoft: { status: 'read', references: 1, pricesRead: 1, failed: 0 },
       rate: { status: 'read' },
     })
-    // Nine games, nine RAWG lookups: the references came with the app ids, not after them.
-    expect(harness.storeCalls()).toHaveLength(9)
+    // Seven lookups for the app ids, which brought 101's GOG page with them, and one of the
+    // sweep's, for 109: the game on no store at all cost RAWG nothing.
+    expect(harness.storeCalls()).toHaveLength(8)
+    expect(harness.storeCalls().at(-1)?.path).toBe('games/lost-canton/stores')
+    expect(harness.storeCalls().map((call) => call.path)).not.toContain(
+      'games/paper-harbour/stores',
+    )
   })
 
   it('reads the stores twice a day, with whichever run finds them due', async () => {
@@ -125,7 +132,7 @@ describe('runJob and the other stores', () => {
     expect(morning.gogPages).toHaveLength(0)
     expect(morning.microsoftBatches).toHaveLength(0)
     expect(first.stores).toMatchObject({
-      references: { asked: 9, gog: 1, microsoft: 1, sweep: null },
+      references: { listed: 2, asked: 2, gog: 1, microsoft: 1, sweep: null },
       gog: { status: 'not-due', offers: 1 },
       microsoft: { status: 'not-due', offers: 1 },
     })
@@ -277,9 +284,10 @@ describe('runJob when a store is down', () => {
     expect(report.outcome?.published).toBe(true)
     expect(report.failures).toBe(1)
     expect(report.stores?.references).toMatchObject({
-      asked: 8,
+      listed: 2,
+      asked: 1,
       microsoft: 0,
-      sweep: { attempted: 2, failures: 1, remaining: 1 },
+      sweep: { attempted: 1, failures: 1, remaining: 1 },
     })
     expect('offers' in (await harness.writer.getOne(109))!).toBe(false)
 
@@ -301,7 +309,7 @@ describe('runJob when a store is down', () => {
     const report = (error as { report: JobReport }).report
     expect((error as { stage: string }).stage).toBe('prices')
     expect(report.stores).toEqual({
-      references: { games: 9, asked: 9, gog: 1, microsoft: 1, sweep: null },
+      references: { games: 9, listed: 2, asked: 2, gog: 1, microsoft: 1, sweep: null },
       gog: null,
       microsoft: null,
       rate: null,
@@ -342,7 +350,7 @@ describe('runJob over what the previous build published', () => {
     expect(morning.calls).toHaveLength(0)
     expect(morning.gogPages).toHaveLength(0)
     expect(report.stores).toMatchObject({
-      references: { games: 9, asked: 0, gog: 0, microsoft: 0, sweep: null },
+      references: { games: 9, listed: 2, asked: 0, gog: 0, microsoft: 0, sweep: null },
       gog: { status: 'no-references' },
       microsoft: { status: 'no-references' },
       rate: { status: 'read' },
@@ -360,15 +368,20 @@ describe('runJob over what the previous build published', () => {
 
     const report = await runJob(nextNight.deps, FULL)
 
-    // Every app id was known, so the app id stage asks nothing: all nine lookups are the sweep's.
+    // Every app id was known, so the app id stage asks nothing. The sweep asks about the two
+    // games RAWG lists on GOG or the Xbox store — not about the seven it lists on neither.
     expect(report.stores?.references).toEqual({
       games: 9,
-      asked: 9,
+      listed: 2,
+      asked: 2,
       gog: 1,
       microsoft: 1,
-      sweep: { attempted: 9, failures: 0, remaining: 0, stopped: false },
+      sweep: { attempted: 2, failures: 0, remaining: 0, stopped: false },
     })
-    expect(nextNight.storeCalls()).toHaveLength(9)
+    expect(nextNight.storeCalls().map((call) => call.path)).toEqual([
+      'games/hollow-cradle/stores',
+      'games/lost-canton/stores',
+    ])
     expect((await nextNight.writer.getOne(101))?.offers).toEqual([gogOffer(at)])
     expect((await nextNight.writer.getOne(109))?.offers).toEqual([microsoftOffer(at)])
   })
@@ -392,13 +405,14 @@ describe('runJob and the other stores, through the Upstash adapter', () => {
       exchangeRate: rate('2026-09-20', RUN_AT),
       offersReadAt: { gog: RUN_AT, 'xbox-store': RUN_AT },
     })
-    // The mapping is outside the version, beside the app ids, one key a game that was asked about.
+    // The mapping is outside the version, beside the app ids: one key for each game RAWG lists
+    // on one of the two stores, and none for the seven it lists on neither.
     expect(
       redis
         .keys()
         .filter((key) => key.startsWith('storeref:'))
         .sort(),
-    ).toEqual([101, 102, 103, 104, 105, 106, 107, 108, 109].map((id) => `storeref:${id}`))
+    ).toEqual(['storeref:101', 'storeref:109'])
     // The sweep is done, and its cursor with it.
     expect(redis.keys()).not.toContain('job:cursor:storerefs')
 
@@ -447,7 +461,7 @@ describe('formatSummary and the other stores', () => {
     const summary = formatSummary(await runJob(harness.deps, FULL))
 
     expect(summary).toContain(
-      '| Store references | 9 of 9 games asked, 1 with a GOG page, 1 with a Microsoft Store product; RAWG: 2 lookups this run, 0 failed, 0 left for the next full run |',
+      '| Store references | 2 of 9 games on GOG or the Xbox store at RAWG, 2 asked; 1 with a GOG page, 1 with a Microsoft Store product; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
       '| GOG prices | 1 reference, 1 price read, 0 failed; 1 offer published, 1 request |',
@@ -468,7 +482,7 @@ describe('formatSummary and the other stores', () => {
     )
 
     expect(summary).toContain(
-      '| Store references | 9 of 9 games asked, 1 with a GOG page, 1 with a Microsoft Store product (not looked up in this mode) |',
+      '| Store references | 2 of 9 games on GOG or the Xbox store at RAWG, 2 asked; 1 with a GOG page, 1 with a Microsoft Store product (not looked up in this mode) |',
     )
     expect(summary).toContain(
       `| GOG prices | 1 reference, not read: the last full read (${RUN_AT}) is under eleven hours old; 1 offer carried |`,
@@ -516,7 +530,14 @@ describe('formatSummary and the other stores', () => {
     offers: 240,
     lastReadAt: RUN_AT,
   }
-  const references = { games: 3_400, asked: 1_200, gog: 410, microsoft: 380, sweep: null }
+  const references = {
+    games: 3_400,
+    listed: 1_700,
+    asked: 1_186,
+    gog: 410,
+    microsoft: 380,
+    sweep: null,
+  }
 
   it('reports a store read in part, and a sweep that stopped early', () => {
     const summary = formatSummary({
@@ -525,7 +546,7 @@ describe('formatSummary and the other stores', () => {
       stores: {
         references: {
           ...references,
-          sweep: { attempted: 1_200, failures: 14, remaining: 2_214, stopped: true },
+          sweep: { attempted: 1_200, failures: 14, remaining: 514, stopped: true },
         },
         gog: { ...read, references: 1_093, pricesRead: 870, requests: 83, offers: 870 },
         microsoft: {
@@ -541,7 +562,7 @@ describe('formatSummary and the other stores', () => {
     })
 
     expect(summary).toContain(
-      '| Store references | 1200 of 3400 games asked, 410 with a GOG page, 380 with a Microsoft Store product; RAWG: 1200 lookups this run, 14 failed, 2214 left for the next full run (stopped early: too many failed) |',
+      '| Store references | 1700 of 3400 games on GOG or the Xbox store at RAWG, 1186 asked; 410 with a GOG page, 380 with a Microsoft Store product; RAWG: 1200 lookups this run, 14 failed, 514 left for the next full run (stopped early: too many failed) |',
     )
     expect(summary).toContain(
       '| GOG prices | 1093 references, 870 prices read, 0 failed; 870 offers published, 83 requests |',

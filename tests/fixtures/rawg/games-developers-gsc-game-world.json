@@ -55,6 +55,13 @@
             "name": "GOG",
             "slug": "gog"
           }
+        },
+        {
+          "store": {
+            "id": 2,
+            "name": "Xbox Store",
+            "slug": "xbox-store"
+          }
         }
       ],
       "esrb_rating": null

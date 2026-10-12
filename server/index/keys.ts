@@ -123,7 +123,7 @@ export function appIdKey(rawgId: number): string {
 
 /**
  * Which product the game is on GOG and on the Microsoft Store, from RAWG's store links: resolved
- * once and kept forever, like the app id beside it (an empty record: the game has neither).
+ * once for each store RAWG lists the game on and kept forever, like the app id beside it.
  */
 export function storeRefsKey(rawgId: number): string {
   return `storeref:${rawgId}`

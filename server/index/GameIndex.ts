@@ -235,9 +235,10 @@ export interface GameIndexWriter {
   /**
    * Which product each game is on GOG and on the Microsoft Store, by RAWG id, outside the version
    * prefix and beside the app ids: kept for the life of the index, because finding one costs the
-   * same RAWG request an app id does. Only the games that were asked about appear, and a record
-   * with no field in it means "asked, and it has neither" — which is why an absent record and an
-   * empty one are two answers, exactly as an absent app id and an empty one are.
+   * same RAWG request an app id does. Only the games that have a record appear. A record is kept
+   * exactly as it was written, `null` fields included: a store's field holding `null` means "asked
+   * about, and there is no link to read", which is not what a field that is absent means
+   * (`IndexedStoreRefs`) — as an app id that is absent and one that is empty are two answers.
    *
    * A record that cannot be read back is worth what an absent one is: the game is asked about
    * again and its record rewritten.

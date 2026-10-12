@@ -185,22 +185,27 @@ export interface IndexedLanguages {
 /**
  * Which product a game is in the stores whose prices the job reads, kept outside the version
  * prefix under `storeref:{rawgId}` beside the Steam app ids, and for as long: RAWG is asked for a
- * game's store links once in the life of the index.
+ * game's store links once for each store it lists the game on.
  *
- * Both fields are what RAWG's own link to the store carried, and nothing else — nothing is guessed
- * from a title. A record with neither field is an answer too: the game was asked about and has no
- * link the job can read, and it is not asked about again. An absent record means "never asked".
+ * Each field is what RAWG's own link to that store carried, and nothing else — nothing is guessed
+ * from a title — and each has three states, because "asked" is remembered store by store:
+ *
+ * - a value: the link named a product;
+ * - `null`: RAWG lists the game on the store and gave no link the job can read. That is an answer,
+ *   and the game is not asked about that store again;
+ * - absent: the game has not been asked about the store — RAWG did not list it there when its
+ *   links were last read, or they never were. A game that gains the store later is asked then.
  */
 export interface IndexedStoreRefs {
   /** The slug of the game's GOG page: the path segment after `/game/` in RAWG's link. */
-  gog?: string
+  gog?: string | null
   /** The game's Microsoft Store product, from RAWG's link to it. */
   microsoft?: {
     /** The twelve-character product id, in upper case, as the display catalog spells it. */
     id: string
     /** The name the link carried before the id. Microsoft's product page is addressed by both. */
     name: string
-  }
+  } | null
 }
 
 /**

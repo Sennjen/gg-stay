@@ -1,5 +1,10 @@
 import { MAX_ITEM_FAILURE_RATIO, type JobDeps } from './deps'
-import type { IndexedGame, IndexedStoreRefs } from '../../server/index/document'
+import {
+  OFFER_STORES,
+  type IndexedGame,
+  type IndexedStoreRefs,
+  type OfferStore,
+} from '../../server/index/document'
 import type { RawgStoreLink } from '../../server/rawg/types'
 
 /**
@@ -15,17 +20,26 @@ import type { RawgStoreLink } from '../../server/rawg/types'
  *
  * The answer is kept where the app ids are, outside the version prefix and for the life of the
  * index (`storeref:{rawgId}`), and for the same reason: it costs a RAWG request a game, and RAWG's
- * monthly quota is what the nightly run lives on. "This game has neither store" is kept too, as
- * an empty record, or every such game would be asked about again every night.
+ * monthly quota is what the nightly run lives on.
+ *
+ * **Only a game RAWG lists on one of the two stores is asked about**, and which those are is in
+ * the documents already: `IndexedGame.stores` is RAWG's own list of the stores a game is on, read
+ * from the page of the list the game came from (`toIndexedGame`), under the slugs the site uses
+ * (`gog`, `xbox-store`). It is the list the app-id stage has always trusted for Steam, and it and
+ * the links are one table at RAWG — a game's store rows there carry the ids its link rows have,
+ * and the two agreed in every case checked, both ways round — so a game listed on neither store
+ * has no link to find and costs no request. "Asked" is remembered store by store
+ * (`IndexedStoreRefs`): a store the game is listed on with no link the job can read is recorded
+ * as such and not asked about again, and a game that gains a store later is asked then.
  *
  * A game new to the index gets its references with its app id, from the very same response
  * (`resolveAppIds`), at no request of its own. Everything else — the games resolved before this
  * existed, and the games RAWG does not list on Steam, which `resolveAppIds` never asks about — is
- * swept here: at most `STORE_REF_SWEEP_PER_RUN` lookups in a full run, until every indexed game
- * has been asked about once.
+ * swept here: at most `STORE_REF_SWEEP_PER_RUN` lookups in a full run, until every game listed on
+ * GOG or on the Xbox store has been asked about.
  */
 
-/** RAWG lookups one full run may spend on games that have no record yet. */
+/** RAWG lookups one full run may spend on games waiting to be asked about. */
 export const STORE_REF_SWEEP_PER_RUN = 1200
 
 /** How many records to accumulate before one `setStoreRefs` round trip, as the app ids do. */
@@ -60,6 +74,28 @@ const LOCALE_SEGMENT = /^[a-z]{2}(?:-[a-z]{2,4})?$/i
 
 /** RAWG id to the game's store references; a game that is absent has never been asked about. */
 export type StoreRefMap = Map<number, IndexedStoreRefs>
+
+/** The two stores RAWG lists the game on, by the document's own `stores`. */
+export function listedOfferStores(game: Pick<IndexedGame, 'stores'>): OfferStore[] {
+  return OFFER_STORES.filter((store) => game.stores.includes(store))
+}
+
+/** Whether a record says anything about a store: a reference, or `null` for "none to read". */
+function isAskedAbout(record: IndexedStoreRefs | undefined, store: OfferStore): boolean {
+  return (store === 'gog' ? record?.gog : record?.microsoft) !== undefined
+}
+
+/**
+ * Whether RAWG has to be asked about the game: it is listed on a store its record says nothing
+ * about. A game listed on neither store never is; a game with a record is again when a store it
+ * was not listed on before turns up in its `stores`.
+ */
+export function needsStoreLookup(
+  game: Pick<IndexedGame, 'stores'>,
+  record: IndexedStoreRefs | undefined,
+): boolean {
+  return listedOfferStores(game).some((store) => !isAskedAbout(record, store))
+}
 
 /**
  * The segments of an http(s) URL's path on one of `hosts`, or `null` for anything else. Parsed
@@ -129,14 +165,22 @@ export function microsoftProductFromUrl(
 }
 
 /**
- * The references in one game's store links: the first GOG row whose link is a GOG game page, and
- * the first Xbox-store row whose link is a Microsoft product. A row is taken for a store only
- * when RAWG files it under that store *and* the link has that store's shape, so a link in the
- * wrong row is not a reference either. An empty record when there is neither — which is an answer
- * worth keeping.
+ * The record one lookup makes: what the game's store links say, and for which stores the question
+ * is thereby settled.
+ *
+ * A reference is the first GOG row whose link is a GOG game page, and the first Xbox-store row
+ * whose link is a Microsoft product. A row is taken for a store only when RAWG files it under
+ * that store *and* the link has that store's shape, so a link in the wrong row is not a reference
+ * either.
+ *
+ * `listed` is the game's own `stores`. A store among them with no such link is recorded as `null`
+ * — asked, and nothing to read — so the game is not looked up for it again. A store that is
+ * neither linked nor listed is left out, and the record says nothing about it: when RAWG lists the
+ * game there one day, it is asked about then.
  */
 export function storeRefsFromLinks(
   links: readonly RawgStoreLink[] | null | undefined,
+  listed: readonly string[] = [],
 ): IndexedStoreRefs {
   const refs: IndexedStoreRefs = {}
   for (const link of links ?? []) {
@@ -149,14 +193,17 @@ export function storeRefsFromLinks(
       if (product) refs.microsoft = product
     }
   }
+  if (refs.gog === undefined && listed.includes('gog')) refs.gog = null
+  if (refs.microsoft === undefined && listed.includes('xbox-store')) refs.microsoft = null
   return refs
 }
 
 /**
- * A record as the price stages may use it: only the fields that are what this module would have
- * written. The mapping outlives every build that writes it, and what is read back from a store is
- * about to become part of a request to somebody else's server and of a link on a page, so nothing
- * is taken from it on trust.
+ * A record as the price stages may use it: only the references, and only those that are what
+ * this module would have written. The mapping outlives every build that writes it, and what is
+ * read back from a store is about to become part of a request to somebody else's server and of a
+ * link on a page, so nothing is taken from it on trust. A store recorded as `null` has no
+ * reference, and comes out as absent.
  */
 export function usableStoreRefs(record: IndexedStoreRefs | undefined): IndexedStoreRefs {
   const refs: IndexedStoreRefs = {}
@@ -177,7 +224,7 @@ export function usableStoreRefs(record: IndexedStoreRefs | undefined): IndexedSt
 /**
  * The store links of one RAWG answer to `games/{slug}/stores`, or `null` when the body is not such
  * an answer. RAWG has been seen sending an empty body under a 200; read as "no links", that would
- * be remembered for good as "this game has neither store".
+ * be remembered for good as "this game has no link to read".
  */
 export function storeLinksOf(body: unknown): RawgStoreLink[] | null {
   if (body === null || typeof body !== 'object') return null
@@ -193,31 +240,34 @@ export interface StoreRefsOptions {
 }
 
 export interface StoreRefsResult {
-  /** The record of every game of the run that has been asked about, this run or before it. */
+  /** The record of every game of the run that has one, written this run or before it. */
   refs: StoreRefMap
   /** Games asked about in this run: RAWG requests, whatever came of them. */
   attempted: number
-  /** Those RAWG would not answer for; they have no record and are asked about again. */
+  /** Those RAWG would not answer for; their records are as they were and they are asked again. */
   failures: number
-  /** Games still without a record when the stage ended: the next full run's work. */
+  /** Games still waiting to be asked about when the stage ended: the next full run's work. */
   remaining: number
   /** Whether the sweep gave up for the night because too many lookups failed. */
   stopped: boolean
 }
 
 /**
- * The stage of a full run that asks RAWG about the games with no record, and hands every stage
- * after it the mapping for the run's games.
+ * The stage of a full run that asks RAWG about the games waiting to be asked (`needsStoreLookup`)
+ * — those it lists on GOG or on the Xbox store and has not answered for — and hands every stage
+ * after it the mapping for the run's games. A game on neither store is not asked, and gets no
+ * record: there is nothing to remember about a question that was never put.
  *
- * **Progress is the mapping itself**, as it is for the app ids: a game with a record has been
- * asked about and is never asked again, so a run that dies has lost at most one unwritten batch.
- * **The cursor is only where the next run starts.** The games without a record are taken in the
- * order of their RAWG ids, beginning after the last one the sweep asked about and wrapping round,
- * so a game RAWG keeps refusing to answer for is met again after all the others have had their
- * turn rather than first thing every night, at the head of the cap.
+ * **Progress is the mapping itself**, as it is for the app ids: a store a game has been asked
+ * about is never asked about again, so a run that dies has lost at most one unwritten batch.
+ * **The cursor is only where the next run starts.** The waiting games are taken in the order of
+ * their RAWG ids, beginning after the last one the sweep asked about and wrapping round, so a
+ * game RAWG keeps refusing to answer for is met again after all the others have had their turn
+ * rather than first thing every night, at the head of the cap.
  *
- * A lookup that fails writes nothing — never the empty "has neither store", which would make one
- * timeout permanent — and the game is asked about again on a later run.
+ * A lookup that fails writes nothing — never "no link to read", which would make one timeout
+ * permanent — and the game is asked about again on a later run. One that succeeds replaces the
+ * game's record whole: the links are the whole of what RAWG knows, for both stores at once.
  *
  * **It cannot cost the run.** These references only add prices to a catalog that is complete
  * without them, so the stage does not hold a failing RAWG to the budget the app ids do: past
@@ -235,10 +285,10 @@ export async function sweepStoreRefs(
   const known = await deps.writer.getStoreRefs(games.map((game) => game.id))
 
   const pending = games
-    .filter((game) => !known.has(game.id))
+    .filter((game) => needsStoreLookup(game, known.get(game.id)))
     .sort((left, right) => left.id - right.id)
   if (pending.length === 0) {
-    deps.log(`store references: every one of ${games.length} games has been asked about`)
+    deps.log(`store references: none of ${games.length} games is waiting to be asked about`)
     return { refs: known, attempted: 0, failures: 0, remaining: 0, stopped: false }
   }
 
@@ -269,7 +319,7 @@ export async function sweepStoreRefs(
       try {
         const links = storeLinksOf(await deps.rawg(`games/${game.slug}/stores`))
         if (!links) throw new Error('RAWG answered without a list of store links')
-        const refs = storeRefsFromLinks(links)
+        const refs = storeRefsFromLinks(links, game.stores)
         known.set(game.id, refs)
         batch.push([game.id, refs])
       } catch {
@@ -301,21 +351,28 @@ export async function sweepStoreRefs(
   return { refs: known, attempted, failures, remaining, stopped }
 }
 
-/** How many of the run's games the mapping names a GOG page and a Microsoft product for. */
+/**
+ * Where the mapping stands for the run's games: how many RAWG lists on GOG or on the Xbox store,
+ * how many of those have been asked about every store they are listed on, and how many games the
+ * mapping names a GOG page and a Microsoft product for.
+ */
 export function countStoreRefs(
   games: readonly IndexedGame[],
   refs: StoreRefMap,
-): { asked: number; gog: number; microsoft: number } {
+): { listed: number; asked: number; gog: number; microsoft: number } {
+  let listed = 0
   let asked = 0
   let gog = 0
   let microsoft = 0
   for (const game of games) {
     const record = refs.get(game.id)
-    if (record === undefined) continue
-    asked += 1
+    if (listedOfferStores(game).length > 0) {
+      listed += 1
+      if (!needsStoreLookup(game, record)) asked += 1
+    }
     const usable = usableStoreRefs(record)
     if (usable.gog) gog += 1
     if (usable.microsoft) microsoft += 1
   }
-  return { asked, gog, microsoft }
+  return { listed, asked, gog, microsoft }
 }
