@@ -65,6 +65,12 @@ const XBOX_HOSTS = new Set(['www.xbox.com', 'xbox.com'])
 
 /** A GOG slug as the catalog spells every one of them: lower-case letters, digits, underscores. */
 const GOG_SLUG = /^[a-z0-9_]{1,200}$/
+
+/** Whether text is a slug a GOG game page can have — the only kind a reference can hold. */
+export function isGogSlug(slug: unknown): slug is string {
+  return typeof slug === 'string' && GOG_SLUG.test(slug)
+}
+
 /** A Microsoft product id: twelve letters and digits, in either case in a link. */
 const MICROSOFT_PRODUCT_ID = /^[0-9a-z]{12}$/i
 /** The name a Microsoft link carries before the id: letters, digits and hyphens. */

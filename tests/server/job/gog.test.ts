@@ -145,7 +145,36 @@ describe('parseGogCatalogPage', () => {
           url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_songs_of_the_past',
         },
       ],
+      // Every slug of the recording is a slug.
+      unnamed: [],
     })
+  })
+
+  it.each([
+    ['in capitals', 'Limbo'],
+    ['with a hyphen', 'limbo-2'],
+    ['with a space', 'limbo 2'],
+    ['with a slash', 'limbo/extras'],
+    ['with a line break and a runner command after it', 'limbo\n::add-mask::secret'],
+    ['of two hundred and one characters', 'x'.repeat(201)],
+    ['in another script', '\u043B\u0456\u043C\u0431\u043E'],
+  ])('counts a product whose slug is %s, and keeps nothing of it', (_what, slug) => {
+    const page = parseGogCatalogPage(
+      gogCatalogPage(
+        [
+          gogProduct('amber_archive', gogPrice('4.99', '4.99')),
+          gogProduct(slug, gogPrice('9.99', '9.99'), { id: 'odd-one' }),
+        ],
+        1,
+        100,
+      ),
+    )
+
+    // No reference can name it, so it is no product to the walk — but it is on the page, and the
+    // walk's proof counts it: its id is all that is kept.
+    expect(page.products.map((product) => product.slug)).toEqual(['amber_archive'])
+    expect(page.unnamed).toEqual(['odd-one'])
+    expect(JSON.stringify(page)).not.toContain('add-mask')
   })
 
   it('keeps a product whose price cannot be read, without a price', () => {
@@ -316,6 +345,57 @@ describe('walkGogCatalog', () => {
     await expect(walkGogCatalog(catalog.fetchPage)).rejects.toThrow(
       'the GOG catalog repeated game_002 at page 2',
     )
+  })
+
+  it('walks past a product under a slug that is none, counting it and printing nothing of it', async () => {
+    const hostile = 'limbo\n::add-mask::secret'
+    const products = [
+      gogProduct('amber_archive', gogPrice('4.99', '4.99')),
+      gogProduct(hostile, gogPrice('9.99', '9.99'), { id: 'odd-one' }),
+      gogProduct('zenith_run', gogPrice('1.99', '1.99')),
+    ]
+
+    const walk = await walkGogCatalog(async (page) => gogCatalogPage(products, page, 2))
+
+    // Three products promised, three received: the walk is whole, and holds the two it can name.
+    expect(walk.pages).toBe(2)
+    expect([...walk.products.keys()]).toEqual(['amber_archive', 'zenith_run'])
+  })
+
+  it('names no slug when a product it could not name comes twice', async () => {
+    const hostile = 'limbo\n::add-mask::secret'
+    const twice = [
+      gogProduct(hostile, gogPrice('9.99', '9.99'), { id: 'odd-one' }),
+      gogProduct('amber_archive', gogPrice('4.99', '4.99')),
+      gogProduct(`${hostile}!`, gogPrice('9.99', '9.99'), { id: 'odd-one' }),
+    ]
+
+    const failure = await walkGogCatalog(async (page) => gogCatalogPage(twice, page, 2)).catch(
+      (error: Error) => error,
+    )
+
+    // Still a walk that cannot be whole; and the reason is one this job wrote every word of.
+    expect((failure as Error).message).toBe('the GOG catalog repeated a product at page 2')
+  })
+
+  it('never puts a line break in the reason a walk failed for', async () => {
+    // Every message a walk can end with, from a catalog that answers the worst it can.
+    const hostile = 'x\n::error::y'
+    const pages: unknown[] = [
+      null,
+      { pages: 1, productCount: 1, products: [{ id: hostile }] },
+      { pages: 1, productCount: 2, products: [gogProduct(hostile, null)] },
+      gogCatalogPage([gogProduct('limbo', null), gogProduct('limbo', null, { id: hostile })], 1, 9),
+      { pages: 1, productCount: 12_878, currentlyShownProductCount: 10_000, products: [] },
+      gogCatalogPage([], 1, 100),
+    ]
+
+    for (const page of pages) {
+      const failure = await walkGogCatalog(async () => page).catch((error: Error) => error)
+      expect(failure).toBeInstanceOf(Error)
+      expect((failure as Error).message).not.toMatch(/[\r\n]/)
+      expect((failure as Error).message).not.toContain('::error::')
+    }
   })
 
   it('fails when two products claim one slug', async () => {

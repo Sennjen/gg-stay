@@ -1,4 +1,4 @@
-import { gogSlugFromUrl } from './storeRefs'
+import { gogSlugFromUrl, isGogSlug } from './storeRefs'
 import {
   asRecord,
   discountPercentOf,
@@ -115,7 +115,14 @@ export interface GogCatalogPage {
   pages: number
   /** How many products it says the query matches. */
   productCount: number
+  /** The products a reference could name: those whose slug is a slug (`isGogSlug`). */
   products: GogProduct[]
+  /**
+   * The ids of the products that are on the page under a slug no game page could have. They are
+   * products all the same — the walk counts them, and knows them again by their ids — but nothing
+   * else of them is kept, and their slug goes nowhere.
+   */
+  unnamed: string[]
 }
 
 /** A money object's amount in cents, or `null` unless it is `{ amount: "12.34", currency: "USD" }`. */
@@ -165,6 +172,14 @@ function isCount(value: unknown): value is number {
  *
  * A product's price, link and title are read leniently in the other direction: one that cannot
  * be read is a product without it, never a page that failed.
+ *
+ * **A slug is kept only if it is one** (`isGogSlug`: lower-case letters, digits, underscores).
+ * Every slug of the catalog that was ever seen is, and a reference can hold no other, so a
+ * product under anything else could never be matched: it is counted, for the walk's proof, and
+ * dropped (`unnamed`). That is also what keeps a store's raw text out of the job's log. A slug is
+ * the one thing of GOG's this module ever prints — in the error about a product that came twice
+ * — and the log is a runner's standard output, where a line break followed by `::` begins a
+ * command. What is printed is therefore always text this job could have written itself.
  */
 export function parseGogCatalogPage(body: unknown): GogCatalogPage {
   const page = asRecord(body)
@@ -181,25 +196,29 @@ export function parseGogCatalogPage(body: unknown): GogCatalogPage {
         'the catalog has outgrown one walk',
     )
   }
-  return {
-    pages,
-    productCount,
-    products: products.map((entry) => {
-      const product = asRecord(entry)
-      const id = product?.id
-      const slug = product?.slug
-      if (typeof id !== 'string' || id === '' || typeof slug !== 'string' || slug === '') {
-        throw new Error('GOG answered a catalog page with a product that has no id or no slug')
-      }
-      return {
-        id,
-        slug,
-        title: storeTitle(product!.title),
-        price: parseGogPrice(product!.price),
-        url: storeLinkOf(product!.storeLink, slug),
-      }
-    }),
+
+  const named: GogProduct[] = []
+  const unnamed: string[] = []
+  for (const entry of products) {
+    const product = asRecord(entry)
+    const id = product?.id
+    const slug = product?.slug
+    if (typeof id !== 'string' || id === '' || typeof slug !== 'string' || slug === '') {
+      throw new Error('GOG answered a catalog page with a product that has no id or no slug')
+    }
+    if (!isGogSlug(slug)) {
+      unnamed.push(id)
+      continue
+    }
+    named.push({
+      id,
+      slug,
+      title: storeTitle(product!.title),
+      price: parseGogPrice(product!.price),
+      url: storeLinkOf(product!.storeLink, slug),
+    })
   }
+  return { pages, productCount, products: named, unnamed }
 }
 
 export interface GogCatalogWalk {
@@ -254,7 +273,12 @@ export async function walkGogCatalog(
       ids.add(product.id)
       products.set(product.slug, product)
     }
-    received += page.products.length
+    for (const id of page.unnamed) {
+      // Named by nothing of GOG's own: its slug is the reason it is here, and is not printed.
+      if (ids.has(id)) throw new Error(`the GOG catalog repeated a product at page ${number}`)
+      ids.add(id)
+    }
+    received += page.products.length + page.unnamed.length
     await onPage()
   }
 
