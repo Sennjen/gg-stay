@@ -397,7 +397,7 @@ describe('sweepStoreRefs', () => {
     const again = await sweepStoreRefs(nextNight.deps, games)
 
     expect(nextNight.calls).toHaveLength(0)
-    // Nothing to sweep, so not even the cursor is read.
+    // Nothing to sweep, so the cursor is not read: there is no place to start from.
     expect(getCursor).not.toHaveBeenCalled()
     expect(again).toMatchObject({ attempted: 0, failures: 0, remaining: 0 })
     expect(again.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
@@ -430,6 +430,29 @@ describe('sweepStoreRefs', () => {
     const after = createJobHarness({ writer: harness.writer })
     await sweepStoreRefs(after.deps, later)
     expect(after.calls).toHaveLength(0)
+  })
+
+  it('clears a cursor it finds nobody waiting behind, on a night with nothing to do', async () => {
+    const harness = createJobHarness()
+    const games = allOnGog(await candidatesOf(harness))
+    // A capped night leaves five games waiting and the cursor at the fourth.
+    await sweepStoreRefs(harness.deps, games, { limit: 4 })
+    expect(await harness.writer.getCursor(STORE_REF_CURSOR)).toBe('104')
+
+    // Before the next full run the five are settled another way — here, as when the app-id
+    // stage writes their records — so the sweep finds nothing to ask.
+    await harness.writer.setStoreRefs(
+      games
+        .filter((game) => game.id > 104)
+        .map((game) => [game.id, { gog: null, microsoft: null }]),
+    )
+    const nextNight = createJobHarness({ writer: harness.writer })
+    const result = await sweepStoreRefs(nextNight.deps, games)
+
+    expect(nextNight.calls).toHaveLength(0)
+    expect(result).toMatchObject({ attempted: 0, remaining: 0, stopped: null })
+    // The key nobody will read again is gone, not left for good.
+    expect(await nextNight.writer.getCursor(STORE_REF_CURSOR)).toBeNull()
   })
 
   it('stops for the night once it has used its twenty minutes, and keeps what it read', async () => {

@@ -300,6 +300,10 @@ export interface StoreRefsResult {
  * leaves the rest for the next full run. Nor may it take the run's time: it stops as well once
  * `STORE_REF_SWEEP_BUDGET_MS` has passed on the job's clock, whatever the reason each lookup was
  * slow. Either way what it had read is kept, and the result says which of the two ended it.
+ *
+ * The cursor is cleared whenever nothing is waiting, including on a night that finds nothing to
+ * do: the waiting games of an earlier, cut-short night can be settled another way — they leave
+ * the index, or the app-id stage writes their record — and a key nobody reads is not kept.
  */
 export async function sweepStoreRefs(
   deps: JobDeps,
@@ -314,6 +318,8 @@ export async function sweepStoreRefs(
     .filter((game) => needsStoreLookup(game, known.get(game.id)))
     .sort((left, right) => left.id - right.id)
   if (pending.length === 0) {
+    // One idempotent delete a full run, rather than a read to learn whether there is a key.
+    await deps.writer.clearCursor(STORE_REF_CURSOR)
     deps.log(`store references: none of ${games.length} games is waiting to be asked about`)
     return { refs: known, attempted: 0, failures: 0, remaining: 0, stopped: null }
   }
