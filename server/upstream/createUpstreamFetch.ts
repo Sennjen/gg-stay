@@ -1,11 +1,16 @@
 import { UpstreamError, type UpstreamSource } from './errors'
 
 /**
- * The transport every third-party API in this app goes through: one request at a time per
- * `minIntervalMs`, an abort-signal timeout, one retry on a timeout or a 5xx, a read-through cache
- * with a per-request ttl, and the cached value served as a fallback when a refresh fails
+ * The transport every third-party API in this app goes through: one request per `minIntervalMs`,
+ * an abort-signal timeout, one retry on a timeout or a 5xx, a read-through cache with a
+ * per-request ttl, and the cached value served as a fallback when a refresh fails
  * (stale-if-error). RAWG and Steam had a near-verbatim copy of all of it each, which is how the
  * Steam transport ended up throwing errors that said "RAWG".
+ *
+ * The limiter may be given a burst (`UpstreamConfig.burst`): that many requests leave together
+ * when it has been idle, and the rate in the long run is still one per interval. Without one —
+ * which is every transport but the site's RAWG (`server/utils/rawg.ts`) — two requests are never
+ * closer than the interval.
  *
  * A call for something another call is already fetching joins that request instead of sending a
  * second one — see `inFlight` below for exactly which calls count as the same. That makes one rule
@@ -20,11 +25,11 @@ import { UpstreamError, type UpstreamSource } from './errors'
  * behind it — the stale window, see `staleFor`. It is a property of a request, like the ttl, and
  * of a runtime that can keep a refresh running after the answer has gone out (`keepAlive`).
  *
- * Everything that differs between the two is a parameter: the source name, the throttle interval,
- * how a request becomes a URL, a cache key, a fixture name, a ttl and a stale window, and an
- * optional projection applied before a payload is cached. Everything the caller must be able to
- * substitute in a test (fetch, fixtures, cache, clock, sleep, the log, the keep-alive) is injected,
- * which is what lets the transport tests drive throttling, retries and clock drift
+ * Everything that differs between the two is a parameter: the source name, the throttle interval
+ * and burst, how a request becomes a URL, a cache key, a fixture name, a ttl and a stale window,
+ * and an optional projection applied before a payload is cached. Everything the caller must be
+ * able to substitute in a test (fetch, fixtures, cache, clock, sleep, the log, the keep-alive) is
+ * injected, which is what lets the transport tests drive throttling, retries and clock drift
  * deterministically without a mock library.
  */
 
@@ -39,19 +44,22 @@ import { UpstreamError, type UpstreamSource } from './errors'
 export const STALE_WHILE_REVALIDATE_SECONDS = 7 * 86_400
 
 /**
- * How far ahead the limiter's next free slot may be for a refresh behind a stale answer still to
- * be started: two seconds. Past that the refresh is not started at all.
+ * How long a request would have to wait at the limiter for a refresh behind a stale answer still
+ * to be started: two seconds. Past that the refresh is not started at all.
  *
  * A refresh is the one request in the limiter's line that nobody is waiting for, and the only
  * one that is optional: the entry it would replace can be served for days yet. But it takes a
  * slot like any request, and stale answers are handed over in milliseconds — so a walk over stale
  * pages (a crawler, two days after its last visit) would queue refreshes far faster than the
  * limiter lets them out, and every request a visitor is waiting for would stand behind them:
- * twelve stale game pages asked for at once put a cold page's first request nine seconds away.
- * Bounded like this, what stands in front of a visitor's request is two seconds of refreshes at
- * the most — inside the two and a half the game page gives RAWG before it answers from the index
- * — and no refresh outlives by much the answer that set it off. The entry stays as it is, and the
- * next view of it tries again.
+ * twelve stale game pages asked for at once put a cold page's first request some nine seconds
+ * away. Bounded like this, what stands in front of a visitor's request is two seconds of
+ * refreshes at the most — inside the two and a half the game page gives RAWG before it answers
+ * from the index — and no refresh outlives by much the answer that set it off. The entry stays as
+ * it is, and the next view of it tries again.
+ *
+ * The wait is the one the next request would really have. A limiter with a burst lets its first
+ * requests after a pause out together, and they are no backlog: only what waits is counted.
  */
 export const REFRESH_BACKLOG_LIMIT_MS = 2_000
 
@@ -180,8 +188,28 @@ export interface UpstreamRuntime {
 
 export interface UpstreamConfig<TRequest> {
   source: UpstreamSource
-  /** Minimum spacing between two outgoing requests of this upstream, in ms. */
+  /**
+   * The limiter's interval, in ms: one request of this upstream leaves per interval, which makes
+   * it the spacing between two requests once any burst is spent.
+   */
   minIntervalMs: number
+  /**
+   * How many requests may leave together when the limiter has been idle; one when omitted, which
+   * is the spacing above and nothing else.
+   *
+   * A caller that asks for several things at once — a game page asks RAWG for three — otherwise
+   * has them sent an interval apart, and waits for our own pacing where the upstream asked for
+   * none. With a burst of `n` an idle limiter holds an allowance of `n` requests: they leave at
+   * once, in the order they were asked for, and the allowance comes back at one request per
+   * `minIntervalMs`. So the rate in the long run is what it was — over any stretch of time, a
+   * request per interval and at the most `n` on top — and only the first requests after a pause
+   * are sooner.
+   *
+   * It is a whole number of requests: a fraction is dropped, so two and a half is two. Anything
+   * else — less than two, no number at all, or a number too large to count a wait from — counts
+   * as one: a limiter is not switched off by a value it cannot read.
+   */
+  burst?: number
   timeoutMs: number
   /** Total attempts per logical call, retries included. */
   maxAttempts: number
@@ -314,6 +342,18 @@ function isTimeout(error: unknown): boolean {
   return name === 'TimeoutError' || name === 'AbortError'
 }
 
+/**
+ * How far ahead of its slot a request may leave, for a limiter given this burst: an interval for
+ * every whole request of the burst past the first, and nothing for a burst of one or for a value
+ * that is no burst at all (`UpstreamConfig.burst`). A tolerance that is not a finite number would
+ * let every request out at once, so that is nothing too.
+ */
+function burstToleranceMs(burst: number | undefined, minIntervalMs: number): number {
+  const requests = burst !== undefined && burst > 1 ? Math.floor(burst) : 1
+  const tolerance = (requests - 1) * minIntervalMs
+  return Number.isFinite(tolerance) ? tolerance : 0
+}
+
 export function createUpstreamFetch<TRequest>(
   config: UpstreamConfig<TRequest>,
   runtime: UpstreamRuntime,
@@ -322,7 +362,32 @@ export function createUpstreamFetch<TRequest>(
   // Read when a line is written, not when the transport is built, so the default follows whatever
   // `console.info` is at that moment.
   const log = runtime.log ?? ((line: string) => console.info(line))
+
+  /**
+   * The limiter, which is the generic cell rate algorithm: one moment and one tolerance.
+   *
+   * `nextSlot` is the slot the next request has at the steady rate of one per `minIntervalMs`,
+   * every request before it counted — the algorithm's theoretical arrival time — and a request
+   * may leave up to `tolerance` ahead of its slot. That is all a burst is. With a burst of three
+   * the tolerance is two intervals: after a pause the first three requests find their slots no
+   * further ahead than that and leave at once, and the fourth waits out the first interval. Each
+   * of them moved the slot on by an interval, so the allowance comes back at one request per
+   * interval and no faster.
+   *
+   * Every request is counted here and by the same rule, whoever it is for: a first attempt, a
+   * retry, a refresh behind a stale answer. So a retry takes the next request of the allowance
+   * like any other — behind a spent burst it waits an interval, and after a request that failed
+   * alone and quickly it leaves at once, where a limiter without a burst holds it back to the
+   * interval — and the refreshes of one stale page leave together as its requests would.
+   *
+   * With a burst of one the tolerance is nothing, and a request leaves at its slot, as it always
+   * did.
+   */
   let nextSlot = 0
+  const tolerance = burstToleranceMs(config.burst, config.minIntervalMs)
+
+  /** The moment a request asked for at `now` may leave: at once, or when the allowance has one. */
+  const leavesAt = (now: number) => Math.max(now, nextSlot - tolerance)
 
   /**
    * The latest moment the clock is known to have reached, for timing a request whose call was
@@ -397,9 +462,9 @@ export function createUpstreamFetch<TRequest>(
   const refreshing = new Set<string>()
 
   async function throttle(now: number): Promise<void> {
-    const slot = Math.max(now, nextSlot)
-    nextSlot = slot + config.minIntervalMs
-    if (slot > now) await runtime.sleep(slot - now)
+    const leaves = leavesAt(now)
+    nextSlot = Math.max(now, nextSlot) + config.minIntervalMs
+    if (leaves > now) await runtime.sleep(leaves - now)
   }
 
   /**
@@ -417,8 +482,9 @@ export function createUpstreamFetch<TRequest>(
    * like. The reads themselves are not queued — every call's is out at once — so the line is as
    * slow as its slowest read and no slower, and the cache bounds that.
    *
-   * It holds only first attempts. A retry takes the next slot when it is ready for one, as it
-   * always did; it was first in line once already.
+   * It holds only first attempts. A retry does not stand here: it goes to the limiter when it is
+   * ready for a slot, as it always did, and is counted there like any request (see the limiter);
+   * it was first in line once already.
    *
    * A place must be left, whatever becomes of its call: a place nobody leaves holds up every
    * request behind it for good. `leave` may be called more than once, and `load` and
@@ -615,8 +681,10 @@ export function createUpstreamFetch<TRequest>(
     try {
       await place.turn
       // Not while the limiter is backed up: this is the one request nobody is waiting for, and
-      // the entry it is for goes on being served (`REFRESH_BACKLOG_LIMIT_MS`).
-      if (nextSlot - runtime.now() > REFRESH_BACKLOG_LIMIT_MS) return
+      // the entry it is for goes on being served (`REFRESH_BACKLOG_LIMIT_MS`). What is measured
+      // is the wait a request asked for now would have: with a burst, less than the slot is ahead.
+      const now = runtime.now()
+      if (leavesAt(now) - now > REFRESH_BACKLOG_LIMIT_MS) return
       // The slot is taken by the time `fetchAndStore` hands back its promise, as in `load`.
       const fetching = fetchAndStore(request, key, clock(), limits)
       place.leave()

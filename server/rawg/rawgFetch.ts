@@ -10,7 +10,7 @@ import type { RawgList } from './types'
 
 const BASE_URL = 'https://api.rawg.io/api'
 const TIMEOUT_MS = 5_000
-const MIN_INTERVAL_MS = 250 // 4 requests per second
+const MIN_INTERVAL_MS = 250 // 4 requests per second, after whatever burst the wiring gives it
 const MAX_ATTEMPTS = 2
 
 export type RawgParams = Record<string, string | number | undefined>
@@ -36,6 +36,12 @@ export interface RawgDeps {
    * every answer past its ttl is asked for again and waited for (`UpstreamRuntime.keepAlive`).
    */
   keepAlive?: (work: Promise<unknown>) => void
+  /**
+   * How many requests may leave together when the limiter has been idle (`UpstreamConfig.burst`).
+   * One when omitted: a request per quarter of a second and nothing else, which is what the
+   * refresh job walks RAWG at. Only the site names another (`RAWG_BURST`, `server/utils/rawg.ts`).
+   */
+  burst?: number
 }
 
 export interface RawgFetchOptions {
@@ -159,7 +165,8 @@ export function fixtureName(path: string, params?: RawgParams): string {
 
 /**
  * RAWG's share of the shared upstream transport (see server/upstream/createUpstreamFetch.ts):
- * the base URL and API key, the per-path ttl and stale-window rules and the 4 rps limiter.
+ * the base URL and API key, the per-path ttl and stale-window rules and the 4 rps limiter, with
+ * the burst its wiring asks for (`RawgDeps.burst`).
  * Everything else — throttling, timeout, retry, cache, stale-if-error, the refresh behind a stale
  * answer — lives there, once.
  *
@@ -172,6 +179,7 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
     {
       source: 'RAWG',
       minIntervalMs: MIN_INTERVAL_MS,
+      burst: deps.burst,
       timeoutMs: TIMEOUT_MS,
       maxAttempts: MAX_ATTEMPTS,
       buildUrl: ({ path, params }) => {

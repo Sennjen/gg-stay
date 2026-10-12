@@ -250,6 +250,15 @@ describe('createRawgFetch', () => {
     expect(waits).toEqual([250, 500])
   })
 
+  it('lets as many requests leave together as its wiring asks for, and spaces the rest', async () => {
+    // What the site asks for; the refresh job asks for nothing, and is spaced as above.
+    const { deps } = makeDeps({ burst: 3 })
+    const rawg = createRawgFetch(deps)
+    await Promise.all([1, 2, 3, 4, 5].map((page) => rawg('games', { page })))
+    const waits = vi.mocked(deps.sleep).mock.calls.map(([ms]) => ms)
+    expect(waits).toEqual([250, 500])
+  })
+
   it('sends one request for two calls for the same list made at the same time', async () => {
     const { deps } = makeDeps()
     const rawg = createRawgFetch(deps)
