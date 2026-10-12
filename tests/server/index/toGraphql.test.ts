@@ -688,11 +688,33 @@ describe('withCheapest', () => {
     expect(marked([])).toEqual([])
   })
 
-  it('leaves a dollar price that has no estimate out of it: there is no amount to weigh', () => {
-    expect(marked([steam(675), toStoreOffer(gogOffer(), null)])).toEqual([])
-    // Two other rows still have a price each, and are weighed as if it were not there.
-    const rows = [steam(675), toStoreOffer(gogOffer(), null), toStoreOffer(microsoftOffer(), null)]
-    expect(marked(rows)).toEqual(['xbox-store'])
+  it('marks no row while a fresh dollar price has no estimate: it may be the lowest on the page', () => {
+    // Steam 675 ₴, the Xbox Store 385 ₴, GOG $8.99 and no rate to place it by. 385 ₴ is the
+    // lowest of what can be weighed, and "cheapest" beside a dollar price nobody can place is
+    // a claim the page cannot make.
+    const unplaced = toStoreOffer(gogOffer(), null)
+    expect(marked([steam(675), unplaced])).toEqual([])
+    expect(marked([steam(675), unplaced, toStoreOffer(microsoftOffer(), null)])).toEqual([])
+    expect(marked([steam(300), unplaced, toStoreOffer(microsoftOffer(), null)])).toEqual([])
+    // With a rate the same three rows are weighed as ever.
+    const placed = toStoreOffer(gogOffer(), RATE)
+    expect(marked([steam(675), placed, toStoreOffer(microsoftOffer(), RATE)])).toEqual([
+      'xbox-store',
+    ])
+  })
+
+  it('is not silenced by a dollar price that is free, or by one that is no longer fresh', () => {
+    const free = { amount: 0, regularAmount: 0, discountPercent: 0 }
+    const hryvnia = { amount: 100, regularAmount: 100, discountPercent: 0 }
+    // Nothing needs no rate: the free row is weighed, and what it does to the mark is its own
+    // rule (the lowest is free, so no row is marked).
+    expect(marked([steam(675), toStoreOffer(gogOffer(free), null)])).toEqual([])
+    // A dollar price under a date too old to be a price is not on a page at all; made by hand
+    // here, it takes no part and is in nobody's way.
+    const old = { ...toStoreOffer(gogOffer(), null), updatedAt: TOO_OLD }
+    expect(marked([steam(675), old, toStoreOffer(microsoftOffer(hryvnia), null)])).toEqual([
+      'xbox-store',
+    ])
   })
 
   it('marks no row when the lowest price is free, whatever the store charges in', () => {

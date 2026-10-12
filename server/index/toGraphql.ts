@@ -241,10 +241,26 @@ function pricedRowOf(row: StoreOffer, now: string): PricedRow | null {
 }
 
 /**
+ * Whether the row shows a fresh price that the rule has no amount for: a price in another
+ * currency, not free, with no estimate beside it — which is a dollar price while there is no
+ * rate. Such a row is not weighed, and it is not out of the way either (`withCheapest`).
+ */
+function cannotBeWeighed(row: StoreOffer, now: string): boolean {
+  const foreign = row.priceUah == null ? row.foreignPrice : null
+  return !!foreign && foreign.amount !== 0 && row.approxUah == null && isFreshAt(row.updatedAt, now)
+}
+
+/**
  * The same rows with `cheapest` set on the one the page marks (`markedCheapest`), and on no
  * other: the cheapest of the rows whose price is fresh at `now` (`pricedRowOf`), and no row at
  * all when that one is free or when fewer than two are fresh. A row with an older price is still
  * shown, with its age; it is neither marked nor a yardstick for the others.
+ *
+ * Nothing is marked, either, while some row shows a fresh price that cannot be weighed
+ * (`cannotBeWeighed`). With no rate, a dollar price stands on the page as a number nobody can
+ * place: it may be the lowest there. Marking the lowest of the rest would put "cheapest" on a
+ * row beside a price that may be under it — the reason an estimate that undercuts by too little
+ * marks nothing as well.
  *
  * It weighs the rows as the page shows them, so it is applied last: after Steam's row has taken
  * a live price, when it has one, and after the other stores' offers are on theirs.
@@ -254,7 +270,8 @@ export function withCheapest(rows: StoreOffer[], now: string): StoreOffer[] {
     const weighed = pricedRowOf(row, now)
     return weighed ? [{ ...weighed, row }] : []
   })
-  const cheapest = markedCheapest(priced)?.row ?? null
+  const silenced = rows.some((row) => cannotBeWeighed(row, now))
+  const cheapest = silenced ? null : (markedCheapest(priced)?.row ?? null)
   return rows.map((row) =>
     row.cheapest === (row === cheapest) ? row : { ...row, cheapest: row === cheapest },
   )

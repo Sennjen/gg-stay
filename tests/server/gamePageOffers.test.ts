@@ -440,6 +440,26 @@ describe('what the other stores charge, on a page RAWG answered', () => {
       expect(answer.exchangeRate).toBeNull()
     })
 
+    it('marks no row while a dollar price has no rate to be placed by, whatever the hryvnia rows say', async () => {
+      // 675 ₴ on Steam, 385 ₴ in the Xbox Store, $8.99 on GOG and no rate: the page shows all
+      // three, and the dollar price may be the lowest of them. Nothing is called the cheapest.
+      const document = witcher([gogOffer(), microsoftOffer()], {
+        stores: ['steam', 'gog', 'xbox-store'],
+      })
+      const withoutRate = await indexPage({ index: await indexHolding([document], metaWith(null)) })
+      const withRate = await indexPage({ index: await indexHolding([document]) })
+
+      expect(withoutRate.stores.map((row) => row.store)).toEqual(['steam', 'gog', 'xbox-store'])
+      expect(withoutRate.stores[1]).toMatchObject({
+        foreignPrice: { amount: 8.99, currency: 'USD' },
+        approxUah: null,
+      })
+      expect(withoutRate.stores[2]).toMatchObject({ priceUah: 385 })
+      expect(cheapestOf(withoutRate)).toEqual([])
+      // The same page with a rate: 385 ₴ exact, against an estimate of 404 ₴.
+      expect(cheapestOf(withRate)).toEqual(['xbox-store'])
+    })
+
     it('still weighs the hryvnia stores against each other without a rate', async () => {
       // Stardew for 385 ₴ at Microsoft against a Steam price of 400 ₴: both exact.
       const priced = { ...stardew([microsoftOffer()]), priceUah: 400, free: false }
