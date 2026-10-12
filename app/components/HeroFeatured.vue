@@ -43,11 +43,11 @@ const trailerCredit = computed(() => {
 
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/75 to-ink/25"
+      class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/30 to-transparent"
     />
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/90 via-ink/45 to-transparent"
+      class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/70 via-ink/20 to-transparent"
     />
     <!-- Keeps the transparent sticky header's nav text readable over any poster, even on the
          landing route where AppHeader has no background of its own — see DESIGN.md/#header-h.
