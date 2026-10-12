@@ -61,8 +61,15 @@ export function filterToParams({
 
   if (f.upcoming) {
     params.dates = `${nextDay(today)},2099-12-31`
-  } else if (f.yearFrom || f.yearTo) {
-    params.dates = `${f.yearFrom ?? 1970}-01-01,${f.yearTo ?? 2099}-12-31`
+  } else {
+    const from = `${f.yearFrom ?? 1970}-01-01`
+    const to = `${f.yearTo ?? 2099}-12-31`
+    // RAWG keeps placeholder dates years ahead, and a plain `-released` leads with them. Newest
+    // first therefore stops at today, unless the year range itself starts in the future.
+    const newestFirst = sort === 'RELEASED_DESC' && from <= today
+    if (f.yearFrom || f.yearTo || newestFirst) {
+      params.dates = `${from},${newestFirst && today < to ? today : to}`
+    }
   }
 
   if (f.metacriticMin) params.metacritic = `${f.metacriticMin},100`

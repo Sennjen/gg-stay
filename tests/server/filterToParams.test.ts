@@ -43,6 +43,35 @@ describe('filterToParams', () => {
     expect(filterToParams({ ...base, filter })).toMatchObject(expected)
   })
 
+  describe('newest first', () => {
+    const newest = { ...base, sort: 'RELEASED_DESC' } as const
+
+    // RAWG lists placeholder dates years ahead, which a plain `-released` puts on the first page.
+    it.each([
+      [null, '1970-01-01,2026-09-18'],
+      [{ yearFrom: 2020 }, '2020-01-01,2026-09-18'],
+      [{ yearTo: 2026 }, '1970-01-01,2026-09-18'],
+      [{ yearTo: 1999 }, '1970-01-01,1999-12-31'],
+      [{ yearFrom: 2015, yearTo: 2017 }, '2015-01-01,2017-12-31'],
+    ])('stops at today for %j', (filter, dates) => {
+      expect(filterToParams({ ...newest, filter }).dates).toBe(dates)
+    })
+
+    it.each([
+      [{ upcoming: true }, '2026-09-19,2099-12-31'],
+      [{ yearFrom: 2027 }, '2027-01-01,2099-12-31'],
+    ])('leaves the future to a filter that asks for it: %j', (filter, dates) => {
+      expect(filterToParams({ ...newest, filter }).dates).toBe(dates)
+    })
+
+    it('bounds no other sort', () => {
+      expect(filterToParams({ ...base, sort: 'RELEASED_ASC', filter: null })).not.toHaveProperty(
+        'dates',
+      )
+      expect(filterToParams({ ...base, filter: null })).not.toHaveProperty('dates')
+    })
+  })
+
   describe('search relevance ordering', () => {
     it('sends no ordering for a search with the default sort', () => {
       const params = filterToParams({

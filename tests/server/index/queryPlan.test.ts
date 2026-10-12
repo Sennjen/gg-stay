@@ -134,6 +134,45 @@ describe('planQuery', () => {
     ])
   })
 
+  it('stops the newest-first order at today', () => {
+    expect(planQuery(1, { sort: 'RELEASED_DESC', today: TODAY }).ranges).toEqual([
+      {
+        key: rangeKey(1, 'released'),
+        min: Number.NEGATIVE_INFINITY,
+        max: daysSinceEpoch(TODAY),
+      },
+    ])
+    const newest = { sort: 'RELEASED_DESC', today: TODAY } as const
+    expect(planQuery(1, { ...newest, yearFrom: 2020 }).ranges[0]).toMatchObject({
+      min: daysSinceEpoch('2020-01-01'),
+      max: daysSinceEpoch(TODAY),
+    })
+    expect(planQuery(1, { ...newest, yearTo: 2026 }).ranges[0]).toMatchObject({
+      max: daysSinceEpoch(TODAY),
+    })
+    expect(planQuery(1, { ...newest, yearTo: 2018 }).ranges[0]).toMatchObject({
+      max: daysSinceEpoch('2018-12-31'),
+    })
+  })
+
+  it('leaves the future to a newest-first query that asks for it', () => {
+    const newest = { sort: 'RELEASED_DESC', today: TODAY } as const
+    expect(planQuery(1, { ...newest, upcoming: true }).ranges[0]).toMatchObject({
+      min: daysSinceEpoch('2026-09-21'),
+      max: Number.POSITIVE_INFINITY,
+    })
+    expect(planQuery(1, { ...newest, yearFrom: 2027 }).ranges[0]).toMatchObject({
+      min: daysSinceEpoch('2027-01-01'),
+      max: Number.POSITIVE_INFINITY,
+    })
+  })
+
+  it('bounds no other order by today, and none without a date to measure against', () => {
+    expect(planQuery(1, { sort: 'RELEASED_ASC', today: TODAY }).ranges).toEqual([])
+    expect(planQuery(1, { today: TODAY }).ranges).toEqual([])
+    expect(planQuery(1, { sort: 'RELEASED_DESC' }).ranges).toEqual([])
+  })
+
   it('folds the search term and drops a blank one', () => {
     expect(planQuery(1, { search: '  KiTe  ' }).search).toBe('kite')
     expect(planQuery(1, { search: '   ' }).search).toBeNull()

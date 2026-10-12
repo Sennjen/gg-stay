@@ -57,7 +57,10 @@ export interface IndexQuery {
   yearTo?: number
   /** Released strictly after `today`; planning it without `today` throws. */
   upcoming?: boolean
-  /** ISO date the `upcoming` filter is measured against; no adapter reads a clock. */
+  /**
+   * ISO date the `upcoming` filter is measured against; no adapter reads a clock. With it,
+   * `RELEASED_DESC` also starts at this date rather than at the furthest release announced.
+   */
   today?: string
   playtime?: PlaytimeValue
   metacriticMin?: number

@@ -1,7 +1,7 @@
 import { DEFAULT_PAGE_SIZE, MAX_PAGE, MAX_PAGE_SIZE } from '../../shared/catalog'
 import type { IndexQuery, LocalisationFilter } from './GameIndex'
 import { DEFAULT_SORT } from './GameIndex'
-import { dayAfter, firstDayOfYear, foldName, lastDayOfYear } from './document'
+import { dayAfter, daysSinceEpoch, firstDayOfYear, foldName, lastDayOfYear } from './document'
 import {
   ageRatingFacetKey,
   freeFacetKey,
@@ -102,12 +102,18 @@ export function planQuery(version: number, query: IndexQuery): QueryPlan {
       throw new TypeError('An upcoming index query needs `today` to be measured against')
     }
     ranges.push({ key: rangeKey(version, 'released'), min: dayAfter(query.today), max: OPEN_HIGH })
-  } else if (query.yearFrom !== undefined || query.yearTo !== undefined) {
-    ranges.push({
-      key: rangeKey(version, 'released'),
-      min: query.yearFrom === undefined ? OPEN_LOW : firstDayOfYear(query.yearFrom),
-      max: query.yearTo === undefined ? OPEN_HIGH : lastDayOfYear(query.yearTo),
-    })
+  } else {
+    const min = query.yearFrom === undefined ? OPEN_LOW : firstDayOfYear(query.yearFrom)
+    const yearEnd = query.yearTo === undefined ? OPEN_HIGH : lastDayOfYear(query.yearTo)
+    // Newest first stops at today, as it does on the RAWG path (`filterToParams`): a release date
+    // years ahead is a placeholder, and it would lead the order. A year range that starts in the
+    // future asks for those games itself and is left alone.
+    const today =
+      query.sort === 'RELEASED_DESC' && query.today ? daysSinceEpoch(query.today) : OPEN_HIGH
+    const max = min <= today ? Math.min(yearEnd, today) : yearEnd
+    if (min !== OPEN_LOW || max !== OPEN_HIGH) {
+      ranges.push({ key: rangeKey(version, 'released'), min, max })
+    }
   }
 
   // A price or discount filter needs no separate "has a price" set to intersect with: the price

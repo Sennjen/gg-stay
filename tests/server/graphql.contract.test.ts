@@ -4,7 +4,7 @@ import { UpstreamError } from '../../server/upstream/errors'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../server/steam/steamFetch'
 import type { FeaturedPin } from '../../server/graphql/featuredPin'
-import { fixtureRawg, fixtureSteam, runQuery, type QueryResult } from './support/yoga'
+import { TEST_TODAY, fixtureRawg, fixtureSteam, runQuery, type QueryResult } from './support/yoga'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
 import stardewDetail from '../fixtures/rawg/game-stardew-valley.json'
 
@@ -106,6 +106,8 @@ describe('Query.games', () => {
       page_size: 20,
       genres: 'indie',
       platforms: '7',
+      // Newest first stops at the request's own date, not at the furthest date RAWG lists.
+      dates: `1970-01-01,${TEST_TODAY}`,
     })
   })
 
