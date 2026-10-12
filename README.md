@@ -86,7 +86,7 @@ Decisions are recorded in [docs/adr](docs/adr); the design of each cycle is in
 
 ## Search engines
 
-- Every page has a title ending in "— GG Stay" (the landing keeps its own), a description in the
+- Every page has a title ending in "| GG Stay" (the landing keeps its own), a description in the
   page's language, a canonical link without the query string, the uk/en hreflang pair, Open Graph
   and Twitter tags. The game page describes itself with the description it shows (the Ukrainian
   Steam text on `/games/…`), and emits `VideoGame` JSON-LD; the landing emits `WebSite` with a

@@ -17,7 +17,7 @@ export const OG_IMAGE = { path: '/og.png', width: 1200, height: 630 } as const
 
 /** Every page title but the landing's ends with the site name. */
 export function withSiteName(title: string): string {
-  return `${title} — ${SITE_NAME}`
+  return `${title} | ${SITE_NAME}`
 }
 
 /** Search engines show roughly this many characters of a description before cutting it. */

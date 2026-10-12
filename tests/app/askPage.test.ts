@@ -159,7 +159,7 @@ describe('the ask page, answered from the URL', () => {
     const wrapper = await renderAsk(askUrl(STRUCTURED_QUERY))
     const note = wrapper.get('[data-test="ask-results"] [data-test="index-note"]')
     expect(plain(note.text())).toBe(
-      'Пошук серед 3 000 найпопулярніших ігор і всіх ігор українських студій — ціни й мови ми знаємо лише для них.',
+      'Пошук серед 3 000 найпопулярніших ігор і всіх ігор українських студій: ціни й мови ми знаємо лише для них.',
     )
     // Text only: an answer has no price-run time, so no "prices updated" line.
     expect(note.find('[data-test="prices-updated"]').exists()).toBe(false)
@@ -282,7 +282,7 @@ describe('the ask page, answered from the URL', () => {
     const note = wrapper.get('[data-test="ask-answer"] [data-test="ask-fallback-note"]')
     // Nothing of his to be pleased with.
     expect(wrapper.get('[data-test="ask-answer"] svg').attributes('data-mood')).toBe('idle')
-    expect(note.text()).toBe('ШІ-розбір зараз недоступний — показую звичайний пошук')
+    expect(note.text()).toBe('ШІ-розбір зараз недоступний, показую звичайний пошук')
     expect(note.attributes('role')).toBeUndefined()
     expect(wrapper.find('[data-test="ask-interpretation"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="ask-item"]')).toHaveLength(2)
@@ -298,7 +298,7 @@ describe('the ask page, answered from the URL', () => {
     expect(href.pathname).toBe('/games')
     expect(Object.fromEntries(href.searchParams)).toEqual({ search: FALLBACK_QUERY })
     expect(plain(wrapper.get('[data-test="ask-live"]').text())).toBe(
-      'ШІ-розбір зараз недоступний — показую звичайний пошук. Знайшов 2 гри',
+      'ШІ-розбір зараз недоступний, показую звичайний пошук. Знайшов 2 гри',
     )
   })
 
@@ -420,7 +420,7 @@ describe('the ask page, answers with nothing the catalog can filter by', () => {
     const empty = wrapper.get('[data-test="ask-empty"]')
     expect(empty.findAll('p').map((line) => plain(line.text()))).toEqual([
       'Нічого не підібрав',
-      'Спробуй описати інакше — конкретніше або менш суворо.',
+      'Спробуй описати інакше: конкретніше або менш суворо.',
     ])
     expect(wrapper.find('[data-test="ask-catalog-link"]').exists()).toBe(false)
   })
@@ -645,7 +645,7 @@ describe('the ask page, asked from the form', () => {
     await wrapper.get('form').trigger('submit')
     await settle(() => expect(wrapper.find('[data-test="ask-fallback-note"]').exists()).toBe(true))
     expect(described()).toEqual([
-      'ШІ-розбір зараз недоступний — показую звичайний пошук',
+      'ШІ-розбір зараз недоступний, показую звичайний пошук',
       'Знайшов 2 гри',
     ])
 

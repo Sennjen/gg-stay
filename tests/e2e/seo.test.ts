@@ -182,8 +182,8 @@ describe('SEO: what a crawler reads', async () => {
       const head = await headOf(page.path)
       expect(head.status).toBe(200)
       expect(head.lang).toBe(page.locale === 'uk' ? 'uk-UA' : 'en-US')
-      if (page.path === '/' || page.path === '/en') expect(head.title).toMatch(/^GG Stay — /)
-      else expect(head.title).toMatch(/ — GG Stay$/)
+      if (page.path === '/' || page.path === '/en') expect(head.title).toMatch(/^GG Stay: /)
+      else expect(head.title).toMatch(/ \| GG Stay$/)
 
       const description = metaName(head, 'description')
       expect(description?.length).toBeGreaterThan(40)
@@ -228,10 +228,10 @@ describe('SEO: what a crawler reads', async () => {
 
   it('describes a filtered catalog page by its filters, in the words its chips use', async () => {
     const head = await headOf('/games?ukrainianLocalisation=AUDIO&platforms=4')
-    expect(head.title).toBe('Ігри (PC, Українська: озвучка) — GG Stay')
+    expect(head.title).toBe('Ігри (PC, Українська: озвучка) | GG Stay')
     expect(metaName(head, 'description')).toContain('PC, Українська: озвучка')
     const english = await headOf('/en/games?ukrainianLocalisation=AUDIO&platforms=4')
-    expect(english.title).toBe('Games (PC, Ukrainian: voice acting) — GG Stay')
+    expect(english.title).toBe('Games (PC, Ukrainian: voice acting) | GG Stay')
   })
 
   it('keeps a re-sorted catalog out of the index: it is the first page in another order', async () => {
@@ -241,7 +241,7 @@ describe('SEO: what a crawler reads', async () => {
   })
 
   it('numbers a later catalog page in its title', async () => {
-    expect((await headOf('/games?page=2')).title).toBe('Каталог ігор, сторінка 2 — GG Stay')
+    expect((await headOf('/games?page=2')).title).toBe('Каталог ігор, сторінка 2 | GG Stay')
   })
 
   it('shares the landing as its own static card', async () => {
@@ -351,8 +351,8 @@ describe('SEO: what a crawler reads', async () => {
 
   it('keeps a missing page out of the index, in the language of the URL', async () => {
     for (const [path, lang, title] of [
-      ['/games/does-not-exist', 'uk-UA', 'Сторінку не знайдено — GG Stay'],
-      ['/en/games/does-not-exist', 'en-US', 'Page not found — GG Stay'],
+      ['/games/does-not-exist', 'uk-UA', 'Сторінку не знайдено | GG Stay'],
+      ['/en/games/does-not-exist', 'en-US', 'Page not found | GG Stay'],
     ] as const) {
       const head = await headOf(path)
       expect(head.status).toBe(404)

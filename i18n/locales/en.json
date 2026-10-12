@@ -1,6 +1,6 @@
 {
   "home": {
-    "title": "GG Stay — video game catalog",
+    "title": "GG Stay: video game catalog",
     "description": "Games for Ukrainian players: practical filters and a Ukrainian-first interface.",
     "hero": {
       "headline": "Games worth finding",
@@ -27,7 +27,7 @@
     "cta": {
       "title": "Ready to find your next game?"
     },
-    "shareImageAlt": "GG Stay — a video game catalog for Ukrainian players"
+    "shareImageAlt": "GG Stay: a video game catalog for Ukrainian players"
   },
   "nav": {
     "catalog": "Catalog",
@@ -45,7 +45,7 @@
       "compact": "Hi! Want me to pick a game?",
       "hello": "Hi, I'm {name}!",
       "deal": "Today {name} is {discount} at {price}.",
-      "pitch": "I can pick many more games for you — without a long search through the catalog.",
+      "pitch": "I can pick many more games for you, without a long search through the catalog.",
       "accept": "Let's go",
       "decline": "Not now",
       "close": "Close"
@@ -103,7 +103,7 @@
     "view": "Catalog layout",
     "viewGrid": "Grid",
     "viewList": "List",
-    "indexedOnlyNote": "Searching the {count} most popular games and every game from a Ukrainian studio — they are the only ones we know prices and languages for.",
+    "indexedOnlyNote": "Searching the {count} most popular games and every game from a Ukrainian studio: they are the only ones we know prices and languages for.",
     "pricesUpdated": "Prices updated {count} hour ago | Prices updated {count} hours ago",
     "pricesUpdatedRecently": "Prices updated just now",
     "staleTitle": "Prices are not being refreshed right now",
@@ -237,7 +237,7 @@
     "whereToBuy": "Where to buy",
     "about": "About",
     "descriptionSourceSteam": "Description: Steam",
-    "metaFallback": "{name} — platforms, genres, ratings and stores.",
+    "metaFallback": "{name}: platforms, genres, ratings and stores.",
     "priceLabel": "Steam price",
     "priceUpdatedRecently": "updated just now",
     "priceUpdated": "updated {count} hour ago | updated {count} hours ago",
@@ -253,7 +253,7 @@
   },
   "gallery": {
     "heading": "Screenshots",
-    "thumbnailAlt": "{title} — screenshot {n}",
+    "thumbnailAlt": "{title}, screenshot {n}",
     "dialogLabel": "Screenshot viewer: {title}",
     "counter": "{current} / {total}",
     "counterAnnouncement": "{current} of {total}",
@@ -280,11 +280,11 @@
       },
       "ukrainianGames": {
         "title": "Ukrainian-made games",
-        "description": "Games by Ukrainian studios have a shelf of their own — “Made in Ukraine”."
+        "description": "Games by Ukrainian studios have a shelf of their own: “Made in Ukraine”."
       },
       "gege": {
         "title": "Gege understands Ukrainian",
-        "description": "Describe a game in your own words — Gege picks games from the catalog and explains why these.",
+        "description": "Describe a game in your own words, and Gege picks games from the catalog and explains why these.",
         "action": "Ask Gege"
       }
     }
@@ -294,8 +294,8 @@
   },
   "ask": {
     "title": "Describe a game in your own words",
-    "titleQuery": "“{query}” — game picks",
-    "description": "Describe the game you're after — genre, platform, price, who you play with — and GG Stay picks games from the catalog and says why each one fits.",
+    "titleQuery": "“{query}”: game picks",
+    "description": "Describe the game you're after: genre, platform, price, who you play with. GG Stay picks games from the catalog and says why each one fits.",
     "intro": {
       "title": "Describe the game the way you'd tell a friend",
       "text": "Genre, mood, who you play with, how much you'd spend. I'll find the games and say why these ones."
@@ -318,15 +318,15 @@
     "openInCatalog": "Open in the catalog",
     "picked": "Picked {count} game | Picked {count} games",
     "found": "Found {count} game | Found {count} games",
-    "fallbackNote": "AI matching isn't available right now — showing a plain search instead",
+    "fallbackNote": "AI matching isn't available right now, showing a plain search instead",
     "waiting": {
       "reading": "Reading your request…",
       "searching": "Looking for games…",
       "explaining": "Explaining the picks…"
     },
     "emptyTitle": "Nothing matched",
-    "emptyHint": "Try describing it differently or less strictly — or open the filter in the catalog and adjust it by hand.",
-    "emptyHintNoFilter": "Try describing it differently — more specifically, or less strictly.",
+    "emptyHint": "Try describing it differently or less strictly, or open the filter in the catalog and adjust it by hand.",
+    "emptyHintNoFilter": "Try describing it differently: more specifically, or less strictly.",
     "errorFailed": "Couldn't find games just now. Please try again.",
     "errorRateLimited": "Too many questions in a row. Try again in {count} second. | Too many questions in a row. Try again in {count} seconds.",
     "errorRateLimitedMinute": "Too many questions in a row. Try again in a minute.",

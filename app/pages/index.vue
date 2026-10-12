@@ -66,7 +66,7 @@ onMounted(() => {
 const { absoluteUrl } = useSiteUrl()
 const robots = useRobots()
 
-// The landing keeps its own title ("GG Stay — …") rather than the "… — GG Stay" every other page
+// The landing keeps its own title ("GG Stay: …") rather than the "… | GG Stay" every other page
 // ends with. Its share image is a static card of its own (`public/og.png`, drawn by
 // `scripts/og-image.ts`): the featured game changes daily, and a link shared once should not
 // preview as whatever game happened to be featured when a crawler fetched it.

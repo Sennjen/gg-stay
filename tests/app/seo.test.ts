@@ -12,7 +12,7 @@ import {
 
 describe('withSiteName', () => {
   it('ends every page title with the site name', () => {
-    expect(withSiteName('Каталог ігор')).toBe('Каталог ігор — GG Stay')
+    expect(withSiteName('Каталог ігор')).toBe('Каталог ігор | GG Stay')
   })
 })
 

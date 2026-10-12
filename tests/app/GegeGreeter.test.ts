@@ -326,7 +326,7 @@ describe('GegeGreeter', () => {
       expect(greeter()!.dataset.phase).toBe('open')
       expect(lines()).toEqual([
         'Привіт, я Ґеґе! Сьогодні Portal 2 −75% за 1 225 ₴.',
-        'Можу підібрати ще багато цікавих ігор — без довгого пошуку в каталозі.',
+        'Можу підібрати ще багато цікавих ігор без довгого пошуку в каталозі.',
       ])
       expect(within('[data-test="gege-accept"]')).not.toBeNull()
       expect(within('[data-test="gege-decline"]')).not.toBeNull()
@@ -444,7 +444,7 @@ describe('GegeGreeter', () => {
       await mountRisen()
       expect(lines()).toEqual([
         'Привіт, я Ґеґе! Сьогодні Portal 2 −75% за 1 225 ₴.',
-        'Можу підібрати ще багато цікавих ігор — без довгого пошуку в каталозі.',
+        'Можу підібрати ще багато цікавих ігор без довгого пошуку в каталозі.',
       ])
       const link = within('[data-test="gege-deal"] a')!
       expect(link.textContent).toBe('Portal 2')
@@ -484,7 +484,7 @@ describe('GegeGreeter', () => {
       await mountRisen()
       expect(lines()).toEqual([
         'Привіт, я Ґеґе!',
-        'Можу підібрати ще багато цікавих ігор — без довгого пошуку в каталозі.',
+        'Можу підібрати ще багато цікавих ігор без довгого пошуку в каталозі.',
       ])
       expect(within('[data-test="gege-deal"]')).toBeNull()
       expect(within('[data-test="gege-accept"]')!.getAttribute('href')).toBe('/ask')
@@ -653,7 +653,7 @@ describe('GegeGreeter', () => {
       expect(toggle()!.getAttribute('aria-label')).toBe('Gege: AI picks')
       expect(lines()).toEqual([
         "Hi, I'm Gege! Today Portal 2 is −75% at 1,225 ₴.",
-        'I can pick many more games for you — without a long search through the catalog.',
+        'I can pick many more games for you, without a long search through the catalog.',
       ])
       expect(within('[data-test="gege-deal"] a')!.getAttribute('href')).toBe('/en/games/portal-2')
       expect(within('[data-test="gege-accept"]')!.getAttribute('href')).toBe('/en/ask')
