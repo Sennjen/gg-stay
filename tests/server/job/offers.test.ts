@@ -1161,6 +1161,27 @@ describe('the floor under a full read', () => {
       expect(games[7]!.offers?.[1]).toEqual(carriedMicrosoft(7))
     })
 
+    it('keeps nothing of the other store for a store whose mapping is not believed', async () => {
+      const { harness, games, refs } = await microsoftGames(20, 20)
+      // Every game is on GOG as well. The mapping has lost the Microsoft half of every record,
+      // and of one game's record the GOG half too: that one is an ordinary loss of a reference.
+      for (const [index, game] of games.entries()) {
+        game.offers = [carriedGog(`game_${index}`), carriedMicrosoft(index)]
+        refs.set(game.id, index === 3 ? {} : { gog: `game_${index}` })
+      }
+      harness.gogCatalog.products = games.map((_, index) =>
+        gogProduct(`game_${index}`, gogPrice('5.99', '9.99')),
+      )
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      // What is held is Microsoft's, store by store: the GOG offer without a reference goes as on
+      // any day, beside a Microsoft offer that stays.
+      expect(result.microsoft).toMatchObject({ status: 'references-lost', offers: 20 })
+      expect(result.gog).toMatchObject({ status: 'read', references: 19, offers: 19, dropped: 1 })
+      expect(games[3]!.offers).toEqual([carriedMicrosoft(3)])
+    })
+
     it('counts a record nothing could have written as no reference at all', async () => {
       // The keys are all there and none of them is a slug any more: lost is lost, whatever shape
       // the loss takes.
@@ -1335,6 +1356,29 @@ describe('an offer needs a reference', () => {
     expect('offers' in byId(103)).toBe(false)
     expect(result.gog).toMatchObject({ status: 'not-due', references: 1, offers: 1 })
     expect(result.microsoft).toMatchObject({ status: 'no-references', references: 0, offers: 0 })
+  })
+
+  it('takes one store’s offer from a game for want of that store’s reference, and leaves the other', async () => {
+    const { harness, games, byId } = await runAt(later(RUN_AT, HOUR))
+    byId(101).offers = [GOG_OFFER, MICROSOFT_OFFER]
+    byId(109).offers = [GOG_OFFER, MICROSOFT_OFFER]
+    // Each of the two has lost one half of its record, and not the same half.
+    const refs: StoreRefMap = new Map([
+      [101, { microsoft: { id: JOB_MICROSOFT_ID, name: 'hollow-cradle' } }],
+      [109, { gog: 'hollow_cradle' }],
+    ])
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(byId(101).offers).toEqual([MICROSOFT_OFFER])
+    expect(byId(109).offers).toEqual([GOG_OFFER])
+    expect(result.gog).toMatchObject({ status: 'not-due', references: 1, offers: 1, dropped: 1 })
+    expect(result.microsoft).toMatchObject({
+      status: 'not-due',
+      references: 1,
+      offers: 1,
+      dropped: 1,
+    })
   })
 
   it('keeps one offer a store when a document arrives carrying two of the same store', async () => {
