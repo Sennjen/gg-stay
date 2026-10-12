@@ -27,6 +27,15 @@ import { useFiltersStore } from '~/stores/filters'
 const COUNTS = [1, 2, 5, 21] as const
 
 /** A game with nothing for the scoreboard to show; each case adds what it counts. */
+/** What a store row carries for another store's offer, as a row that has none carries it. */
+const NO_OFFER = {
+  title: null,
+  foreignPrice: null,
+  foreignRegularPrice: null,
+  approxUah: null,
+  cheapest: false,
+}
+
 const BARE_GAME: NonNullable<GameQuery['game']> = {
   id: '3328',
   slug: 'the-witcher-3-wild-hunt',
@@ -42,6 +51,7 @@ const BARE_GAME: NonNullable<GameQuery['game']> = {
   platformFamilies: [],
   madeInUkraine: false,
   partial: false,
+  exchangeRate: null,
   localizedDescription: null,
   cover: null,
   screenshots: [],
@@ -276,6 +286,7 @@ describe('plural forms at the call sites', () => {
               ...BARE_GAME,
               stores: [
                 {
+                  ...NO_OFFER,
                   store: 'steam',
                   url: 'https://store.steampowered.com/app/292030/',
                   priceUah: 337,

@@ -903,7 +903,7 @@ describe('formatSummary and the other stores', () => {
   })
 
   it('says how many offers a store lost for want of a reference, whatever came of its read', () => {
-    const rows = (gog: typeof read & { dropped?: number }, microsoft: typeof gog) =>
+    const rows = (gog: typeof read & { dropped?: number; error?: string }, microsoft: typeof gog) =>
       formatSummary({ ...base, stores: { references, gog, microsoft, rate: null } })
 
     const summary = rows(

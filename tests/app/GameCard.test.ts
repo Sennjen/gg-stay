@@ -23,6 +23,7 @@ const game: CardGame = {
   madeInUkraine: false,
   price: null,
   localisation: null,
+  cheaperAt: null,
 }
 
 describe('GameCard', () => {
@@ -430,8 +431,9 @@ describe('GameCard: the store that is cheaper than Steam', () => {
     },
     localisation: { text: true, audio: true, source: 'steam' },
   }
+  // `undefined` is an answer from a server older than the field: the card must not need it.
   const mount = (cheaperAt: string | null | undefined, route = '/games') =>
-    mountSuspended(GameCard, { props: { game: { ...priced, cheaperAt } }, route })
+    mountSuspended(GameCard, { props: { game: { ...priced, cheaperAt } as CardGame }, route })
 
   it.each([
     ['gog', 'Дешевше в GOG'],
