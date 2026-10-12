@@ -1,4 +1,5 @@
 import type { GameIndex } from '../index/GameIndex'
+import type { FeaturedPin } from './featuredPin'
 import type { RawgFetch } from '../rawg/rawgFetch'
 import type { SteamFetch } from '../steam/steamFetch'
 import type { SteamPriceFetch } from '../steam/steamPriceFetch'
@@ -30,6 +31,11 @@ export interface GraphQLContext {
    * single instant, and nothing in a render path ever reads a clock of its own.
    */
   now: string
+  /**
+   * The games pinned to the landing's screen (`FEATURED_PINS`, `./featuredPin.ts`). Injected for
+   * the same reason as the clock they are checked against: a suite decides what is pinned.
+   */
+  featuredPins: readonly FeaturedPin[]
   index: GameIndex
   steamPrices: SteamPriceFetch
   cache: ResolverCache

@@ -183,11 +183,15 @@ export const typeDefs = /* GraphQL */ `
   enum ClipSource {
     RAWG
     STEAM
+    "The publisher's own trailer, served by the site for a game pinned to the landing."
+    PUBLISHER
   }
   type FeaturedGame {
     game: GameCard!
     clipUrl: String
     clipSource: ClipSource
+    "Whose trailer it is. Set only when clipSource is PUBLISHER."
+    clipCredit: String
   }
   "The landing's shelves, in display order. The catalog URL each one links to is shared/shelves.ts."
   enum ShelfId {

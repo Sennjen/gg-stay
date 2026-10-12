@@ -10,10 +10,17 @@ import { filterToParams } from '../../rawg/filterToParams'
 import { mapGameCard } from '../../rawg/mappers'
 import { dateRange, pickBestRated, pickFeatured } from '../../rawg/landing'
 import { rawgListOrThrow } from '../../rawg/rawgFetch'
-import type { RawgGameListItem, RawgList, RawgMovie, RawgStoreLink } from '../../rawg/types'
+import type {
+  RawgGameDetail,
+  RawgGameListItem,
+  RawgList,
+  RawgMovie,
+  RawgStoreLink,
+} from '../../rawg/types'
 import { pickTrailer, steamAppIdFromUrl } from '../../steam/steam'
 import type { SteamAppDetailsResponse } from '../../steam/types'
 import { withUpstreamErrors } from '../errors'
+import { activePin, type FeaturedPin } from '../featuredPin'
 import {
   attachIndexData,
   cachedIndexPage,
@@ -25,7 +32,12 @@ import {
   type IndexState,
 } from '../indexPath'
 import type { GraphQLContext } from '../context'
-import type { GameCard, QueryResolvers, Shelf } from '../__generated__/resolvers-types'
+import type {
+  FeaturedGame,
+  GameCard,
+  QueryResolvers,
+  Shelf,
+} from '../__generated__/resolvers-types'
 
 // The landing page is cached server-side for 24h (see docs/specs/2026-09-19-redesign-design.md,
 // "Server additions"): a page view should not reach RAWG on every request.
@@ -103,7 +115,35 @@ async function fetchClip(
 }
 
 /**
+ * The game a pin puts on the screen, with the trailer the pin brings. RAWG still supplies the
+ * card — read by id, and cached for a day like every other `games/…` path — so the title, the
+ * cover and the link are the catalog's own. Null when the game cannot be read or has no cover to
+ * show, and the landing then shows the game it would have picked by itself: a pin is an
+ * enhancement like the trailers are, and never fails or empties the screen.
+ */
+async function fetchPinned(
+  context: GraphQLContext,
+  pin: FeaturedPin,
+): Promise<FeaturedGame | null> {
+  try {
+    const game = (await context.rawg(`games/${pin.rawgId}`)) as RawgGameDetail
+    if (!game.slug || !game.background_image) return null
+    return {
+      game: mapGameCard(game),
+      clipUrl: pin.clipUrl,
+      clipSource: 'PUBLISHER',
+      clipCredit: pin.clipCredit,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
  * The landing page: the featured game, the ring and five shelves (see `shared/shelves.ts`).
+ *
+ * The featured game is the pinned one while a pin is in force (`featuredPin.ts`), and otherwise
+ * the best rated of the last year's most added games.
  *
  * Everything the index contributes overlaps RAWG instead of queueing behind it. The metadata read
  * starts first, beside the RAWG lists; the three index shelves start the moment it answers — all
@@ -124,6 +164,9 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
     const year = Number(today.slice(0, 4))
     const pending = indexState(context)
     const indexShelvesPending = pending.then((state) => readIndexShelves(context, state, year))
+    // Beside the lists rather than after them; `fetchPinned` never rejects.
+    const pin = activePin(today, context.featuredPins)
+    const pinnedPending = pin ? fetchPinned(context, pin) : null
 
     const rawgShelves = SHELVES.filter((shelf) => shelf.source === 'rawg')
     const [carouselPage, lastYearPage, ...rawgShelfPages] = await Promise.all([
@@ -139,13 +182,8 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
     const carouselItems = (carouselPage.results ?? []).filter((item) => item.background_image)
     const lastYearItems = lastYearPage.results ?? []
 
-    const featuredItem = pickFeatured(lastYearItems) ?? carouselItems[0] ?? null
-    const featured = featuredItem
-      ? {
-          game: mapGameCard(featuredItem),
-          ...(await fetchClip(context, featuredItem)),
-        }
-      : null
+    const featured =
+      (await pinnedPending) ?? (await pickedFeatured(context, lastYearItems, carouselItems))
     const carousel = carouselItems.slice(0, CAROUSEL_LIMIT).map(mapGameCard)
     const shelfGames = new Map<ShelfIdValue, GameCard[]>(
       rawgShelves.map((shelf, position) => [
@@ -176,6 +214,17 @@ export const landing: QueryResolvers['landing'] = (_parent, _args, context) =>
 
     return { featured, carousel, shelves, totalGames: carouselPage.count ?? 0, year }
   })
+
+/** The game the landing puts on the screen by itself, with whatever trailer RAWG or Steam has. */
+async function pickedFeatured(
+  context: GraphQLContext,
+  lastYearItems: RawgGameListItem[],
+  carouselItems: RawgGameListItem[],
+): Promise<FeaturedGame | null> {
+  const item = pickFeatured(lastYearItems) ?? carouselItems[0] ?? null
+  if (!item) return null
+  return { game: mapGameCard(item), ...(await fetchClip(context, item)) }
+}
 
 /**
  * A RAWG shelf's request: the catalog's own translation of the shelf's query — the page its link

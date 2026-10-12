@@ -3,6 +3,7 @@ import { MAX_PAGE, MAX_PAGE_SIZE, MAX_SEARCH_LENGTH } from '../../shared/catalog
 import { UpstreamError } from '../../server/upstream/errors'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamFetch } from '../../server/steam/steamFetch'
+import type { FeaturedPin } from '../../server/graphql/featuredPin'
 import { fixtureRawg, fixtureSteam, runQuery, type QueryResult } from './support/yoga'
 import detail from '../fixtures/rawg/game-the-witcher-3-wild-hunt.json'
 import stardewDetail from '../fixtures/rawg/game-stardew-valley.json'
@@ -401,6 +402,7 @@ describe('Query.landing', () => {
           }
           clipUrl
           clipSource
+          clipCredit
         }
         carousel {
           slug
@@ -428,6 +430,7 @@ describe('Query.landing', () => {
       clipUrl:
         'https://video.akamai.steamstatic.com/store_trailers/256813023/movie_hls/hls_264_master.m3u8?t=1234567891',
       clipSource: 'STEAM',
+      clipCredit: null,
     })
     expect(data!.landing.carousel).toEqual([{ slug: 'the-witcher-3-wild-hunt' }])
     // No index is published in this suite, so only RAWG shelves can be there. "Очікувані" has the
@@ -494,6 +497,73 @@ describe('Query.landing', () => {
     const { data, errors } = await run(rawg, LANDING)
     expect(errors).toBeUndefined()
     expect(data!.landing.featured.clipSource).toBe('STEAM')
+  })
+
+  describe('with a game pinned to the screen', () => {
+    // The suite's clock is 2026-09-18 (`TEST_TODAY`). The pinned game is read from RAWG by id;
+    // Stardew Valley's recorded detail stands in for it, with the cover that fixture leaves out.
+    const pin: FeaturedPin = {
+      rawgId: 972995,
+      until: '2026-11-30',
+      clipUrl: 'https://clips.example.test/pinned.mp4',
+      clipCredit: 'Rockstar Games',
+    }
+    const rawgWithPinned: RawgFetch = async (path, params) => {
+      if (path === 'games/972995') {
+        return { ...stardewDetail, background_image: 'https://media.rawg.io/media/games/713/a.jpg' }
+      }
+      return fixtureRawg(path, params)
+    }
+
+    it('shows the pinned game with its own trailer and credit, asking nobody for a clip', async () => {
+      const rawg = vi.fn(rawgWithPinned)
+      const steam = vi.fn(fixtureSteam)
+      const { data, errors } = await runQuery({ rawg, steam, featuredPins: [pin] }, LANDING)
+      expect(errors).toBeUndefined()
+      expect(data!.landing.featured).toEqual({
+        game: { slug: 'stardew-valley' },
+        clipUrl: 'https://clips.example.test/pinned.mp4',
+        clipSource: 'PUBLISHER',
+        clipCredit: 'Rockstar Games',
+      })
+      expect(steam).not.toHaveBeenCalled()
+      expect(rawg.mock.calls.map(([path]) => path)).not.toContain('games/3328/movies')
+      // The rest of the page is the one it would have been.
+      expect(data!.landing.carousel).toEqual([{ slug: 'the-witcher-3-wild-hunt' }])
+    })
+
+    it('goes back to the game the landing picks by itself once the pin has run out', async () => {
+      const expired = { ...pin, until: '2026-09-17' }
+      const rawg = vi.fn(rawgWithPinned)
+      const { data, errors } = await runQuery({ rawg, featuredPins: [expired] }, LANDING)
+      expect(errors).toBeUndefined()
+      expect(data!.landing.featured).toMatchObject({
+        game: { slug: 'the-witcher-3-wild-hunt' },
+        clipSource: 'STEAM',
+        clipCredit: null,
+      })
+      expect(rawg.mock.calls.map(([path]) => path)).not.toContain('games/972995')
+    })
+
+    it('falls back to its own pick when the pinned game cannot be read', async () => {
+      const { data, errors } = await runQuery({ rawg: fixtureRawg, featuredPins: [pin] }, LANDING)
+      expect(errors).toBeUndefined()
+      expect(data!.landing.featured).toMatchObject({
+        game: { slug: 'the-witcher-3-wild-hunt' },
+        clipSource: 'STEAM',
+      })
+    })
+
+    it('falls back to its own pick when the pinned game has no cover to put on the screen', async () => {
+      const rawg: RawgFetch = async (path, params) => {
+        if (path === 'games/972995') return stardewDetail
+        return fixtureRawg(path, params)
+      }
+      expect(stardewDetail.background_image).toBeNull()
+      const { data, errors } = await runQuery({ rawg, featuredPins: [pin] }, LANDING)
+      expect(errors).toBeUndefined()
+      expect(data!.landing.featured.game.slug).toBe('the-witcher-3-wild-hunt')
+    })
   })
 
   it.each([
