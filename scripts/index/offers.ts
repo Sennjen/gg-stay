@@ -433,8 +433,10 @@ function keptRate(rate: IndexedExchangeRate | undefined, now: number): IndexedEx
  */
 async function readRate(deps: JobDeps, published: IndexMeta | null): Promise<RateReport> {
   const now = deps.clock.now()
-  const date = kyivDate(now)
   try {
+    // Inside the guard like the request itself: the day is worked out by the runtime's time-zone
+    // data, and a runtime without Kyiv in it must cost a run its rate, not the run.
+    const date = kyivDate(now)
     const uah = parseUsdRate(await deps.bank(date), date)
     if (uah === null) throw new Error(`the answer is not the dollar's rate for ${date}`)
     deps.log(`rate: ${uah} UAH per USD for ${date}`)

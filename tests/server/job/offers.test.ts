@@ -971,6 +971,27 @@ describe('the rate', () => {
     })
   })
 
+  it('keeps the published rate, and the run, when the runtime cannot tell the day in Kyiv', async () => {
+    const { harness, games, refs } = await runAt(later(RUN_AT, DAY))
+    // What `Intl` does on a runtime whose time-zone data has no Kyiv in it.
+    const format = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function () {
+      throw new RangeError('Invalid time zone specified: Europe/Kyiv')
+    } as never)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT)).finally(() =>
+      format.mockRestore(),
+    )
+
+    // The bank was never asked, for there was no day to ask it about — and that is the bank's
+    // loss alone: the stage ends as it ends when the bank is down.
+    expect(harness.bankDays).toHaveLength(0)
+    expect(result.rate).toEqual({ status: 'kept', rate: RATE })
+    expect(result.gog.status).toBe('read')
+    expect(harness.logs.at(-1)).toBe(
+      'rate: the National Bank could not be read (Invalid time zone specified: Europe/Kyiv); keeping the rate for 2026-09-20',
+    )
+  })
+
   it('replaces the published rate with today’s', async () => {
     const at = later(RUN_AT, DAY)
     const { harness, games, refs } = await runAt(at)
