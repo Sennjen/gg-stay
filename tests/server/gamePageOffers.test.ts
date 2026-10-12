@@ -5,7 +5,11 @@ import type {
   IndexedGame,
   IndexedOffer,
 } from '../../server/index/document'
-import { EXCHANGE_RATE_KEPT_MS, OFFER_FRESH_FOR_MS } from '../../server/index/offerRules'
+import {
+  CLOCK_AHEAD_ALLOWED_MS,
+  EXCHANGE_RATE_KEPT_MS,
+  OFFER_FRESH_FOR_MS,
+} from '../../server/index/offerRules'
 import { INDEX_STALE_AFTER_MS } from '../../server/graphql/indexPath'
 import { PRICE_REFRESH_AFTER_MS } from '../../server/graphql/resolvers/game'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
@@ -357,6 +361,23 @@ describe('what the other stores charge, on a page RAWG answered', () => {
 
       expect(answer.stores).toEqual([STEAM_ROW, { ...LINK, store: 'gog', url: RAWG_GOG_LINK }])
       expect(answer.exchangeRate).toBeNull()
+    })
+
+    it('believes a date five minutes ahead of the clock to the millisecond, and none beyond', async () => {
+      // A wrong date in the future never grows old: the offer under it is not a price either.
+      const believed = gogOffer({ updatedAt: ago(-CLOCK_AHEAD_ALLOWED_MS) })
+      const ahead = gogOffer({ updatedAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) })
+
+      const inTime = await page({ index: await indexHolding([witcher([believed])]) })
+      const tooFar = await page({ index: await indexHolding([witcher([ahead])]) })
+
+      expect(inTime.stores[1]).toEqual({
+        ...GOG_ROW,
+        updatedAt: believed.updatedAt,
+        cheapest: true,
+      })
+      expect(tooFar.stores).toEqual([STEAM_ROW, { ...LINK, store: 'gog', url: RAWG_GOG_LINK }])
+      expect(tooFar.exchangeRate).toBeNull()
     })
 
     it('shows the fresh one of two, and only that one', async () => {

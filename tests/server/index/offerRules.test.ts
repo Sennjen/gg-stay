@@ -12,6 +12,7 @@ import {
   exchangeRateAt,
   freshOffers,
   hryvniaOf,
+  isFreshAt,
   isFreshOffer,
   listedOffers,
   markedCheapest,
@@ -80,6 +81,25 @@ describe('the thirty-six hours an offer is a price for', () => {
   it('counts an offer read a moment ago, and one a clock a little ahead of ours dated', () => {
     expect(isFreshOffer({ updatedAt: NOW }, NOW)).toBe(true)
     expect(isFreshOffer({ updatedAt: ago(-5_000) }, NOW)).toBe(true)
+  })
+
+  it('counts an offer dated five minutes ahead of the clock to the millisecond, and none dated beyond that', () => {
+    expect(isFreshOffer({ updatedAt: ago(-CLOCK_AHEAD_ALLOWED_MS) }, NOW)).toBe(true)
+    expect(isFreshOffer({ updatedAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) }, NOW)).toBe(false)
+    // A wrong date in the future never ages by itself: next June is not "read just now".
+    expect(isFreshOffer({ updatedAt: '2027-06-01T00:00:00.000Z' }, NOW)).toBe(false)
+  })
+
+  it('is one definition of fresh for every price: any date is held to the same two edges', () => {
+    // What Steam's price is weighed by, on a game page and on a card, is this and nothing else.
+    expect(isFreshAt(ago(OFFER_FRESH_FOR_MS), NOW)).toBe(true)
+    expect(isFreshAt(ago(OFFER_FRESH_FOR_MS + 1), NOW)).toBe(false)
+    expect(isFreshAt(ago(-CLOCK_AHEAD_ALLOWED_MS), NOW)).toBe(true)
+    expect(isFreshAt(ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)), NOW)).toBe(false)
+    for (const undated of ['not a date', '', undefined, null, 1_760_000_000_000]) {
+      expect(isFreshAt(undated, NOW), String(undated)).toBe(false)
+    }
+    expect(isFreshAt(ago(HOUR), 'not a date')).toBe(false)
   })
 
   it.each([['not a date'], [''], [undefined], [null], [1_760_000_000_000]])(

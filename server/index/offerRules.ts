@@ -65,7 +65,9 @@ export const CHEAPER_MARGIN_PERCENT = 10
 /**
  * How far ahead of the request's clock a date may be and still be taken for one of now: five
  * minutes, which is more than two clocks that are both kept disagree by. A price dated further
- * ahead than that was not read when it says, so nothing is known of its age.
+ * ahead than that was not read when it says, so nothing is known of its age — and what cannot be
+ * dated is not fresh. Without this bound a wrong date in the future would never age: the price
+ * under it would read as one taken a moment ago for as long as the document stood.
  */
 export const CLOCK_AHEAD_ALLOWED_MS = 5 * 60 * 1000
 
@@ -77,6 +79,29 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
  */
 function ageAt(iso: unknown, now: string): number {
   return typeof iso === 'string' ? Date.parse(now) - Date.parse(iso) : Number.NaN
+}
+
+/**
+ * Whether something dated `iso` is no older than `keptForMs` at `now`, and not dated more than
+ * `CLOCK_AHEAD_ALLOWED_MS` ahead of it. A date that cannot be read is neither.
+ */
+function isWithin(keptForMs: number, iso: unknown, now: string): boolean {
+  const age = ageAt(iso, now)
+  return age <= keptForMs && age >= -CLOCK_AHEAD_ALLOWED_MS
+}
+
+/**
+ * Whether a price dated `iso` is fresh at `now`: read no more than `OFFER_FRESH_FOR_MS` ago, and
+ * not dated ahead of the clock (`CLOCK_AHEAD_ALLOWED_MS`).
+ *
+ * The one definition of a fresh price, for every store and for everything that compares prices.
+ * Another store's offer is a price only while it is fresh (`isFreshOffer`). Steam's price is
+ * shown at any age, under its own date — but it is weighed against another only while it is
+ * fresh by this same clock: on a game page, where a row takes part in the mark by the date the
+ * page shows for it (`withCheapest`, `toGraphql.ts`), and on a card (`cheaperAtOf`).
+ */
+export function isFreshAt(iso: unknown, now: string): boolean {
+  return isWithin(OFFER_FRESH_FOR_MS, iso, now)
 }
 
 /** A whole, non-negative number of minor units: the only kind of amount the job writes. */
@@ -163,12 +188,12 @@ export function listedOffers(game: Pick<IndexedGame, 'stores' | 'offers'>): Inde
 }
 
 /**
- * Whether the offer is still a price at `now`: read no more than `OFFER_FRESH_FOR_MS` ago. An
- * offer whose date cannot be read is not fresh — it would otherwise be shown as one read just
- * now, which is the one thing a dated price must never do.
+ * Whether the offer is still a price at `now`: fresh by the date of its read (`isFreshAt`). An
+ * offer whose date cannot be read, or lies ahead of the clock, is not fresh — it would otherwise
+ * be shown as one read just now, which is the one thing a dated price must never do.
  */
 export function isFreshOffer(offer: Pick<IndexedOffer, 'updatedAt'>, now: string): boolean {
-  return ageAt(offer.updatedAt, now) <= OFFER_FRESH_FOR_MS
+  return isFreshAt(offer.updatedAt, now)
 }
 
 /**
@@ -257,20 +282,15 @@ export function cheapestRow<Row extends PricedRow>(rows: readonly Row[]): Row | 
  *
  * A free row already says the one thing the mark would add. "Cheapest" beside "Free" tells a
  * visitor nothing the row does not, and on the dearer row under it the mark would be false.
+ *
+ * `rows` are the page's fresh prices and no others (`isFreshAt`): a price the page shows under an
+ * old date is neither marked nor a yardstick for the rest. And the page asks only when every
+ * fresh price it shows can be weighed — a dollar price with no rate beside it silences the mark
+ * altogether (`withCheapest`), because the lowest of the rest may not be the lowest on the page.
  */
 export function markedCheapest<Row extends PricedRow>(rows: readonly Row[]): Row | null {
   const cheapest = cheapestRow(rows)
   return cheapest && cheapest.uah > 0 ? cheapest : null
-}
-
-/**
- * Whether a price dated `iso` is one a card may compare at `now`: read no more than
- * `OFFER_FRESH_FOR_MS` ago, and not dated more than `CLOCK_AHEAD_ALLOWED_MS` ahead of the clock.
- * A date that cannot be read is neither.
- */
-function isCurrentAt(iso: unknown, now: string): boolean {
-  const age = ageAt(iso, now)
-  return age <= OFFER_FRESH_FOR_MS && age >= -CLOCK_AHEAD_ALLOWED_MS
 }
 
 /**
@@ -283,11 +303,11 @@ function isCurrentAt(iso: unknown, now: string): boolean {
  *
  * - **No Steam price to be cheaper than.** The card's price is the document's Steam price, and a
  *   document without one — or without the date of one — has no price on its card.
- * - **A price that is not current** (`isCurrentAt`), on either side. Steam's price is held to the
+ * - **A price that is not fresh** (`isFreshAt`), on either side. Steam's price is held to the
  *   offers' own thirty-six hours here, though a card goes on showing it for as long as the index
  *   is not stale: the index carries a price forward under its old date when Steam stops answering
  *   for a game, and a price from six weeks ago is not the yardstick for "cheaper". An offer that
- *   is not current is not weighed at all, as on a game page.
+ *   is not fresh is not weighed at all. A game page holds its mark to the same clock.
  * - **Steam is the cheapest, or nobody is.** A tie, an estimate that does not clear its own
  *   margin over a hryvnia price, a dollar price with no rate to estimate it with: where the
  *   comparison names no row, the card names no store — even when two other stores are both far
@@ -310,10 +330,10 @@ export function cheaperAtOf(
   now: string,
   rate: Pick<IndexedExchangeRate, 'uah'> | null,
 ): string | null {
-  if (game.priceUah === null || !isCurrentAt(game.priceUpdatedAt, now)) return null
+  if (game.priceUah === null || !isFreshAt(game.priceUpdatedAt, now)) return null
   const steam: PricedRow = { store: 'steam', uah: game.priceUah, approximate: false }
-  const others = listedOffers(game).flatMap((offer): PricedRow[] => {
-    const amount = isCurrentAt(offer.updatedAt, now) ? hryvniaOf(offer, rate) : null
+  const others = freshOffers(game, now).flatMap((offer): PricedRow[] => {
+    const amount = hryvniaOf(offer, rate)
     return amount ? [{ store: offer.store, ...amount }] : []
   })
   const cheapest = cheapestRow([steam, ...others])
