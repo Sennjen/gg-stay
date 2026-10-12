@@ -321,7 +321,8 @@ describe('a game page whose answer is partial', () => {
     expect(wrapper.text()).toContain('Geralt of Rivia looks for the child of prophecy.')
     expect(wrapper.findAll('#screenshot-gallery-heading ~ ul li')).toHaveLength(3)
     expect(wrapper.text()).toContain('CD PROJEKT RED')
-    expect(wrapper.findAll('#where-to-buy ~ ul li')).toHaveLength(2)
+    // Two stores now: Steam's row with its price, and GOG's link among the chips under it.
+    expect(wrapper.findAll('section[aria-labelledby="where-to-buy"] li')).toHaveLength(2)
     // In place: what was on the page is still the same elements, not a page built again.
     expect(wrapper.get('article').element).toBe(article)
     expect(wrapper.get('h1').element).toBe(heading)

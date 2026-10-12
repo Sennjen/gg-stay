@@ -176,7 +176,13 @@ useHead({
 
           <ScreenshotGallery class="mt-8" :images="game.screenshots" :title="game.name" />
 
-          <StoreLinks class="mt-8" :offers="game.stores" />
+          <StoreLinks
+            class="mt-8"
+            :offers="game.stores"
+            :game-name="game.name"
+            :rate-date="game.exchangeRate?.date"
+            :now="now"
+          />
         </div>
 
         <dl class="h-fit space-y-3 rounded-card border border-line bg-surface-1 p-4 text-sm">

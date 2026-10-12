@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Locator, Page, Request, Route } from '@playwright/test'
+import { namesAnotherProduct } from '../../app/utils/storeOffers'
 import { expect, expectAccessible, test, waitForHydration } from './fixtures'
 
 /**
@@ -23,7 +24,15 @@ function isGameQuery(request: Request): boolean {
 
 /** The Ukrainian words of the game page, read from the locale file the page itself renders. */
 const copy = JSON.parse(readFileSync(resolve(process.cwd(), 'i18n/locales/uk.json'), 'utf-8')) as {
-  game: { stillLoading: string; notLoaded: string; about: string }
+  game: {
+    stillLoading: string
+    notLoaded: string
+    about: string
+    whereToBuy: string
+    cheapest: string
+    estimateNote: string
+  }
+  price: { approximately: string }
   gallery: { heading: string }
 }
 
@@ -377,6 +386,166 @@ test('game page → screenshot lightbox opens, pages and closes from the keyboar
   await page.keyboard.press('Escape')
   await expect(lightbox).toBeHidden()
   await expect(firstThumbnail).toBeFocused()
+})
+
+/** One store of a game, as the server answers it: what the page's block is held to. */
+interface StoreRow {
+  store: string
+  url: string
+  title: string | null
+  priceUah: number | null
+  isFree: boolean | null
+  foreignPrice: { amount: number; currency: string } | null
+  approxUah: number | null
+  cheapest: boolean
+}
+
+/**
+ * What the server says of a game's stores, asked the way the page asks. The flows read every
+ * price, title, address and date they expect from this answer rather than naming them: the seed
+ * is free to change what a store charges and what it calls the product, and the day of the rate
+ * moves with the clock the build was started on.
+ */
+async function storesOf(
+  page: Page,
+  slug: string,
+): Promise<{ name: string; stores: StoreRow[]; rateDate: string | null }> {
+  const response = await page.request.post('/api/graphql', {
+    data: {
+      query: `query ($slug: String!) {
+        game(slug: $slug) {
+          name
+          stores {
+            store url title priceUah isFree approxUah cheapest
+            foreignPrice { amount currency }
+          }
+          exchangeRate { date }
+        }
+      }`,
+      variables: { slug },
+    },
+  })
+  const body = (await response.json()) as {
+    data?: {
+      game: { name: string; stores: StoreRow[]; exchangeRate: { date: string } | null } | null
+    }
+  }
+  const game = body.data?.game
+  if (!game) throw new Error(`The server answered nothing about ${slug}`)
+  return { name: game.name, stores: game.stores, rateDate: game.exchangeRate?.date ?? null }
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** A hryvnia amount as the Ukrainian page writes it, whatever kind of space it groups with. */
+const hryvnia = (value: number) => `${String(value).replace(/\B(?=(\d{3})+$)/g, '\\s')}\\s₴`
+
+test('game page → «Де купити» → what GOG charges in dollars, about how much that is, which store is cheapest — and the same at 375 px', async ({
+  page,
+}) => {
+  const answer = await storesOf(page, 'the-witcher-3-wild-hunt')
+  const steam = answer.stores.find((row) => row.store === 'steam')!
+  const gog = answer.stores.find((row) => row.store === 'gog')!
+  // What the flow is about, and what the seed is for: a dollar price with a rate to estimate by.
+  expect(gog.foreignPrice?.currency).toBe('USD')
+  expect(gog.approxUah).not.toBeNull()
+  expect(steam.priceUah).not.toBeNull()
+  expect(answer.rateDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+
+  await page.goto(WITCHER)
+  await waitForHydration(page)
+  const block = page.getByRole('region', { name: copy.game.whereToBuy })
+
+  // A row is one link, to the store's own page for the product, and it reads as one phrase:
+  // the price, then the estimate in a word a screen reader can say.
+  const gogRow = block.locator('[data-test="store-row-gog"]').getByRole('link')
+  await expect(gogRow).toHaveAttribute('href', gog.url)
+  const dollars = `$${gog.foreignPrice!.amount.toFixed(2)}`
+  await expect(gogRow.locator('[data-test="store-price"]')).toContainText(dollars)
+  await expect(gogRow.locator('[data-test="store-estimate"]')).toHaveText(
+    new RegExp(`^≈\\s${copy.price.approximately}\\s${hryvnia(gog.approxUah!)}$`),
+  )
+  await expect(gogRow).toHaveAccessibleName(
+    new RegExp(
+      `^GOG\\s.*${escaped(dollars)}\\s+${copy.price.approximately}\\s+${hryvnia(gog.approxUah!)}`,
+    ),
+  )
+  // The sign is for the eye only.
+  await expect(gogRow).not.toHaveAccessibleName(/≈/)
+
+  // What the store calls the product is under its name exactly when it is not the game's own.
+  const title = gogRow.locator('[data-test="store-title"]')
+  if (namesAnotherProduct(gog.title, answer.name)) await expect(title).toHaveText(gog.title!)
+  else await expect(title).toHaveCount(0)
+
+  const steamRow = block.locator('[data-test="store-row-steam"]').getByRole('link')
+  await expect(steamRow).toHaveAttribute('href', steam.url)
+  await expect(steamRow.locator('[data-test="store-price"]')).toContainText(
+    new RegExp(hryvnia(steam.priceUah!)),
+  )
+
+  // One mark at most, on the row the server marked.
+  const marked = answer.stores.filter((row) => row.cheapest)
+  expect(marked.length).toBeLessThanOrEqual(1)
+  await expect(block.locator('[data-test="cheapest"]')).toHaveCount(marked.length)
+  for (const row of marked) {
+    await expect(
+      block.locator(`[data-test="store-row-${row.store}"] [data-test="cheapest"]`),
+    ).toHaveText(copy.game.cheapest)
+  }
+
+  // The note is the locale file's sentence, about the day the server's rate is for.
+  const [before, after] = copy.game.estimateNote.split('{date}') as [string, string]
+  const note = block.locator('[data-test="estimate-note"]')
+  await expect(note).toHaveText(new RegExp(`^${escaped(before)}.+${escaped(after)}$`))
+  const day = (await note.innerText()).slice(before.length, -after.length)
+  const [year, , dayOfMonth] = answer.rateDate!.split('-') as [string, string, string]
+  expect(day).toContain(year)
+  expect(day).toMatch(new RegExp(`^${Number(dayOfMonth)}\\s`))
+  await expectAccessible(page, 'game page with the other stores’ prices')
+
+  // On a phone the row stacks: nothing is cut off and nothing makes the page scroll sideways.
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect(gogRow).toBeVisible()
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBe(0)
+  for (const part of [gogRow, gogRow.locator('[data-test="store-price"]'), note]) {
+    const box = (await part.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(375)
+  }
+  // A finger's worth of row, at the least.
+  expect((await gogRow.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await expectAccessible(page, 'game page with the other stores’ prices at 375 px')
+})
+
+test('game page → «Де купити» → a store that charges in hryvnia has its price, and no note about an estimate', async ({
+  page,
+}) => {
+  const answer = await storesOf(page, 'stardew-valley')
+  const microsoft = answer.stores.find((row) => row.store === 'xbox-store')!
+  expect(microsoft.priceUah).not.toBeNull()
+  // Nothing on this page is estimated, so the answer names no rate.
+  expect(answer.rateDate).toBeNull()
+
+  await page.goto('/games/stardew-valley')
+  await waitForHydration(page)
+  const block = page.getByRole('region', { name: copy.game.whereToBuy })
+
+  const row = block.locator('[data-test="store-row-xbox-store"]').getByRole('link')
+  await expect(row).toHaveAttribute('href', microsoft.url)
+  await expect(row.locator('[data-test="store-price"]')).toHaveText(
+    new RegExp(`^${hryvnia(microsoft.priceUah!)}$`),
+  )
+  await expect(block.locator('[data-test="store-estimate"]')).toHaveCount(0)
+  await expect(block.locator('[data-test="estimate-note"]')).toHaveCount(0)
+  await expect(block.locator('[data-test="cheapest"]')).toHaveCount(
+    answer.stores.filter((store) => store.cheapest).length,
+  )
+  await expectAccessible(page, 'game page with a hryvnia price from another store')
 })
 
 test('catalog → a game: the answer to the page’s own request says where its time went', async ({

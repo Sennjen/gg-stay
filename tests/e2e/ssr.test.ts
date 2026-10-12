@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { $fetch, fetch, setup } from '@nuxt/test-utils/e2e'
+import { namesAnotherProduct } from '../../app/utils/storeOffers'
 import { NUXT_IMG_ERROR_HANDLER_HASH } from '../../server/security/headers'
+import published from '../fixtures/index/published.json' with { type: 'json' }
 
 // Build-time default and runtime override, so the server under test never calls RAWG.
 process.env.RAWG_FIXTURES = '1'
@@ -11,6 +13,18 @@ function shelfTitles(html: string): string[] {
   return [...html.matchAll(/data-test="shelf-[A-Z_]+"[\s\S]*?<h2[^>]*>\s*([^<]*?)\s*<\/h2>/g)].map(
     (match) => match[1]!,
   )
+}
+
+/** Text as the server writes it into HTML: the five characters markup is made of, escaped. */
+function asHtmlText(text: string): string {
+  const entities: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }
+  return text.replace(/[&<>"']/g, (character) => entities[character]!)
 }
 
 /** The server HTML of one landing shelf, from its section to the next one. */
@@ -500,6 +514,63 @@ describe('server-side rendering', async () => {
     // caption is the same string in the server HTML and after hydration. The number sits in its
     // own `font-numeric` span, so the sentence is not one contiguous string in the markup.
     expect(html).toContain('оновлено')
+  })
+
+  it('renders what GOG charges into the server HTML: dollars, the estimate, the store’s title, the mark and the note', async () => {
+    // Everything expected is read from the seed the server was started on, so the seed is free to
+    // change what GOG charges for the game and what it calls it.
+    const witcher = published.games.find((game) => game.slug === 'the-witcher-3-wild-hunt')!
+    const offer = witcher.offers!.find((entry) => entry.store === 'gog')!
+    const dollars = `$${(offer.amount / 100).toFixed(2)}`
+    const estimate = Math.round((offer.amount / 100) * published.meta.exchangeRate.uah)
+    // Of the page's two prices: the estimate wins when it is at least 5 % below Steam's, Steam's
+    // when it is the lower, and neither otherwise.
+    const steamUah = witcher.priceUah!
+    const gogIsCheapest = estimate * 100 <= steamUah * 95
+    const steamIsCheapest = steamUah < estimate
+
+    const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
+    const row = html.match(/<li[^>]*data-test="store-row-gog"[\s\S]*?<\/li>/)?.[0] ?? ''
+    expect(row).toContain(`href="${offer.url}"`)
+    expect(row).toContain(dollars)
+    expect(row).toContain('приблизно')
+    // The estimate in hryvnia, after the sign: grouped the Ukrainian way if it has four digits,
+    // with whatever kind of space the page writes.
+    const grouped = String(estimate).replace(/\B(?=(\d{3})+$)/g, '\\s')
+    expect(row).toMatch(new RegExp(`≈[\\s\\S]*?${grouped}\\s₴`))
+    // What GOG calls the product is in the row exactly when it is not the game's own name.
+    expect(row.includes(`>${asHtmlText(offer.title!)}<`)).toBe(
+      namesAnotherProduct(offer.title, witcher.name),
+    )
+    expect(row.includes('Найдешевше')).toBe(gogIsCheapest)
+    expect(row).toContain('оновлено')
+    // Steam's own row is in the same list, with its hryvnia price.
+    const steamRow = html.match(/<li[^>]*data-test="store-row-steam"[\s\S]*?<\/li>/)?.[0] ?? ''
+    expect(steamRow).toContain(String(steamUah))
+    expect(steamRow.includes('Найдешевше')).toBe(steamIsCheapest)
+    // The note names a day; which day moves with the clock the server was started on.
+    expect(html).toMatch(
+      /data-test="estimate-note"[^>]*>\s*GOG продає в доларах США\. Сума в гривні — приблизна, за курсом НБУ на \d{1,2} [а-яіїєґ]+ \d{4}; банк може списати іншу\./,
+    )
+
+    const english = await $fetch<string>('/en/games/the-witcher-3-wild-hunt')
+    expect(english.includes('Cheapest')).toBe(gogIsCheapest || steamIsCheapest)
+    expect(english).toContain('approximately')
+    expect(english).toMatch(/GOG charges in US dollars\. The hryvnia amount is an estimate/)
+  })
+
+  it('renders a hryvnia price from the Microsoft Store as a row, with no note about an estimate', async () => {
+    const stardew = published.games.find((game) => game.slug === 'stardew-valley')!
+    const offer = stardew.offers!.find((entry) => entry.store === 'xbox-store')!
+
+    const html = await $fetch<string>('/games/stardew-valley')
+    const row = html.match(/<li[^>]*data-test="store-row-xbox-store"[\s\S]*?<\/li>/)?.[0] ?? ''
+    expect(row).toContain(`href="${offer.url}"`)
+    expect(row).toContain(String(Math.round(offer.amount / 100)))
+    expect(row).toContain('₴')
+    expect(row).not.toContain('≈')
+    expect(html).not.toContain('data-test="estimate-note"')
+    expect(html).not.toContain('data-test="store-estimate"')
   })
 
   it('renders the game page’s status region empty: what it says, it says once it is in a browser', async () => {
