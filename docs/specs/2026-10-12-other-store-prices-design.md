@@ -112,3 +112,45 @@ The Epic Games Store and the PlayStation Store (probed next); other currencies t
 ## After the merge
 
 Manual full runs finish the sweep of store references (three runs at 1 200 a run), then a measurement on production: how many indexed games carry a GOG price and a Microsoft price, twenty of each compared by hand with the store's own page for Ukraine, and how many games show another store cheaper than Steam.
+
+## Verified on 2026-10-12
+
+Established before any code was written, with 31 plain GET requests to the three endpoints (17 to GOG, 9 to Microsoft, 5 to the bank), at most one a second, under a `User-Agent` naming this repository; and 13 read-only queries to this site's own GraphQL for the store links RAWG gives 36 games. Where a fact contradicts a section above, the fact stands and the code follows it.
+
+### GOG — `https://catalog.gog.com/v1/catalog`
+
+- **No filter by slug or id exists.** `slug=in:…`, `id=in:…` and `ids=in:…` are ignored without an error: the answer is the unfiltered catalog. `query=like:…` is a fuzzy title search, one request a game. So the prices of a set of slugs are read by walking the catalog and matching slugs locally.
+- **The whole catalog cannot be walked** — this contradicts "about 250 requests". An answer carries `pages`, `productCount` and `currentlyShownProductCount`, and one query pages through 10 000 products at most: unfiltered, `productCount` was 12 878 and `currentlyShownProductCount` 10 000. With `productType=in:game,pack` — games and their editions, without add-ons and extras — both were 8 250, so that query is walked whole.
+- **Page size.** `limit=100` and `limit=101` answered that many products; `limit=200`, `300` and `500` answered HTTP 400 (`"Invalid request parameters"`). The job asks for 100: **83 requests a walk** (page 83 held the last 50; page 84 answered 200 with an empty `products`).
+- **Ordering.** `order=asc:title` does not depend on prices or popularity, so a sale starting mid-walk moves nothing. Pages 1 and 2 shared no product. Nothing documents a tie-break, so a walk is checked instead of trusted: every page must repeat the first page's `pages` and `productCount`, no product id or slug may come twice, and the products received must number `productCount`.
+- **A product**: `id` (a string of digits), `slug` (`[a-z0-9_]+` in all 743 seen), `productType` (`game`, `pack`, `dlc`, `extras`), `productState`, `storeLink` (`https://www.gog.com/en/game/{slug}`), `price`.
+- **`price`**: `{ final: "$5.99", base: "$9.99", discount: "-40%", finalMoney: { amount: "5.99", currency: "USD", discount: "4.00" }, baseMoney: { amount: "9.99", currency: "USD" } }`. Amounts are decimal strings with two places. `discount` is `null` when there is none. Rounding `1 − final/base` to a whole percent reproduced GOG's own label on every discounted product checked.
+- **A free game** (Beneath a Steel Sky, GWENT, a demo): the same object with `"0.00"` in both amounts and `discount: null`.
+- **A game not yet released**: `productState: "coming-soon"` and `price: null`.
+- **`game` and `pack`.** Each has a slug and a price of its own, and the slug in RAWG's link names one of them exactly: an edition is a `pack` under its own slug (`blair_witch` and `blair_witch_deluxe_edition`). Matching the link's slug is therefore exact for either type.
+- **A link RAWG still gives can lead nowhere.** `the_witcher_3_wild_hunt`, the slug of RAWG's link for The Witcher 3, is not in the catalog for Ukraine: only `the_witcher_3_wild_hunt_game_of_the_year_edition` (a `pack`) is. Nothing is guessed from a title, so that game has no GOG price.
+- **RAWG's links, as seen** (13 of them): `https://www.gog.com/game/{slug}`, `http://www.gog.com/game/{slug}`, `https://www.gog.com/en/game/{slug}`, `https://www.gog.com/fr/game/{slug}`.
+
+### Microsoft — `https://displaycatalog.mp.microsoft.com/v7.0/products`
+
+Probed with the product ids of 35 real RAWG links: those of the 30 most popular games RAWG lists on the Xbox store, and of five first-party games.
+
+- **How many have a hryvnia price: 9 of the 35 — 5 of the 30 most popular** (LIMBO, Fallout 4, Batman: Arkham Knight, Hollow Knight, Stardew Valley), and four of the five first-party ones. Asked for `market=US`, 28 of the same 35 have a price. So 19 are sold by Microsoft and not in Ukraine, and 7 of RAWG's links name a product sold nowhere any more (the Xbox One edition of Grand Theft Auto V, the first listing of The Witcher 3). **Most games RAWG lists on the Xbox store will have no Microsoft price**, and that is the answer, not a fault.
+- That settles what was left open above: Cyberpunk 2077 (`BX3M8L83BBRW`) costs $59.99 in the United States and is not sold in Ukraine; the product RAWG links for The Witcher 3 (`BR765873CQJD`) is sold in neither.
+- **Shape.** `Products[]`, each with `ProductId` and `DisplaySkuAvailabilities[]`; each of those a `Sku` (`SkuId`, `SkuType` — `full` or `trial` — and `Properties.IsTrial`, `IsPreOrder`, `IsBundle`) and its `Availabilities[]`. An availability has `Actions`, `Markets`, `Conditions.StartDate`/`EndDate`, `OrderManagementData.Price { CurrencyCode, ListPrice, MSRP }`, and sometimes `RemediationRequired`, `Remediations` and `AffirmationId`.
+- **A price anyone can pay** is an availability whose `Actions` include `Purchase`, on a `full` SKU, with no remediation and no affirmation: `CurrencyCode: "UAH"`, `ListPrice` what is charged now, `MSRP` the regular price (Halo Infinite: 508.2 and 1540.0, inside a window that ends on 2026-10-15). Every one of the nine priced products had exactly one.
+- **A subscriber's price** is a second `Purchase` availability with `RemediationRequired: true`, `Remediations: [{ Type: "Upsell", BigId: … }]` naming the subscription, and a `ListPrice` of 0. Read as a price it would make every game in Game Pass free.
+- **A subscriber's licence** is an availability with `Actions: ["License", …]` and an `AffirmationId`, priced `USD 0.0`.
+- **A trial** is a SKU of its own (`SkuType: "trial"`, `IsTrial: true`); where it can be "purchased" its price is 0.
+- **Not sold in this market**: no availability with `Purchase` at all. What is left says `CurrencyCode: "USD", ListPrice: 0.0` under `License` or `Details` — a placeholder, never a price.
+- **A free game** (Halo Infinite's multiplayer, `9PP5G1F0C2B6`): the availability anyone can pay, with `UAH` and a `ListPrice` of 0.
+- **Bundles.** `IsBundle` is true of standard editions too (Forza Horizon 5 Standard Edition bundles its base product), so it says nothing about which edition a product is. A product id is an edition; the one RAWG links is the one priced.
+- **`actionFilter=Purchase`** leaves out every product, SKU and availability that cannot be bought, and nothing else: a third of the bytes, and a product that is not sold is simply absent. `fieldsTemplate=Browse` is smaller still but drops the SKU and the remediation, which the rule above needs.
+- **Ids a request.** 35, 100 and 190 ids in one request were all answered; no ceiling was found. An id Microsoft does not know is left out without an error. The job sends 100.
+- **RAWG's links, as seen** (35 of them, all on `www.microsoft.com`, none on `xbox.com`): `/en-us/p/{name}/{id}` and `/en-us/store/p/{name}/{id}`, and one `/en-us/store/r/{name}/{id}` — a shape the section above does not name. Ids come in lower case and in upper case, usually followed by a query string.
+
+### The National Bank — `https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=USD&json`
+
+- **Shape**: a JSON array of one object, `{ "r030": 840, "txt": "Долар США", "rate": 44.9567, "cc": "USD", "exchangedate": "13.10.2026", "special": "N" }`.
+- **Without a date it answers the newest rate the bank has set, which in the afternoon is tomorrow's**: asked on 12.10.2026 at 17:06 Kyiv time it answered the rate of 13.10.2026. With `&date=YYYYMMDD` it answers the rate in force on that day and repeats the day in `exchangedate`. The job asks for the day it runs on, in Kyiv, and takes an answer only if it names that day.
+- **A weekend or a holiday**: the rate in force that day, under that day's date. Saturday 10.10.2026 and Sunday 11.10.2026 both answered 44.8526; 01.01.2026 answered 42.3532 (with `special: null`). There is no day it answers nothing for.
