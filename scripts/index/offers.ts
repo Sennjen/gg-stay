@@ -36,8 +36,10 @@ import { safeExternalUrl } from '../../shared/url'
  *
  * **What a full read settles.** A game whose product the store answered for gets today's offer.
  * A game the store did not have, or had without a price anyone can pay, loses the offer it had:
- * the store has said it is not selling it. Only a request that failed says nothing, and takes
- * nothing away.
+ * the store has said it is not selling it. **Only a full read takes an offer away.** A read with
+ * a failed request in it publishes the prices it was given and removes nothing, because a store
+ * that is failing some of its requests is the store most likely to answer others with half of
+ * what it has.
  *
  * **An offer needs a reference.** A document keeps an offer of a store only while the permanent
  * mapping (`storeRefs.ts`) names the game's product there, as it keeps a Steam app id only while
@@ -233,9 +235,18 @@ async function readGog(
 
 /**
  * The Microsoft Store: the referenced product ids a hundred a request. A request is the unit of
- * failure here, as a chunk is for Steam's prices: the products of one that failed keep the offers
- * they had, and the rest are settled by what the store answered. The store's stamp moves only
- * when every request was answered, so a run with a failed request is followed by a full read.
+ * failure here, as a chunk is for Steam's prices, and what a read may do depends on whether any
+ * failed:
+ *
+ * - **every request answered** — a full read. Every referenced game is settled by it: a priced
+ *   product gets today's offer, and a product the store left out, or left without a price anyone
+ *   can pay, loses the offer it had. The store's stamp moves.
+ * - **some request failed** — the prices the answered requests gave are published, under today's
+ *   date, and **no offer is removed**, not even of a product an answered request left out:
+ *   nothing proves a Microsoft answer whole the way a GOG walk is proved, and a store failing one
+ *   request in three is the store most likely to answer another with products missing. The
+ *   products of a failed request keep the offers they had. The stamp stays, so the next run
+ *   reads again.
  */
 async function readMicrosoft(
   deps: JobDeps,
@@ -262,9 +273,10 @@ async function readMicrosoft(
   }
 
   const lock = createLockKeeper(deps)
+  /** What the answered requests said of each game: an offer, or `null` for "not sold". */
+  const answered: { game: IndexedGame; offer: IndexedOffer | null }[] = []
   let requests = 0
   let failedRequests = 0
-  let pricesRead = 0
   let failed = 0
   let error: string | undefined
   for (const ids of chunk([...byId.keys()], MICROSOFT_IDS_PER_REQUEST)) {
@@ -276,19 +288,20 @@ async function readMicrosoft(
         const answer = sold.get(id) ?? null
         for (const { game, product } of byId.get(id) ?? []) {
           const url = answer ? safeExternalUrl(microsoftProductUrl(product)) : null
-          const offer: IndexedOffer | null =
-            answer && url
-              ? {
-                  store: 'xbox-store',
-                  ...titled(answer.title),
-                  ...answer.price,
-                  currency: 'UAH',
-                  url,
-                  updatedAt: readAt,
-                }
-              : null
-          setOffer(game, 'xbox-store', offer)
-          if (offer) pricesRead += 1
+          answered.push({
+            game,
+            offer:
+              answer && url
+                ? {
+                    store: 'xbox-store',
+                    ...titled(answer.title),
+                    ...answer.price,
+                    currency: 'UAH',
+                    url,
+                    updatedAt: readAt,
+                  }
+                : null,
+          })
         }
       }
     } catch (cause) {
@@ -303,18 +316,28 @@ async function readMicrosoft(
   }
   lock.assertHeld()
 
-  const status = failedRequests === 0 ? 'read' : failedRequests === requests ? 'failed' : 'partial'
+  const priced = answered.filter((entry) => entry.offer !== null)
+  if (failedRequests > 0) {
+    // Not a full read: what was priced is published, and nothing is removed.
+    for (const { game, offer } of priced) setOffer(game, 'xbox-store', offer)
+    deps.log(
+      `microsoft: ${referenced.length} references, ${priced.length} prices read, ${failed} failed, ` +
+        `in ${requests} requests; no offer was removed, the read was not a full one`,
+    )
+    return report({
+      status: failedRequests === requests ? 'failed' : 'partial',
+      pricesRead: priced.length,
+      failed,
+      requests,
+      ...(error === undefined ? {} : { error }),
+    })
+  }
+
+  for (const { game, offer } of answered) setOffer(game, 'xbox-store', offer)
   deps.log(
-    `microsoft: ${referenced.length} references, ${pricesRead} prices read, ${failed} failed, in ${requests} requests`,
+    `microsoft: ${referenced.length} references, ${priced.length} prices read, 0 failed, in ${requests} requests`,
   )
-  return report({
-    status,
-    pricesRead,
-    failed,
-    requests,
-    lastReadAt: status === 'read' ? isoNow(deps.clock) : (lastReadAt ?? null),
-    ...(error === undefined ? {} : { error }),
-  })
+  return report({ pricesRead: priced.length, requests, lastReadAt: isoNow(deps.clock) })
 }
 
 /** A published rate as it may be kept: every field what this stage writes, and read in the past. */

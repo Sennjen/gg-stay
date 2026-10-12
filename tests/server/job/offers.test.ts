@@ -560,6 +560,87 @@ describe('the Microsoft Store’s requests', () => {
     ).toBe(true)
   })
 
+  /** 250 games, each carrying last night's offer of its own Microsoft product. */
+  async function carrying(at: string) {
+    const { harness, byId } = await runAt(at)
+    const { games, refs, ids } = manyGames(byId(109), 250)
+    for (const id of ids) harness.microsoftProducts[id] = microsoftProduct(id, 385)
+    const previous = (game: IndexedGame): IndexedOffer => ({
+      ...MICROSOFT_OFFER,
+      amount: 77_000,
+      regularAmount: 77_000,
+      url: `https://www.microsoft.com/uk-ua/p/${game.slug}/x`,
+    })
+    for (const game of games) game.offers = [previous(game)]
+    return { harness, games, refs, ids, previous }
+  }
+
+  it('removes no offer in a read with a failed request, not even one an answered request left out', async () => {
+    const at = later(RUN_AT, 12 * HOUR)
+    const { harness, games, refs, ids, previous } = await carrying(at)
+    // The first request is answered, and its answer has nothing in it for two products; the
+    // second request fails; the third is answered whole.
+    Reflect.deleteProperty(harness.microsoftProducts, ids[5]!)
+    Reflect.deleteProperty(harness.microsoftProducts, ids[7]!)
+    harness.failMicrosoftBatchWith(ids[150]!)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.microsoft).toMatchObject({
+      status: 'partial',
+      references: 250,
+      pricesRead: 148,
+      failed: 100,
+      offers: 250,
+      lastReadAt: RUN_AT,
+    })
+    // Left out of an answered request, in a read that was not a full one: the offers stand, with
+    // the dates they were read at. Only a full read may say a product is not sold.
+    expect(games[5]!.offers).toEqual([previous(games[5]!)])
+    expect(games[7]!.offers).toEqual([previous(games[7]!)])
+    // What the answered requests did price is published, under today's date.
+    expect(games[6]!.offers?.[0]).toMatchObject({ amount: 38_500, updatedAt: at })
+    expect(games[249]!.offers?.[0]).toMatchObject({ amount: 38_500, updatedAt: at })
+    // And the failed hundred are as they were.
+    expect(games[150]!.offers).toEqual([previous(games[150]!)])
+  })
+
+  it('removes nothing when a request answers with no products at all beside one that failed', async () => {
+    const { harness, games, refs, ids, previous } = await carrying(later(RUN_AT, 12 * HOUR))
+    // A store failing one request in three is the store most likely to answer another with
+    // nothing: a 200, and an empty list.
+    harness.answerMicrosoftWith({ Products: [] })
+    harness.failMicrosoftBatchWith(ids[150]!)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.microsoft).toMatchObject({ status: 'partial', pricesRead: 50, offers: 250 })
+    for (const index of [0, 50, 99]) {
+      expect(games[index]!.offers, `game ${index}`).toEqual([previous(games[index]!)])
+    }
+  })
+
+  it('removes the offer of a product an answer left out when every request was answered', async () => {
+    const at = later(RUN_AT, 12 * HOUR)
+    const { harness, games, refs, ids } = await carrying(at)
+    // The same answer as above, in a read with no failure in it: a full read, and it is believed.
+    Reflect.deleteProperty(harness.microsoftProducts, ids[5]!)
+    Reflect.deleteProperty(harness.microsoftProducts, ids[7]!)
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(result.microsoft).toMatchObject({
+      status: 'read',
+      pricesRead: 248,
+      failed: 0,
+      offers: 248,
+      lastReadAt: at,
+    })
+    expect('offers' in games[5]!).toBe(false)
+    expect('offers' in games[7]!).toBe(false)
+    expect(games[6]!.offers?.[0]).toMatchObject({ amount: 38_500, updatedAt: at })
+  })
+
   it('asks once about a product two games name, and gives both its price', async () => {
     const { harness, games, byId } = await runAt(RUN_AT)
     const refs: StoreRefMap = new Map([
