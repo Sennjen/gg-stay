@@ -44,19 +44,31 @@ export function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-/** Characters that change how text is laid out and are no part of a title: zero-width, bidi. */
-const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g
+/**
+ * Characters a reader cannot see and a title has no use for. Every format character (`\p{Cf}`):
+ * the zero-width ones, the direction marks and overrides, the soft hyphen, the tag characters. And
+ * the four Hangul fillers, named because Unicode files them under letters (`Lo`), so no rule about
+ * categories catches them: a "title" made of U+3164 alone would otherwise pass for one.
+ */
+const INVISIBLE = /[\p{Cf}\u115F\u1160\u3164\uFFA0]/gu
+
+/** What makes text a title: at least one letter or one digit, in any script. */
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u
 
 /**
  * What a store calls a product, as an offer may carry it (`IndexedOffer.title`): plain text on
- * one line, or `null` when the store sent no text at all.
+ * one line, or `null` when the store sent nothing that reads as a title.
  *
  * A title is a third party's string that ends up on a page, so nothing of it is trusted beyond
- * its being text: control characters and line breaks become spaces, runs of whitespace collapse,
- * the characters that only steer layout — zero-width ones, direction overrides — are dropped, and
- * what is left is trimmed and cut to `MAX_OFFER_TITLE_LENGTH` characters. The cut is made between
- * code points and a lone surrogate is replaced, so the result is always well-formed text. It is
- * never interpreted as markup here or anywhere: a page prints it as text.
+ * its being text. In this order: a lone surrogate is replaced, so the result is always
+ * well-formed; the invisible characters are dropped (`INVISIBLE`); control characters, line
+ * breaks and any run of whitespace become one space; the ends are trimmed; and what is left is cut
+ * to `MAX_OFFER_TITLE_LENGTH` characters, between code points, and trimmed again. A result with
+ * no letter and no digit in it — empty, or punctuation and symbols alone — is no title.
+ *
+ * That is all it does. Markup is not removed, because it is never interpreted: `<b>` is three
+ * characters of text here, and stays harmless for exactly as long as a page prints a title as
+ * text and never as HTML.
  */
 export function storeTitle(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -66,7 +78,7 @@ export function storeTitle(value: unknown): string | null {
     .replace(/[\p{Cc}\s]+/gu, ' ')
     .trim()
   const title = Array.from(text).slice(0, MAX_OFFER_TITLE_LENGTH).join('').trim()
-  return title === '' ? null : title
+  return LETTER_OR_DIGIT.test(title) ? title : null
 }
 
 /**

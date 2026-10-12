@@ -16,6 +16,7 @@ describe('storeTitle', () => {
     expect(storeTitle('Hollow Knight: Voidheart Edition')).toBe('Hollow Knight: Voidheart Edition')
     expect(storeTitle('DARK SOULS\u2122 III')).toBe('DARK SOULS\u2122 III')
     expect(storeTitle('#DRIVE Rally')).toBe('#DRIVE Rally')
+    expect(storeTitle('2048')).toBe('2048')
     expect(storeTitle('黎明为歌 - Melody before the Dawn')).toBe(
       '黎明为歌 - Melody before the Dawn',
     )
@@ -27,7 +28,10 @@ describe('storeTitle', () => {
     expect(storeTitle('  LIMBO  ')).toBe('LIMBO')
     expect(storeTitle('The Witcher 3:\n\tWild   Hunt\r\n')).toBe('The Witcher 3: Wild Hunt')
     expect(storeTitle('Halo\u0000Infinite\u0007')).toBe('Halo Infinite')
+    // A no-break space and an ideographic one are spaces like any other.
     expect(storeTitle('Halo\u00A0Infinite')).toBe('Halo Infinite')
+    expect(storeTitle('Halo\u3000Infinite')).toBe('Halo Infinite')
+    expect(storeTitle('Halo\u2028Infinite')).toBe('Halo Infinite')
   })
 
   it('drops the characters that only steer how text is laid out', () => {
@@ -37,16 +41,63 @@ describe('storeTitle', () => {
     expect(storeTitle('\u2066Limbo\u2069')).toBe('Limbo')
   })
 
+  it.each([
+    ['an Arabic letter mark', '\u061C'],
+    ['a soft hyphen', '\u00AD'],
+    ['a Mongolian vowel separator', '\u180E'],
+    ['a zero-width joiner', '\u200D'],
+    ['a language tag', '\u{E0001}'],
+    ['a tag letter', '\u{E0041}'],
+    ['an interlinear annotation anchor', '\uFFF9'],
+  ])('drops every format character, %s included', (_what, character) => {
+    expect(storeTitle(`Lim${character}bo`)).toBe('Limbo')
+    expect(storeTitle(`${character}Limbo${character}`)).toBe('Limbo')
+  })
+
+  it.each([
+    ['U+3164, the Hangul filler', '\u3164'],
+    ['U+115F, the Hangul choseong filler', '\u115F'],
+    ['U+1160, the Hangul jungseong filler', '\u1160'],
+    ['U+FFA0, the halfwidth Hangul filler', '\uFFA0'],
+  ])('drops %s, which Unicode calls a letter and nobody can see', (_what, filler) => {
+    // The trap: each is a letter by its category, so a rule about letters alone would keep it.
+    expect(/\p{L}/u.test(filler)).toBe(true)
+    expect(storeTitle(filler.repeat(5))).toBeNull()
+    expect(storeTitle(`Lim${filler}bo`)).toBe('Limbo')
+  })
+
+  it('reads no title from text with no letter and no digit in it', () => {
+    for (const blank of [
+      '!!!',
+      '\u2122',
+      '- \u2014 -',
+      '***',
+      '\u2800\u2800',
+      '\u{1F3AE}',
+      '(\u00AE)',
+    ]) {
+      expect(storeTitle(blank)).toBeNull()
+    }
+    // One letter, or one digit, in any script, is enough.
+    expect(storeTitle('!!! 7 !!!')).toBe('!!! 7 !!!')
+    expect(storeTitle('\u{1F3AE} Q')).toBe('\u{1F3AE} Q')
+    expect(storeTitle('\u0416')).toBe('\u0416')
+    expect(storeTitle('\u4E09')).toBe('\u4E09')
+  })
+
   it('leaves markup as the text it is: a page prints a title, it does not render one', () => {
     expect(storeTitle('<b>Limbo</b> & <3')).toBe('<b>Limbo</b> & <3')
+    expect(storeTitle('<img src=x onerror=alert(1)>')).toBe('<img src=x onerror=alert(1)>')
   })
 
   it('cuts a title at two hundred characters, between characters', () => {
     expect(MAX_OFFER_TITLE_LENGTH).toBe(200)
     expect(storeTitle('x'.repeat(200))).toHaveLength(200)
     expect(storeTitle('x'.repeat(201))).toHaveLength(200)
-    // Two hundred characters, each of them two code units: none is cut in half.
-    const long = storeTitle('🎮'.repeat(300))!
+    // Three hundred letters of two code units each: two hundred are kept, and none cut in half.
+    const scriptX = '\u{1D4B3}'
+    expect(scriptX).toHaveLength(2)
+    const long = storeTitle(scriptX.repeat(300))!
     expect(Array.from(long)).toHaveLength(200)
     expect(long.isWellFormed()).toBe(true)
     // What the cut leaves at the end is trimmed again.
