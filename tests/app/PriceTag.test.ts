@@ -15,10 +15,8 @@ describe('PriceTag', () => {
         price: {
           bestUah: 1349,
           regularUah: null,
-          bestStore: 'steam',
           discountPercent: 0,
           isFree: false,
-          updatedAt: '2026-09-18T09:00:00.000Z',
         },
       },
     })
@@ -33,10 +31,8 @@ describe('PriceTag', () => {
         price: {
           bestUah: 0,
           regularUah: null,
-          bestStore: 'steam',
           discountPercent: 0,
           isFree: true,
-          updatedAt: '2026-09-18T09:00:00.000Z',
         },
       },
     })
@@ -50,10 +46,8 @@ describe('PriceTag', () => {
         price: {
           bestUah: 337,
           regularUah: 1349,
-          bestStore: 'steam',
           discountPercent: 75,
           isFree: false,
-          updatedAt: '2026-09-18T09:00:00.000Z',
         },
       },
     })
@@ -72,10 +66,8 @@ describe('PriceTag', () => {
         price: {
           bestUah: 337,
           regularUah: 1349,
-          bestStore: 'steam',
           discountPercent: 75,
           isFree: false,
-          updatedAt: '2026-09-18T09:00:00.000Z',
         },
       },
     })
@@ -90,10 +82,8 @@ describe('PriceTag', () => {
         price: {
           bestUah: 337,
           regularUah: null,
-          bestStore: 'steam',
           discountPercent: 75,
           isFree: false,
-          updatedAt: '2026-09-18T09:00:00.000Z',
         },
       },
     })

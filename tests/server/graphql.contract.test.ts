@@ -698,7 +698,8 @@ describe('error mapping', () => {
     ['ERROR', 'UPSTREAM_ERROR'],
   ] as const
 
-  const CASES = Object.keys(RESOLVER_QUERIES).flatMap((resolver) =>
+  const RESOLVERS = Object.keys(RESOLVER_QUERIES) as (keyof typeof RESOLVER_QUERIES)[]
+  const CASES = RESOLVERS.flatMap((resolver) =>
     KINDS.map(([kind, code]) => [resolver, kind, code] as const),
   )
 

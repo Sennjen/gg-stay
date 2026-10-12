@@ -38,7 +38,10 @@ describe('filterToParams', () => {
     [{ stores: ['steam', 'gog', 'unknown'] }, { stores: '1,5' }],
     [{ developers: ['cd-projekt-red'] }, { developers: 'cd-projekt-red' }],
     [{ publishers: ['valve'] }, { publishers: 'valve' }],
-    [{ gameModes: ['LOCAL_COOP'], tags: ['open-world'] }, { tags: 'local-co-op,open-world' }],
+    [
+      { gameModes: ['LOCAL_COOP' as const], tags: ['open-world'] },
+      { tags: 'local-co-op,open-world' },
+    ],
   ])('maps %j', (filter, expected) => {
     expect(filterToParams({ ...base, filter })).toMatchObject(expected)
   })

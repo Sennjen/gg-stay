@@ -266,6 +266,7 @@ describe('runJob', () => {
     const failure = await runJob(harness.deps, FULL).catch(
       (error: Error & { report?: JobReport }) => error,
     )
+    if (!(failure instanceof Error)) throw new Error('the run was expected to fail')
 
     expect(failure.report).toMatchObject({
       mode: 'full',
@@ -335,7 +336,7 @@ describe('runJob and the similar games', () => {
       const body = jobGamesPage(page)
       harness.answerNextWith((call) => call.path === 'games' && call.params.page === String(page), {
         ...body,
-        results: body.results.map((game) => ({ ...game, tags: [] })),
+        results: body.results!.map((game) => ({ ...game, tags: [] })),
       })
     }
 
@@ -1005,6 +1006,7 @@ describe('formatSummary', () => {
       pages: 1,
       forceUnlock: false,
     }).catch((error: Error & { stage?: string; report?: JobReport }) => error)
+    if (!(failure instanceof Error)) throw new Error('the run was expected to fail')
 
     // What `runCli` builds out of a failure, and what the operator reads in the job summary.
     const summary = formatSummary({

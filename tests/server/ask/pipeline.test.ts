@@ -117,6 +117,7 @@ async function contextWith(
     steam: fixtureSteam,
     today: TEST_TODAY,
     now: TEST_NOW,
+    featuredPins: [],
     index: await publishTestIndex(documents),
     steamPrices: noSteamPrices,
     cache: createTestCache(),
@@ -371,7 +372,7 @@ describe('the ask pipeline — structured answers', () => {
       pricesUpdatedAt: '2026-09-01T06:00:00.000Z',
     })
     const rawg: RawgFetch = async () => {
-      throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
+      throw new UpstreamError('RAWG', 'ERROR', 503)
     }
     const failing = overriding(stale, { search: () => Promise.reject(new Error('down')) })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -446,7 +447,7 @@ describe('the ask pipeline — structured answers', () => {
 
   it("checks the genres against RAWG's list when the live taxonomy cannot be read", async () => {
     const rawg: RawgFetch = async (path, params) => {
-      if (path === 'genres') throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
+      if (path === 'genres') throw new UpstreamError('RAWG', 'ERROR', 503)
       return fixtureRawg(path, params)
     }
     const context = await contextWith(COOP, { rawg })
@@ -984,7 +985,7 @@ describe('the ask pipeline — fallback', () => {
   it('falls back when neither the index nor RAWG can retrieve', async () => {
     const { provider } = scripted({ parse: parsing({ genres: ['action'] }) })
     const rawg: RawgFetch = async (path, params) => {
-      if (path === 'games') throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
+      if (path === 'games') throw new UpstreamError('RAWG', 'ERROR', 503)
       return fixtureRawg(path, params)
     }
     const index = overriding(await publishTestIndex(COOP), {
@@ -1288,7 +1289,7 @@ describe('the ask pipeline — fallback', () => {
 
   it('answers an empty fallback when even the plain search fails — never an error', async () => {
     const rawg: RawgFetch = async () => {
-      throw new UpstreamError('RAWG', 'UNAVAILABLE', 503)
+      throw new UpstreamError('RAWG', 'ERROR', 503)
     }
     const { provider } = scripted({ parse: () => failed('unavailable') })
     const outcome = await fallbackFor(provider, { rawg })

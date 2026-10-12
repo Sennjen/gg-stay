@@ -91,10 +91,6 @@ const CANDIDATE: CandidateCard = {
   genres: ['action'],
   tags: [],
   modes: ['SINGLE'],
-  priceUah: 675,
-  discountPercent: 0,
-  free: false,
-  ukrainian: 'audio',
   hours: 43,
 }
 

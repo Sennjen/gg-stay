@@ -8,6 +8,7 @@ import GameRow from '~/components/GameRow.vue'
 import HeroFeatured from '~/components/HeroFeatured.vue'
 import ScreenshotGallery from '~/components/ScreenshotGallery.vue'
 import ScreenshotGalleryLightbox from '~/components/ScreenshotGalleryLightbox.vue'
+import type { GamesQuery } from '~/graphql/__generated__/operations'
 
 /**
  * `@nuxt/image` accepts `breakpoint:value` pairs, not CSS media queries, and it fails silently on
@@ -23,7 +24,7 @@ import ScreenshotGalleryLightbox from '~/components/ScreenshotGalleryLightbox.vu
 const COVER = 'https://media.rawg.io/media/games/618/abc.jpg'
 const SHOT = 'https://media.rawg.io/media/screenshots/1/shot.jpg'
 
-const game = {
+const game: GamesQuery['games']['items'][number] = {
   id: '3328',
   slug: 'the-witcher-3-wild-hunt',
   name: 'The Witcher 3: Wild Hunt',
@@ -31,7 +32,10 @@ const game = {
   metacritic: 92,
   cover: { url: COVER },
   screenshots: [{ url: SHOT }],
-  platformFamilies: ['PC'] as const,
+  platformFamilies: ['PC'],
+  madeInUkraine: false,
+  price: null,
+  localisation: null,
 }
 
 /** Parses a srcset into `[url, descriptor]` pairs. */
@@ -226,7 +230,7 @@ describe('emitted image sizes', () => {
 
   it('the landing hero poster uses the same full-bleed sizes', async () => {
     const wrapper = await mountSuspended(HeroFeatured, {
-      props: { featured: { clipUrl: null, clipSource: null, game } },
+      props: { featured: { clipUrl: null, clipSource: null, clipCredit: null, game } },
     })
     const poster = wrapper.get('img')
 

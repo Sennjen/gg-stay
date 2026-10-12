@@ -4,6 +4,7 @@ import {
   INDEX_FILTER_FIELDS,
   parseFilterQuery,
   serializeFilterState,
+  type CatalogFilter,
 } from '~/utils/filterUrl'
 import { MAX_PRICE_UAH } from '#shared/catalog'
 import { SHELF_IDS, shelfCatalogQuery, shelfQuery } from '#shared/shelves'
@@ -281,7 +282,11 @@ describe('countActiveFilters', () => {
     // The badge says how many filters are shaping the list on screen. A filter the server
     // declined is still in the URL, still has its chip and is still removable — but it is not
     // shaping anything, and counting it would make the badge disagree with the results.
-    const filter = { genres: ['rpg'], priceMaxUah: 300, ukrainianLocalisation: 'TEXT' } as const
+    const filter: CatalogFilter = {
+      genres: ['rpg'],
+      priceMaxUah: 300,
+      ukrainianLocalisation: 'TEXT',
+    }
     expect(countActiveFilters(filter)).toBe(3)
     expect(countActiveFilters(filter, ['priceMaxUah'])).toBe(2)
     expect(countActiveFilters(filter, ['priceMaxUah', 'ukrainianLocalisation'])).toBe(1)

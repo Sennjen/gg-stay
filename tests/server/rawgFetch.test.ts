@@ -519,8 +519,8 @@ describe('which RAWG answers may be kept beyond the instance', () => {
     ],
   ])('says of %s whether it may', async (_what, path, params, options, shareable) => {
     const { deps, store } = makeDeps()
-    const get = vi.fn(async (key: string) => store.get(key) ?? null)
-    const set = vi.fn(async (key: string, entry: CacheEntry) => void store.set(key, entry))
+    const get = vi.fn<RawgDeps['cache']['get']>(async (key) => store.get(key) ?? null)
+    const set = vi.fn<RawgDeps['cache']['set']>(async (key, entry) => void store.set(key, entry))
     deps.cache = { get, set }
 
     await createRawgFetch(deps)(path, params, options)

@@ -15,7 +15,7 @@ describe('AppHeader', () => {
     expect(wrapper.get('a[href="/"]').text()).toContain('GG Stay')
     expect(wrapper.get('a[href="/games"]').text()).toBe('Каталог')
     expect(wrapper.get('nav[aria-label="Мова"] a[href="/en/games"]').text()).toBe('English')
-    expect(wrapper.get('input[role="combobox"]').exists()).toBe(true)
+    expect(wrapper.find('input[role="combobox"]').exists()).toBe(true)
   })
 
   it('links the ask page from the primary navigation, beside the catalog', async () => {

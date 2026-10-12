@@ -21,7 +21,7 @@ describe('steamAppIdFromUrl', () => {
     ['not a url', 'garbage input'],
     [null, 'null'],
     [undefined, 'undefined'],
-  ])('returns null for %s (%s)', (url) => {
+  ])('returns null for %s (%s)', (url, _what) => {
     expect(steamAppIdFromUrl(url)).toBeNull()
   })
 })
