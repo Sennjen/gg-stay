@@ -476,6 +476,27 @@ describe('runJob and its warnings about the other stores', () => {
     ])
   })
 
+  it('says when a believed mapping cost a store twenty offers or more, and not under that', () => {
+    const dropping = 'offers dropped because their games no longer have a store reference'
+    expect(storeWarnings(stores({ gog: { ...read, dropped: 19 } }))).toEqual([])
+    expect(storeWarnings(stores({ gog: { ...read, dropped: 20 } }))).toEqual([
+      `GOG: 20 ${dropping}`,
+    ])
+    // Whatever came of the read, and after what is said of the read itself.
+    expect(
+      storeWarnings(
+        stores({
+          gog: { ...read, status: 'not-due', dropped: 1_200 },
+          microsoft: { ...read, status: 'failed', error: 'TIMEOUT', dropped: 400 },
+        }),
+      ),
+    ).toEqual([
+      `GOG: 1200 ${dropping}`,
+      'Microsoft Store prices not refreshed: TIMEOUT — every offer that was not read stands as it was',
+      `Microsoft Store: 400 ${dropping}`,
+    ])
+  })
+
   it('has nothing to say of a store that was read, was not due, or has no references', () => {
     expect(storeWarnings(stores({}))).toEqual([])
     expect(
@@ -879,6 +900,42 @@ describe('formatSummary and the other stores', () => {
     expect(summary).toContain(
       '| Microsoft Store prices | 0 references, not read (carried 380, the mapping names a product for 0 of those games: under half, so the store references look lost); 380 offers kept as they were; the next run looks again |',
     )
+  })
+
+  it('says how many offers a store lost for want of a reference, whatever came of its read', () => {
+    const rows = (gog: typeof read & { dropped?: number }, microsoft: typeof gog) =>
+      formatSummary({ ...base, stores: { references, gog, microsoft, rate: null } })
+
+    const summary = rows(
+      { ...read, dropped: 1_200 },
+      { ...read, status: 'not-due' as never, dropped: 1 },
+    )
+    expect(summary).toContain(
+      '| GOG prices | 999 references, 240 prices read, 0 failed; 240 offers published, 10 requests; 1200 offers dropped because their games no longer have a store reference |',
+    )
+    expect(summary).toContain(
+      `| Microsoft Store prices | 999 references, not read: the last full read (${RUN_AT}) is under eleven hours old; 240 offers carried; 1 offer dropped because its game no longer has a store reference |`,
+    )
+
+    const other = rows(
+      {
+        ...read,
+        status: 'failed' as never,
+        pricesRead: 0,
+        failed: 999,
+        error: 'TIMEOUT',
+        dropped: 20,
+      },
+      { ...read, status: 'no-references' as never, references: 0, offers: 0, dropped: 19 },
+    )
+    expect(other).toContain(
+      'failed (TIMEOUT); 240 offers kept as they were; the next run reads again; 20 offers dropped because their games no longer have a store reference |',
+    )
+    expect(other).toContain(
+      '| Microsoft Store prices | no references, nothing to read; 19 offers dropped because their games no longer have a store reference |',
+    )
+    // And nothing of the kind on a day when nothing was dropped.
+    expect(rows(read, read)).not.toContain('dropped')
   })
 
   it('keeps an error from breaking the table', () => {

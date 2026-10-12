@@ -9,7 +9,9 @@ import {
   RATE_KEPT_MS,
   referencesLookLost,
   refreshOffers,
+  type OffersResult,
 } from '../../../scripts/index/offers'
+import { storeWarnings } from '../../../scripts/index/run'
 import { sweepStoreRefs, type StoreRefMap } from '../../../scripts/index/storeRefs'
 import type {
   IndexMeta,
@@ -1169,6 +1171,150 @@ describe('the floor under a full read', () => {
 
       expect(result.gog).toMatchObject({ status: 'references-lost', references: 0, offers: 20 })
       expect(harness.gogPages).toHaveLength(0)
+    })
+  })
+
+  /**
+   * From half up the mapping is believed, and what it no longer names is dropped — which can be
+   * half of a store's offers in one run, the night a lost mapping is on its way back. Nothing
+   * about that changes; but a run that drops twenty offers of a store this way says so.
+   */
+  describe('and what a believed mapping costs', () => {
+    /** The annotations a run would write about the stores, given this stage's result. */
+    const warningsOf = (result: OffersResult) =>
+      storeWarnings({
+        references: { games: 0, listed: 0, asked: 0, gog: 0, microsoft: 0, sweep: null },
+        gog: result.gog,
+        microsoft: result.microsoft,
+        rate: result.rate,
+      })
+
+    /** Takes out of the mapping every game from the `kept`th on. */
+    const forget = (refs: StoreRefMap, games: IndexedGame[], kept: number) => {
+      for (const game of games.slice(kept)) refs.delete(game.id)
+    }
+
+    it('is not counted at all when nothing is dropped', async () => {
+      const { harness, games, refs } = await gogGames(40, 40)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect('dropped' in result.gog).toBe(false)
+      expect('dropped' in result.microsoft).toBe(false)
+      expect(warningsOf(result)).toEqual([])
+    })
+
+    it('is counted and not warned about while nineteen GOG offers go', async () => {
+      const { harness, games, refs } = await gogGames(38, 38)
+      forget(refs, games, 19)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.gog).toMatchObject({ status: 'read', references: 19, offers: 19, dropped: 19 })
+      expect(warningsOf(result)).toEqual([])
+    })
+
+    it('is warned about, with the number, when twenty GOG offers go', async () => {
+      const { harness, games, refs } = await gogGames(40, 40)
+      forget(refs, games, 20)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      // Nothing else is different: the offers are dropped, the store is read, the stamp moves.
+      expect(result.gog).toMatchObject({
+        status: 'read',
+        references: 20,
+        pricesRead: 20,
+        offers: 20,
+        dropped: 20,
+        lastReadAt: noon,
+      })
+      expect('offers' in games[20]!).toBe(false)
+      expect(warningsOf(result)).toEqual([
+        'GOG: 20 offers dropped because their games no longer have a store reference',
+      ])
+    })
+
+    it('is counted and not warned about while nineteen Microsoft offers go', async () => {
+      const { harness, games, refs } = await microsoftGames(38, 38)
+      forget(refs, games, 19)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.microsoft).toMatchObject({
+        status: 'read',
+        references: 19,
+        offers: 19,
+        dropped: 19,
+      })
+      expect(warningsOf(result)).toEqual([])
+    })
+
+    it('is warned about, with the number, when twenty Microsoft offers go', async () => {
+      const { harness, games, refs } = await microsoftGames(40, 40)
+      forget(refs, games, 20)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.microsoft).toMatchObject({
+        status: 'read',
+        references: 20,
+        pricesRead: 20,
+        offers: 20,
+        dropped: 20,
+        lastReadAt: noon,
+      })
+      expect('offers' in games[20]!).toBe(false)
+      expect(warningsOf(result)).toEqual([
+        'Microsoft Store: 20 offers dropped because their games no longer have a store reference',
+      ])
+    })
+
+    it('is warned about when two faults compound: half gone by the mapping, half of the rest by the read', async () => {
+      // 250 carried; the mapping names 125, exactly half, and is believed; the store prices 63 of
+      // those, just over half, and is believed. 187 of 250 offers are gone in one run that reads
+      // in full and moves its stamp — and it must not end without a word.
+      const { harness, games, refs } = await microsoftGames(250, 63)
+      forget(refs, games, 125)
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.microsoft).toMatchObject({
+        status: 'read',
+        references: 125,
+        pricesRead: 63,
+        offers: 63,
+        dropped: 125,
+        lastReadAt: noon,
+      })
+      expect(warningsOf(result)).toEqual([
+        'Microsoft Store: 125 offers dropped because their games no longer have a store reference',
+      ])
+    })
+
+    it('is warned about in a run that reads nothing, too', async () => {
+      const { harness, games, refs } = await gogGames(40, 40)
+      forget(refs, games, 20)
+
+      // Read in full an hour ago: the store is not due, and the offers are dropped all the same.
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(later(noon, -HOUR)))
+
+      expect(result.gog).toMatchObject({ status: 'not-due', offers: 20, dropped: 20 })
+      expect(harness.gogPages).toHaveLength(0)
+      expect(warningsOf(result)).toEqual([
+        'GOG: 20 offers dropped because their games no longer have a store reference',
+      ])
+    })
+
+    it('counts a game once, whatever its document carried of the store', async () => {
+      const { harness, games, refs } = await gogGames(40, 40)
+      forget(refs, games, 20)
+      // The same store twice on one document: one game, one offer dropped.
+      games[39]!.offers = [carriedGog('game_39'), carriedGog('game_39')]
+
+      const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+      expect(result.gog.dropped).toBe(20)
     })
   })
 })

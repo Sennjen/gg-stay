@@ -4,7 +4,13 @@ import { appIdsForDocuments, attachAppIds, resolveAppIds, type AppIdMap } from '
 import { carryPublishedForward, collectCandidates, DEFAULT_CANDIDATE_PAGES } from './candidates'
 import { isoNow, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
-import { refreshOffers, type OffersResult, type RateReport, type StoreReadReport } from './offers'
+import {
+  OFFER_FLOOR_MIN_CARRIED,
+  refreshOffers,
+  type OffersResult,
+  type RateReport,
+  type StoreReadReport,
+} from './offers'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
 import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
@@ -584,11 +590,22 @@ function studioRows(report: JobReport): [string, string][] {
   return rows
 }
 
+/**
+ * What is said of the offers a store lost in one run for want of a reference, or nothing when it
+ * lost none (`StoreReadReport.dropped`).
+ */
+function droppedNote(dropped: number | undefined): string | null {
+  if (!dropped) return null
+  return dropped === 1
+    ? '1 offer dropped because its game no longer has a store reference'
+    : `${dropped} offers dropped because their games no longer have a store reference`
+}
+
 /** What a store's read is called in a warning, by what came of it. */
-function storeWarning(name: string, read: StoreReadReport | null): string[] {
-  const reason = (otherwise: string) => (read?.error ?? otherwise).replace(/\s+/g, ' ')
+function readWarning(name: string, read: StoreReadReport): string[] {
+  const reason = (otherwise: string) => (read.error ?? otherwise).replace(/\s+/g, ' ')
   const stands = 'every offer that was not read stands as it was'
-  switch (read?.status) {
+  switch (read.status) {
     case 'failed':
       return [`${name} prices not refreshed: ${reason('a request failed')} — ${stands}`]
     case 'partial':
@@ -604,11 +621,24 @@ function storeWarning(name: string, read: StoreReadReport | null): string[] {
 }
 
 /**
+ * The warnings one store is owed: what came of its read, if that is worth one, and — whatever
+ * came of the read — that the mapping cost it at least `OFFER_FLOOR_MIN_CARRIED` offers in this
+ * run. Under that count the summary's row says how many and no more: a reference is lost one
+ * game at a time, and one game is no news.
+ */
+function storeWarning(name: string, read: StoreReadReport | null): string[] {
+  if (!read) return []
+  const dropped = (read.dropped ?? 0) >= OFFER_FLOOR_MIN_CARRIED ? droppedNote(read.dropped) : null
+  return [...readWarning(name, read), ...(dropped ? [`${name}: ${dropped}`] : [])]
+}
+
+/**
  * The warnings a run owes about the stores other than Steam: one for each store whose read
- * failed or was only partial, one for each store whose references look lost, and one when the run
- * ends with no exchange rate at all. Nothing for a store that was not due, or a rate kept from
- * the published version — those are the design working. Each is one line, written to the log as
- * a GitHub `::warning::` annotation, as the similar-lists warning is.
+ * failed or was only partial, one for each store whose references look lost, one for each store
+ * that lost twenty offers or more because the mapping no longer names their games, and one when
+ * the run ends with no exchange rate at all. Nothing for a store that was not due, or a rate kept
+ * from the published version — those are the design working. Each is one line, written to the
+ * log as a GitHub `::warning::` annotation, as the similar-lists warning is.
  *
  * They exist because a store that is down is, by design, invisible in the run's colour: the run
  * is green, the offers are yesterday's, and without an annotation the only trace is a row of a
@@ -634,41 +664,45 @@ function cell(text: string): string {
   return text.replace(/\s+/g, ' ').replaceAll('|', '/')
 }
 
-/** One store's row: how many references, how many prices read, how many failed — and why. */
+/**
+ * One store's row: how many references, how many prices read, how many failed — and why — and,
+ * whatever came of the read, how many offers went for want of a reference.
+ */
 function storeReadRow(name: string, read: StoreReadReport): [string, string] {
+  const dropped = droppedNote(read.dropped)
+  return [name, storeReadCell(read) + (dropped ? `; ${dropped}` : '')]
+}
+
+function storeReadCell(read: StoreReadReport): string {
   const references = plural(read.references, 'reference', 'references')
   const counts = `${references}, ${plural(read.pricesRead, 'price', 'prices')} read, ${read.failed} failed`
   const offers = plural(read.offers, 'offer', 'offers')
   const requests = plural(read.requests, 'request', 'requests')
   switch (read.status) {
     case 'no-references':
-      return [name, 'no references, nothing to read']
+      return 'no references, nothing to read'
     case 'not-due':
-      return [
-        name,
+      return (
         `${references}, not read: the last full read (${read.lastReadAt}) is under eleven hours ` +
-          `old; ${offers} carried`,
-      ]
+        `old; ${offers} carried`
+      )
     case 'read':
-      return [name, `${counts}; ${offers} published, ${requests}`]
+      return `${counts}; ${offers} published, ${requests}`
     case 'partial':
-      return [
-        name,
+      return (
         `${counts} (${cell(read.error ?? 'a request failed')}); ${offers} published, ${requests}; ` +
-          'the next run reads again',
-      ]
+        'the next run reads again'
+      )
     case 'failed':
-      return [
-        name,
+      return (
         `${counts} (${cell(read.error ?? 'the read failed')}); ${offers} kept as they were; ` +
-          'the next run reads again',
-      ]
+        'the next run reads again'
+      )
     case 'references-lost':
-      return [
-        name,
+      return (
         `${references}, not read (${cell(read.error ?? 'the store references look lost')}); ` +
-          `${offers} kept as they were; the next run looks again`,
-      ]
+        `${offers} kept as they were; the next run looks again`
+      )
   }
 }
 

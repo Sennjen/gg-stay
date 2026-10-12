@@ -123,6 +123,13 @@ export interface StoreReadReport {
   requests: number
   /** Games the run publishes with an offer of this store, read now or carried. */
   offers: number
+  /**
+   * Games that arrived with an offer of this store and lost it in this run for want of a
+   * reference, the mapping being believed. Left out when there were none, which is nearly always:
+   * a reference is lost one game at a time. Twenty in one run is the mapping on its way back
+   * from a loss, and the run says so (`storeWarnings` in `run.ts`).
+   */
+  dropped?: number
   /** When the store was last read in full, after this run. */
   lastReadAt: string | null
   /**
@@ -556,17 +563,22 @@ export async function refreshOffers(
     if (reason) lost[store] = reason
   }
 
+  /** Games that lose an offer of each store here, for want of a reference the mapping has not. */
+  const dropped: Record<OfferStore, number> = { gog: 0, 'xbox-store': 0 }
   for (const { game, usable, carried } of arrived) {
     if (usable.gog) gogGames.push({ game, slug: usable.gog })
     if (usable.microsoft) microsoftGames.push({ game, product: usable.microsoft })
     // The mapping is the only authority for which stores a game may carry an offer of — for as
-    // long as it is believed about that store.
-    writeOffers(
-      game,
-      carried.filter(
-        (offer) => lost[offer.store] !== undefined || hasReference(usable, offer.store),
-      ),
+    // long as it is believed about that store. Store by store: what is held, or dropped, of one
+    // store says nothing about the other.
+    const kept = carried.filter(
+      (offer) => lost[offer.store] !== undefined || hasReference(usable, offer.store),
     )
+    for (const store of OFFER_STORES) {
+      const had = carried.some((offer) => offer.store === store)
+      if (had && !kept.some((offer) => offer.store === store)) dropped[store] += 1
+    }
+    writeOffers(game, kept)
   }
 
   const previous = published?.offersReadAt ?? {}
@@ -580,6 +592,8 @@ export async function refreshOffers(
 
   gog.offers = countOffers(games, 'gog')
   microsoft.offers = countOffers(games, 'xbox-store')
+  if (dropped.gog > 0) gog.dropped = dropped.gog
+  if (dropped['xbox-store'] > 0) microsoft.dropped = dropped['xbox-store']
 
   const offersReadAt: Partial<Record<OfferStore, string>> = {}
   if (gog.lastReadAt) offersReadAt.gog = gog.lastReadAt
