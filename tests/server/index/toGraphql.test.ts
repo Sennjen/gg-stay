@@ -21,7 +21,11 @@ import {
   type OfferTerms,
 } from '../../../server/index/toGraphql'
 import { mapGame, mapGameCard, toStoreLink } from '../../../server/rawg/mappers'
-import { DEV_FIXTURE_GAMES } from '../../fixtures/index/devGames'
+import {
+  DEV_FIXTURE_EXCHANGE_RATE,
+  DEV_FIXTURE_GAMES,
+  DEV_FIXTURE_UPDATED_AT,
+} from '../../fixtures/index/devGames'
 import rawgGames from '../../fixtures/rawg/games.json' with { type: 'json' }
 import rawgDetail from '../../fixtures/rawg/game-the-witcher-3-wild-hunt.json' with { type: 'json' }
 import rawgStores from '../../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json' with { type: 'json' }
@@ -180,12 +184,15 @@ describe('toSteamOffer', () => {
 })
 
 describe('toGameCard', () => {
+  /** The moment the development seed's run ended, and the rate it read: its offers are current. */
+  const SEEDED: OfferTerms = { now: DEV_FIXTURE_UPDATED_AT, rate: DEV_FIXTURE_EXCHANGE_RATE }
+
   it('refuses a cover URL whose scheme is not allowed, like the RAWG mapper does', () => {
-    expect(toGameCard(indexed({ cover: 'javascript:alert(1)' })).cover).toBeNull()
+    expect(toGameCard(indexed({ cover: 'javascript:alert(1)' }), SEEDED).cover).toBeNull()
   })
 
   it('derives the platform families from the indexed platform ids', () => {
-    expect(toGameCard(indexed({ platforms: [4, 187, 7] })).platformFamilies).toEqual([
+    expect(toGameCard(indexed({ platforms: [4, 187, 7] }), SEEDED).platformFamilies).toEqual([
       'PC',
       'PLAYSTATION',
       'NINTENDO',
@@ -198,12 +205,14 @@ describe('toGameCard', () => {
       const raw = (list.results ?? []).find((item) => item.id === document.id)
       expect(raw, `RAWG fixture has no game ${document.id}`).toBeDefined()
 
-      const fromIndex = toGameCard(document)
-      // The RAWG path attaches price, localisation and the made-in-Ukraine flag from the same
-      // index document, so the comparison starts from a RAWG card that has had them attached.
+      const fromIndex = toGameCard(document, SEEDED)
+      // The RAWG path attaches the price, the store that is cheaper, localisation and the
+      // made-in-Ukraine flag from the same index document, so the comparison starts from a RAWG
+      // card that has had them attached.
       const fromRawg: GameCard = {
         ...mapGameCard(raw!),
         price: fromIndex.price,
+        cheaperAt: fromIndex.cheaperAt,
         localisation: fromIndex.localisation,
         madeInUkraine: fromIndex.madeInUkraine,
       }
@@ -211,19 +220,35 @@ describe('toGameCard', () => {
     }
   })
 
+  it('names the store that is clearly cheaper than Steam, and none on a card without one', () => {
+    // The seed's own cases: GOG at about 404 ₴ against Steam's 675 ₴; no offer at all; and the
+    // Microsoft Store at 385 ₴ against a game Steam gives away.
+    const named = DEV_FIXTURE_GAMES.map((game) => [game.slug, toGameCard(game, SEEDED).cheaperAt])
+    expect(named).toEqual([
+      ['the-witcher-3-wild-hunt', 'gog'],
+      ['portal-2', null],
+      ['stardew-valley', null],
+    ])
+    // Without a rate there is no hryvnia amount to weigh GOG's dollars by.
+    expect(toGameCard(DEV_FIXTURE_GAMES[0]!, { ...SEEDED, rate: null }).cheaperAt).toBeNull()
+    // A card RAWG mapped starts with none, like its price: the index attaches both.
+    const list = rawgGames as unknown as RawgList<RawgGameListItem>
+    expect(mapGameCard(list.results![0]!)).toMatchObject({ price: null, cheaperAt: null })
+  })
+
   it('leaves the fields the index document does not carry empty', () => {
-    const card = toGameCard(indexed())
+    const card = toGameCard(indexed(), SEEDED)
     expect(card.platforms).toEqual([])
     expect(card.genres).toEqual([])
     expect(RAWG_ONLY_CARD_FIELDS).toEqual(['platforms', 'genres'])
   })
 
   it('serves the indexed preview as the card hover preview, and nothing when there is none', () => {
-    expect(toGameCard(indexed()).screenshots).toEqual([
+    expect(toGameCard(indexed(), SEEDED).screenshots).toEqual([
       { url: 'https://media.rawg.io/media/screenshots/7.jpg', width: null, height: null },
     ])
-    expect(toGameCard(indexed({ preview: null })).screenshots).toEqual([])
-    expect(toGameCard(indexed({ preview: 'javascript:alert(1)' })).screenshots).toEqual([])
+    expect(toGameCard(indexed({ preview: null }), SEEDED).screenshots).toEqual([])
+    expect(toGameCard(indexed({ preview: 'javascript:alert(1)' }), SEEDED).screenshots).toEqual([])
   })
 })
 

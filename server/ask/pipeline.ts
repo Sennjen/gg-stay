@@ -3,6 +3,7 @@ import { DEFAULT_SORT, type CatalogFilter } from '../../shared/filterUrl'
 import type { GraphQLContext } from '../graphql/context'
 import {
   cachedIndexPage,
+  cardTerms,
   INDEX_SORTS,
   indexFacetFiltersUsed,
   indexFailed,
@@ -762,9 +763,10 @@ async function storedSimilar(context: GraphQLContext, game: IndexedGame): Promis
   const wanted = (game.similar ?? []).filter((id) => id !== game.id).slice(0, MAX_CANDIDATES)
   if (wanted.length === 0) return []
   const documents = await context.index.getMany(wanted)
+  const terms = await cardTerms(context)
   return wanted.flatMap((id) => {
     const document = documents.get(id)
-    return document ? [toGameCard(document)] : []
+    return document ? [toGameCard(document, terms)] : []
   })
 }
 

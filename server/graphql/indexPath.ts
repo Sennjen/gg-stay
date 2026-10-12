@@ -1,7 +1,8 @@
 import { MAX_SEARCH_LENGTH } from '../../shared/catalog'
 import type { IndexMeta, IndexedGame } from '../index/document'
 import type { IndexQuery } from '../index/GameIndex'
-import { toGameCard, toLocalisationInfo, toPriceSummary } from '../index/toGraphql'
+import { cheaperAtOf, exchangeRateAt } from '../index/offerRules'
+import { toGameCard, toLocalisationInfo, toPriceSummary, type OfferTerms } from '../index/toGraphql'
 import type { GraphQLContext } from './context'
 import type { GameCard, GameFilter, GameSort } from './__generated__/resolvers-types'
 
@@ -265,9 +266,27 @@ export function withoutPriceFilters(filter: GameFilter | null | undefined): Game
   return rest
 }
 
-/** The same cards with their prices withheld, for a page a stale index served. */
+/**
+ * The same cards with their prices withheld, for a page a stale index served — and with them the
+ * store a card names as cheaper (`cheaperAt`), which is a claim about the price that is not shown.
+ */
 export function withoutPrices(cards: GameCard[]): GameCard[] {
-  return cards.map((card) => (card.price === null ? card : { ...card, price: null }))
+  return cards.map((card) =>
+    card.price === null && card.cheaperAt == null
+      ? card
+      : { ...card, price: null, cheaperAt: null },
+  )
+}
+
+/**
+ * What a card's `cheaperAt` is worked out with (`cheaperAtOf`): the request's clock, and the rate
+ * out of the index's metadata when it is one the site may still estimate with. The metadata is
+ * the request's one read of it (`indexState`), which every path that builds a card has made by
+ * then, so asking here costs the index nothing.
+ */
+export async function cardTerms(context: GraphQLContext): Promise<OfferTerms> {
+  const { meta } = await indexState(context)
+  return { now: context.now, rate: exchangeRateAt(meta, context.now) }
 }
 
 /** The names of the filters the index has no facet for, when the index is the one answering. */
@@ -355,6 +374,10 @@ export interface CachedIndexPage {
  * `PAGE_CACHE_TTL_SECONDS` costs the store nothing the second time. The cached page is the
  * canonical one, prices included; a caller serving a stale index strips them on the way out.
  * Errors are the caller's to catch — every caller falls back.
+ *
+ * A card's `cheaperAt` is worked out when the page is cached, against the clock of the request
+ * that cached it. A kept page can therefore be up to `PAGE_CACHE_TTL_SECONDS` behind the
+ * thirty-six hours the rule measures — ten minutes, the same ten its prices can be behind by.
  */
 export async function cachedIndexPage(
   context: GraphQLContext,
@@ -365,7 +388,11 @@ export async function cachedIndexPage(
   const cached = await context.cache.get<CachedIndexPage>(key)
   if (cached) return cached
   const result = await context.index.search(query)
-  const page: CachedIndexPage = { items: result.games.map(toGameCard), total: result.total }
+  const terms = await cardTerms(context)
+  const page: CachedIndexPage = {
+    items: result.games.map((game) => toGameCard(game, terms)),
+    total: result.total,
+  }
   await context.cache.set(key, page, PAGE_CACHE_TTL_SECONDS)
   return page
 }
@@ -373,7 +400,8 @@ export async function cachedIndexPage(
 /**
  * Prices, localisation and the made-in-Ukraine flag for cards RAWG produced — one `getMany` for
  * the whole page, whatever a page is made of. A game the index does not hold keeps the nulls the
- * card mapper gave it. Prices are withheld when the index is stale; the language list is not.
+ * card mapper gave it. Prices are withheld when the index is stale, and with them the store a
+ * card names as cheaper; the language list is not.
  */
 export async function attachIndexData(
   context: GraphQLContext,
@@ -394,10 +422,12 @@ export async function attachIndexData(
     return
   }
 
+  const terms = await cardTerms(context)
   for (const card of cards) {
     const document = documents.get(Number(card.id))
     if (!document) continue
     card.price = options.prices ? toPriceSummary(document) : null
+    card.cheaperAt = options.prices ? cheaperAtOf(document, terms.now, terms.rate) : null
     card.localisation = toLocalisationInfo(document)
     card.madeInUkraine = document.madeInUkraine
   }

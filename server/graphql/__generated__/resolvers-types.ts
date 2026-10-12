@@ -95,6 +95,13 @@ export type GameLocalizedDescriptionArgs = {
 };
 
 export type GameCard = {
+  /**
+   * The slug of a store other than Steam whose price for the game is clearly lower: the store of
+   * the game's cheapest offer, when that is not Steam's and is at least 10 % below Steam's price.
+   * Null otherwise — and whenever "price" is null, Steam's price is zero, or either of the two
+   * prices was read more than 36 hours ago.
+   */
+  cheaperAt?: Maybe<Scalars['String']['output']>;
   cover?: Maybe<Image>;
   genres: Array<Taxonomy>;
   id: Scalars['ID']['output'];
@@ -511,6 +518,7 @@ export type GameResolvers<ContextType = GraphQLContext, ParentType extends Resol
 };
 
 export type GameCardResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['GameCard'] = ResolversParentTypes['GameCard']> = {
+  cheaperAt?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   cover?: Resolver<Maybe<ResolversTypes['Image']>, ParentType, ContextType>;
   genres?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;

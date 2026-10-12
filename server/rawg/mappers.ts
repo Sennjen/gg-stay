@@ -87,6 +87,7 @@ export function mapGameCard(raw: RawgGameListItem): GameCard {
     platforms: mapTaxonomies((raw.platforms ?? []).map((entry) => entry.platform ?? {})),
     genres: mapTaxonomies(raw.genres),
     price: null,
+    cheaperAt: null,
     localisation: null,
     madeInUkraine: false,
   }
@@ -130,11 +131,16 @@ export function mapGame(
   storeLinks: RawgStoreLink[],
   screenshots: RawgScreenshot[] = [],
 ): Game {
-  // `price` exists on GameCard but not on Game; destructure it out so the
+  // `price` and `cheaperAt` exist on GameCard but not on Game; destructure them out so the
   // spread below doesn't carry a field the Game type doesn't declare.
   // `screenshots` (mapped from `short_screenshots` above) is also replaced: `Game.screenshots`
   // comes from the dedicated screenshots endpoint, not the max-4 card preview.
-  const { price: _price, screenshots: _cardScreenshots, ...card } = mapGameCard(raw)
+  const {
+    price: _price,
+    cheaperAt: _cheaperAt,
+    screenshots: _cardScreenshots,
+    ...card
+  } = mapGameCard(raw)
   const tags = mapTaxonomies(raw.tags)
   return {
     ...card,

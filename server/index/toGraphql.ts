@@ -19,6 +19,7 @@ import {
   type IndexedOffer,
 } from './document'
 import {
+  cheaperAtOf,
   hryvniaOf,
   isFreshOffer,
   listedOffers,
@@ -34,11 +35,11 @@ import {
  * like once it has been chosen.
  *
  * Both paths end up rendering the same card for the same game. The RAWG path builds the card with
- * `mapGameCard` and attaches `price`, `localisation` and `madeInUkraine` from the index document;
- * the index path builds the whole card here. The two fields in `RAWG_ONLY_CARD_FIELDS` are the
- * exception, and the only one: the document keeps platform ids and genre slugs rather than their
- * display names, so an index-served card carries neither. Nothing in the catalog reads platforms
- * or genres off a card.
+ * `mapGameCard` and attaches `price`, `cheaperAt`, `localisation` and `madeInUkraine` from the
+ * index document; the index path builds the whole card here. The two fields in
+ * `RAWG_ONLY_CARD_FIELDS` are the exception, and the only one: the document keeps platform ids and
+ * genre slugs rather than their display names, so an index-served card carries neither. Nothing
+ * in the catalog reads platforms or genres off a card.
  *
  * `screenshots` is not among them: the document's `preview` is the one screenshot the card's
  * hover preview uses, which is also the only one the RAWG card mapper's four ever get read, so an
@@ -51,7 +52,8 @@ export const RAWG_ONLY_CARD_FIELDS = ['platforms', 'genres'] as const
 /**
  * The store whose price is the game's own in the index (`IndexedGame.priceUah`): the one a card
  * shows, and the one every filter and sort reads. What GOG and the Microsoft Store charge travels
- * beside it as offers (`IndexedGame.offers`), and only a game page shows those.
+ * beside it as offers (`IndexedGame.offers`), and only a game page shows those; a card says no
+ * more of them than which store is clearly cheaper (`cheaperAtOf`).
  */
 const PRICE_SOURCE_STORE = 'steam'
 
@@ -262,8 +264,12 @@ function previewImages(preview: string | null): Image[] {
   return image ? [image] : []
 }
 
-/** The whole card, for a page the index serves on its own. */
-export function toGameCard(game: IndexedGame): GameCard {
+/**
+ * The whole card, for a page the index serves on its own. `terms` are what `cheaperAt` is worked
+ * out with — the request's clock and the rate — and are asked of every caller, so that no path
+ * can build a card from a document and leave the field out.
+ */
+export function toGameCard(game: IndexedGame, terms: OfferTerms): GameCard {
   return {
     id: String(game.id),
     slug: game.slug,
@@ -281,6 +287,7 @@ export function toGameCard(game: IndexedGame): GameCard {
     platforms: [],
     genres: [],
     price: toPriceSummary(game),
+    cheaperAt: cheaperAtOf(game, terms.now, terms.rate),
     localisation: toLocalisationInfo(game),
     madeInUkraine: game.madeInUkraine,
   }

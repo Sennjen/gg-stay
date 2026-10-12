@@ -3,8 +3,11 @@ import { RATE_KEPT_MS } from '../../../scripts/index/offers'
 import type { IndexedExchangeRate, IndexedGame, IndexedOffer } from '../../../server/index/document'
 import {
   APPROXIMATE_MARGIN_PERCENT,
+  CHEAPER_MARGIN_PERCENT,
+  CLOCK_AHEAD_ALLOWED_MS,
   EXCHANGE_RATE_KEPT_MS,
   OFFER_FRESH_FOR_MS,
+  cheaperAtOf,
   cheapestRow,
   exchangeRateAt,
   freshOffers,
@@ -349,5 +352,162 @@ describe('the row a page marks as the cheapest', () => {
     const steam = { ...exact('steam', 675), note: 'kept' }
     const xbox = { ...exact('xbox-store', 385), note: 'kept too' }
     expect(markedCheapest([steam, xbox])).toBe(xbox)
+  })
+})
+
+describe('the store a card names as cheaper than Steam', () => {
+  type Priced = Parameters<typeof cheaperAtOf>[0]
+
+  /** A game on Steam, GOG and the Xbox store: Steam's price read three hours ago, and `offers`. */
+  const priced = (
+    priceUah: number | null,
+    offers: IndexedOffer[],
+    overrides: Partial<Priced> = {},
+  ): Priced => ({
+    priceUah,
+    priceUpdatedAt: priceUah === null ? null : ago(3 * HOUR),
+    stores: ['steam', 'gog', 'xbox-store'],
+    offers,
+    ...overrides,
+  })
+  /** The Xbox store at so many whole hryvnia. */
+  const xbox = (uah: number, overrides: Partial<IndexedOffer> = {}) =>
+    microsoft({ amount: uah * 100, regularAmount: uah * 100, ...overrides })
+  const free = { amount: 0, regularAmount: 0, discountPercent: 0 }
+  const named = (game: Priced, rate: IndexedExchangeRate | null = RATE) =>
+    cheaperAtOf(game, NOW, rate)
+
+  it('asks for ten percent, and believes a clock five minutes ahead and no further', () => {
+    expect(CHEAPER_MARGIN_PERCENT).toBe(10)
+    expect(CLOCK_AHEAD_ALLOWED_MS).toBe(5 * 60 * 1000)
+  })
+
+  it('is GOG at about 404 ₴ against Steam’s 675 ₴: the design’s own example', () => {
+    expect(named(priced(675, [gog()]))).toBe('gog')
+  })
+
+  it('is a hryvnia store ten percent below to the hryvnia, and not one a hryvnia short of that', () => {
+    expect(named(priced(1000, [xbox(900)]))).toBe('xbox-store')
+    expect(named(priced(1000, [xbox(901)]))).toBeNull()
+    // Kopecks are weighed as the whole hryvnia a page shows: 900.49 ₴ is 900 ₴, 900.50 ₴ is 901 ₴.
+    expect(named(priced(1000, [microsoft({ amount: 90_049, regularAmount: 90_049 })]))).toBe(
+      'xbox-store',
+    )
+    expect(named(priced(1000, [microsoft({ amount: 90_050, regularAmount: 90_050 })]))).toBeNull()
+  })
+
+  it('is an estimate ten percent below to the hryvnia, and not one short of that', () => {
+    // $8.99 is about 404 ₴. Ten percent below 449 ₴ is 404.1 ₴; below 448 ₴ it is 403.2 ₴.
+    expect(named(priced(449, [gog()]))).toBe('gog')
+    expect(named(priced(448, [gog()]))).toBeNull()
+  })
+
+  it('is nobody when Steam is the cheapest, or level', () => {
+    expect(named(priced(300, [gog(), xbox(385)]))).toBeNull()
+    expect(named(priced(385, [xbox(385)]))).toBeNull()
+    expect(named(priced(404, [gog()]))).toBeNull()
+  })
+
+  it('is nobody without a Steam price, or without the date of one', () => {
+    expect(named(priced(null, [gog(), xbox(385)]))).toBeNull()
+    expect(named(priced(675, [gog()], { priceUpdatedAt: null }))).toBeNull()
+  })
+
+  it('is nobody when Steam gives the game away, whatever the others charge', () => {
+    expect(named(priced(0, [gog(), xbox(385)]))).toBeNull()
+    expect(named(priced(0, [gog(free), xbox(1)]))).toBeNull()
+  })
+
+  it('is a store that gives the game away while Steam charges for it', () => {
+    expect(named(priced(675, [xbox(0)]))).toBe('xbox-store')
+    // Nothing at any rate is nothing: a free GOG game is named with no rate at all.
+    expect(named(priced(675, [gog(free)]), null)).toBe('gog')
+    // And even one hryvnia on Steam is charging.
+    expect(named(priced(1, [xbox(0)]))).toBe('xbox-store')
+  })
+
+  describe('against prices that are not current', () => {
+    it('weighs an offer read thirty-six hours ago to the millisecond, and not one read before that', () => {
+      expect(named(priced(675, [gog({ updatedAt: ago(OFFER_FRESH_FOR_MS) })]))).toBe('gog')
+      expect(named(priced(675, [gog({ updatedAt: ago(OFFER_FRESH_FOR_MS + 1) })]))).toBeNull()
+    })
+
+    it('holds Steam’s own price to the same thirty-six hours', () => {
+      const at = (priceUpdatedAt: string) => priced(675, [gog()], { priceUpdatedAt })
+      expect(named(at(ago(OFFER_FRESH_FOR_MS)))).toBe('gog')
+      expect(named(at(ago(OFFER_FRESH_FOR_MS + 1)))).toBeNull()
+      // A price the index has carried forward for six weeks is no yardstick for "cheaper".
+      expect(named(at(ago(42 * DAY)))).toBeNull()
+    })
+
+    it('believes a date up to five minutes ahead of the clock, on either side, and none beyond', () => {
+      const ahead = (ms: number) => ago(-ms)
+      const steamAt = (priceUpdatedAt: string) => priced(675, [gog()], { priceUpdatedAt })
+      expect(named(steamAt(ahead(CLOCK_AHEAD_ALLOWED_MS)))).toBe('gog')
+      expect(named(steamAt(ahead(CLOCK_AHEAD_ALLOWED_MS + 1)))).toBeNull()
+      expect(named(priced(675, [gog({ updatedAt: ahead(CLOCK_AHEAD_ALLOWED_MS) })]))).toBe('gog')
+      expect(named(priced(675, [gog({ updatedAt: ahead(CLOCK_AHEAD_ALLOWED_MS + 1) })]))).toBeNull()
+    })
+
+    it.each([['not a date'], [''], [undefined], [42]])(
+      'is nobody against a date that cannot be read: %j',
+      (date) => {
+        const undated = date as unknown as string
+        expect(named(priced(675, [gog()], { priceUpdatedAt: undated }))).toBeNull()
+        expect(named(priced(675, [gog({ updatedAt: undated })]))).toBeNull()
+      },
+    )
+
+    it('is nobody against a clock that cannot be read', () => {
+      expect(cheaperAtOf(priced(675, [gog()]), 'not a date', RATE)).toBeNull()
+    })
+
+    it('leaves an offer that is not current out, and still weighs the one that is', () => {
+      const offers = [gog({ updatedAt: ago(OFFER_FRESH_FOR_MS + 1) }), xbox(500)]
+      expect(named(priced(675, offers))).toBe('xbox-store')
+    })
+  })
+
+  it('is nobody for a store the document does not list the game on', () => {
+    expect(named(priced(675, [gog()], { stores: ['steam', 'xbox-store'] }))).toBeNull()
+    expect(named(priced(675, [gog()], { stores: ['steam', 'gog'] }))).toBe('gog')
+  })
+
+  it.each([
+    ['a store this build does not know', { store: 'epic-games' }],
+    ['a currency it does not know', { currency: 'EUR' }],
+    ['an amount that is not a whole number', { amount: 8.99 }],
+    ['an address it would not link to', { url: 'javascript:alert(1)' }],
+  ])('is nobody for an offer it cannot read: %s', (_what, broken) => {
+    expect(named(priced(675, [gog(broken as Partial<IndexedOffer>)]))).toBeNull()
+  })
+
+  it('is nobody for a document without offers, as every document was before the job read the stores', () => {
+    expect(named(priced(675, []))).toBeNull()
+    expect(named({ ...priced(675, []), offers: undefined })).toBeNull()
+  })
+
+  it('cannot weigh dollars without a rate, and still names a hryvnia store without one', () => {
+    expect(named(priced(675, [gog()]), null)).toBeNull()
+    expect(named(priced(675, [gog(), xbox(385)]), null)).toBe('xbox-store')
+  })
+
+  describe('with two other stores', () => {
+    it('is the lower of them', () => {
+      expect(named(priced(675, [gog(), xbox(300)]))).toBe('xbox-store')
+      // The estimate of 404 ₴ is the lowest, and five percent clear of the 500 ₴ above it.
+      expect(named(priced(675, [gog(), xbox(500)]))).toBe('gog')
+    })
+
+    it('is neither when the estimate does not clear a hryvnia price: nobody is the cheapest', () => {
+      // 404 ₴ against 410 ₴ is under five percent, though both are far below Steam's 675 ₴.
+      expect(named(priced(675, [gog(), xbox(410)]))).toBeNull()
+      // Level with each other: a tie names no one either.
+      expect(named(priced(675, [gog(), xbox(404)]))).toBeNull()
+    })
+
+    it('is nobody when the cheapest of them is under ten percent below Steam', () => {
+      expect(named(priced(430, [gog(), xbox(600)]))).toBeNull()
+    })
   })
 })

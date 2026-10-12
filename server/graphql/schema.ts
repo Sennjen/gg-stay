@@ -124,6 +124,13 @@ export const typeDefs = /* GraphQL */ `
     platforms: [Taxonomy!]!
     genres: [Taxonomy!]!
     price: PriceSummary
+    """
+    The slug of a store other than Steam whose price for the game is clearly lower: the store of
+    the game's cheapest offer, when that is not Steam's and is at least 10 % below Steam's price.
+    Null otherwise — and whenever "price" is null, Steam's price is zero, or either of the two
+    prices was read more than 36 hours ago.
+    """
+    cheaperAt: String
     localisation: LocalisationInfo
     madeInUkraine: Boolean!
   }

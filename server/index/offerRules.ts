@@ -10,7 +10,8 @@ import {
 /**
  * What the site makes of the prices the refresh job publishes for the stores other than Steam
  * (`IndexedGame.offers`, `IndexMeta.exchangeRate`): which of them is still a price, what it comes
- * to in hryvnia, and which of a game's prices is the cheapest.
+ * to in hryvnia, which of a game's prices is the cheapest, and when a card may say that another
+ * store is cheaper than Steam.
  *
  * Pure, like the mappers beside it (`toGraphql.ts`): no store, no context, and no clock of its
  * own — the request's one clock (`GraphQLContext.now`) is handed in. The site never asks GOG, the
@@ -52,6 +53,21 @@ export const EXCHANGE_RATE_KEPT_MS = 7 * 24 * 60 * 60 * 1000
  * for.
  */
 export const APPROXIMATE_MARGIN_PERCENT = 5
+
+/**
+ * How far below Steam's price another store has to be before a card says it is cheaper: ten
+ * percent. A card has room for one short line and no figures, so the line is kept for a
+ * difference worth opening the page for — and ten percent is also clear of the few percent a
+ * bank's rate adds to an estimate made at the National Bank's.
+ */
+export const CHEAPER_MARGIN_PERCENT = 10
+
+/**
+ * How far ahead of the request's clock a date may be and still be taken for one of now: five
+ * minutes, which is more than two clocks that are both kept disagree by. A price dated further
+ * ahead than that was not read when it says, so nothing is known of its age.
+ */
+export const CLOCK_AHEAD_ALLOWED_MS = 5 * 60 * 1000
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
@@ -219,7 +235,8 @@ export function hryvniaOf(
  *
  * It is the comparison, and not yet what anybody is told. A game page marks the row it names,
  * unless that row is free (`markedCheapest`), over the rows it shows — Steam's live price
- * included.
+ * included. A catalog card names the row's store when it is not Steam and is clearly below
+ * Steam's price (`cheaperAtOf`), over what the document holds.
  */
 export function cheapestRow<Row extends PricedRow>(rows: readonly Row[]): Row | null {
   if (rows.length < 2) return null
@@ -244,4 +261,63 @@ export function cheapestRow<Row extends PricedRow>(rows: readonly Row[]): Row | 
 export function markedCheapest<Row extends PricedRow>(rows: readonly Row[]): Row | null {
   const cheapest = cheapestRow(rows)
   return cheapest && cheapest.uah > 0 ? cheapest : null
+}
+
+/**
+ * Whether a price dated `iso` is one a card may compare at `now`: read no more than
+ * `OFFER_FRESH_FOR_MS` ago, and not dated more than `CLOCK_AHEAD_ALLOWED_MS` ahead of the clock.
+ * A date that cannot be read is neither.
+ */
+function isCurrentAt(iso: unknown, now: string): boolean {
+  const age = ageAt(iso, now)
+  return age <= OFFER_FRESH_FOR_MS && age >= -CLOCK_AHEAD_ALLOWED_MS
+}
+
+/**
+ * The store a catalog card names as cheaper than Steam, by its slug, or `null` when the card
+ * names none — which is nearly always.
+ *
+ * It is the store of the game's cheapest price (`cheapestRow`, over Steam's price and the offers
+ * of the stores the document lists the game on) when that store is not Steam and its amount is
+ * at least `CHEAPER_MARGIN_PERCENT` below Steam's. So, each of them `null`:
+ *
+ * - **No Steam price to be cheaper than.** The card's price is the document's Steam price, and a
+ *   document without one — or without the date of one — has no price on its card.
+ * - **A price that is not current** (`isCurrentAt`), on either side. Steam's price is held to the
+ *   offers' own thirty-six hours here, though a card goes on showing it for as long as the index
+ *   is not stale: the index carries a price forward under its old date when Steam stops answering
+ *   for a game, and a price from six weeks ago is not the yardstick for "cheaper". An offer that
+ *   is not current is not weighed at all, as on a game page.
+ * - **Steam is the cheapest, or nobody is.** A tie, an estimate that does not clear its own
+ *   margin over a hryvnia price, a dollar price with no rate to estimate it with: where the
+ *   comparison names no row, the card names no store — even when two other stores are both far
+ *   below Steam and only too close to each other to call.
+ * - **Less than ten percent below.** Whole hryvnia on both sides, so the margin has no rounding
+ *   of its own.
+ * - **Steam gives the game away.** Nothing is below nothing.
+ *
+ * A store that gives the game away while Steam charges for it is named: unlike the mark on a game
+ * page (`markedCheapest`), the line stands beside Steam's price alone, and says what that price
+ * does not.
+ *
+ * The one place the rule is. Every card is given its `cheaperAt` by this function, whichever path
+ * built it: `toGameCard` for a card made from the document, `attachIndexData` for one RAWG
+ * answered (`server/graphql/indexPath.ts`). Where a card's price is withheld — an index whose
+ * prices are stale — so is this (`withoutPrices`).
+ */
+export function cheaperAtOf(
+  game: Pick<IndexedGame, 'priceUah' | 'priceUpdatedAt' | 'stores' | 'offers'>,
+  now: string,
+  rate: Pick<IndexedExchangeRate, 'uah'> | null,
+): string | null {
+  if (game.priceUah === null || !isCurrentAt(game.priceUpdatedAt, now)) return null
+  const steam: PricedRow = { store: 'steam', uah: game.priceUah, approximate: false }
+  const others = listedOffers(game).flatMap((offer): PricedRow[] => {
+    const amount = isCurrentAt(offer.updatedAt, now) ? hryvniaOf(offer, rate) : null
+    return amount ? [{ store: offer.store, ...amount }] : []
+  })
+  const cheapest = cheapestRow([steam, ...others])
+  if (!cheapest || cheapest === steam) return null
+  // Whole numbers on both sides, as in `cheapestRow`.
+  return cheapest.uah * 100 <= steam.uah * (100 - CHEAPER_MARGIN_PERCENT) ? cheapest.store : null
 }

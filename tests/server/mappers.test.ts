@@ -27,6 +27,7 @@ describe('mapGameCard', () => {
       metacritic: 92,
       playtime: 43,
       price: null,
+      cheaperAt: null,
       localisation: null,
       madeInUkraine: false,
     })
@@ -169,6 +170,13 @@ describe('mapGame', () => {
   it('defaults to an empty screenshots list when none are given', () => {
     const game = mapGame(detail, stores.results)
     expect(game.screenshots).toEqual([])
+  })
+
+  it('carries none of the fields only a card has', () => {
+    // A game page is built on the card's mapping; what a card says of the price is the card's.
+    const game = mapGame(detail, stores.results)
+    expect('price' in game).toBe(false)
+    expect('cheaperAt' in game).toBe(false)
   })
 
   it('calls a game mapped from RAWG’s detail complete, whatever else it was given', () => {
