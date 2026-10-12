@@ -53,7 +53,15 @@ export interface WriterFromEnv {
   dryRun: boolean
 }
 
-export function createWriterFromEnv(env: WriterEnv = process.env): WriterFromEnv {
+/**
+ * `process.env` as the plain map of strings it is. Read as `NodeJS.ProcessEnv` it stops being
+ * assignable to `WriterEnv` in any program where a package has added optional names of its own to
+ * that interface — browserslist does, and it arrives with Nuxt's types — because the two then have
+ * no name in common.
+ */
+const processEnv: Record<string, string | undefined> = process.env
+
+export function createWriterFromEnv(env: WriterEnv = processEnv): WriterFromEnv {
   if (env.INDEX_DRY_RUN === '1') return { writer: createMemoryGameIndex(), dryRun: true }
 
   const url = env.UPSTASH_REDIS_REST_URL
