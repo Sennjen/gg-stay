@@ -6,6 +6,7 @@ import HeroVideo from '~/components/HeroVideo.vue'
 const featured = {
   clipUrl: 'https://media.rawg.io/media/movies/1/movie480.mp4',
   clipSource: 'RAWG' as const,
+  clipCredit: null,
   game: {
     slug: 'the-witcher-3-wild-hunt',
     name: 'The Witcher 3: Wild Hunt',
@@ -82,6 +83,16 @@ describe('HeroFeatured', () => {
       props: { featured: { ...featured, clipSource: 'STEAM' } },
     })
     expect(steamClip.text()).toContain('Трейлер: Steam')
+  })
+
+  it("credits a pinned game's trailer to its owner, in both locales", async () => {
+    const pinned = { ...featured, clipSource: 'PUBLISHER' as const, clipCredit: 'Rockstar Games' }
+    const uk = await mountSuspended(HeroFeatured, { props: { featured: pinned } })
+    expect(uk.text()).toContain('Трейлер: Rockstar Games')
+    expect(uk.text()).not.toContain('Трейлер: Steam')
+
+    const en = await mountSuspended(HeroFeatured, { props: { featured: pinned }, route: '/en' })
+    expect(en.text()).toContain('Trailer: Rockstar Games')
   })
 
   it('renders an aria-hidden scrim above the poster so the header stays readable', async () => {

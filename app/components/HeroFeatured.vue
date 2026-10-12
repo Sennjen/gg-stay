@@ -9,7 +9,13 @@ const localePath = useLocalePath()
 const paused = ref(false)
 const poster = computed(() => props.featured?.game.cover ?? null)
 const clipUrl = computed(() => props.featured?.clipUrl ?? null)
-const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
+// Steam is credited as the source of a trailer it serves; a pinned game's trailer is the
+// publisher's own, and is credited to the publisher by name.
+const trailerCredit = computed(() => {
+  if (props.featured?.clipSource === 'STEAM') return t('home.hero.trailerSteam')
+  const name = props.featured?.clipCredit
+  return name ? t('home.hero.trailerCredit', { name }) : null
+})
 </script>
 
 <template>
@@ -89,8 +95,8 @@ const isSteamClip = computed(() => props.featured?.clipSource === 'STEAM')
           </NuxtLink>
         </template>
       </i18n-t>
-      <p v-if="isSteamClip" class="hidden text-xs text-fg-2 md:block">
-        {{ t('home.hero.trailerSteam') }}
+      <p v-if="trailerCredit" class="hidden text-xs text-fg-2 md:block">
+        {{ trailerCredit }}
       </p>
     </div>
   </section>

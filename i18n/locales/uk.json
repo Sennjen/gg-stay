@@ -9,6 +9,7 @@
       "newReleases": "Нові релізи",
       "nowOnScreen": "Зараз на екрані: {title}",
       "trailerSteam": "Трейлер: Steam",
+      "trailerCredit": "Трейлер: {name}",
       "videoPlay": "Відтворити відео",
       "videoPause": "Поставити відео на паузу"
     },

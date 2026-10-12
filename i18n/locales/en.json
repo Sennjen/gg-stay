@@ -9,6 +9,7 @@
       "newReleases": "New releases",
       "nowOnScreen": "Now on screen: {title}",
       "trailerSteam": "Trailer: Steam",
+      "trailerCredit": "Trailer: {name}",
       "videoPlay": "Play video",
       "videoPause": "Pause video"
     },

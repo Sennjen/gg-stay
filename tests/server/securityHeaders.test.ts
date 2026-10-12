@@ -90,6 +90,14 @@ describe('the policy itself', () => {
     expect(directive('img-src')).toContain('https://api.rawg.io')
   })
 
+  it("plays a pinned game's trailer from the site's own store, and takes nothing else from it", () => {
+    const store = 'https://ilvgxc1q6vjaiqyd.public.blob.vercel-storage.com'
+    expect(directive('media-src')!.split(' ')).toContain(store)
+    expect(policy.split(store)).toHaveLength(2)
+    // The store's own host, never the wildcard every other Vercel Blob store matches too.
+    expect(policy).not.toContain('*.public.blob.vercel-storage.com')
+  })
+
   it('gives the JSON endpoint a policy that allows nothing at all', () => {
     // It loads nothing and hosts no document, so an allow-list would only be a larger surface.
     expect(API_CONTENT_SECURITY_POLICY).toBe("default-src 'none'; frame-ancestors 'none'")

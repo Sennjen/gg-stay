@@ -217,6 +217,7 @@ function testContext(context: TestContext): GraphQLContext {
     steam: fixtureSteam,
     today: TEST_TODAY,
     now: TEST_NOW,
+    featuredPins: [],
     index: context.index ?? unpublishedIndex,
     steamPrices: noSteamPrices,
     cache: noCache,
