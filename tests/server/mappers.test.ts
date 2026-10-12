@@ -85,25 +85,22 @@ describe('mapGame', () => {
     expect(game.gameModes).toEqual(['SINGLE'])
     expect(game.developers[0]?.slug).toBe('cd-projekt-red')
     expect(game.website).toBe('https://thewitcher.com/en/witcher3')
+    // Links, and nothing a price would fill: RAWG knows where a game is sold, not for how much.
+    const noPrice = {
+      title: null,
+      priceUah: null,
+      regularPriceUah: null,
+      discountPercent: null,
+      isFree: null,
+      updatedAt: null,
+      foreignPrice: null,
+      foreignRegularPrice: null,
+      approxUah: null,
+      cheapest: false,
+    }
     expect(game.stores).toEqual([
-      {
-        store: 'steam',
-        url: 'https://store.steampowered.com/app/292030/',
-        priceUah: null,
-        regularPriceUah: null,
-        discountPercent: null,
-        isFree: null,
-        updatedAt: null,
-      },
-      {
-        store: 'gog',
-        url: 'https://www.gog.com/game/the_witcher_3_wild_hunt',
-        priceUah: null,
-        regularPriceUah: null,
-        discountPercent: null,
-        isFree: null,
-        updatedAt: null,
-      },
+      { store: 'steam', url: 'https://store.steampowered.com/app/292030/', ...noPrice },
+      { store: 'gog', url: 'https://www.gog.com/game/the_witcher_3_wild_hunt', ...noPrice },
     ])
     expect(game.screenshots).toEqual([])
     expect(game.similar).toEqual([])

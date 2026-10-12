@@ -27,6 +27,15 @@ export type DescriptionSource =
   | 'RAWG'
   | 'STEAM';
 
+/** The National Bank of Ukraine's official rate of one currency for one day. */
+export type ExchangeRate = {
+  currency: Scalars['String']['output'];
+  /** The day the rate is for, as YYYY-MM-DD. */
+  date: Scalars['String']['output'];
+  /** Hryvnia for one unit of the currency. */
+  uah: Scalars['Float']['output'];
+};
+
 export type FeaturedGame = {
   clipSource?: Maybe<ClipSource>;
   clipUrl?: Maybe<Scalars['String']['output']>;
@@ -38,6 +47,11 @@ export type Game = {
   cover?: Maybe<Image>;
   description?: Maybe<Scalars['String']['output']>;
   developers: Array<Taxonomy>;
+  /**
+   * The rate approximate prices were made with: null when no row of "stores" carries an
+   * "approxUah" — no store charges this game in another currency, or there is no rate.
+   */
+  exchangeRate?: Maybe<ExchangeRate>;
   gameModes: Array<GameMode>;
   genres: Array<Taxonomy>;
   id: Scalars['ID']['output'];
@@ -201,6 +215,14 @@ export type LocalizedText = {
   text: Scalars['String']['output'];
 };
 
+/** A sum of money in the currency a store charges in. */
+export type Money = {
+  /** In the currency's main unit, the minor one as its fraction: 8.99 is eight dollars ninety-nine. */
+  amount: Scalars['Float']['output'];
+  /** The ISO 4217 code, such as USD. */
+  currency: Scalars['String']['output'];
+};
+
 export type PlatformFamily =
   | 'MOBILE'
   | 'NINTENDO'
@@ -270,12 +292,41 @@ export type ShelfId =
   | 'UKRAINIAN'
   | 'UPCOMING';
 
+/**
+ * One store a game is sold in: a link, and what the store charges a buyer in Ukraine when that is
+ * known and fresh. A store that charges in hryvnia fills "priceUah" and "regularPriceUah"; one
+ * that charges in another currency fills "foreignPrice" and "foreignRegularPrice" instead, and
+ * "approxUah" when there is a rate. A row without a price has nulls in all of them. For a store
+ * other than Steam the regular price is there only when it is above the price, and
+ * "discountPercent" is 1 to 99 beside it and 0 otherwise.
+ */
 export type StoreOffer = {
+  /**
+   * foreignPrice at the National Bank's rate, rounded to a hryvnia: an estimate, never the charge.
+   * Null without a rate, and for a free game, where there is nothing to estimate.
+   */
+  approxUah?: Maybe<Scalars['Int']['output']>;
+  /**
+   * True for the one offer that is cheapest: the lowest hryvnia amount among the game's rows with a
+   * price, where an approximate amount counts only when it is at least 5 % below the lowest exact
+   * one. False on every row when fewer than two have a price, or when the lowest is shared.
+   */
+  cheapest: Scalars['Boolean']['output'];
   discountPercent?: Maybe<Scalars['Int']['output']>;
+  /** A price in another currency, from a store that does not sell in hryvnia. */
+  foreignPrice?: Maybe<Money>;
+  /** The foreign price before the discount. Null unless it is above the price. */
+  foreignRegularPrice?: Maybe<Money>;
   isFree?: Maybe<Scalars['Boolean']['output']>;
   priceUah?: Maybe<Scalars['Int']['output']>;
   regularPriceUah?: Maybe<Scalars['Int']['output']>;
   store: Scalars['String']['output'];
+  /**
+   * What the store itself calls the product the price is for, as plain text. A store's link is
+   * sometimes to another edition than the game's name says. Null on a row without a price, and
+   * when the store gave none.
+   */
+  title?: Maybe<Scalars['String']['output']>;
   updatedAt?: Maybe<Scalars['String']['output']>;
   url: Scalars['String']['output'];
 };
@@ -363,6 +414,7 @@ export type ResolversTypes = {
   Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
   ClipSource: ClipSource;
   DescriptionSource: DescriptionSource;
+  ExchangeRate: ResolverTypeWrapper<ExchangeRate>;
   FeaturedGame: ResolverTypeWrapper<FeaturedGame>;
   Float: ResolverTypeWrapper<Scalars['Float']['output']>;
   Game: ResolverTypeWrapper<Game>;
@@ -378,6 +430,7 @@ export type ResolversTypes = {
   Localisation: Localisation;
   LocalisationInfo: ResolverTypeWrapper<LocalisationInfo>;
   LocalizedText: ResolverTypeWrapper<LocalizedText>;
+  Money: ResolverTypeWrapper<Money>;
   PlatformFamily: PlatformFamily;
   Playtime: Playtime;
   PriceSummary: ResolverTypeWrapper<PriceSummary>;
@@ -392,6 +445,7 @@ export type ResolversTypes = {
 /** Mapping between all available schema types and the resolvers parents */
 export type ResolversParentTypes = {
   Boolean: Scalars['Boolean']['output'];
+  ExchangeRate: ExchangeRate;
   FeaturedGame: FeaturedGame;
   Float: Scalars['Float']['output'];
   Game: Game;
@@ -404,12 +458,19 @@ export type ResolversParentTypes = {
   Landing: Landing;
   LocalisationInfo: LocalisationInfo;
   LocalizedText: LocalizedText;
+  Money: Money;
   PriceSummary: PriceSummary;
   Query: Record<PropertyKey, never>;
   Shelf: Shelf;
   StoreOffer: StoreOffer;
   String: Scalars['String']['output'];
   Taxonomy: Taxonomy;
+};
+
+export type ExchangeRateResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['ExchangeRate'] = ResolversParentTypes['ExchangeRate']> = {
+  currency?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  date?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  uah?: Resolver<ResolversTypes['Float'], ParentType, ContextType>;
 };
 
 export type FeaturedGameResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['FeaturedGame'] = ResolversParentTypes['FeaturedGame']> = {
@@ -423,6 +484,7 @@ export type GameResolvers<ContextType = GraphQLContext, ParentType extends Resol
   cover?: Resolver<Maybe<ResolversTypes['Image']>, ParentType, ContextType>;
   description?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   developers?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
+  exchangeRate?: Resolver<Maybe<ResolversTypes['ExchangeRate']>, ParentType, ContextType>;
   gameModes?: Resolver<Array<ResolversTypes['GameMode']>, ParentType, ContextType>;
   genres?: Resolver<Array<ResolversTypes['Taxonomy']>, ParentType, ContextType>;
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
@@ -503,6 +565,11 @@ export type LocalizedTextResolvers<ContextType = GraphQLContext, ParentType exte
   text?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
+export type MoneyResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Money'] = ResolversParentTypes['Money']> = {
+  amount?: Resolver<ResolversTypes['Float'], ParentType, ContextType>;
+  currency?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
 export type PriceSummaryResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['PriceSummary'] = ResolversParentTypes['PriceSummary']> = {
   bestStore?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   bestUah?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
@@ -528,11 +595,16 @@ export type ShelfResolvers<ContextType = GraphQLContext, ParentType extends Reso
 };
 
 export type StoreOfferResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['StoreOffer'] = ResolversParentTypes['StoreOffer']> = {
+  approxUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  cheapest?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   discountPercent?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  foreignPrice?: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
+  foreignRegularPrice?: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
   isFree?: Resolver<Maybe<ResolversTypes['Boolean']>, ParentType, ContextType>;
   priceUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   regularPriceUah?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   store?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  title?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   updatedAt?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   url?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
@@ -544,6 +616,7 @@ export type TaxonomyResolvers<ContextType = GraphQLContext, ParentType extends R
 };
 
 export type Resolvers<ContextType = GraphQLContext> = {
+  ExchangeRate?: ExchangeRateResolvers<ContextType>;
   FeaturedGame?: FeaturedGameResolvers<ContextType>;
   Game?: GameResolvers<ContextType>;
   GameCard?: GameCardResolvers<ContextType>;
@@ -552,6 +625,7 @@ export type Resolvers<ContextType = GraphQLContext> = {
   Landing?: LandingResolvers<ContextType>;
   LocalisationInfo?: LocalisationInfoResolvers<ContextType>;
   LocalizedText?: LocalizedTextResolvers<ContextType>;
+  Money?: MoneyResolvers<ContextType>;
   PriceSummary?: PriceSummaryResolvers<ContextType>;
   Query?: QueryResolvers<ContextType>;
   Shelf?: ShelfResolvers<ContextType>;

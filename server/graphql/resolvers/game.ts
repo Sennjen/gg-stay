@@ -1,6 +1,16 @@
 import { isMadeInUkraine } from '../../../shared/ukrainianStudios'
 import { isIndexableSlug, type IndexedGame } from '../../index/document'
-import { steamStorePageOf, toGame, toLocalisationInfo, toSteamOffer } from '../../index/toGraphql'
+import { exchangeRateAt } from '../../index/offerRules'
+import {
+  exchangeRateOf,
+  steamStorePageOf,
+  toGame,
+  toLocalisationInfo,
+  toSteamOffer,
+  withCheapest,
+  withStoreOffers,
+  type OfferTerms,
+} from '../../index/toGraphql'
 import { mapGame } from '../../rawg/mappers'
 import type { RawgGameDetail, RawgList, RawgScreenshot, RawgStoreLink } from '../../rawg/types'
 import type { SteamPrice } from '../../steam/price'
@@ -73,6 +83,17 @@ import type { Game, QueryResolvers, StoreOffer } from '../__generated__/resolver
  * design refreshes languages weekly, so the language list always comes from the index. Anything
  * that goes wrong keeps the index copy and logs a warning, because this page has to render either
  * way, and the site never writes to Redis.
+ *
+ * What GOG and the Microsoft Store charge comes with the same document (`IndexedGame.offers`),
+ * read by the refresh job twice a day, and the rate a dollar price is estimated in hryvnia with
+ * comes with the index's metadata — which this request has read once already, to learn whether
+ * there is an index to ask. So the other stores' prices cost the page no request of their own:
+ * none to GOG, to Microsoft or to the bank, which the site never calls at all, and no read of the
+ * index beyond the ones the page made before it showed them. An offer is put on the row of its
+ * store while it is fresh (`server/index/offerRules.ts`), on either page: on RAWG's own store
+ * link when RAWG answered, and on a row made from the offer's own address on the page built from
+ * the index. The cheapest row is marked last, over the rows as they go out — against the Steam
+ * price the page actually shows, the live one when there is one.
  *
  * Which app to ask about comes from the index document when the refresh job has published the
  * game's Steam app id there, and from RAWG's own store links otherwise, as before. When the
@@ -170,6 +191,11 @@ interface Indexed {
   document: IndexedGame
   /** The index's prices are too old to be shown (`indexState`). */
   stale: boolean
+  /**
+   * What the document's offers are read with, or `null` while the index is stale: where Steam's
+   * price is withheld, so are the other stores'.
+   */
+  offers: OfferTerms | null
 }
 
 /** RAWG's two enhancements to the page, and the budget they share. */
@@ -304,7 +330,30 @@ async function indexedGame(context: GraphQLContext, slug: string): Promise<Index
   const state = await indexState(context)
   if (state.meta === null) return null
   const document = await indexEntryBySlug(context, slug)
-  return document ? { document, stale: state.stale } : null
+  if (!document) return null
+  const offers = state.stale
+    ? null
+    : { now: context.now, rate: exchangeRateAt(state.meta, context.now) }
+  return { document, stale: state.stale, offers }
+}
+
+/**
+ * What the offers on a page RAWG answered are read with: the request's clock, and the rate out of
+ * the index's metadata. The metadata is the request's one read of it (`indexState`), made when the
+ * request began, so asking again here costs the index nothing — and a document without offers
+ * does not ask at all.
+ *
+ * A stale index does not withhold them here, as it does on the page the index answers by itself:
+ * this page shows Steam's index price however old it is, under its own date, and an offer is held
+ * to a stricter rule than that already — it is a price for thirty-six hours and no longer.
+ */
+async function offerTermsFor(
+  context: GraphQLContext,
+  entry: IndexedGame | null,
+): Promise<OfferTerms> {
+  if (!entry?.offers?.length) return { now: context.now, rate: null }
+  const { meta } = await indexState(context)
+  return { now: context.now, rate: exchangeRateAt(meta, context.now) }
 }
 
 /**
@@ -314,13 +363,14 @@ async function indexedGame(context: GraphQLContext, slug: string): Promise<Index
  * Its Steam offer carries the freshest price there is — the live one when it was due and Steam
  * answered within its budget, the index copy otherwise. A stale index is not trusted with a price
  * here either, as on every page the index serves on its own: its copy is withheld, and only a
- * price Steam has just given is shown.
+ * price Steam has just given is shown. What it holds of the other stores' prices is withheld with
+ * it — nobody has just read those — and their rows are links.
  *
  * One `console.info` line per page answered this way: the runtime logs are how it is seen in
  * production.
  */
 async function indexPage(
-  { document, stale }: Indexed,
+  { document, stale, offers }: Indexed,
   detail: Observed<RawgGameDetail>,
   price: LivePrices,
 ): Promise<Game> {
@@ -335,8 +385,8 @@ async function indexPage(
   // wait for (`offeredSteamAppOf`).
   const appId = offeredSteamAppOf(document)
   const live = appId ? await price.read(appId, document) : null
-  if (live) return toGame(withLivePrice(document, live))
-  return toGame(stale ? withoutPrice(document) : document)
+  if (live) return toGame(withLivePrice(document, live), offers)
+  return toGame(stale ? withoutPrice(document) : document, offers)
 }
 
 function kindOf(reason: unknown): string {
@@ -393,11 +443,17 @@ async function rawgPage(
   // answer inside the budget — a price, Steam's "none", a failure — leaves nothing to collect.
   const priceLate = appId !== null && entry === null && price.isOut(appId)
 
+  // The other stores' prices go on the rows RAWG's links made, and the cheapest is marked once
+  // every row is as it will be shown — Steam's with the live price, when there is one.
+  const terms = await offerTermsFor(context, entry)
+  const stores = withCheapest(withStoreOffers(withSteamPrice(mapped.stores, priced), entry, terms))
+
   const partial = late.length > 0 || refused.length > 0 || priceLate
   if (partial) console.info(partialLine(refused, late, priceLate))
   return {
     ...mapped,
-    stores: withSteamPrice(mapped.stores, priced),
+    stores,
+    exchangeRate: exchangeRateOf(stores, terms.rate),
     localisation: entry ? toLocalisationInfo(entry) : null,
     madeInUkraine:
       isMadeInUkraine(mapped.developers.map((developer) => developer.slug)) ||
@@ -652,7 +708,10 @@ function emptyEntryFor(appId: string): IndexedGame {
   }
 }
 
-/** The Steam link keeps its URL and gains the price; every other store stays a plain link. */
+/**
+ * The Steam link keeps its URL and gains the price. Every other store is left as it came: what
+ * the other stores charge is `withStoreOffers`'s to add.
+ */
 function withSteamPrice(offers: StoreOffer[], entry: IndexedGame | null): StoreOffer[] {
   if (!entry) return offers
   return offers.map((offer) => (offer.store === 'steam' ? toSteamOffer(entry, offer.url) : offer))

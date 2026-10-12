@@ -53,8 +53,15 @@ const PROMPT_MS = 100
 /** The time RAWG's slow path took on production: far past every budget on this page. */
 const RAWG_SLOW_MS = 7_000
 
-/** The Witcher 3 as the index holds it: a price three hours old, and its Steam app id. */
-const DOCUMENT: IndexedGame = DEV_FIXTURE_GAMES[0]!
+/**
+ * The Witcher 3 as the index holds it: a price three hours old, and its Steam app id — without
+ * what GOG charges for it, which the development document also carries. What the page waits for,
+ * and for how long, has nothing to do with the other stores' prices: they cost the page no
+ * request, and what a page makes of them is `gamePageOffers.test.ts`'s to say. Leaving them out
+ * here is also what holds every page below to what it was before a document had them.
+ */
+const { offers: _offers, ...WITHOUT_OFFERS } = DEV_FIXTURE_GAMES[0]!
+const DOCUMENT: IndexedGame = WITHOUT_OFFERS
 
 /** The same document with a price eight hours old: old enough for the page to ask Steam. */
 const DUE_A_REFRESH: IndexedGame = { ...DOCUMENT, priceUpdatedAt: '2026-09-18T01:00:00.000Z' }

@@ -160,6 +160,11 @@ export const typeDefs = /* GraphQL */ `
     similar: [GameCard!]!
     platformFamilies: [PlatformFamily!]!
     """
+    The rate approximate prices were made with: null when no row of "stores" carries an
+    "approxUah" — no store charges this game in another currency, or there is no rate.
+    """
+    exchangeRate: ExchangeRate
+    """
     True when this answer left out something the same query will have a few seconds later: RAWG's
     own answer about the game was late or failed and the page was built from the index instead,
     the page went out before the store links or the screenshots had arrived, or without one of
@@ -223,14 +228,58 @@ export const typeDefs = /* GraphQL */ `
     isFree: Boolean!
     updatedAt: String!
   }
+  "A sum of money in the currency a store charges in."
+  type Money {
+    "In the currency's main unit, the minor one as its fraction: 8.99 is eight dollars ninety-nine."
+    amount: Float!
+    "The ISO 4217 code, such as USD."
+    currency: String!
+  }
+  "The National Bank of Ukraine's official rate of one currency for one day."
+  type ExchangeRate {
+    currency: String!
+    "Hryvnia for one unit of the currency."
+    uah: Float!
+    "The day the rate is for, as YYYY-MM-DD."
+    date: String!
+  }
+  """
+  One store a game is sold in: a link, and what the store charges a buyer in Ukraine when that is
+  known and fresh. A store that charges in hryvnia fills "priceUah" and "regularPriceUah"; one
+  that charges in another currency fills "foreignPrice" and "foreignRegularPrice" instead, and
+  "approxUah" when there is a rate. A row without a price has nulls in all of them. For a store
+  other than Steam the regular price is there only when it is above the price, and
+  "discountPercent" is 1 to 99 beside it and 0 otherwise.
+  """
   type StoreOffer {
     store: String!
     url: String!
+    """
+    What the store itself calls the product the price is for, as plain text. A store's link is
+    sometimes to another edition than the game's name says. Null on a row without a price, and
+    when the store gave none.
+    """
+    title: String
     priceUah: Int
     regularPriceUah: Int
     discountPercent: Int
     isFree: Boolean
     updatedAt: String
+    "A price in another currency, from a store that does not sell in hryvnia."
+    foreignPrice: Money
+    "The foreign price before the discount. Null unless it is above the price."
+    foreignRegularPrice: Money
+    """
+    foreignPrice at the National Bank's rate, rounded to a hryvnia: an estimate, never the charge.
+    Null without a rate, and for a free game, where there is nothing to estimate.
+    """
+    approxUah: Int
+    """
+    True for the one offer that is cheapest: the lowest hryvnia amount among the game's rows with a
+    price, where an approximate amount counts only when it is at least 5 % below the lowest exact
+    one. False on every row when fewer than two have a price, or when the lowest is shared.
+    """
+    cheapest: Boolean!
   }
   type LocalisationInfo {
     "The interface or the subtitles are available in Ukrainian."

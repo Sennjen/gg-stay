@@ -92,6 +92,28 @@ export function mapGameCard(raw: RawgGameListItem): GameCard {
   }
 }
 
+/**
+ * A store's row with no price on it: the link, and nulls for everything a price would fill. What
+ * every store row starts as; the index mappers put a price on the ones they have a fresh one for
+ * (`server/index/toGraphql.ts`). `url` has already been through `safeExternalUrl`.
+ */
+export function toStoreLink(store: string, url: string): StoreOffer {
+  return {
+    store,
+    url,
+    title: null,
+    priceUah: null,
+    regularPriceUah: null,
+    discountPercent: null,
+    isFree: null,
+    updatedAt: null,
+    foreignPrice: null,
+    foreignRegularPrice: null,
+    approxUah: null,
+    cheapest: false,
+  }
+}
+
 function mapStoreOffers(links: RawgStoreLink[]): StoreOffer[] {
   return links.flatMap((link) => {
     const store = storeSlugFromId(link.store_id)
@@ -99,17 +121,7 @@ function mapStoreOffers(links: RawgStoreLink[]): StoreOffer[] {
     // exists to be clicked, so there is nothing left to render once the URL is refused.
     const url = safeExternalUrl(link.url)
     if (!store || !url) return []
-    return [
-      {
-        store,
-        url,
-        priceUah: null,
-        regularPriceUah: null,
-        discountPercent: null,
-        isFree: null,
-        updatedAt: null,
-      },
-    ]
+    return [toStoreLink(store, url)]
   })
 }
 
