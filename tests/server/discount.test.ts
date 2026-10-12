@@ -17,9 +17,12 @@ describe('chipPercent', () => {
     [Number.NaN, 'no number'],
     [null, 'no percent'],
     [undefined, 'no percent at all'],
-  ])('is no chip for %j: a discount of %s says nothing a price can be read off', (percent) => {
-    expect(chipPercent(percent, true)).toBeNull()
-  })
+  ])(
+    'is no chip for %j: a discount of %s says nothing a price can be read off',
+    (percent, _what) => {
+      expect(chipPercent(percent, true)).toBeNull()
+    },
+  )
 
   it('is no chip without a higher price beside it, whatever the percent', () => {
     for (const percent of [1, 50, 99]) expect(chipPercent(percent, false)).toBeNull()
