@@ -154,12 +154,14 @@ export const JOB_MICROSOFT_PRODUCTS: Record<string, unknown> = {
 /** The rate the job's fake bank answers, for whatever day it is asked about. */
 export const JOB_BANK_RATE = 44.9567
 
-/** The bank's answer for one day (`YYYY-MM-DD`), as `statdirectory/exchange` gives it. */
+/**
+ * The bank's answer for one day (`YYYY-MM-DD`), as `statdirectory/exchange` gives it — less
+ * `txt`, the currency's name in Ukrainian, which the job does not read.
+ */
 export function bankAnswer(date: string, rate: number = JOB_BANK_RATE) {
   return [
     {
       r030: 840,
-      txt: 'Долар США',
       rate,
       cc: 'USD',
       exchangedate: date.split('-').reverse().join('.'),
