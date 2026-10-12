@@ -486,7 +486,8 @@ is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`)
   at medium weight inside a 1 px `fg-2` border, `rounded-chip`, no fill. It uses no accent, signal
   or sale colour — it is a fact about the prices, not an action, a live state or a discount — and
   the border is 7.59:1 against `surface-1`. Which row is marked is the server's rule; the
-  component compares nothing.
+  component compares nothing. No row is marked on a page whose lowest price is free: "Безкоштовно"
+  already says what the mark would, and the row that charges is not the lowest.
 - **The note** is one sentence under the whole block, 12 px `fg-2`, there only while GOG's row
   shows an estimate: `game.estimateNote`, with the day the rate is for written as a full date.
 - **On a phone** a row stacks — the name and the mark, the title, the price, the age — and from

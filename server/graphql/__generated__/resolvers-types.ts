@@ -309,7 +309,8 @@ export type StoreOffer = {
   /**
    * True for the one offer that is cheapest: the lowest hryvnia amount among the game's rows with a
    * price, where an approximate amount counts only when it is at least 5 % below the lowest exact
-   * one. False on every row when fewer than two have a price, or when the lowest is shared.
+   * one. False on every row when fewer than two have a price, when the lowest is shared, or when
+   * the lowest is free.
    */
   cheapest: Scalars['Boolean']['output'];
   discountPercent?: Maybe<Scalars['Int']['output']>;

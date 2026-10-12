@@ -217,8 +217,9 @@ export function hryvniaOf(
  * The rule is about amounts alone. Which edition a store's link leads to plays no part in it (a
  * row's title is there to say so), and neither does the order of the rows.
  *
- * Shared by the game page, which weighs the rows it shows — Steam's live price included — and by
- * anything else that has to say which store is cheapest for a document.
+ * It is the comparison, and not yet what anybody is told. A game page marks the row it names,
+ * unless that row is free (`markedCheapest`), over the rows it shows — Steam's live price
+ * included.
  */
 export function cheapestRow<Row extends PricedRow>(rows: readonly Row[]): Row | null {
   if (rows.length < 2) return null
@@ -231,4 +232,16 @@ export function cheapestRow<Row extends PricedRow>(rows: readonly Row[]): Row | 
   const lowestExact = Math.min(...exact.map((row) => row.uah))
   // Whole numbers on both sides, so "at least five percent below" has no rounding of its own.
   return lowest.uah * 100 <= lowestExact * (100 - APPROXIMATE_MARGIN_PERCENT) ? lowest : null
+}
+
+/**
+ * The row a game page marks as the cheapest: the cheapest of them (`cheapestRow`), unless it costs
+ * nothing — and then no row is marked at all, not the free one and not the lowest that charges.
+ *
+ * A free row already says the one thing the mark would add. "Cheapest" beside "Free" tells a
+ * visitor nothing the row does not, and on the dearer row under it the mark would be false.
+ */
+export function markedCheapest<Row extends PricedRow>(rows: readonly Row[]): Row | null {
+  const cheapest = cheapestRow(rows)
+  return cheapest && cheapest.uah > 0 ? cheapest : null
 }

@@ -274,8 +274,7 @@ describe('what the other stores charge, on a page RAWG answered', () => {
         discountPercent: 0,
         isFree: true,
         updatedAt: ago(3 * HOUR),
-        // Free on Steam is the lowest there is.
-        cheapest: true,
+        // Free on Steam is the lowest there is, and a free row is not marked: it says so itself.
       },
       {
         ...LINK,
@@ -291,6 +290,22 @@ describe('what the other stores charge, on a page RAWG answered', () => {
     ])
     // Nothing on the page was estimated, so the page is told of no rate.
     expect(answer.exchangeRate).toBeNull()
+  })
+
+  it('marks no row when the lowest price on the page is free', async () => {
+    // Free on Steam, 385 ₴ at the Microsoft Store.
+    const freeOnSteam = await page(
+      { index: await indexHolding([stardew([microsoftOffer()])]) },
+      STARDEW,
+    )
+    expect(freeOnSteam.stores.map((row) => row.isFree)).toEqual([true, false])
+    expect(cheapestOf(freeOnSteam)).toEqual([])
+
+    // 675 ₴ on Steam, free on GOG — which is weighed as nothing, with no rate asked of it.
+    const free = gogOffer({ amount: 0, regularAmount: 0, discountPercent: 0 })
+    const freeOnGog = await page({ index: await indexHolding([witcher([free])], metaWith(null)) })
+    expect(freeOnGog.stores.map((row) => row.isFree)).toEqual([false, true])
+    expect(cheapestOf(freeOnGog)).toEqual([])
   })
 
   it('adds no row for a store RAWG does not link', async () => {

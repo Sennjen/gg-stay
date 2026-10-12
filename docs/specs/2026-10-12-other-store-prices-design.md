@@ -80,7 +80,7 @@ A Microsoft offer fills the existing hryvnia fields (`priceUah`, `regularPriceUa
 
 - **Fresh.** An offer older than 36 hours is not a price: its row is the bare link it is today.
 - **The rate's age.** The job drops the rate after seven days without a successful read, but only while it runs: if the job stops, the metadata keeps the last rate it wrote. So the site applies the same rule itself. A rate whose `readAt` is more than seven days old is no rate — no `exchangeRate`, no `approxUah` — and a GOG row then shows its dollar price alone and takes no part in "cheapest", having no hryvnia amount to compare.
-- **Cheapest.** Among a game's rows with a price, Steam's included: the lowest hryvnia amount, exact or approximate. An approximate amount wins only when it is at least 5 % below the lowest exact one — a bank's rate is not the National Bank's. Fewer than two priced rows, or a tie, and nothing is marked.
+- **Cheapest.** Among a game's rows with a price, Steam's included: the lowest hryvnia amount, exact or approximate. An approximate amount wins only when it is at least 5 % below the lowest exact one — a bank's rate is not the National Bank's. Fewer than two priced rows, or a tie, and nothing is marked. Nothing is marked when the lowest price is zero either: «Найдешевше» beside «Безкоштовно» says nothing a visitor cannot see, and the row that charges is not the lowest.
 - **`cheaperAt`.** The store of the game's cheapest offer when it is not Steam and is at least 10 % below Steam's current price; null otherwise, and null when Steam has no fresh price.
 - Stale index prices follow the existing rule: where Steam's price is stripped, so are these.
 
@@ -108,7 +108,7 @@ One short line under the price when `cheaperAt` is set: «Дешевше в GOG�
 What sections 4 and 5 left open, as the code now answers it. Each is a decision of the implementation, recorded here so that the card (section 6) and a reviewer read one rule.
 
 - **An estimate that undercuts by less than 5 % marks nothing.** When the lowest amount is approximate and is not 5 % below the lowest exact one, neither row is the cheapest: not the estimate, which has not won clearly, and not the exact price above it, which the page shows beside a lower number. An exact price that is the lowest wins with no margin.
-- **A free game is an exact zero.** Nothing at any rate is nothing: a free GOG game takes part in "cheapest" with or without a rate, is shown as «Безкоштовно», and has no `approxUah`.
+- **A free game is an exact zero.** Nothing at any rate is nothing: a free GOG game is weighed for "cheapest" with or without a rate, is shown as «Безкоштовно», and has no `approxUah`. Where it is the lowest price on the page no row is marked (section 4, ruled on 2026-10-12 after the page was built).
 - **Kopecks.** The Microsoft Store charges kopecks during a sale (508.20 ₴). `priceUah` is whole hryvnia, rounded to the nearest, and "cheapest" compares the amounts as the page shows them, so two rows that show the same number tie.
 - **A priced row links to the store's own address for the product** (`IndexedOffer.url`), the page the price is charged on, in place of RAWG's link — which, for the Microsoft Store, is the listing for another market. A row without a fresh price keeps RAWG's link.
 - **`exchangeRate` is null unless a row on the page carries an `approxUah`.** A page with no estimate on it is told of no rate.

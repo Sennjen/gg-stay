@@ -11,6 +11,7 @@ import {
   hryvniaOf,
   isFreshOffer,
   listedOffers,
+  markedCheapest,
   readableOffers,
   wholeHryvnia,
   type PricedRow,
@@ -315,5 +316,38 @@ describe('the cheapest row', () => {
     const steam = { ...exact('steam', 675), note: 'kept' }
     const xbox = { ...exact('xbox-store', 385), note: 'kept too' }
     expect(cheapestRow([steam, xbox])).toBe(xbox)
+  })
+})
+
+describe('the row a page marks as the cheapest', () => {
+  const exact = (store: string, uah: number): PricedRow => ({ store, uah, approximate: false })
+  const estimate = (store: string, uah: number): PricedRow => ({ store, uah, approximate: true })
+  const marked = (...rows: PricedRow[]): string | null => markedCheapest(rows)?.store ?? null
+
+  it('is the cheapest row, by the same comparison', () => {
+    expect(marked(exact('steam', 675), exact('xbox-store', 385))).toBe('xbox-store')
+    expect(marked(exact('steam', 675), estimate('gog', 404))).toBe('gog')
+    expect(marked(exact('steam', 400), estimate('gog', 404))).toBe('steam')
+    // And nobody wherever the comparison names nobody.
+    expect(marked(exact('steam', 675))).toBeNull()
+    expect(marked(exact('steam', 385), exact('xbox-store', 385))).toBeNull()
+    expect(marked(exact('steam', 410), estimate('gog', 404))).toBeNull()
+  })
+
+  it('is nobody when the lowest price is free: not the free row, and not the one above it', () => {
+    expect(marked(exact('steam', 0), exact('xbox-store', 385))).toBeNull()
+    expect(marked(exact('steam', 675), exact('gog', 0))).toBeNull()
+    expect(marked(exact('steam', 675), exact('xbox-store', 385), exact('gog', 0))).toBeNull()
+  })
+
+  it('is a row that costs one hryvnia: only nothing is free', () => {
+    expect(marked(exact('steam', 675), exact('xbox-store', 1))).toBe('xbox-store')
+    expect(marked(exact('steam', 675), estimate('gog', 1))).toBe('gog')
+  })
+
+  it('hands back the very row it was given', () => {
+    const steam = { ...exact('steam', 675), note: 'kept' }
+    const xbox = { ...exact('xbox-store', 385), note: 'kept too' }
+    expect(markedCheapest([steam, xbox])).toBe(xbox)
   })
 })

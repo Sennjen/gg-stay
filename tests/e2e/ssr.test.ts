@@ -571,6 +571,11 @@ describe('server-side rendering', async () => {
     expect(row).not.toContain('≈')
     expect(html).not.toContain('data-test="estimate-note"')
     expect(html).not.toContain('data-test="store-estimate"')
+    // Steam gives the game away in the seed, and a page whose lowest price is free marks no row:
+    // not the free one, which says so itself, and not the store that charges.
+    expect(stardew.free && stardew.priceUah === 0).toBe(true)
+    expect(html).toContain('data-test="store-row-steam"')
+    expect(html).not.toContain('Найдешевше')
   })
 
   it('renders the game page’s status region empty: what it says, it says once it is in a browser', async () => {

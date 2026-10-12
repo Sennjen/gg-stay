@@ -669,11 +669,27 @@ describe('withCheapest', () => {
     expect(marked(rows)).toEqual(['xbox-store'])
   })
 
-  it('weighs a free game as an exact nothing, whatever the store charges in', () => {
+  it('marks no row when the lowest price is free, whatever the store charges in', () => {
     const free = { amount: 0, regularAmount: 0, discountPercent: 0 }
-    expect(marked([steam(675), toStoreOffer(gogOffer(free), null)])).toEqual(['gog'])
-    expect(marked([steam(0), toStoreOffer(microsoftOffer(), RATE)])).toEqual(['steam'])
+    // Not the free row, which says so itself, and not the row that charges, which is not lowest.
+    expect(marked([steam(675), toStoreOffer(gogOffer(free), null)])).toEqual([])
+    expect(marked([steam(675), toStoreOffer(microsoftOffer(free), null)])).toEqual([])
+    expect(marked([steam(0), toStoreOffer(microsoftOffer(), RATE)])).toEqual([])
     expect(marked([steam(0), toStoreOffer(gogOffer(free), RATE)])).toEqual([])
+    // A free row is still weighed: the 385 ₴ above it is not the cheapest of the three.
+    const rows = [
+      steam(675),
+      toStoreOffer(gogOffer(free), RATE),
+      toStoreOffer(microsoftOffer(), RATE),
+    ]
+    expect(marked(rows)).toEqual([])
+  })
+
+  it('marks a row that costs a single hryvnia: only nothing is free', () => {
+    const hryvnia = { amount: 100, regularAmount: 100, discountPercent: 0 }
+    expect(marked([steam(675), toStoreOffer(microsoftOffer(hryvnia), RATE)])).toEqual([
+      'xbox-store',
+    ])
   })
 
   it('takes the mark off a row that carried one', () => {

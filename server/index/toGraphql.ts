@@ -19,10 +19,10 @@ import {
   type IndexedOffer,
 } from './document'
 import {
-  cheapestRow,
   hryvniaOf,
   isFreshOffer,
   listedOffers,
+  markedCheapest,
   readableOffers,
   wholeHryvnia,
   type PricedRow,
@@ -229,16 +229,17 @@ function pricedRowOf(row: StoreOffer): PricedRow | null {
 }
 
 /**
- * The same rows with `cheapest` set on the one that is (`cheapestRow`), and on no other. It
- * weighs the rows as the page shows them, so it is applied last: after Steam's row has taken a
- * live price, when it has one, and after the other stores' offers are on theirs.
+ * The same rows with `cheapest` set on the one the page marks (`markedCheapest`), and on no
+ * other: the cheapest row, and no row at all when that one is free. It weighs the rows as the
+ * page shows them, so it is applied last: after Steam's row has taken a live price, when it has
+ * one, and after the other stores' offers are on theirs.
  */
 export function withCheapest(rows: StoreOffer[]): StoreOffer[] {
   const priced = rows.flatMap((row) => {
     const weighed = pricedRowOf(row)
     return weighed ? [{ ...weighed, row }] : []
   })
-  const cheapest = cheapestRow(priced)?.row ?? null
+  const cheapest = markedCheapest(priced)?.row ?? null
   return rows.map((row) =>
     row.cheapest === (row === cheapest) ? row : { ...row, cheapest: row === cheapest },
   )
