@@ -5,6 +5,7 @@ import {
   NO_CACHE,
   STORE_MAX_ATTEMPTS,
   STORE_MIN_INTERVAL_MS,
+  storeTitle,
   type StoreUpstreamRuntime,
 } from './storeUpstream'
 import { createUpstreamFetch } from '../../server/upstream/createUpstreamFetch'
@@ -101,6 +102,8 @@ export interface GogPrice {
 export interface GogProduct {
   id: string
   slug: string
+  /** What GOG calls the product (`title`), as plain text; `null` when it sent none. */
+  title: string | null
   /** `null` when GOG states no price — a game not yet released — or one that cannot be read. */
   price: GogPrice | null
   /** GOG's own address for the product, or `null` when what it sent is not that. */
@@ -160,8 +163,8 @@ function isCount(value: unknown): value is number {
  * slug: a page that is anything less cannot be counted, and a walk that cannot be counted cannot
  * tell a product GOG does not sell from one it failed to read.
  *
- * A product's price and link are read leniently in the other direction: one that cannot be read
- * is a product without a price, never a page that failed.
+ * A product's price, link and title are read leniently in the other direction: one that cannot
+ * be read is a product without it, never a page that failed.
  */
 export function parseGogCatalogPage(body: unknown): GogCatalogPage {
   const page = asRecord(body)
@@ -191,6 +194,7 @@ export function parseGogCatalogPage(body: unknown): GogCatalogPage {
       return {
         id,
         slug,
+        title: storeTitle(product!.title),
         price: parseGogPrice(product!.price),
         url: storeLinkOf(product!.storeLink, slug),
       }

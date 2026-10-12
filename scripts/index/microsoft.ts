@@ -4,6 +4,7 @@ import {
   NO_CACHE,
   STORE_MAX_ATTEMPTS,
   STORE_MIN_INTERVAL_MS,
+  storeTitle,
   type StoreUpstreamRuntime,
 } from './storeUpstream'
 import type { IndexedStoreRefs } from '../../server/index/document'
@@ -48,6 +49,11 @@ const CURRENCY = 'UAH'
  * `actionFilter=Purchase` asks for what can be bought and nothing else: a product, an edition or
  * an availability without a purchase is left out of the answer, which is a third of the bytes and
  * changes nothing the rule below reads — it looks for the purchase itself either way.
+ *
+ * `languages=uk-UA,en-US` is an order of preference, and it decides one thing: the language of
+ * the product's title and description. Microsoft answers in Ukrainian where the publisher wrote
+ * the listing in Ukrainian and in English otherwise, which is what its own page for Ukraine does
+ * — the page an offer links to. It has no say in the price: the market has.
  */
 function productsUrl(ids: readonly string[]): string {
   return (
@@ -196,9 +202,43 @@ export function microsoftPurchasePrice(product: unknown, now: number): Microsoft
 }
 
 /**
- * What one answer says about each of the ids it was asked for: a price, or `null` for a product
- * that is absent — Microsoft does not know the id, or does not sell the product in Ukraine — and
- * for one that is there without a price anyone can pay.
+ * What Microsoft calls a product, in the language it answered in: `ProductTitle` of the answer's
+ * localised properties, as plain text, or `null` when there is none.
+ *
+ * The answer carries the listing in one language — the best match for the `languages` that were
+ * asked for, Ukrainian before English (`productsUrl`) — so the title is the one on the product's
+ * page for Ukraine, which is where the offer leads. Should an answer ever carry several, the same
+ * preference picks among them: the Ukrainian one, then an English one, then whichever comes first.
+ * A title in Ukrainian will not match a game's English name letter for letter; it is still what
+ * the store calls the thing it is selling, and says which edition that is.
+ */
+export function microsoftProductTitle(product: unknown): string | null {
+  const localised = asRecord(product)?.LocalizedProperties
+  if (!Array.isArray(localised)) return null
+  const titled = localised.flatMap((entry) => {
+    const title = storeTitle(asRecord(entry)?.ProductTitle)
+    const language = asRecord(entry)?.Language
+    return title === null
+      ? []
+      : [{ title, language: typeof language === 'string' ? language.toLowerCase() : '' }]
+  })
+  const preferred =
+    titled.find((entry) => entry.language.startsWith('uk')) ??
+    titled.find((entry) => entry.language.startsWith('en')) ??
+    titled[0]
+  return preferred?.title ?? null
+}
+
+/** A product Microsoft sells in Ukraine: what anyone pays for it, and what the store calls it. */
+export interface MicrosoftProduct {
+  price: MicrosoftPrice
+  title: string | null
+}
+
+/**
+ * What one answer says about each of the ids it was asked for: the product's price and title, or
+ * `null` for a product that is absent — Microsoft does not know the id, or does not sell the
+ * product in Ukraine — and for one that is there without a price anyone can pay.
  *
  * An answer that is not an object with a `Products` list says nothing about any of them, and is
  * not read as "none of these is sold": it is thrown as the upstream failure it is, so the caller
@@ -208,17 +248,18 @@ export function parseMicrosoftProducts(
   body: unknown,
   ids: readonly string[],
   now: number,
-): Map<string, MicrosoftPrice | null> {
+): Map<string, MicrosoftProduct | null> {
   const products = asRecord(body)?.Products
   if (!Array.isArray(products)) throw new UpstreamError('MICROSOFT', 'ERROR')
 
-  const prices = new Map<string, MicrosoftPrice | null>(ids.map((id) => [id, null]))
+  const found = new Map<string, MicrosoftProduct | null>(ids.map((id) => [id, null]))
   for (const product of products) {
     const id = asRecord(product)?.ProductId
-    if (typeof id !== 'string' || !prices.has(id.toUpperCase())) continue
-    prices.set(id.toUpperCase(), microsoftPurchasePrice(product, now))
+    if (typeof id !== 'string' || !found.has(id.toUpperCase())) continue
+    const price = microsoftPurchasePrice(product, now)
+    found.set(id.toUpperCase(), price ? { price, title: microsoftProductTitle(product) } : null)
   }
-  return prices
+  return found
 }
 
 /**

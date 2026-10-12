@@ -635,6 +635,8 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         const offers: IndexedGame['offers'] = [
           {
             store: 'gog',
+            // What the store calls the product, which is not always the game's own name.
+            title: 'Alpha Quest \u2014 Game of the Year Edition',
             amount: 899,
             regularAmount: 3999,
             currency: 'USD',

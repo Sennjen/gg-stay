@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createMicrosoftProductsFetch,
   MICROSOFT_IDS_PER_REQUEST,
+  microsoftProductTitle,
   microsoftProductUrl,
   microsoftPurchasePrice,
   parseMicrosoftProducts,
@@ -253,11 +254,12 @@ describe('parseMicrosoftProducts', () => {
 
     expect(parseMicrosoftProducts(recorded, ids, NOW)).toEqual(
       new Map([
-        ['9NP1P1WFS0LB', price(50_820, 154_000, 67)],
-        ['BTQMHK78ZPF9', price(25_000, 25_000, 0)],
-        // In the answer, and not sold here.
+        ['9NP1P1WFS0LB', { price: price(50_820, 154_000, 67), title: 'Halo Infinite' }],
+        // The store's own spelling of the title, capitals and all.
+        ['BTQMHK78ZPF9', { price: price(25_000, 25_000, 0), title: 'LIMBO' }],
+        // In the answer, and not sold here: no price, so nothing at all — a title alone is no offer.
         ['BR765873CQJD', null],
-        ['9PP5G1F0C2B6', price(0, 0, 0)],
+        ['9PP5G1F0C2B6', { price: price(0, 0, 0), title: 'Halo Infinite' }],
         // Not in the answer at all: Microsoft leaves out what it does not sell or does not know.
         ['BX3M8L83BBRW', null],
       ]),
@@ -266,16 +268,18 @@ describe('parseMicrosoftProducts', () => {
 
   it('says nothing of a product it was not asked about', () => {
     expect(parseMicrosoftProducts(recorded, ['BTQMHK78ZPF9'], NOW)).toEqual(
-      new Map([['BTQMHK78ZPF9', price(25_000, 25_000, 0)]]),
+      new Map([['BTQMHK78ZPF9', { price: price(25_000, 25_000, 0), title: 'LIMBO' }]]),
     )
   })
 
   it('knows a product whose id the answer spells in lower case', () => {
     const answer = { Products: [microsoftProduct('btqmhk78zpf9', 250)] }
 
-    expect(parseMicrosoftProducts(answer, ['BTQMHK78ZPF9'], NOW).get('BTQMHK78ZPF9')).toEqual(
-      price(25_000, 25_000, 0),
-    )
+    expect(parseMicrosoftProducts(answer, ['BTQMHK78ZPF9'], NOW).get('BTQMHK78ZPF9')).toEqual({
+      price: price(25_000, 25_000, 0),
+      // A product that states no title is still a product, with its price.
+      title: null,
+    })
   })
 
   it('reads an answer with no products as "none of these is sold"', () => {
@@ -294,6 +298,65 @@ describe('parseMicrosoftProducts', () => {
     expect(() => parseMicrosoftProducts(body, ['BTQMHK78ZPF9'], NOW)).toThrow(
       expect.objectContaining({ source: 'MICROSOFT', kind: 'ERROR' }),
     )
+  })
+})
+
+describe('microsoftProductTitle', () => {
+  const listing = (...entries: unknown[]) => ({ LocalizedProperties: entries })
+  const inLanguage = (Language: string, ProductTitle: unknown) => ({ Language, ProductTitle })
+
+  it('reads what the recorded answer calls each product', () => {
+    expect(recorded.Products.map((product) => microsoftProductTitle(product))).toEqual([
+      'Halo Infinite',
+      'LIMBO',
+      'The Witcher 3: Wild Hunt',
+      'Halo Infinite',
+    ])
+  })
+
+  it('takes the one listing an answer carries, whatever language Microsoft chose for it', () => {
+    expect(
+      microsoftProductTitle(listing(inLanguage('en-us', 'Hollow Knight: Voidheart Edition'))),
+    ).toBe('Hollow Knight: Voidheart Edition')
+    expect(microsoftProductTitle(listing(inLanguage('uk', 'Destiny 2')))).toBe('Destiny 2')
+    expect(microsoftProductTitle(listing(inLanguage('pl-pl', 'Wiedźmin 3')))).toBe('Wiedźmin 3')
+    expect(microsoftProductTitle(listing({ ProductTitle: 'LIMBO' }))).toBe('LIMBO')
+  })
+
+  it('prefers the Ukrainian listing, then an English one, should an answer carry several', () => {
+    const english = inLanguage('en-US', 'The Witcher 3: Wild Hunt')
+    const ukrainian = inLanguage('uk-UA', 'Відьмак 3: Дикий Гін')
+    const polish = inLanguage('pl-PL', 'Wiedźmin 3: Dziki Gon')
+
+    // The order the job asks for the languages in, and the page its offer links to.
+    expect(microsoftProductTitle(listing(polish, english, ukrainian))).toBe('Відьмак 3: Дикий Гін')
+    expect(microsoftProductTitle(listing(polish, english))).toBe('The Witcher 3: Wild Hunt')
+    expect(microsoftProductTitle(listing(polish))).toBe('Wiedźmin 3: Dziki Gon')
+    // A listing without a title does not count, whatever its language.
+    expect(microsoftProductTitle(listing(inLanguage('uk-UA', '  '), english))).toBe(
+      'The Witcher 3: Wild Hunt',
+    )
+  })
+
+  it('reads it as plain text, on one line and bounded', () => {
+    expect(microsoftProductTitle(listing(inLanguage('en', '  Halo\n Infinite  ')))).toBe(
+      'Halo Infinite',
+    )
+    expect(microsoftProductTitle(listing(inLanguage('en', 'x'.repeat(500))))).toHaveLength(200)
+  })
+
+  it.each([
+    ['a product without localised properties', { ProductId: 'BTQMHK78ZPF9' }],
+    [
+      'localised properties that are not a list',
+      { LocalizedProperties: { ProductTitle: 'LIMBO' } },
+    ],
+    ['an empty list', listing()],
+    ['a listing with no title', listing({ Language: 'en-us' })],
+    ['a title that is not text', listing(inLanguage('en-us', 42), inLanguage('uk', ['LIMBO']))],
+    ['nothing', null],
+  ])('reads no title from %s', (_what, product) => {
+    expect(microsoftProductTitle(product)).toBeNull()
   })
 })
 

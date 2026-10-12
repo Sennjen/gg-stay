@@ -159,6 +159,7 @@ describe('createGameIndex', () => {
     expect(witcher?.offers).toEqual([
       {
         store: 'gog',
+        title: 'The Witcher 3: Wild Hunt - Game of the Year Edition',
         amount: 899,
         regularAmount: 3999,
         currency: 'USD',

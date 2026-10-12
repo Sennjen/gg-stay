@@ -22,6 +22,9 @@ export interface IndexedLocalisation {
   updatedAt?: string
 }
 
+/** The longest store title an offer carries, in characters. Real ones are a few dozen. */
+export const MAX_OFFER_TITLE_LENGTH = 200
+
 /** The stores, other than Steam, whose price the refresh job reads: RAWG's own slugs for them. */
 export const OFFER_STORES = ['gog', 'xbox-store'] as const
 export type OfferStore = (typeof OFFER_STORES)[number]
@@ -41,12 +44,18 @@ export type OfferStore = (typeof OFFER_STORES)[number]
  * `url` is the store's own address for the product — GOG's `storeLink`, Microsoft's product page
  * for Ukraine — and has been through `safeExternalUrl`, like every other outbound link.
  *
+ * `title` is what the store itself calls the product. RAWG's link sometimes names another edition
+ * than the game it is filed under — a complete season, a "Game of the Year Edition" — and the
+ * price is that edition's; the title is how a page can say so. Plain text, trimmed, at most
+ * `MAX_OFFER_TITLE_LENGTH` characters; left out when the store gave none.
+ *
  * `updatedAt` is when the store was last read and gave this price. A read that failed leaves the
  * offer and its date as they were, so an old date is exactly an old price: the site shows no
  * price it cannot call fresh.
  */
 export interface IndexedOffer {
   store: OfferStore
+  title?: string
   amount: number
   regularAmount: number
   currency: 'USD' | 'UAH'

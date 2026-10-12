@@ -1,3 +1,4 @@
+import { MAX_OFFER_TITLE_LENGTH } from '../../server/index/document'
 import type { UpstreamCache, UpstreamRuntime } from '../../server/upstream/createUpstreamFetch'
 
 /**
@@ -41,6 +42,31 @@ export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined
+}
+
+/** Characters that change how text is laid out and are no part of a title: zero-width, bidi. */
+const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g
+
+/**
+ * What a store calls a product, as an offer may carry it (`IndexedOffer.title`): plain text on
+ * one line, or `null` when the store sent no text at all.
+ *
+ * A title is a third party's string that ends up on a page, so nothing of it is trusted beyond
+ * its being text: control characters and line breaks become spaces, runs of whitespace collapse,
+ * the characters that only steer layout — zero-width ones, direction overrides — are dropped, and
+ * what is left is trimmed and cut to `MAX_OFFER_TITLE_LENGTH` characters. The cut is made between
+ * code points and a lone surrogate is replaced, so the result is always well-formed text. It is
+ * never interpreted as markup here or anywhere: a page prints it as text.
+ */
+export function storeTitle(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value
+    .toWellFormed()
+    .replace(INVISIBLE, '')
+    .replace(/[\p{Cc}\s]+/gu, ' ')
+    .trim()
+  const title = Array.from(text).slice(0, MAX_OFFER_TITLE_LENGTH).join('').trim()
+  return title === '' ? null : title
 }
 
 /**

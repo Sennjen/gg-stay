@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_OFFER_TITLE_LENGTH } from '../../../server/index/document'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import {
@@ -206,6 +207,41 @@ describe('the published index fixture', () => {
 
       expect(stale).toEqual([offerOf(447825, 'gog')])
       expect(estimate(stale[0]!.amount)).toBeLessThan(sherlock.priceUah! * 0.9)
+    })
+
+    /**
+     * The store's own title travels with an offer so that a page can say which edition a price is
+     * for. A page shows it when it differs from the game's name, case and surrounding whitespace
+     * ignored — which is the comparison made here, so the seed has every outcome of it.
+     */
+    it('holds a title that names another edition, one that is the game’s name, and none', () => {
+      const sameName = (left: string, right: string) =>
+        left.trim().toLocaleLowerCase('en') === right.trim().toLocaleLowerCase('en')
+      const titleOf = (id: number, store: string) => {
+        const game = fixture.games.find((candidate) => candidate.id === id)!
+        const title = offerOf(id, store)?.title
+        return { title, differs: title === undefined ? null : !sameName(title, game.name) }
+      }
+
+      expect(titleOf(3328, 'gog')).toEqual({
+        title: 'The Witcher 3: Wild Hunt - Game of the Year Edition',
+        differs: true,
+      })
+      expect(titleOf(654, 'xbox-store')).toEqual({ title: 'Stardew Valley', differs: false })
+      // The same name but for its capitals: not another edition.
+      expect(titleOf(28201, 'gog')).toEqual({ title: 'METRO EXODUS', differs: false })
+      // The store gave none: the field is not there, rather than there and empty.
+      expect(titleOf(447825, 'gog')).toEqual({ title: undefined, differs: null })
+      expect('title' in offerOf(447825, 'gog')!).toBe(false)
+
+      for (const game of offered) {
+        for (const offer of game.offers!) {
+          if (offer.title === undefined) continue
+          expect(offer.title).toBe(offer.title.trim())
+          expect(offer.title.length).toBeGreaterThan(0)
+          expect(Array.from(offer.title).length).toBeLessThanOrEqual(MAX_OFFER_TITLE_LENGTH)
+        }
+      }
     })
 
     it('offers a store only where the game is listed on it, and RAWG’s fixture links it', () => {

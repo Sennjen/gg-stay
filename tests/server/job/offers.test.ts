@@ -20,14 +20,16 @@ import {
   gogProduct,
   JOB_BANK_RATE,
   JOB_MICROSOFT_ID,
+  JOB_MICROSOFT_TITLE,
   microsoftProduct,
 } from '../../fixtures/index/jobStores'
 import { createJobHarness, type JobHarness } from './harness'
 
 /**
  * The stage that reads GOG, the Microsoft Store and the National Bank. In the job catalog game
- * 101 has a GOG page (`hollow_cradle`, $9.99 against $19.99) and game 109 a Microsoft product
- * (385 ₴); the other seven have neither.
+ * 101 has a GOG page (`hollow_cradle`, $9.99 against $19.99, under the game's own name) and game
+ * 109 a Microsoft product (385 ₴, which the store calls an edition of the game); the other seven
+ * have neither.
  */
 
 const RUN_AT = '2026-09-20T03:00:00.000Z'
@@ -38,6 +40,7 @@ const later = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOS
 
 const GOG_OFFER: IndexedOffer = {
   store: 'gog',
+  title: 'Hollow Cradle',
   amount: 999,
   regularAmount: 1999,
   currency: 'USD',
@@ -48,6 +51,7 @@ const GOG_OFFER: IndexedOffer = {
 
 const MICROSOFT_OFFER: IndexedOffer = {
   store: 'xbox-store',
+  title: JOB_MICROSOFT_TITLE,
   amount: 38_500,
   regularAmount: 38_500,
   currency: 'UAH',
@@ -418,7 +422,12 @@ describe('what a full read settles', () => {
   it('publishes a free game as an offer of zero', async () => {
     const { harness, games, refs, byId } = await runAt(RUN_AT)
     harness.gogCatalog.products = [gogProduct('hollow_cradle', gogPrice('0.00', '0.00'))]
-    harness.microsoftProducts[JOB_MICROSOFT_ID] = microsoftProduct(JOB_MICROSOFT_ID, 0)
+    harness.microsoftProducts[JOB_MICROSOFT_ID] = microsoftProduct(
+      JOB_MICROSOFT_ID,
+      0,
+      0,
+      JOB_MICROSOFT_TITLE,
+    )
 
     await refreshOffers(harness.deps, games, refs, null)
 
@@ -426,6 +435,41 @@ describe('what a full read settles', () => {
       { ...GOG_OFFER, amount: 0, regularAmount: 0, discountPercent: 0 },
     ])
     expect(byId(109).offers).toEqual([{ ...MICROSOFT_OFFER, amount: 0, regularAmount: 0 }])
+  })
+
+  it('carries what each store calls the product, which need not be the game’s name', async () => {
+    const { harness, games, refs, byId } = await runAt(RUN_AT)
+    harness.gogCatalog.products = [
+      gogProduct('hollow_cradle', gogPrice('9.99', '19.99'), {
+        title: '  Hollow Cradle \u2014\n Game of the Year Edition ',
+      }),
+    ]
+
+    await refreshOffers(harness.deps, games, refs, null)
+
+    // The game is "Hollow Cradle" and "Lost Canton"; the prices are for these.
+    expect(byId(101).name).toBe('Hollow Cradle')
+    expect(byId(101).offers?.[0]?.title).toBe('Hollow Cradle \u2014 Game of the Year Edition')
+    expect(byId(109).name).toBe('Lost Canton')
+    expect(byId(109).offers?.[0]?.title).toBe('Lost Canton: Definitive Edition')
+  })
+
+  it('leaves the title out of an offer whose store gave none, rather than write it empty', async () => {
+    const { harness, games, refs, byId } = await runAt(later(RUN_AT, 12 * HOUR))
+    byId(101).offers = [GOG_OFFER]
+    byId(109).offers = [MICROSOFT_OFFER]
+    harness.gogCatalog.products = [
+      gogProduct('hollow_cradle', gogPrice('9.99', '19.99'), { title: '   ' }),
+    ]
+    harness.microsoftProducts[JOB_MICROSOFT_ID] = microsoftProduct(JOB_MICROSOFT_ID, 385)
+
+    await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    // The price is still a price; and the title the last read had is not kept past this one.
+    expect(byId(101).offers?.[0]).toMatchObject({ store: 'gog', amount: 999 })
+    expect('title' in byId(101).offers![0]!).toBe(false)
+    expect(byId(109).offers?.[0]).toMatchObject({ store: 'xbox-store', amount: 38_500 })
+    expect('title' in byId(109).offers![0]!).toBe(false)
   })
 
   it('keeps one store’s offer when the other is read, and lists GOG first', async () => {
@@ -495,9 +539,11 @@ describe('the Microsoft Store’s requests', () => {
       // Not read in full: the stamp stays, and the next run reads again.
       lastReadAt: RUN_AT,
     })
+    // These products state no title, so the new offers carry none — not the one they had.
+    const { title: _title, ...untitled } = MICROSOFT_OFFER
     expect(games[0]!.offers).toEqual([
       {
-        ...MICROSOFT_OFFER,
+        ...untitled,
         url: 'https://www.microsoft.com/uk-ua/p/game-0/9n0000000000',
         updatedAt: at,
       },

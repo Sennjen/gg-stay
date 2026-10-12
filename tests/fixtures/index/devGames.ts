@@ -37,6 +37,17 @@ import type {
  * RAWG links and what the Microsoft Store charged for it in Ukraine on 2026-10-12. The rate is
  * the National Bank's as recorded (`tests/fixtures/nbu/exchange.json`), so the first row is the
  * design's own example: $8.99 is ≈ 404 ₴.
+ *
+ * Each offer also carries, or does not, what the store calls the product (`IndexedOffer.title`)
+ * — again one case each of what a page has to tell apart from the game's own name:
+ *
+ * | game                 | the store's title                                   | against the name  |
+ * | -------------------- | --------------------------------------------------- | ----------------- |
+ * | The Witcher 3        | The Witcher 3: Wild Hunt - Game of the Year Edition | another edition   |
+ * | Stardew Valley       | Stardew Valley                                      | the same          |
+ * | Metro Exodus         | METRO EXODUS                                        | the same, but for |
+ * |                      |                                                     | its capitals      |
+ * | Sherlock Holmes: C1  | none                                                | nothing to say    |
  */
 
 /** When the fixture run finished; `priceUpdatedAt` below is relative to it. */
@@ -73,12 +84,15 @@ export const DEV_FIXTURE_META_EXTRA: Pick<IndexMeta, 'exchangeRate' | 'offersRea
 /** A GOG offer in cents, as the refresh job writes one. */
 function gogOffer(
   slug: string,
+  title: string | null,
   amount: number,
   regularAmount: number,
   updatedAt = DEV_FIXTURE_OFFERS_READ_AT,
 ): IndexedOffer {
   return {
     store: 'gog',
+    // Left out, not written empty, when the store gave none.
+    ...(title === null ? {} : { title }),
     amount,
     regularAmount,
     currency: 'USD',
@@ -92,12 +106,14 @@ function gogOffer(
 function microsoftOffer(
   name: string,
   id: string,
+  title: string | null,
   amount: number,
   regularAmount: number,
   updatedAt = DEV_FIXTURE_OFFERS_READ_AT,
 ): IndexedOffer {
   return {
     store: 'xbox-store',
+    ...(title === null ? {} : { title }),
     amount,
     regularAmount,
     currency: 'UAH',
@@ -143,8 +159,16 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     // before RAWG has said anything. The same goes for the two games below.
     steamAppId: '292030',
     // GOG in dollars, at the page RAWG's store-link fixture names, and clearly below Steam:
-    // $8.99 is ≈ 404 ₴ at the fixture's rate, against 675 ₴.
-    offers: [gogOffer('the_witcher_3_wild_hunt', 899, 3999)],
+    // $8.99 is ≈ 404 ₴ at the fixture's rate, against 675 ₴. What GOG sells there is another
+    // edition than the game's name says, and its title says which.
+    offers: [
+      gogOffer(
+        'the_witcher_3_wild_hunt',
+        'The Witcher 3: Wild Hunt - Game of the Year Edition',
+        899,
+        3999,
+      ),
+    ],
   },
   {
     id: 4200,
@@ -204,7 +228,7 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     steamAppId: '413150',
     // The Microsoft Store in hryvnia, beside a Steam page that gives the game away: the product
     // and the price are the store's own for Ukraine.
-    offers: [microsoftOffer('stardew-valley', 'c3d891z6tnqm', 38_500, 38_500)],
+    offers: [microsoftOffer('stardew-valley', 'c3d891z6tnqm', 'Stardew Valley', 38_500, 38_500)],
   },
 ]
 
@@ -294,7 +318,8 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     price: { priceUah: 749, regularPriceUah: 1249, discountPercent: 40 },
     // GOG at its regular price, which is not cheaper than Steam's sale: $29.99 is ≈ 1 348 ₴.
     // The game has no RAWG fixture, so its page is the one built from this document alone.
-    offers: [gogOffer('metro_exodus', 2999, 2999)],
+    // The store shouts the title; it is the game's own name all the same.
+    offers: [gogOffer('metro_exodus', 'METRO EXODUS', 2999, 2999)],
   }),
   // GSC Game World, Kyiv.
   madeInUkraine({
@@ -349,7 +374,7 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     price: { priceUah: 899, regularPriceUah: 899, discountPercent: 0 },
     // A stale offer: $7.99 would be ≈ 359 ₴ and far the cheapest, and it was read two days
     // before the run — so it is not a price, and its store is a link without one.
-    offers: [gogOffer('sherlock_holmes_chapter_one', 799, 3999, DEV_FIXTURE_STALE_OFFER_AT)],
+    offers: [gogOffer('sherlock_holmes_chapter_one', null, 799, 3999, DEV_FIXTURE_STALE_OFFER_AT)],
   }),
   // GSC Game World, Kyiv.
   madeInUkraine({

@@ -120,9 +120,14 @@ export function isOffersReadDue(lastReadAt: string | undefined | null, now: numb
   return at === null || now - at > OFFERS_MAX_AGE_MS
 }
 
+/** The store's own title as an offer carries it: the field, or no field when there is none. */
+function titled(title: string | null): { title?: string } {
+  return title === null ? {} : { title }
+}
+
 /** Whether the mapping names the game's product in a store. */
 function hasReference(refs: IndexedStoreRefs, store: OfferStore): boolean {
-  return store === 'gog' ? refs.gog !== undefined : refs.microsoft !== undefined
+  return store === 'gog' ? typeof refs.gog === 'string' : Boolean(refs.microsoft)
 }
 
 /** The game's offers in the order of `OFFER_STORES`, or no field at all when it has none. */
@@ -202,7 +207,14 @@ async function readGog(
       const product = walk.products.get(slug)
       const offer: IndexedOffer | null =
         product?.price && product.url
-          ? { store: 'gog', ...product.price, currency: 'USD', url: product.url, updatedAt: readAt }
+          ? {
+              store: 'gog',
+              ...titled(product.title),
+              ...product.price,
+              currency: 'USD',
+              url: product.url,
+              updatedAt: readAt,
+            }
           : null
       setOffer(game, 'gog', offer)
       if (offer) pricesRead += 1
@@ -261,15 +273,22 @@ async function readMicrosoft(
   for (const ids of chunk([...byId.keys()], MICROSOFT_IDS_PER_REQUEST)) {
     requests += 1
     try {
-      const prices = parseMicrosoftProducts(await deps.microsoft(ids), ids, deps.clock.now())
+      const sold = parseMicrosoftProducts(await deps.microsoft(ids), ids, deps.clock.now())
       const readAt = isoNow(deps.clock)
       for (const id of ids) {
-        const price = prices.get(id) ?? null
+        const answer = sold.get(id) ?? null
         for (const { game, product } of byId.get(id) ?? []) {
-          const url = price ? safeExternalUrl(microsoftProductUrl(product)) : null
+          const url = answer ? safeExternalUrl(microsoftProductUrl(product)) : null
           const offer: IndexedOffer | null =
-            price && url
-              ? { store: 'xbox-store', ...price, currency: 'UAH', url, updatedAt: readAt }
+            answer && url
+              ? {
+                  store: 'xbox-store',
+                  ...titled(answer.title),
+                  ...answer.price,
+                  currency: 'UAH',
+                  url,
+                  updatedAt: readAt,
+                }
               : null
           setOffer(game, 'xbox-store', offer)
           if (offer) pricesRead += 1

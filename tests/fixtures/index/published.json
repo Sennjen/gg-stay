@@ -64,6 +64,7 @@
       "offers": [
         {
           "store": "gog",
+          "title": "The Witcher 3: Wild Hunt - Game of the Year Edition",
           "amount": 899,
           "regularAmount": 3999,
           "currency": "USD",
@@ -153,6 +154,7 @@
       "offers": [
         {
           "store": "xbox-store",
+          "title": "Stardew Valley",
           "amount": 38500,
           "regularAmount": 38500,
           "currency": "UAH",
@@ -203,6 +205,7 @@
       "offers": [
         {
           "store": "gog",
+          "title": "METRO EXODUS",
           "amount": 2999,
           "regularAmount": 2999,
           "currency": "USD",

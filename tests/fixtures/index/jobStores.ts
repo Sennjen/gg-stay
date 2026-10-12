@@ -9,9 +9,11 @@
  *
  * | game | link                                  | what it proves                              |
  * | ---- | ------------------------------------- | ------------------------------------------- |
- * | 101  | GOG, `hollow_cradle`                  | a Steam game with a dollar offer beside it  |
+ * | 101  | GOG, `hollow_cradle`                  | a Steam game with a dollar offer beside it, |
+ * |      |                                       | under the game's own name                   |
  * | 109  | the Microsoft Store, `9NLOSTCANT0N`   | a game off Steam, found only by the sweep,  |
- * |      |                                       | with a hryvnia offer                        |
+ * |      |                                       | with a hryvnia offer — for another edition  |
+ * |      |                                       | than the game's name says                   |
  */
 
 /** A GOG money pair as the catalog writes it: decimal strings, in the currency asked for. */
@@ -26,6 +28,14 @@ export function gogPrice(final: string, base: string, currency = 'USD') {
   }
 }
 
+/** A slug as a title: `hollow_cradle` is "Hollow Cradle". */
+function titleOf(slug: string): string {
+  return slug
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
 /** One product of GOG's catalog. `price: null` is a game GOG has not released yet. */
 export function gogProduct(
   slug: string,
@@ -36,7 +46,7 @@ export function gogProduct(
     id: `gog-${slug}`,
     slug,
     productType: 'game',
-    title: slug,
+    title: titleOf(slug),
     price,
     productState: price === null ? 'coming-soon' : 'default',
     storeLink: `https://www.gog.com/en/game/${slug}`,
@@ -115,10 +125,16 @@ export function microsoftSku(availabilities: unknown[], type: 'full' | 'trial' =
   }
 }
 
-/** A product sold in Ukraine at `list`, regularly `msrp`, with the subscriber's zero beside it. */
-export function microsoftProduct(id: string, list: number, msrp: number = list) {
+/**
+ * A product sold in Ukraine at `list`, regularly `msrp`, with the subscriber's zero beside it and
+ * — when it is given a title — the one listing Microsoft answers with, in English.
+ */
+export function microsoftProduct(id: string, list: number, msrp: number = list, title?: string) {
   return {
     ProductId: id,
+    ...(title === undefined
+      ? {}
+      : { LocalizedProperties: [{ ProductTitle: title, Language: 'en-us' }] }),
     DisplaySkuAvailabilities: [
       microsoftSku([microsoftAvailability(list, msrp), microsoftSubscriberAvailability()]),
     ],
@@ -128,8 +144,11 @@ export function microsoftProduct(id: string, list: number, msrp: number = list) 
 /** The product id game 109's link names, and what the job's fake store answers about it. */
 export const JOB_MICROSOFT_ID = '9NLOSTCANT0N'
 
+/** What the store calls it: not the game's name, "Lost Canton", but an edition of it. */
+export const JOB_MICROSOFT_TITLE = 'Lost Canton: Definitive Edition'
+
 export const JOB_MICROSOFT_PRODUCTS: Record<string, unknown> = {
-  [JOB_MICROSOFT_ID]: microsoftProduct(JOB_MICROSOFT_ID, 385),
+  [JOB_MICROSOFT_ID]: microsoftProduct(JOB_MICROSOFT_ID, 385, 385, JOB_MICROSOFT_TITLE),
 }
 
 /** The rate the job's fake bank answers, for whatever day it is asked about. */

@@ -45,11 +45,11 @@ Through transports of their own built from the shared factory — paced, timed o
 `IndexedGame.offers?: IndexedOffer[]` — at most one per store:
 
 ```
-{ store: 'gog' | 'xbox-store', amount: number, regularAmount: number, currency: 'USD' | 'UAH',
-  discountPercent: number, url: string, updatedAt: string }
+{ store: 'gog' | 'xbox-store', title?: string, amount: number, regularAmount: number,
+  currency: 'USD' | 'UAH', discountPercent: number, url: string, updatedAt: string }
 ```
 
-Amounts are in minor units. `url` is the store's own address for the product (the catalog's `storeLink`, the Microsoft product page for Ukraine), and must pass the same allow-list as every other outbound link. A store whose read failed keeps its previous offer with its previous `updatedAt`. Steam's price stays where it is.
+Amounts are in minor units. `title` is what the store itself calls the product — GOG's catalog `title`, the Microsoft Store's product title as it answers for Ukraine — as plain text, trimmed, at most 200 characters, and left out when the store gives none. RAWG's link sometimes names another edition than the game it is filed under (a complete season, a "Game of the Year Edition"), and the price is that edition's; the title is how a page can say so. `url` is the store's own address for the product (the catalog's `storeLink`, the Microsoft product page for Ukraine), and must pass the same allow-list as every other outbound link. A store whose read failed keeps its previous offer with its previous `updatedAt`. Steam's price stays where it is.
 
 ### 4. GraphQL
 
@@ -85,6 +85,7 @@ In the existing "Де купити" block each store row with a price shows it:
 
 - hryvnia stores as today's Steam row does (price, struck regular price, discount chip, "оновлено N годин тому");
 - GOG as `$8.99 · ≈ 404 ₴`, the estimate visibly secondary;
+- the store's own title for the product is shown under the store's name when it differs from the game's name, case and surrounding whitespace ignored — so a price for another edition says which edition it is for. It changes nothing about which row is the cheapest: that stays a rule about prices;
 - the cheapest row carries «Найдешевше» / "Cheapest";
 - under the block, only when a GOG price is shown: «GOG продає в доларах США. Сума в гривні — приблизна, за курсом НБУ на {date}; банк може списати іншу.» / "GOG charges in US dollars. The hryvnia amount is an estimate at the National Bank of Ukraine's rate of {date}; your bank may charge a different sum."
 

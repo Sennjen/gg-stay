@@ -34,6 +34,7 @@ const later = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOS
 
 const gogOffer = (updatedAt: string): IndexedOffer => ({
   store: 'gog',
+  title: 'Hollow Cradle',
   amount: 999,
   regularAmount: 1999,
   currency: 'USD',
@@ -44,6 +45,8 @@ const gogOffer = (updatedAt: string): IndexedOffer => ({
 
 const microsoftOffer = (updatedAt: string): IndexedOffer => ({
   store: 'xbox-store',
+  // What the store calls the product; the game is "Lost Canton".
+  title: 'Lost Canton: Definitive Edition',
   amount: 38_500,
   regularAmount: 38_500,
   currency: 'UAH',

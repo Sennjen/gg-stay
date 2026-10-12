@@ -125,18 +125,22 @@ describe('parseGogCatalogPage', () => {
         {
           id: '1441199941',
           slug: 'the_witcher_3_redkit',
+          title: 'The Witcher 3 REDkit',
           price: { amount: 0, regularAmount: 0, discountPercent: 0 },
           url: 'https://www.gog.com/en/game/the_witcher_3_redkit',
         },
         {
           id: '1640424747',
           slug: 'the_witcher_3_wild_hunt_game_of_the_year_edition',
+          // The slug still says "game of the year edition"; the title is what GOG calls it now.
+          title: 'The Witcher 3: Wild Hunt — Remastered',
           price: { amount: 1749, regularAmount: 3499, discountPercent: 50 },
           url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition',
         },
         {
           id: '1179418179',
           slug: 'the_witcher_3_wild_hunt_songs_of_the_past',
+          title: 'The Witcher 3: Wild Hunt — Songs of the Past',
           price: null,
           url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_songs_of_the_past',
         },
@@ -148,8 +152,31 @@ describe('parseGogCatalogPage', () => {
     const page = gogCatalogPage([gogProduct('limbo', gogPrice('9.99', '9.99', 'EUR'))], 1, 100)
 
     expect(parseGogCatalogPage(page).products).toEqual([
-      { id: 'gog-limbo', slug: 'limbo', price: null, url: 'https://www.gog.com/en/game/limbo' },
+      {
+        id: 'gog-limbo',
+        slug: 'limbo',
+        title: 'Limbo',
+        price: null,
+        url: 'https://www.gog.com/en/game/limbo',
+      },
     ])
+  })
+
+  it('reads the title GOG gives the product, as plain text, and none when it gives none', () => {
+    const titled = (title: unknown) =>
+      parseGogCatalogPage(
+        gogCatalogPage([gogProduct('limbo', gogPrice('9.99', '9.99'), { title })], 1, 100),
+      ).products[0]!.title
+
+    expect(titled('LIMBO')).toBe('LIMBO')
+    expect(titled('  The Witcher 3:\n Wild Hunt \u2014 Game of the Year Edition ')).toBe(
+      'The Witcher 3: Wild Hunt \u2014 Game of the Year Edition',
+    )
+    expect(titled('x'.repeat(500))).toHaveLength(200)
+    // A product without a usable title is still a product, with its price.
+    for (const missing of [undefined, null, '', '   ', 42, ['LIMBO'], { name: 'LIMBO' }]) {
+      expect(titled(missing)).toBeNull()
+    }
   })
 
   it.each([

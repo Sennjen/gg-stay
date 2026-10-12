@@ -206,9 +206,8 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     expect(
       parseMicrosoftProducts(products, ['BTQMHK78ZPF9'], recordedAt).get('BTQMHK78ZPF9'),
     ).toEqual({
-      amount: 25_000,
-      regularAmount: 25_000,
-      discountPercent: 0,
+      price: { amount: 25_000, regularAmount: 25_000, discountPercent: 0 },
+      title: 'LIMBO',
     })
     expect(network).not.toHaveBeenCalled()
   })
