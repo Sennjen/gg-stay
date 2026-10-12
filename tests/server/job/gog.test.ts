@@ -347,6 +347,29 @@ describe('walkGogCatalog', () => {
     )
   })
 
+  it('fails when one product comes under two slugs', async () => {
+    // The id half of the check: the same product, renamed between two pages of the walk.
+    const renamed = [
+      gogProduct('limbo', gogPrice('9.99', '9.99'), { id: '1207664643' }),
+      gogProduct('limbo_special_edition', gogPrice('9.99', '9.99'), { id: '1207664643' }),
+    ]
+
+    await expect(walkGogCatalog(async () => gogCatalogPage(renamed, 1, 100))).rejects.toThrow(
+      'the GOG catalog repeated limbo_special_edition at page 1',
+    )
+  })
+
+  it('fails when the number of pages changes though the number of products does not', async () => {
+    const catalog = catalogOf(5, 2)
+    // Three pages of two became two pages of three under the walk: the same five products, and
+    // every page boundary somewhere else.
+    catalog.answers.set(2, { ...gogCatalogPage(catalog.products, 2, 2), pages: 2 })
+
+    await expect(walkGogCatalog(catalog.fetchPage)).rejects.toThrow(
+      'the GOG catalog changed size during the walk, at page 2',
+    )
+  })
+
   it('walks past a product under a slug that is none, counting it and printing nothing of it', async () => {
     const hostile = 'limbo\n::add-mask::secret'
     const products = [

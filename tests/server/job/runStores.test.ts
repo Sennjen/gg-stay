@@ -6,6 +6,7 @@ import {
   type JobReport,
   type StoresReport,
 } from '../../../scripts/index/run'
+import { STORE_REF_CURSOR } from '../../../scripts/index/storeRefs'
 import type {
   IndexMeta,
   IndexedExchangeRate,
@@ -477,6 +478,32 @@ describe('runJob and its warnings about the other stores', () => {
     expect(warning).toBe(
       'GOG prices not refreshed: a ::error::b c — every offer that was not read stands as it was',
     )
+  })
+})
+
+describe('runJob and the sweep’s cursor', () => {
+  it('leaves the cursor alone when it tidies up the cursors of older builds', async () => {
+    // A night on which RAWG would not answer for the one game the sweep had to ask about: the
+    // sweep ends with that game waiting, and its cursor where it stopped.
+    const night = createJobHarness({ start: RUN_AT })
+    night.failNext((call) => call.path === 'games/lost-canton/stores')
+    await runJob(night.deps, FULL)
+    expect(await night.writer.getCursor(STORE_REF_CURSOR)).toBe('109')
+
+    // Every run begins by deleting the cursor keys older builds left behind. This one is not
+    // among them: a prices run, which sweeps nothing, must find it where it was and leave it.
+    const morning = nextRun(night, later(RUN_AT, 6 * HOUR))
+    const clearCursor = vi.spyOn(morning.writer, 'clearCursor')
+    await runJob(morning.deps, PRICES)
+
+    expect(clearCursor.mock.calls.map(([stage]) => stage)).not.toContain(STORE_REF_CURSOR)
+    expect(await morning.writer.getCursor(STORE_REF_CURSOR)).toBe('109')
+
+    // The next full run asks about the game, and the cursor has done its work.
+    const nextNight = nextRun(night, later(RUN_AT, 24 * HOUR))
+    await runJob(nextNight.deps, FULL)
+    expect(nextNight.storeCalls().map((call) => call.path)).toEqual(['games/lost-canton/stores'])
+    expect(await nextNight.writer.getCursor(STORE_REF_CURSOR)).toBeNull()
   })
 })
 

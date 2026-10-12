@@ -927,6 +927,21 @@ describe('an offer needs a reference', () => {
     expect(result.microsoft).toMatchObject({ status: 'no-references', references: 0, offers: 0 })
   })
 
+  it('keeps one offer a store when a document arrives carrying two of the same store', async () => {
+    const { harness, games, byId } = await runAt(later(RUN_AT, HOUR))
+    const refs: StoreRefMap = new Map([
+      [101, { gog: 'hollow_cradle', microsoft: { id: JOB_MICROSOFT_ID, name: 'hollow-cradle' } }],
+    ])
+    const second = { ...GOG_OFFER, amount: 1, regularAmount: 1, discountPercent: 0 }
+    // Out of order, and with GOG twice: no run of this job writes that, and one may still read it.
+    byId(101).offers = [MICROSOFT_OFFER, GOG_OFFER, second]
+
+    await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    // At most one a store, the first of each, in the stores' own order.
+    expect(byId(101).offers).toEqual([GOG_OFFER, MICROSOFT_OFFER])
+  })
+
   it('asks a store nothing when no game of the run has a product there', async () => {
     const { harness, games } = await runAt(RUN_AT)
 

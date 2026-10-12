@@ -103,6 +103,19 @@ describe('microsoftPurchasePrice', () => {
     ).toBeNull()
   })
 
+  it.each([
+    ['text', 'Upsell'],
+    ['an object', { Type: 'Upsell', BigId: 'CFQ7TTC0KGQ8' }],
+    ['a number', 1],
+    ['true', true],
+  ])('reads no price from an availability whose remediations are stated as %s', (_what, stated) => {
+    // Not a list, so not a list that is empty: something is being said about a remedy, and an
+    // availability that needs one is not a price anyone can pay.
+    expect(
+      priceOf(one(microsoftAvailability(385, 385, { extra: { Remediations: stated } }))),
+    ).toBeNull()
+  })
+
   it('takes an availability that states it needs no remediation', () => {
     const stated = { RemediationRequired: false, Remediations: [], AffirmationId: null }
 
