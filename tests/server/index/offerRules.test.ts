@@ -127,6 +127,17 @@ describe('the seven days a rate is a rate for', () => {
     expect(exchangeRateAt({ exchangeRate: dropped }, NOW)).toBeNull()
   })
 
+  it('uses a rate dated five minutes ahead of the clock to the millisecond, and none dated beyond that', () => {
+    const believed = { ...RATE, readAt: ago(-CLOCK_AHEAD_ALLOWED_MS) }
+    expect(exchangeRateAt({ exchangeRate: believed }, NOW)).toBe(believed)
+    const ahead = { ...RATE, readAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) }
+    expect(exchangeRateAt({ exchangeRate: ahead }, NOW)).toBeNull()
+    // It would otherwise be a rate for as long as the metadata stood: seven days never run out
+    // from a moment that has not come.
+    const nextYear = { ...RATE, readAt: '2027-10-12T12:00:00.000Z' }
+    expect(exchangeRateAt({ exchangeRate: nextYear }, NOW)).toBeNull()
+  })
+
   it('has no rate without metadata, or with metadata written before the job read the bank', () => {
     expect(exchangeRateAt(null, NOW)).toBeNull()
     expect(exchangeRateAt(undefined, NOW)).toBeNull()

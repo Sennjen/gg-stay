@@ -415,6 +415,22 @@ describe('what the other stores charge, on a page RAWG answered', () => {
       expect(cheapestOf(answer)).toEqual([])
     })
 
+    it('believes a rate read five minutes ahead of the clock to the millisecond, and none beyond', async () => {
+      const believed = { ...RATE, readAt: ago(-CLOCK_AHEAD_ALLOWED_MS) }
+      const ahead = { ...RATE, readAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) }
+      const holding = (rate: IndexedExchangeRate) =>
+        indexHolding([witcher([gogOffer()])], metaWith(rate))
+
+      const inTime = await page({ index: await holding(believed) })
+      const tooFar = await page({ index: await holding(ahead) })
+
+      expect(inTime.stores[1]).toEqual({ ...GOG_ROW, cheapest: true })
+      expect(inTime.exchangeRate).toEqual(SHOWN_RATE)
+      // Seven days never run out from a moment that has not come: it is no rate at all.
+      expect(tooFar.stores).toEqual([STEAM_ROW, { ...GOG_ROW, approxUah: null }])
+      expect(tooFar.exchangeRate).toBeNull()
+    })
+
     it('estimates nothing when the metadata holds no rate at all', async () => {
       const index = await indexHolding([witcher([gogOffer()])], metaWith(null))
 

@@ -64,10 +64,10 @@ export const CHEAPER_MARGIN_PERCENT = 10
 
 /**
  * How far ahead of the request's clock a date may be and still be taken for one of now: five
- * minutes, which is more than two clocks that are both kept disagree by. A price dated further
- * ahead than that was not read when it says, so nothing is known of its age — and what cannot be
- * dated is not fresh. Without this bound a wrong date in the future would never age: the price
- * under it would read as one taken a moment ago for as long as the document stood.
+ * minutes, which is more than two clocks that are both kept disagree by. A price or a rate dated
+ * further ahead than that was not read when it says, so nothing is known of its age — and what
+ * cannot be dated is not fresh. Without this bound a wrong date in the future would never age:
+ * the price under it would read as one taken a moment ago for as long as the document stood.
  */
 export const CLOCK_AHEAD_ALLOWED_MS = 5 * 60 * 1000
 
@@ -83,7 +83,8 @@ function ageAt(iso: unknown, now: string): number {
 
 /**
  * Whether something dated `iso` is no older than `keptForMs` at `now`, and not dated more than
- * `CLOCK_AHEAD_ALLOWED_MS` ahead of it. A date that cannot be read is neither.
+ * `CLOCK_AHEAD_ALLOWED_MS` ahead of it. A date that cannot be read is neither. The one test of
+ * age in this module: a price's freshness and a rate's are both it, each with its own span.
  */
 function isWithin(keptForMs: number, iso: unknown, now: string): boolean {
   const age = ageAt(iso, now)
@@ -116,10 +117,13 @@ function isPercent(value: unknown): value is number {
 
 /**
  * The rate the metadata carries, when it is one the site may estimate with at `now`; `null`
- * otherwise — no metadata, no rate in it, a rate read more than `EXCHANGE_RATE_KEPT_MS` ago or at
- * a moment that cannot be read, or one that is not a rate at all (another currency, a value that
- * is not a positive number, a day that is not a day). Exactly seven days old is still a rate, as
- * it is for the job.
+ * otherwise — no metadata, no rate in it, a rate read more than `EXCHANGE_RATE_KEPT_MS` ago, at a
+ * moment that cannot be read or at one more than `CLOCK_AHEAD_ALLOWED_MS` ahead of the clock, or
+ * one that is not a rate at all (another currency, a value that is not a positive number, a day
+ * that is not a day). Exactly seven days old is still a rate, as it is for the job.
+ *
+ * The one definition of a usable rate: a game page's estimates and a card's line are both made
+ * with what this answers.
  */
 export function exchangeRateAt(
   meta: Pick<IndexMeta, 'exchangeRate'> | null | undefined,
@@ -129,7 +133,7 @@ export function exchangeRateAt(
   if (!rate || rate.currency !== 'USD') return null
   if (!Number.isFinite(rate.uah) || rate.uah <= 0) return null
   if (typeof rate.date !== 'string' || !ISO_DAY.test(rate.date)) return null
-  return ageAt(rate.readAt, now) <= EXCHANGE_RATE_KEPT_MS ? rate : null
+  return isWithin(EXCHANGE_RATE_KEPT_MS, rate.readAt, now) ? rate : null
 }
 
 /**
