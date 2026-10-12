@@ -3,7 +3,7 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import AppFooter from '~/components/AppFooter.vue'
 
 describe('AppFooter', () => {
-  it('shows the logo, description, nav links, GitHub, the locale switcher and attribution', async () => {
+  it('shows the logo, description, nav links, GitHub, the locale switcher and the ownership line', async () => {
     const wrapper = await mountSuspended(AppFooter, { route: '/games' })
 
     expect(wrapper.get('footer a[href="/"]').text()).toContain('GG Stay')
@@ -28,13 +28,26 @@ describe('AppFooter', () => {
     expect(language.get('a[href="/en/games"]').text()).toBe('English')
     expect(wrapper.find('nav[aria-label="Мова"]').exists()).toBe(false)
 
-    expect(wrapper.get('footer').text()).toContain('Дані про ігри надають RAWG і Steam.')
-    const rawgLink = wrapper.get('footer a[href="https://rawg.io"]')
-    expect(rawgLink.text()).toBe('RAWG')
-    expect(rawgLink.attributes('rel')).toContain('noopener')
-    const steamLink = wrapper.get('footer a[href="https://store.steampowered.com"]')
-    expect(steamLink.text()).toBe('Steam')
-    expect(steamLink.attributes('rel')).toContain('noopener')
     expect(wrapper.get('footer').text()).toContain('Назви та зображення належать їхнім власникам.')
+  })
+
+  it('names every source of the site’s data, each as a link to the source itself', async () => {
+    const wrapper = await mountSuspended(AppFooter, { route: '/games' })
+
+    // RAWG for the games; Steam, GOG and the Microsoft Store for what they charge.
+    expect(wrapper.get('footer').text()).toContain(
+      'Дані про ігри надають RAWG, Steam, GOG і Microsoft Store.',
+    )
+    for (const [href, name] of [
+      ['https://rawg.io', 'RAWG'],
+      ['https://store.steampowered.com', 'Steam'],
+      ['https://www.gog.com', 'GOG'],
+      ['https://www.microsoft.com/store', 'Microsoft Store'],
+    ]) {
+      const link = wrapper.get(`footer a[href="${href}"]`)
+      expect(link.text()).toBe(name)
+      expect(link.attributes('rel')).toBe('noopener noreferrer')
+      expect(link.attributes('target')).toBe('_blank')
+    }
   })
 })

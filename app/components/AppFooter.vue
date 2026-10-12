@@ -2,6 +2,18 @@
 const { t } = useI18n()
 const localePath = useLocalePath()
 const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DESC' } }
+
+/**
+ * Where the site's data comes from, in the order the sentence names them: RAWG for the games,
+ * and the three stores whose prices a game page shows. Each is the slot of `footer.dataBy` it
+ * fills and the key of its name, with the address of the source's own front page.
+ */
+const SOURCES = [
+  { slot: 'rawg', href: 'https://rawg.io' },
+  { slot: 'steam', href: 'https://store.steampowered.com' },
+  { slot: 'gog', href: 'https://www.gog.com' },
+  { slot: 'microsoft', href: 'https://www.microsoft.com/store' },
+] as const
 </script>
 
 <template>
@@ -68,22 +80,13 @@ const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DES
       <div class="mt-8 border-t border-line pt-4 text-sm text-fg-2">
         <p>
           <i18n-t keypath="footer.dataBy" tag="span">
-            <template #rawg>
+            <template v-for="source in SOURCES" :key="source.slot" #[source.slot]>
               <a
-                href="https://rawg.io"
+                :href="source.href"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="underline underline-offset-4 hover:text-fg focus-visible:outline-2"
-                >{{ t('footer.rawg') }}</a
-              >
-            </template>
-            <template #steam>
-              <a
-                href="https://store.steampowered.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="underline underline-offset-4 hover:text-fg focus-visible:outline-2"
-                >{{ t('footer.steam') }}</a
+                >{{ t(`footer.${source.slot}`) }}</a
               >
             </template>
           </i18n-t>
