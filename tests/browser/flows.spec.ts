@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Locator, Page, Request, Route } from '@playwright/test'
 import { namesAnotherProduct } from '../../app/utils/storeOffers'
+import { STORE_OPTIONS } from '../../shared/catalog'
 import { expect, expectAccessible, test, waitForHydration } from './fixtures'
 
 /**
@@ -33,6 +34,7 @@ const copy = JSON.parse(readFileSync(resolve(process.cwd(), 'i18n/locales/uk.jso
     estimateNote: string
   }
   price: { approximately: string }
+  card: { cheaperAt: string }
   gallery: { heading: string }
 }
 
@@ -546,6 +548,66 @@ test('game page → «Де купити» → a store that charges in hryvnia ha
     answer.stores.filter((store) => store.cheapest).length,
   )
   await expectAccessible(page, 'game page with a hryvnia price from another store')
+})
+
+test('catalog → a card says another store is cheaper → its game page has that store’s price — and the line fits a phone', async ({
+  page,
+}) => {
+  // What each card should say is asked of the server the way the catalog asks, so the seed is
+  // free to change which games another store undercuts Steam for. It has to hold one.
+  const response = await page.request.post('/api/graphql', {
+    data: { query: '{ games { items { slug cheaperAt } } }' },
+  })
+  const { items } = (
+    (await response.json()) as {
+      data: { games: { items: { slug: string; cheaperAt: string | null }[] } }
+    }
+  ).data.games
+  const named = items.filter((item) => item.cheaperAt !== null)
+  expect(named.length).toBeGreaterThan(0)
+  const game = named[0]!
+  const storeName = STORE_OPTIONS.find((store) => store.slug === game.cheaperAt)!.name
+  const sentence = copy.card.cheaperAt.replace('{store}', storeName)
+
+  await page.goto('/games')
+  await waitForHydration(page)
+  const cards = page.locator('[data-test="game-card"]')
+  await expect(cards).toHaveCount(items.length)
+  // One line on every card the answer names a store for, and on no other.
+  await expect(cards.locator('[data-test="cheaper-at"]')).toHaveCount(named.length)
+
+  const card = cards.filter({ has: page.locator(`a[href="/games/${game.slug}"]`) })
+  const line = card.locator('[data-test="cheaper-at"]')
+  await expect(line).toHaveText(sentence)
+  // Under the price it is about, and part of what the card's one link is called.
+  const priceBox = (await card.locator('[data-test="price"]').boundingBox())!
+  expect((await line.boundingBox())!.y).toBeGreaterThanOrEqual(priceBox.y + priceBox.height)
+  await expect(card.getByRole('link')).toHaveAccessibleName(new RegExp(`${escaped(sentence)}$`))
+  await expectAccessible(page, 'catalog with a card that names a cheaper store')
+
+  // On a phone the grid is two narrow columns: the line stays inside its card, on the page.
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect(line).toBeVisible()
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBe(0)
+  const cardBox = (await card.boundingBox())!
+  const lineBox = (await line.boundingBox())!
+  expect(lineBox.x).toBeGreaterThanOrEqual(cardBox.x)
+  expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
+  expect(lineBox.y + lineBox.height).toBeLessThanOrEqual(cardBox.y + cardBox.height)
+  await expectAccessible(page, 'catalog with a card that names a cheaper store at 375 px')
+
+  // The page the card opens is where the two prices are: the store it named has a row with one.
+  await card.getByRole('link').click()
+  await expect(page).toHaveURL(new RegExp(`/games/${game.slug}$`))
+  const row = page
+    .getByRole('region', { name: copy.game.whereToBuy })
+    .locator(`[data-test="store-row-${game.cheaperAt}"]`)
+  await expect(row.locator('[data-test="store-price"]')).toBeVisible()
+  await expect(row.getByRole('link')).toHaveAccessibleName(new RegExp(`^${escaped(storeName)}`))
 })
 
 test('catalog → a game: the answer to the page’s own request says where its time went', async ({

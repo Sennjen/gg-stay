@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { STORE_OPTIONS } from '#shared/catalog'
 import type { GamesQuery } from '~/graphql/__generated__/operations'
 import { CARD_GRID_IMAGE_SIZES, CARD_LIST_IMAGE_SIZES } from '~/utils/rawgImage'
 
@@ -32,6 +33,15 @@ const previewUrl = computed(() => props.game.screenshots[0]?.url ?? null)
 const hasPriceLine = computed(
   () => !!props.game.price || !!(props.game.localisation?.text || props.game.localisation?.audio),
 )
+
+// The store the answer names as clearly cheaper than Steam (`GameCard.cheaperAt`), under the name
+// the store filter and a game page's row give it. Which store that is, and by how much it has to
+// undercut, is the server's rule (`cheaperAtOf`, server/index/offerRules.ts): nothing is compared
+// here, and the card states no second price — the game page has both.
+const cheaperStore = computed(() => {
+  const slug = props.game.cheaperAt
+  return slug && (STORE_OPTIONS.find((store) => store.slug === slug)?.name ?? slug)
+})
 
 // Grid markup/classes stay byte-identical to before this prop existed; list only adds a
 // horizontal layout at >= 640px (cover ~220px wide, stacked like grid below that) and asks
@@ -156,6 +166,9 @@ function revealPreview(event: PointerEvent) {
             <PriceTag :price="game.price" />
             <LocalisationBadge :localisation="game.localisation" />
           </div>
+          <p v-if="cheaperStore" data-test="cheaper-at" class="mt-1 text-xs text-fg-2">
+            {{ t('card.cheaperAt', { store: cheaperStore }) }}
+          </p>
         </div>
       </div>
     </NuxtLink>

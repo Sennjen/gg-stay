@@ -198,7 +198,8 @@
       "NINTENDO": "Nintendo",
       "MOBILE": "Mobile"
     },
-    "madeInUkraine": "Made in Ukraine"
+    "madeInUkraine": "Made in Ukraine",
+    "cheaperAt": "Cheaper at {store}"
   },
   "drawer": {
     "title": "Filters",

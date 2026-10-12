@@ -224,6 +224,53 @@ describe('server-side rendering', async () => {
     expect(html.match(/data-test="price"/g)?.length).toBe(3)
   })
 
+  it('says on a card that another store is cheaper, where the answer names one, and nowhere else', async () => {
+    // What each card of the page should say is asked of the server the page was rendered by, so
+    // the seed is free to change which games another store undercuts Steam for.
+    const body = await $fetch<{
+      data: { games: { items: { slug: string; cheaperAt: string | null }[] } }
+    }>('/api/graphql', {
+      method: 'POST',
+      body: { query: '{ games { items { slug cheaperAt } } }' },
+    })
+    const named = body.data.games.items.filter((item) => item.cheaperAt !== null)
+    // The seed's own example: GOG's $8.99 against Steam's 675 ₴ for The Witcher 3.
+    expect(named).toEqual([{ slug: 'the-witcher-3-wild-hunt', cheaperAt: 'gog' }])
+
+    /** The server HTML of every card on a page, by the slug its link opens. */
+    const cardsOf = (html: string) =>
+      new Map(
+        (html.match(/<article[\s\S]*?<\/article>/g) ?? []).map((card) => [
+          card.match(/href="(?:\/en)?\/games\/([a-z0-9-]+)"/)?.[1] ?? '',
+          card,
+        ]),
+      )
+    const lineOf = (card: string) =>
+      card.match(/data-test="cheaper-at"[^>]*>\s*([^<]*?)\s*</)?.[1] ?? null
+
+    const cards = cardsOf(await $fetch<string>('/games'))
+    expect(cards.size).toBe(body.data.games.items.length)
+    for (const item of body.data.games.items) {
+      const card = cards.get(item.slug)!
+      expect(lineOf(card), item.slug).toBe(item.cheaperAt === 'gog' ? 'Дешевше в GOG' : null)
+    }
+    // Under the price, inside the card: the line comes after the price line it is about.
+    const witcher = cards.get('the-witcher-3-wild-hunt')!
+    expect(witcher.indexOf('data-test="cheaper-at"')).toBeGreaterThan(
+      witcher.indexOf('data-test="price"'),
+    )
+
+    const english = cardsOf(await $fetch<string>('/en/games'))
+    expect(lineOf(english.get('the-witcher-3-wild-hunt')!)).toBe('Cheaper at GOG')
+    expect(lineOf(english.get('portal-2')!)).toBeNull()
+
+    // The same card on a landing shelf says the same thing.
+    const landing = await $fetch<string>('/')
+    const sale = cardsOf(shelfHtml(landing, 'ON_SALE'))
+    expect(lineOf(sale.get('the-witcher-3-wild-hunt')!)).toBe('Дешевше в GOG')
+    expect(lineOf(sale.get('metro-exodus')!)).toBeNull()
+  })
+
   it('serves a price-filtered page from the index alone, through the running BFF', async () => {
     const body = await $fetch<{ data: { games: Record<string, unknown> } }>('/api/graphql', {
       method: 'POST',

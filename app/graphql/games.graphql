@@ -2,7 +2,8 @@
 # where the week-2 index plugs in) but are not selected: nothing reads them, and the server
 # hard-codes most of them to null today. Paging is derived from `total`/`pageSize`, so `hasNext`
 # is not selected either. `price` and `localisation` ARE selected: the card renders a price line
-# and a localisation badge, null on a game outside the index.
+# and a localisation badge, null on a game outside the index. `cheaperAt` is the store the card
+# names under that price when another store is clearly cheaper than Steam, and null nearly always.
 # `indexedOnly`/`indexStale`/`indexUpdatedAt`/`ignoredFilters` say which path answered, how old
 # its prices are, and which filters (or the sort) it could not apply — the catalog's note, its
 # stale banner, its struck-through chips and the note beside the sort control all read them.
@@ -37,6 +38,7 @@ query Games($filter: GameFilter, $sort: GameSort, $page: Int, $pageSize: Int) {
         isFree
         updatedAt
       }
+      cheaperAt
       localisation {
         text
         audio
