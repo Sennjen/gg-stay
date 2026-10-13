@@ -4,6 +4,11 @@ import { createBankRateFetch, type BankRateFetch } from './bank'
 import type { JobClock } from './deps'
 import { createGogCatalogFetch, type GogCatalogFetch } from './gog'
 import { createMicrosoftProductsFetch, type MicrosoftProductsFetch } from './microsoft'
+import {
+  createPlaystationStore,
+  type PlaystationResponse,
+  type PlaystationStore,
+} from './playstation'
 import type { StoreUpstreamRuntime } from './storeUpstream'
 import type { UpstreamCacheEntry } from '../../server/upstream/createUpstreamFetch'
 import { createRawgFetch, type RawgFetch } from '../../server/rawg/rawgFetch'
@@ -15,8 +20,8 @@ import { createSteamPriceFetch, type SteamPriceFetch } from '../../server/steam/
  * RAWG and Steam ones in `server/utils/rawg.ts` and `server/utils/steam.ts` from
  * `useRuntimeConfig` and `useStorage`; here the cache is a map that dies with the process and the
  * fixtures are read off disk, but the throttling, timeouts, retries and parsing are the
- * transports' own. The three at the end — GOG, the Microsoft Store and the National Bank — are
- * built nowhere else: only the job talks to them.
+ * transports' own. The four at the end — GOG, the Microsoft Store, the National Bank and the
+ * PlayStation Store — are built nowhere else: only the job talks to them.
  */
 
 const FIXTURE_DIRS = {
@@ -25,6 +30,7 @@ const FIXTURE_DIRS = {
   GOG: new URL('../../tests/fixtures/gog/', import.meta.url),
   MICROSOFT: new URL('../../tests/fixtures/microsoft/', import.meta.url),
   NBU: new URL('../../tests/fixtures/nbu/', import.meta.url),
+  PLAYSTATION: new URL('../../tests/fixtures/playstation/', import.meta.url),
 } as const
 
 function createMemoryCache() {
@@ -119,10 +125,10 @@ export function createJobSteam(options: UpstreamOptions): SteamPriceFetch {
 }
 
 /**
- * Who is asking, on every request to GOG, the Microsoft Store and the National Bank: the project
- * by name, what it is doing, and where its source — and so its owner — can be found. None of the
- * three documents these endpoints for anyone else, and a caller they cannot identify is the first
- * one they would be right to turn away.
+ * Who is asking, on every request to GOG, the Microsoft Store, the PlayStation Store and the
+ * National Bank: the project by name, what it is doing, and where its source — and so its owner —
+ * can be found. None of them documents these endpoints for anyone else, and a caller they cannot
+ * identify is the first one they would be right to turn away.
  */
 export const STORE_USER_AGENT = 'gg-stay-index-refresh/1.0 (+https://github.com/Sennjen/gg-stay)'
 
@@ -180,6 +186,60 @@ export function createJobBank(options: StoreUpstreamOptions): BankRateFetch {
         : entry,
     )
   }
+}
+
+/** A body that is a page for a browser, whatever its `Content-Type` says of it. */
+const HTML_DOCUMENT = /^\s*<(?:!doctype\b|html\b)/i
+
+/**
+ * One GET to Sony, as the PlayStation transport asks for it (`PlaystationRuntime.fetch`): the
+ * job's own name on it, the transport's headers and nothing else — no cookie is kept between two
+ * requests, because nothing here keeps anything — and no redirect followed. A redirect is handed
+ * back as the status it is: followed, it would be a second request to Sony that nobody counted
+ * and nothing paced.
+ *
+ * The body is read as text first, so that a page can be told from an answer: Sony's endpoints
+ * answer in JSON, and what is not JSON is not theirs.
+ */
+async function fetchPlaystation(
+  url: string,
+  headers: Readonly<Record<string, string>>,
+  signal: AbortSignal,
+): Promise<PlaystationResponse> {
+  const response = await fetch(url, {
+    signal,
+    redirect: 'manual',
+    headers: { ...headers, 'User-Agent': STORE_USER_AGENT, Accept: 'application/json' },
+  })
+  const text = await response.text().catch(() => '')
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  } catch {
+    body = undefined
+  }
+  const type = response.headers.get('content-type') ?? ''
+  return {
+    status: response.status,
+    body,
+    html: /^text\/html\b/i.test(type) || HTML_DOCUMENT.test(text),
+  }
+}
+
+/**
+ * The PlayStation Store, for one run of the job: the object built here holds the run's ration of
+ * requests and of time, so a process that ran the job twice would build it twice
+ * (`createPlaystationStore`). In fixture mode it reads the recorded answers
+ * (`tests/fixtures/playstation`) and sends nothing.
+ */
+export function createJobPlaystation(options: StoreUpstreamOptions): PlaystationStore {
+  return createPlaystationStore({
+    fixtures: options.fixtures,
+    fetch: fetchPlaystation,
+    readFixture: createFixtureReader(FIXTURE_DIRS.PLAYSTATION),
+    now: options.clock.now,
+    sleep: options.clock.sleep,
+  })
 }
 
 export const systemClock: JobClock = {

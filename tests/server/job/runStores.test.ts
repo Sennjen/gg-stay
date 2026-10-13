@@ -354,6 +354,7 @@ describe('runJob when a store is down', () => {
       gog: null,
       microsoft: null,
       rate: null,
+      playstation: null,
     })
     // A run Steam has already failed asks no other store anything.
     expect(failing.gogPages).toHaveLength(0)

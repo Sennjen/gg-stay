@@ -1,14 +1,15 @@
 import type { BankRateFetch } from './bank'
 import type { GogCatalogFetch } from './gog'
 import type { MicrosoftProductsFetch } from './microsoft'
+import type { PlaystationStore } from './playstation'
 import type { GameIndex, GameIndexWriter } from '../../server/index/GameIndex'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamPriceFetch } from '../../server/steam/steamPriceFetch'
 
 /**
  * What every stage of the refresh job is given, and nothing more: the upstream transports — RAWG,
- * Steam, and the three only the job talks to: GOG, the Microsoft Store and the National Bank —
- * the index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`,
+ * Steam, and the four only the job talks to: GOG, the Microsoft Store, the PlayStation Store and
+ * the National Bank — the index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`,
  * `Date.now()` or the network directly — only `run.ts` builds these — so a stage runs the same on
  * fixtures, on the in-memory adapter and on a fake clock as it does against the real services and
  * Upstash.
@@ -65,6 +66,11 @@ export interface JobDeps {
   microsoft: MicrosoftProductsFetch
   /** The National Bank's dollar rate for one day. */
   bank: BankRateFetch
+  /**
+   * The PlayStation Store for Ukraine, a game a request and never faster than its own pause: the
+   * one transport that holds a run's ration itself, so it is built for one run.
+   */
+  playstation: PlaystationStore
   writer: JobIndex
   clock: JobClock
   log: JobLog

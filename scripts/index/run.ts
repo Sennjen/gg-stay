@@ -11,6 +11,7 @@ import {
   type RateReport,
   type StoreReadReport,
 } from './offers'
+import { refreshPlaystationOffers, type PlaystationReport } from './playstationOffers'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
 import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
@@ -21,6 +22,7 @@ import {
   createJobBank,
   createJobGog,
   createJobMicrosoft,
+  createJobPlaystation,
   createJobRawg,
   createJobSteam,
   systemClock,
@@ -41,7 +43,10 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  *
  * One thing keeps a cadence of its own, across all three: what GOG and the Microsoft Store charge
  * is read by whichever run finds the last read more than eleven hours old (`offers.ts`), which
- * is every other prices run, and the National Bank's rate by every run.
+ * is every other prices run, and the National Bank's rate by every run. And one thing is done a
+ * portion at a time by every run: what the PlayStation Store charges is read a game a request,
+ * ten seconds apart, each game once a day (`playstationOffers.ts`) — which is why a prices run
+ * that Steam takes a minute and a half over is given up to forty more.
  *
  * Everything that touches the outside world is built here and handed to the stages, so the stages
  * themselves stay testable on fixtures and a fake clock. The run starts with a write probe rather
@@ -152,6 +157,11 @@ export interface StoresReport {
   gog: StoreReadReport | null
   microsoft: StoreReadReport | null
   rate: RateReport | null
+  /**
+   * `null` on a run that ended before the PlayStation Store's stage, which comes after the other
+   * stores'. Optional so that a report built by hand need not name it; `runJob` always does.
+   */
+  playstation?: PlaystationReport | null
 }
 
 export interface JobReport {
@@ -391,6 +401,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
       gog: null,
       microsoft: null,
       rate: null,
+      playstation: null,
     }
 
     // One rule in every mode: a document carries its game's Steam app id whenever the permanent
@@ -454,6 +465,16 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // way: the summary row is there for whoever opens it, and the annotation is on the run's
     // page for whoever does not.
     for (const warning of storeWarnings(stores)) deps.log(`::warning::${warning}`)
+
+    // The PlayStation Store, last of the stores and by far the slowest: up to forty minutes of a
+    // request every ten seconds, in every mode. After the others so that what they read is on the
+    // documents whatever becomes of this one; and, like them, it cannot fail the run — Sony
+    // refusing ends this stage with a warning, and the version is published as it stands.
+    const playstation = await stage('PlayStation Store prices', () =>
+      refreshPlaystationOffers(deps, games, storeRefs, offers.playstation),
+    )
+    stores = { ...stores, playstation }
+    for (const warning of playstationWarnings(playstation)) deps.log(`::warning::${warning}`)
 
     // Last, over the final set of games — studio games included — so every id a list names is a
     // document of this version. The other modes carry the published lists forward with the
@@ -661,6 +682,52 @@ export function storeWarnings(stores: StoresReport): string[] {
   ]
 }
 
+/**
+ * The warnings a run owes about the PlayStation Store: one for every way its stage ended that is
+ * not the design. A refusal by Sony — a 403, a 429, a redirect, a page where data was asked for
+ * — and three requests failing in a row both end the stage for the run; answers that would have
+ * removed most of the offers the run asked about are not believed (`removalsNotBelieved`); a
+ * mapping that has forgotten most of the games carrying an offer is not believed either; and a
+ * believed mapping that cost the store twenty offers or more is said as it is for the others.
+ *
+ * Nothing for a stage that ran out of its requests or its time: that is every ordinary run, the
+ * ration being what it is. And nothing here is Sony's own text — every reason is this job's
+ * words and its own counts.
+ */
+export function playstationWarnings(read: PlaystationReport | null | undefined): string[] {
+  if (!read) return []
+  const name = 'PlayStation Store'
+  const warnings: string[] = []
+  if (read.status === 'references-lost') {
+    warnings.push(
+      `${name} prices not refreshed: ${cell(read.error ?? 'the store references look lost')} — ` +
+        'every offer is kept as it was and Sony was not asked',
+    )
+  }
+  if (read.stopped?.reason === 'refused') {
+    warnings.push(
+      `${name} prices: Sony refused a request (${cell(read.stopped.detail)}), so nothing more ` +
+        `was asked in this run, after ${plural(read.requests, 'request', 'requests')} — ` +
+        'every offer that was not read stands as it was',
+    )
+  }
+  if (read.stopped?.reason === 'failures') {
+    warnings.push(
+      `${name} prices: ${cell(read.stopped.detail)}, so nothing more was asked in this run, ` +
+        `after ${plural(read.requests, 'request', 'requests')} — ` +
+        'every offer that was not read stands as it was',
+    )
+  }
+  if (read.status === 'failed') {
+    warnings.push(
+      `${name} prices: ${cell(read.error ?? 'the answers were not believed')} — ` +
+        'the prices that were read are published',
+    )
+  }
+  const dropped = (read.dropped ?? 0) >= OFFER_FLOOR_MIN_CARRIED ? droppedNote(read.dropped) : null
+  return [...warnings, ...(dropped ? [`${name}: ${dropped}`] : [])]
+}
+
 /** A value as one cell of the summary's table: on one line, and with no column of its own. */
 function cell(text: string): string {
   return text.replace(/\s+/g, ' ').replaceAll('|', '/')
@@ -745,8 +812,57 @@ function storeRows(report: JobReport): [string, string][] {
   ]
   if (stores.gog) rows.push(storeReadRow('GOG prices', stores.gog))
   if (stores.microsoft) rows.push(storeReadRow('Microsoft Store prices', stores.microsoft))
+  if (stores.playstation) rows.push(playstationRow(stores.playstation))
   if (stores.rate) rows.push(rateRow(stores.rate))
   return rows
+}
+
+/** What is said of how the PlayStation Store's stage ended. */
+function playstationStopNote(read: PlaystationReport): string {
+  switch (read.stopped?.reason) {
+    case undefined:
+      return 'everything due was asked'
+    case 'requests':
+      return 'stopped at its requests for one run, the rest waits for the next'
+    case 'time':
+      return 'stopped at its forty minutes, the rest waits for the next run'
+    case 'refused':
+      return `stopped: Sony refused a request (${cell(read.stopped.detail)})`
+    case 'failures':
+      return `stopped: ${cell(read.stopped.detail)}`
+  }
+}
+
+/**
+ * The PlayStation Store's row: how many games have a title and how many of those a concept, what
+ * this run read, removed and failed at, what it cost in requests, and why it stopped.
+ */
+function playstationRow(read: PlaystationReport): [string, string] {
+  const name = 'PlayStation Store prices'
+  const references = plural(read.references, 'reference', 'references')
+  const offers = plural(read.offers, 'offer', 'offers')
+  const dropped = droppedNote(read.dropped)
+  const tail = dropped ? `; ${dropped}` : ''
+  if (read.status === 'no-references') return [name, `no references, nothing to read${tail}`]
+  if (read.status === 'references-lost') {
+    return [
+      name,
+      `${references}, not read (${cell(read.error ?? 'the store references look lost')}); ` +
+        `${offers} kept as they were; the next run looks again${tail}`,
+    ]
+  }
+  return [
+    name,
+    `${references}, ${read.mapped} mapped to a concept, ${read.unmapped} waiting to be; ` +
+      `${plural(read.pricesRead, 'price', 'prices')} read of ${read.due} due, ` +
+      `${read.removed} removed, ${plural(read.mappingsRead, 'title', 'titles')} mapped, ` +
+      `${read.failed} failed; ${offers} published, ${plural(read.requests, 'request', 'requests')}; ` +
+      playstationStopNote(read) +
+      (read.status === 'failed'
+        ? ` (${cell(read.error ?? 'the answers were not believed')})`
+        : '') +
+      tail,
+  ]
 }
 
 /** The Markdown GitHub shows on the run's summary page, for a run that reached a verdict. */
@@ -868,6 +984,7 @@ export async function runCli(
       gog: createJobGog({ fixtures, clock }),
       microsoft: createJobMicrosoft({ fixtures, clock }),
       bank: createJobBank({ fixtures, clock }),
+      playstation: createJobPlaystation({ fixtures, clock }),
       writer: fromEnv.writer,
       clock,
       log,
