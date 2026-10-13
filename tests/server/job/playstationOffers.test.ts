@@ -978,6 +978,59 @@ describe('the nightly run: mapping titles to concepts', () => {
     expect(run.psOffer(1)).toEqual(offerOf(1, ago(30 * HOUR)))
   })
 
+  it('never asks again about a title that has a concept, however long ago it was asked about', async () => {
+    const run = world([
+      // Mapped by a build that did not date the asking; and one not asked about for forty days.
+      { id: 1 },
+      { id: 2, askedAgo: 40 * DAY },
+      { id: 3, mapped: false },
+    ])
+
+    const report = await run.run('mappings')
+
+    expect(run.asked('concept')).toEqual([3])
+    expect(report).toMatchObject({ due: 1, mappingsRead: 1, mapped: 3, requests: 1 })
+  })
+
+  it('writes the date of the asking before the request is sent, as a prices run does', async () => {
+    const run = world(many(3, () => ({ mapped: false })))
+    const events: string[] = []
+    const setStoreRefs = run.harness.writer.setStoreRefs.bind(run.harness.writer)
+    vi.spyOn(run.harness.writer, 'setStoreRefs').mockImplementation(async (entries) => {
+      const written = [...entries]
+      for (const [id, record] of written) {
+        const { conceptId, askedAt } = record.playstation ?? {}
+        events.push(`write ${id}: ${conceptId ?? 'no concept yet'}, asked ${askedAt}`)
+      }
+      await setStoreRefs(written)
+    })
+    run.harness.sonyAnswersWith(
+      {},
+      { times: Infinity, match: (request) => (events.push(`ask ${request.id}`), false) },
+    )
+
+    await run.run('mappings')
+
+    expect(events).toEqual(
+      [1, 2, 3].flatMap((id, index) => [
+        `write ${id}: no concept yet, asked ${stampedAt(index)}`,
+        `ask ${titleOf(id)}`,
+        `write ${id}: ${conceptOf(id)}, asked ${stampedAt(index)}`,
+      ]),
+    )
+  })
+
+  it('sends nothing to Sony when the index will not take the date of a mapping', async () => {
+    const run = world(many(5, () => ({ mapped: false })))
+    vi.spyOn(run.harness.writer, 'setStoreRefs').mockRejectedValue(
+      new Error('the index is unreachable'),
+    )
+
+    await expect(run.run('mappings')).rejects.toThrow('the index is unreachable')
+
+    expect(run.harness.sonyRequests).toHaveLength(0)
+  })
+
   it('leaves the price of a title it mapped to the prices run twenty hours on', async () => {
     const run = world([{ id: 1, mapped: false }])
     await run.run('mappings')

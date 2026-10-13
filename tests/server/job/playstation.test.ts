@@ -853,6 +853,15 @@ describe('parsePlaystationPrice, on every shape that is not a price anyone can p
       expect(
         priceOf([sonyCta('DOWNLOAD', 0, 0, { qualifications: experiment('a') })]),
       ).toBeUndefined()
+      // Nor a download that charges: the rule is about a purchase, and this is not one.
+      expect(
+        priceOf([
+          sonyCta('DOWNLOAD', 79_900, 39_950, {
+            qualifications: experiment('a'),
+            price: { isFree: false },
+          }),
+        ]),
+      ).toBeUndefined()
       for (const price of [
         { isTiedToSubscription: true },
         { isExclusive: true },
