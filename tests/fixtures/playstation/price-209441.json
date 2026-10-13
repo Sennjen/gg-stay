@@ -1,0 +1,54 @@
+{
+  "data": {
+    "conceptRetrieve": {
+      "id": "209441",
+      "defaultProduct": {
+        "id": "EP1004-CUSA08519_00-REDEMPTIONFULL02",
+        "name": "Red Dead Redemption 2",
+        "concept": {"id": "209441"},
+        "webctas": [
+          {
+            "type": "UPSELL_PS_PLUS_GAME_CATALOG",
+            "meta": {"upSellService": "PS_PLUS"},
+            "price": {
+              "applicability": "UPSELL",
+              "basePriceValue": 259900,
+              "discountedValue": 0,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": true,
+              "isTiedToSubscription": true,
+              "qualifications": [{"type": "ENTITLEMENT_IN_CART", "value": "SUB001-SUBC00002_00-TJ4KZ94GWFC3NYB0"}],
+              "serviceBranding": ["PS_PLUS"]
+            }
+          },
+          {
+            "type": "ADD_TO_CART",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+              "applicability": "APPLICABLE",
+              "basePriceValue": 259900,
+              "discountedValue": 64975,
+              "currencyCode": "UAH",
+              "endTime": "1792623540000",
+              "isExclusive": false,
+              "isFree": false,
+              "isTiedToSubscription": false,
+              "qualifications": [
+                {"type": "USER_IN_EXPERIMENT", "value": "CrossChannel.IPT_PILOT._.1.1"},
+                {"type": "USER_IN_EXPERIMENT", "value": "CrossChannel.IPT_PILOT._.1.2"}
+              ],
+              "serviceBranding": ["NONE"]
+            }
+          }
+        ]
+      },
+      "products": [
+        {"id": "EP1004-CUSA08519_00-REDEMPTIONFULL02", "name": "Red Dead Redemption 2"},
+        {"id": "EP1004-CUSA08519_00-RDR2ULTMEDTNBUND", "name": "Red Dead Redemption 2:  Ultimate Edition"},
+        {"id": "EP1004-CUSA08519_00-REDEMPTION000002", "name": "Red Dead Online"}
+      ]
+    }
+  }
+}

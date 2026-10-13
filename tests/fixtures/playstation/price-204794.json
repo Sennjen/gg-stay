@@ -1,0 +1,47 @@
+{
+  "data": {
+    "conceptRetrieve": {
+      "id": "204794",
+      "defaultProduct": {
+        "id": "EP4497-PPSA04021_00-0000000000GOTY11",
+        "name": "Відьмак 3: Дикий гін — Перевидання",
+        "concept": {"id": "204794"},
+        "webctas": [
+          {
+            "type": "UPSELL_PS_PLUS_TRIAL",
+            "meta": {"upSellService": "PS_PLUS"},
+            "price": {
+              "applicability": "UPSELL",
+              "basePriceValue": 0,
+              "discountedValue": 0,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": true,
+              "isFree": true,
+              "isTiedToSubscription": true,
+              "qualifications": [{"type": "ENTITLEMENT_IN_CART", "value": "SUB001-SUBC00002_00-V8A5AF83DXLE1KMA"}],
+              "serviceBranding": ["PS_PLUS"]
+            }
+          },
+          {
+            "type": "ADD_TO_CART",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+              "applicability": "APPLICABLE",
+              "basePriceValue": 164900,
+              "discountedValue": 164900,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": false,
+              "isTiedToSubscription": false,
+              "qualifications": [],
+              "serviceBranding": ["NONE"]
+            }
+          }
+        ]
+      },
+      "products": [{"id": "EP4497-PPSA04021_00-0000000000GOTY11", "name": "Відьмак 3: Дикий гін — Перевидання"}]
+    }
+  }
+}

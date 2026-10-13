@@ -1,0 +1,54 @@
+{
+  "data": {
+    "conceptRetrieve": {
+      "id": "231769",
+      "defaultProduct": {
+        "id": "EP4062-PPSA01749_00-METROEXODUS0GEN9",
+        "name": "Metro Exodus",
+        "concept": {"id": "231769"},
+        "webctas": [
+          {
+            "type": "UPSELL_PS_PLUS_GAME_CATALOG",
+            "meta": {"upSellService": "PS_PLUS"},
+            "price": {
+              "applicability": "UPSELL",
+              "basePriceValue": 94900,
+              "discountedValue": 0,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": true,
+              "isTiedToSubscription": true,
+              "qualifications": [{"type": "ENTITLEMENT_IN_CART", "value": "SUB001-SUBC00002_00-TJ4KZ94GWFC3NYB0"}],
+              "serviceBranding": ["PS_PLUS"]
+            }
+          },
+          {
+            "type": "ADD_TO_CART",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+              "applicability": "APPLICABLE",
+              "basePriceValue": 94900,
+              "discountedValue": 9490,
+              "currencyCode": "UAH",
+              "endTime": "1792623540000",
+              "isExclusive": false,
+              "isFree": false,
+              "isTiedToSubscription": false,
+              "qualifications": [
+                {"type": "USER_IN_EXPERIMENT", "value": "CrossChannel.IPT_PILOT._.1.1"},
+                {"type": "USER_IN_EXPERIMENT", "value": "CrossChannel.IPT_PILOT._.1.2"}
+              ],
+              "serviceBranding": ["NONE"]
+            }
+          }
+        ]
+      },
+      "products": [
+        {"id": "EP4062-CUSA11407_00-METROSAGABUNDLE0", "name": "Metro Saga Bundle"},
+        {"id": "EP4062-PPSA01749_00-METROEXODUS0GEN9", "name": "Metro Exodus"},
+        {"id": "EP4062-PPSA01749_00-522MEEGOLDEDGEN9", "name": "Metro Exodus: Gold Edition"}
+      ]
+    }
+  }
+}

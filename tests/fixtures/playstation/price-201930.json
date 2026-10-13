@@ -1,0 +1,51 @@
+{
+  "data": {
+    "conceptRetrieve": {
+      "id": "201930",
+      "defaultProduct": {
+        "id": "EP1004-PPSA01721_00-GTAOSTANDALONE01",
+        "name": "Grand Theft Auto Online (PlayStation®5)",
+        "concept": {"id": "201930"},
+        "webctas": [
+          {
+            "type": "ADD_TO_CART",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+              "applicability": "APPLICABLE",
+              "basePriceValue": 89900,
+              "discountedValue": 89900,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": false,
+              "isTiedToSubscription": false,
+              "qualifications": [],
+              "serviceBranding": ["NONE"]
+            }
+          },
+          {
+            "type": "UPSELL_GTA_PLUS_FREE",
+            "meta": {"upSellService": "GTA_PLUS"},
+            "price": {
+              "applicability": "UPSELL",
+              "basePriceValue": 89900,
+              "discountedValue": 0,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": true,
+              "isTiedToSubscription": true,
+              "qualifications": [{"type": "ENTITLEMENT_IN_CART", "value": "UP1004-PPSA16755_00-0EY97KVKMN3HY30M"}],
+              "serviceBranding": ["GTA_PLUS"]
+            }
+          }
+        ]
+      },
+      "products": [
+        {"id": "EP1004-PPSA01721_00-GTAVANDGWSBUNDLE", "name": "Комплект: Grand Theft Auto V і платіжна картка «Біла акула»"},
+        {"id": "EP1004-PPSA01721_00-GTAOSTANDALONE01", "name": "Grand Theft Auto Online (PlayStation®5)"},
+        {"id": "EP1004-PPSA01721_00-GTAVCROSSGENBUND", "name": "Grand Theft Auto V (PS4™ та PS5™)"}
+      ]
+    }
+  }
+}
