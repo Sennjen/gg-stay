@@ -1,9 +1,1 @@
-[
-  {
-    "id": 227229,
-    "name": "Stardew Valley",
-    "titleIds": ["CUSA26625_00", "CUSA25017_00", "PCSE01235_00", "CUSA06829_00", "CUSA06840_00", "CUSA13911_00"],
-    "country": "UA",
-    "language": "uk"
-  }
-]
+[{"id": 227229, "titleIds": ["CUSA26625_00", "CUSA25017_00", "PCSE01235_00", "CUSA06829_00", "CUSA06840_00", "CUSA13911_00"]}]

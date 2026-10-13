@@ -1,9 +1,1 @@
-[
-  {
-    "id": 201957,
-    "name": "Grand Theft Auto: San Andreas",
-    "titleIds": ["CUSA02192_00", "CUSA03547_00", "CUSA03616_00", "CUSA03506_00", "CUSA03541_00", "CUSA02157_00"],
-    "country": "UA",
-    "language": "uk"
-  }
-]
+[{"id": 201957, "titleIds": ["CUSA02192_00", "CUSA03547_00", "CUSA03616_00", "CUSA03506_00", "CUSA03541_00", "CUSA02157_00"]}]

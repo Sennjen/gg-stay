@@ -1,9 +1,6 @@
 [
   {
     "id": 231769,
-    "name": "Metro Exodus",
-    "titleIds": ["CUSA11408_00", "CUSA13627_00", "CUSA14455_00", "PPSA01749_00", "CUSA11407_00", "CUSA14858_00", "PPSA02959_00", "CUSA13564_00", "PPSA02395_00"],
-    "country": "UA",
-    "language": "uk"
+    "titleIds": ["CUSA11408_00", "CUSA13627_00", "CUSA14455_00", "PPSA01749_00", "CUSA11407_00", "CUSA14858_00", "PPSA02959_00", "CUSA13564_00", "PPSA02395_00"]
   }
 ]

@@ -1,7 +1,6 @@
 [
   {
     "id": 227770,
-    "name": "God of War",
     "titleIds": [
       "CUSA07411_00",
       "CUSA07435_00",
@@ -23,8 +22,6 @@
       "CUSA09944_00",
       "CUSA11466_00",
       "CUSA09945_00"
-    ],
-    "country": "UA",
-    "language": "uk"
+    ]
   }
 ]

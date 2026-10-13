@@ -1,7 +1,6 @@
 [
   {
     "id": 234567,
-    "name": "Cyberpunk 2077",
     "titleIds": [
       "CUSA24745_00",
       "CUSA19365_00",
@@ -26,8 +25,6 @@
       "CUSA18279_00",
       "CUSA24949_00",
       "PPSA03974_00"
-    ],
-    "country": "UA",
-    "language": "uk"
+    ]
   }
 ]

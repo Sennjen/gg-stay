@@ -71,14 +71,14 @@ export const JOB_PLAYSTATION_LINKS: Record<number, RawgStoreLink[]> = {
 /** Sony's code, in both endpoints, for a thing the store asked about does not have. */
 export const SONY_NOT_IN_THE_STORE = 3166081
 
-/** The catalog's answer about a title that belongs to a concept. */
-export function sonyConcept(conceptId: number, titleIds: readonly string[], name = 'A game') {
-  return [{ id: conceptId, name, titleIds: [...titleIds], country: 'UA', language: 'uk' }]
+/** The catalog's answer about a title that belongs to a concept, cut to what the job reads. */
+export function sonyConcept(conceptId: number, titleIds: readonly string[]) {
+  return [{ id: conceptId, titleIds: [...titleIds] }]
 }
 
 /** Its answer about a title it has no concept for: every PlayStation 3 title, and any unknown id. */
 export function sonyNoConcept(titleId: string, errorCode: number = SONY_NOT_IN_THE_STORE) {
-  return [{ titleIds: [titleId], country: 'UA', language: 'uk', revisionIds: {}, errorCode }]
+  return [{ titleIds: [titleId], errorCode }]
 }
 
 export interface SonyPriceOptions {
@@ -179,10 +179,10 @@ export const JOB_PLAYSTATION_PRODUCTS = {
 
 /** What the job's fake Sony knows of titles, by title id; any other title has no concept. */
 export const JOB_SONY_CONCEPTS: Record<string, unknown> = {
-  PPSA10100_00: sonyConcept(10_101, ['PPSA10101_00', 'PPSA10100_00'], 'Hollow Cradle'),
+  PPSA10100_00: sonyConcept(10_101, ['PPSA10101_00', 'PPSA10100_00']),
   // The American title asked about comes back in a concept that lists it beside the European one.
-  CUSA10600_00: sonyConcept(10_106, ['CUSA10601_00', 'CUSA10600_00'], 'Amber Trail'),
-  PPSA10800_00: sonyConcept(10_108, ['PPSA10801_00', 'PPSA10800_00'], 'Silent Meridian'),
+  CUSA10600_00: sonyConcept(10_106, ['CUSA10601_00', 'CUSA10600_00']),
+  PPSA10800_00: sonyConcept(10_108, ['PPSA10801_00', 'PPSA10800_00']),
 }
 
 /** What it knows of concepts, by concept id; any other concept is not in the store. */
