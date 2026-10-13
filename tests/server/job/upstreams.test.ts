@@ -347,6 +347,75 @@ describe('the refresh job’s transport to the PlayStation Store', () => {
     expect(sent.mock.calls).toHaveLength(1)
   })
 
+  it('takes a body that never arrived for a failure, not for an answer that was not data', async () => {
+    // A 200 whose body breaks off in the middle: the connection was reset, or the timeout passed.
+    const broken = () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error('socket hang up'))
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    const fetched = vi.fn(async () => broken())
+    vi.stubGlobal('fetch', fetched)
+    const store = createJobPlaystation(storeOptions(sleepingClock()))
+
+    await expect(store.concept('CUSA00419_00')).rejects.toMatchObject({
+      source: 'PLAYSTATION',
+      kind: 'ERROR',
+    })
+
+    // One failure, and the run goes on; it would have stopped at a refusal.
+    expect(store.stopped()).toBeNull()
+    await store.concept('CUSA00419_00').catch(() => {})
+    expect(fetched).toHaveBeenCalledTimes(2)
+  })
+
+  it('counts the pause on the clock that only goes forward, whatever the wall clock does', async () => {
+    network(json(concept), json(noPrice))
+    let wall = Date.parse('2026-10-13T06:15:00.000Z')
+    let monotonic = 0
+    const sleeps: number[] = []
+    const store = createJobPlaystation(
+      storeOptions({
+        now: () => wall,
+        monotonic: () => monotonic,
+        sleep: async (ms) => void (sleeps.push(ms), (monotonic += ms), (wall += ms)),
+      }),
+    )
+
+    await store.concept('CUSA00419_00')
+    // The runner's clock is set an hour ahead. By it, the pause would be long over.
+    wall += 3_600_000
+    await store.price(201_930)
+
+    expect(sleeps).toEqual([10_000])
+  })
+
+  it('is one transport a clock: a second caller shares the pause and the ration of the first', async () => {
+    const sent = network(json(concept), json(noPrice))
+    const clock = sleepingClock()
+    const first = createJobPlaystation(storeOptions(clock))
+    const second = createJobPlaystation(storeOptions(clock))
+
+    expect(second).toBe(first)
+    await first.concept('CUSA00419_00')
+    await second.price(201_930)
+
+    // Two callers, one line: the second waited out the first one's pause.
+    expect(clock.sleeps).toEqual([10_000])
+    expect(second.requests()).toBe(2)
+    expect(sent.mock.calls).toHaveLength(2)
+    // Another clock is another process's, in a test; and a transport that sends nothing has no
+    // pause to share.
+    expect(createJobPlaystation(storeOptions(sleepingClock()))).not.toBe(first)
+    expect(createJobPlaystation(storeOptions(clock, true))).not.toBe(
+      createJobPlaystation(storeOptions(clock, true)),
+    )
+  })
+
   it('takes an error that is data for a failure and not a refusal', async () => {
     const sent = network(json({ message: 'Query not whitelisted' }, 400), json(noPrice))
     const store = createJobPlaystation(storeOptions(sleepingClock()))

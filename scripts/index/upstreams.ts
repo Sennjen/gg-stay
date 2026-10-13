@@ -199,7 +199,17 @@ const HTML_DOCUMENT = /^\s*<(?:!doctype\b|html\b)/i
  * and nothing paced.
  *
  * The body is read as text first, so that a page can be told from an answer: Sony's endpoints
- * answer in JSON, and what is not JSON is not theirs.
+ * answer in JSON, and what is not JSON is not theirs. A body that does not arrive — the
+ * connection reset, the timeout passed in the middle of it — is thrown like a request that never
+ * came back: it is a failure, and must not be mistaken for an answer that was not data, which is
+ * a refusal.
+ *
+ * Two things the runtime does that this code does not ask for, said here because the wire test
+ * stubs `fetch` and cannot show them. Node's `fetch` adds `accept-language: *`,
+ * `accept-encoding` and `sec-fetch-mode: cors` to every request. And, following the Fetch
+ * standard, it sends a request once more by itself on an HTTP 421: one request the transport
+ * neither counts nor paces. Neither was seen to matter, and closing both would mean leaving
+ * `fetch` for `node:https`.
  */
 async function fetchPlaystation(
   url: string,
@@ -211,7 +221,7 @@ async function fetchPlaystation(
     redirect: 'manual',
     headers: { ...headers, 'User-Agent': STORE_USER_AGENT, Accept: 'application/json' },
   })
-  const text = await response.text().catch(() => '')
+  const text = await response.text()
   let body: unknown
   try {
     body = JSON.parse(text)
@@ -226,23 +236,41 @@ async function fetchPlaystation(
   }
 }
 
+/** The transport that reaches Sony, by the clock it was built on: one a clock, and so one a process. */
+const liveStores = new WeakMap<JobClock, PlaystationStore>()
+
 /**
  * The PlayStation Store, for one run of the job: the object built here holds the run's ration of
- * requests and of time, so a process that ran the job twice would build it twice
- * (`createPlaystationStore`). In fixture mode it reads the recorded answers
- * (`tests/fixtures/playstation`) and sends nothing.
+ * requests and of time (`createPlaystationStore`).
+ *
+ * **There is one of them a clock.** A second call with the same clock is handed the transport
+ * the first one built, with its pause and what is left of its ration: a process has one clock
+ * (`systemClock`), so whoever asks for the way to Sony in it, and however often, there is one
+ * line and one pause. That the limits cannot be got round does not rest on this being called
+ * once.
+ *
+ * The pause and the budget are counted on the clock's monotonic reading where it has one.
+ *
+ * In fixture mode it reads the recorded answers (`tests/fixtures/playstation`) and sends
+ * nothing; a transport that sends nothing has no pause to share, and each call builds its own.
  */
 export function createJobPlaystation(options: StoreUpstreamOptions): PlaystationStore {
-  return createPlaystationStore({
-    fixtures: options.fixtures,
-    fetch: fetchPlaystation,
-    readFixture: createFixtureReader(FIXTURE_DIRS.PLAYSTATION),
-    now: options.clock.now,
-    sleep: options.clock.sleep,
-  })
+  const build = (): PlaystationStore =>
+    createPlaystationStore({
+      fixtures: options.fixtures,
+      fetch: fetchPlaystation,
+      readFixture: createFixtureReader(FIXTURE_DIRS.PLAYSTATION),
+      now: options.clock.monotonic ?? options.clock.now,
+      sleep: options.clock.sleep,
+    })
+  if (options.fixtures) return build()
+  const built = liveStores.get(options.clock) ?? build()
+  liveStores.set(options.clock, built)
+  return built
 }
 
 export const systemClock: JobClock = {
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  monotonic: () => performance.now(),
 }

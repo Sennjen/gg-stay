@@ -27,6 +27,14 @@ export interface JobClock {
   /** Epoch milliseconds. */
   now: () => number
   sleep: (ms: number) => Promise<void>
+  /**
+   * Milliseconds on a clock that only goes forward, for measuring how far apart two moments are
+   * where being wrong about it matters: the pause between two requests to the PlayStation Store
+   * (`upstreams.ts`). The wall clock of a runner is corrected now and then, and a correction
+   * forward in the middle of a pause would cut it short. A clock without one is measured by
+   * `now`, which is what a test's clock wants.
+   */
+  monotonic?: () => number
 }
 
 /** Where a stage's progress goes. Never a secret, never a raw upstream payload. */

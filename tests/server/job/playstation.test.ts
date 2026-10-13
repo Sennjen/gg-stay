@@ -213,6 +213,61 @@ describe('the PlayStation transport: ten seconds between two requests', () => {
   })
 })
 
+describe('the PlayStation transport: the pause is kept by the clock, not by the timer', () => {
+  /** A transport on a clock of the case's own, with a sleep that does what the case says. */
+  function onClock(sleep: (ms: number, clock: { now: number }) => void) {
+    const clock = { now: 5_000 }
+    const sleeps: number[] = []
+    const sentAt: number[] = []
+    const store = createPlaystationStore({
+      fixtures: false,
+      fetch: async () => {
+        sentAt.push(clock.now)
+        return { status: 200, body: sonyConcept(CONCEPT, [TITLE]), html: false }
+      },
+      readFixture: async () => null,
+      now: () => clock.now,
+      sleep: async (ms) => {
+        sleeps.push(ms)
+        sleep(ms, clock)
+      },
+    })
+    return { store, sleeps, sentAt }
+  }
+
+  it('sleeps again when a timer fires early, and sends nothing until the ten seconds are up', async () => {
+    // Every sleep comes back three milliseconds short of what was asked, until one is asked for
+    // less than that.
+    const { store, sleeps, sentAt } = onClock(
+      (ms, clock) => void (clock.now += ms > 3 ? ms - 3 : ms),
+    )
+
+    await store.concept(TITLE)
+    await store.concept(TITLE)
+
+    expect(sleeps).toEqual([10_000, 3])
+    expect(sentAt).toEqual([5_000, 15_000])
+  })
+
+  it('sends nothing on a clock that stands still, and gives up at the third pause', async () => {
+    const { store, sentAt } = onClock(() => {})
+
+    await store.concept(TITLE)
+    const outcomes = [
+      await store.concept(TITLE).catch((error: unknown) => error),
+      await store.concept(TITLE).catch((error: unknown) => error),
+      await store.concept(TITLE).catch((error: unknown) => error),
+      await store.concept(TITLE).catch((error: unknown) => error),
+    ] as Error[]
+
+    // The one request that needed no pause, and none after it: never early, and never for ever.
+    expect(sentAt).toEqual([5_000])
+    expect(outcomes[0]!.message).toBe('the clock stood still through a pause')
+    expect(outcomes[3]).toBeInstanceOf(PlaystationStopped)
+    expect(store.stopped()?.reason).toBe('failures')
+  })
+})
+
 describe('the PlayStation transport: a run’s ration', () => {
   it('makes 225 requests in a run and not one more', async () => {
     const { store, sonyRequests } = sony()

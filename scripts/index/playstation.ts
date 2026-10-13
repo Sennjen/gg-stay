@@ -156,6 +156,11 @@ export interface PlaystationRuntime {
     signal: AbortSignal,
   ) => Promise<PlaystationResponse>
   readFixture: (name: string) => Promise<unknown | null>
+  /**
+   * The clock the pause and the budget are counted on, in milliseconds. It is read for how far
+   * apart two moments are and never for what time it is, so it should be one that only goes
+   * forward: a wall clock that is set ahead in the middle of a run would shorten a pause.
+   */
   now: () => number
   sleep: (ms: number) => Promise<void>
 }
@@ -544,6 +549,23 @@ export function createPlaystationStore(runtime: PlaystationRuntime): Playstation
     return response.body
   }
 
+  /**
+   * Waits until the next request may leave, by the clock and not by the sleep: a timer may fire
+   * a moment early, and a request must not. A sleep that did not move the clock at all would be
+   * waited on for ever, so it is a failure like any other — nothing is sent, and the third ends
+   * the run's asking.
+   */
+  async function pause(): Promise<void> {
+    let now = runtime.now()
+    const leaves = leavesAt(now)
+    while (now < leaves) {
+      await runtime.sleep(leaves - now)
+      const after = runtime.now()
+      if (after <= now) return failed(new Error('the clock stood still through a pause'))
+      now = after
+    }
+  }
+
   /** A recorded answer, or the failure a game without one is. */
   async function recorded(fixture: string): Promise<unknown> {
     const body = await runtime.readFixture(fixture)
@@ -574,9 +596,7 @@ export function createPlaystationStore(runtime: PlaystationRuntime): Playstation
         requests += 1
         body = await recorded(fixture)
       } else {
-        const now = runtime.now()
-        const leaves = leavesAt(now)
-        if (leaves > now) await runtime.sleep(leaves - now)
+        await pause()
         startedAt ??= runtime.now()
         requests += 1
         body = await send(url, headers)
