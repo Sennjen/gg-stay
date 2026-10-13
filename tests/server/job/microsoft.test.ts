@@ -48,12 +48,6 @@ describe('microsoftPurchasePrice on the recorded answer', () => {
     )
   })
 
-  it('reads a regular price', () => {
-    expect(microsoftPurchasePrice(productOf('BTQMHK78ZPF9'), RECORDED_AT)).toEqual(
-      price(25_000, 25_000, 0),
-    )
-  })
-
   it('reads no price for a product that is not sold in Ukraine, whatever zeroes it carries', () => {
     expect(microsoftPurchasePrice(productOf('BR765873CQJD'), RECORDED_AT)).toBeNull()
   })

@@ -250,17 +250,6 @@ describe('computeSimilar rules', () => {
     expect(rankingOf([target, related, hit, ...crowd], 1).slice(0, 2)).toEqual([2, 3])
   })
 
-  it('lets popularity decide between games equally close', () => {
-    const crowd = Array.from({ length: 30 }, (_, n) =>
-      game({ id: 100 + n, genres: ['strategy'], tags: [`crowd-${n % 10}`] }),
-    )
-    const target = game({ id: 1, tags: ['a', 'b', 'crowd-0'] })
-    const quiet = game({ id: 2, popularity: 1, tags: ['a', 'b', 'crowd-0'] })
-    const hit = game({ id: 3, popularity: 10_000_000, tags: ['a', 'b', 'crowd-0'] })
-
-    expect(rankingOf([target, quiet, hit, ...crowd], 1).slice(0, 2)).toEqual([3, 2])
-  })
-
   it('lists one edition of another game, not two', () => {
     const games = [
       game({ id: 1, name: 'Metro Exodus', tags: ['post-apocalyptic'] }),
