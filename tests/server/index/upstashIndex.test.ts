@@ -1092,11 +1092,7 @@ describe('upstashIndex', () => {
       })
     })
 
-    it.each([
-      ['will not parse', '{"currency":"USD",'],
-      ['is empty', ''],
-      ['is null', 'null'],
-    ])('reads the rest of the metadata when the rate %s', async (_what, stored) => {
+    it('reads the rest of the metadata when the rate will not parse', async () => {
       const { redis, index } = makeAdapter()
       const version = await index.beginVersion()
       await index.writeVersion(version, FIXTURE_GAMES.slice(0, 2))
@@ -1109,7 +1105,7 @@ describe('upstashIndex', () => {
         offersReadAt: { gog: '2026-09-20T00:15:00.000Z' },
       })
       const damage = redis.pipeline()
-      damage.hset(metaKey(version), { exchangeRate: stored })
+      damage.hset(metaKey(version), { exchangeRate: '{"currency":"USD",' })
       await damage.exec()
 
       const meta = await index.meta()

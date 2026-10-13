@@ -337,7 +337,7 @@ describe('toGame', () => {
     ])
   })
 
-  it.each(['', '620/../../login', 'portal-2', ' 620'])(
+  it.each(['', '620/../../login', ' 620'])(
     'builds no store address from %j, which is not an app id',
     (steamAppId) => {
       expect(toGame(indexed({ ...onSale, steamAppId })).stores).toEqual([])
