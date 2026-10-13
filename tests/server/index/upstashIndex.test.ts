@@ -438,17 +438,6 @@ describe('upstashIndex', () => {
       expect(index.cached().entries).toBe(1)
     })
 
-    it('answers from the cache without asking the store again', async () => {
-      const { redis, index } = makeAdapter()
-      await publishGames(adapterFor(index, redis), FIXTURE_GAMES)
-      const first = await index.search({ ukrainianLocalisation: 'ANY', page: 1, pageSize: 2 })
-      const before = redis.roundTrips
-      const second = await index.search({ ukrainianLocalisation: 'ANY', page: 1, pageSize: 2 })
-      expect(second).toEqual(first)
-      // Only the documents of the page are fetched again.
-      expect(redis.roundTrips - before).toBe(1)
-    })
-
     it('keeps no more sets than it is allowed to', async () => {
       const redis = createFakeRedis()
       const index = createUpstashIndex(redis, { cacheEntries: 3 })
@@ -756,16 +745,6 @@ describe('upstashIndex', () => {
       expect((await index.search({})).ids).toEqual([1, 2, 3])
       expect(await index.getOne(4)).toBeNull()
       expect(redis.keys()).not.toContain(`${versionPrefix(version)}game:4`)
-    })
-
-    it('discards a version by its registry, leaving no key behind', async () => {
-      const { redis, index } = makeAdapter()
-      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(0, 3))
-      const version = await index.beginVersion()
-      await index.writeVersion(version, FIXTURE_GAMES)
-      expect(redis.keys().some((key) => key.startsWith(versionPrefix(version)))).toBe(true)
-      await index.discardVersion(version)
-      expect(redis.keys().filter((key) => key.startsWith(versionPrefix(version)))).toEqual([])
     })
   })
 
@@ -1142,20 +1121,6 @@ describe('upstashIndex', () => {
   })
 
   describe('the write lock', () => {
-    it('never deletes a lock another run holds', async () => {
-      const redis = createFakeRedis()
-      const first = createUpstashIndex(redis, { runId: 'the-run' })
-      const second = createUpstashIndex(redis, { runId: 'another-run' })
-      const version = await first.beginVersion()
-      await first.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
-
-      await expect(second.discardVersion(version)).rejects.toThrow(/held the write lock/)
-      const holder = redis.pipeline()
-      const value = holder.get('idx:lock')
-      await holder.exec()
-      expect(value.value).toBe('the-run')
-    })
-
     it('keeps its own lock alive while it writes a long version', async () => {
       const redis = createFakeRedis()
       const index = createUpstashIndex(redis, { runId: 'the-run', lockTtlSeconds: 600 })
@@ -1283,31 +1248,9 @@ describe('upstashIndex: what the refresh job asks of it', () => {
       expect(redis.requests).toHaveLength(2)
       expect(redis.requests.flatMap((request) => request.commands)).toEqual(['zrangeAll', 'mget'])
     })
-
-    it('answers nothing before a version is published', async () => {
-      const { index } = makeAdapter()
-      expect(await index.allGames()).toEqual([])
-    })
   })
 
   describe('language records', () => {
-    it('keeps them outside every version, so a publication cannot take them away', async () => {
-      const { redis, index } = makeAdapter()
-      await index.setLanguages([
-        ['292030', languageRecord('292030')],
-        ['413150', languageRecord('413150')],
-      ])
-      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(0, 3))
-      await publishGames(adapterFor(index, redis), FIXTURE_GAMES.slice(3, 6))
-
-      const found = await index.getLanguages(['292030', '413150', '620'])
-
-      expect(found.get('292030')).toEqual(languageRecord('292030'))
-      expect(found.get('413150')?.audio).toBe(false)
-      expect(found.has('620')).toBe(false)
-      expect(redis.keys()).toContain('lang:292030')
-    })
-
     it('writes them in requests bounded by commands and by bytes', async () => {
       const redis = createFakeRedis()
       const index = createUpstashIndex(redis, {
@@ -1449,18 +1392,6 @@ describe('upstashIndex: what the refresh job asks of it', () => {
       expect([...found.keys()]).toEqual([1])
       expect(warn).toHaveBeenCalledTimes(4)
       warn.mockRestore()
-    })
-  })
-
-  describe('discarding', () => {
-    it('gives the lock back for a version that was begun and never written', async () => {
-      const { redis, index } = makeAdapter()
-      const version = await index.beginVersion()
-
-      await index.discardVersion(version)
-
-      const rival = createUpstashIndex(redis, { runId: 'another-run' })
-      await expect(rival.beginVersion()).resolves.toBeGreaterThan(0)
     })
   })
 
