@@ -393,7 +393,7 @@ describe('the published index fixture', () => {
       const productOf = (id: number) => offerOf(id).url.split('/').at(-1)!
 
       // Metro Exodus: the concept's default product, at the price Sony listed — which it listed
-      // for the buyers of an experiment, so the job's own rule reads no price from it.
+      // for the buyers of an experiment, so the job's own rule reads the regular price alone.
       const metro = parsePlaystationConcept(sonyMetroConcepts, titleOf(rawgMetroStores))
       expect(metro).toBe(231_769)
       const metroProduct = sonyMetroPrice.data.conceptRetrieve.defaultProduct
@@ -401,7 +401,11 @@ describe('the published index fixture', () => {
       const listed = metroProduct.webctas.find((entry) => entry.type === 'ADD_TO_CART')!.price
       expect(listed).toMatchObject({ discountedValue: 9_490, basePriceValue: 94_900 })
       expect(listed.qualifications.length).toBeGreaterThan(0)
-      expect(parsePlaystationPrice(sonyMetroPrice, 231_769)).toBeNull()
+      expect(parsePlaystationPrice(sonyMetroPrice, 231_769)).toMatchObject({
+        id: productOf(METRO),
+        price: { amount: 94_900, regularAmount: 94_900, discountPercent: 0, saleEndsAt: null },
+        url: offerOf(METRO).url,
+      })
 
       // Cyberpunk 2077: the default product and its price, as the job reads them.
       const cyberpunk = parsePlaystationConcept(sonyCyberpunkConcepts, titleOf(rawgCyberpunkStores))

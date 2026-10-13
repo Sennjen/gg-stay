@@ -84,13 +84,13 @@ import type {
  * them are Sony's own for Ukraine on 2026-10-13 (`tests/fixtures/playstation`): Metro Exodus at
  * 94,90 ₴ against 949,00 ₴, and Cyberpunk 2077 at 1 499,00 ₴. Two things a real run would have
  * done otherwise that day. Sony listed Metro Exodus's sale for the buyers of an experiment, which
- * the job reads as no price at all (`playstationPurchasePrice`); the seed carries it as a sale
- * for everybody, with an end of its own. And Sony's concept for Stardew Valley lists that one
- * product and puts no product first, so a real run reads no price for it either: its amounts
- * here are made up, and the seed stands in for a game whose default product is the game — as The
- * Witcher 3's GOG offer stands in above. The title ids in the three RAWG links are the real ones
- * (Sony maps each to the concept the product is of); Cyberpunk 2077's link is RAWG's own, and the
- * rest of the other two product ids is not recorded.
+ * the job reads as the regular price with no discount (`playstationPurchasePrice`); the seed
+ * carries it as a sale for everybody, with an end of its own. And Sony's concept for Stardew
+ * Valley lists that one product and puts no product first, so a real run reads no price for it
+ * at all: its amounts here are made up, and the seed stands in for a game whose default product
+ * is the game — as The Witcher 3's GOG offer stands in above. The title ids in the three RAWG
+ * links are the real ones (Sony maps each to the concept the product is of); Cyberpunk 2077's
+ * link is RAWG's own, and the rest of the other two product ids is not recorded.
  */
 
 /** When the fixture run finished; `priceUpdatedAt` below is relative to it. */

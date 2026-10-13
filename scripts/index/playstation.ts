@@ -256,46 +256,116 @@ function saleEndOf(value: unknown): string | null {
   return new Date(Number(value)).toISOString()
 }
 
+/** The qualification that a discount is listed for the buyers of an experiment, and no others. */
+const IN_EXPERIMENT = 'USER_IN_EXPERIMENT'
+
+/** One way of buying or of freely downloading a product, with every field the rule reads. */
+interface PurchaseEntry {
+  type: 'ADD_TO_CART' | 'DOWNLOAD'
+  applicability: string
+  tiedToSubscription: boolean
+  exclusive: boolean
+  free: boolean
+  branding: string[]
+  /** `meta.upSellService`, or `null` where the entry states none. */
+  upsell: string | null
+  /** The `type` of each of the price's qualifications. */
+  qualifications: string[]
+  /** `discountedValue` and `basePriceValue`, in kopecks. */
+  amount: number
+  base: number
+  endTime: unknown
+}
+
+const UNREADABLE_ENTRY = 'Sony answered with a purchase entry this job cannot read'
+
 /**
- * The price anyone in Ukraine can buy the product at through one of its `webctas` — each a way
- * of getting the product — or `null` when the entry is not that. Every condition is one of the
- * ways the store was seen to say something else, and all of them have to hold:
+ * A `webctas` entry as the rule below weighs it, or `null` for an entry that is not a purchase
+ * at all: any `type` but `ADD_TO_CART`, the purchase, and `DOWNLOAD`, a game that is free for
+ * everybody. `DOWNLOAD_TRIAL` (a free trial of a paid game), `UPSELL_PS_PLUS_GAME_CATALOG`
+ * (included with a subscription), `UPSELL_PS_PLUS_TRIAL` and `UPSELL_GTA_PLUS_FREE` are never
+ * prices: three kinds of zero stand beside a paid price, and taking the lowest, or believing
+ * `isFree`, would call a paid game free.
  *
- * - `type` is `ADD_TO_CART`, the purchase, or `DOWNLOAD`, a game that is free for everybody.
- *   Never `DOWNLOAD_TRIAL` (a free trial of a paid game), `UPSELL_PS_PLUS_GAME_CATALOG` (included
- *   with a subscription), `UPSELL_PS_PLUS_TRIAL` or `UPSELL_GTA_PLUS_FREE`: three kinds of zero
- *   stand beside a paid price, and taking the lowest, or believing `isFree`, would call a paid
- *   game free;
- * - the price is `APPLICABLE`, not an `UPSELL`;
- * - it is not tied to a subscription, not exclusive, and branded with no service
- *   (`serviceBranding` is exactly `["NONE"]`, and `meta.upSellService`, where stated, is `NONE`);
- * - **it has no qualification.** A discount can be listed for the buyers of an experiment only
- *   (`USER_IN_EXPERIMENT`, seen on a sale of Red Dead Redemption 2), or for the owners of
- *   something else; such an entry is one price for some and another for the rest, and which of
- *   them a visitor is cannot be known. That is no price, not even its regular one;
- * - it is in hryvnia, in whole kopecks;
- * - a purchase is not free and charges more than nothing; a free game charges nothing and has
- *   no regular price above nothing.
+ * **A purchase entry that cannot be read is thrown, not passed over.** Every field the rule
+ * reads has to be there and be what it has always been — the amounts whole kopecks, the flags
+ * flags, the lists lists — and the price has to be in hryvnia, the currency of the store that
+ * was asked for. An entry that says "this is not for everybody" is an answer, and gives no
+ * price. An entry that has lost a field, or changed the kind of one, is this job not
+ * understanding Sony any more: read as "no price" it would remove an offer in a run that ends
+ * green, and read as a failure it stops the stage on its third request.
  */
-function purchasePriceOf(entry: unknown): PlaystationPrice | null {
+function purchaseEntryOf(entry: unknown): PurchaseEntry | null {
   const cta = asRecord(entry)
   if (!cta || (cta.type !== 'ADD_TO_CART' && cta.type !== 'DOWNLOAD')) return null
   const price = asRecord(cta.price)
-  if (!price || price.currencyCode !== CURRENCY) return null
-  if (price.applicability !== 'APPLICABLE') return null
-  if (price.isTiedToSubscription !== false || price.isExclusive !== false) return null
+  if (!price || price.currencyCode !== CURRENCY) throw new Error(UNREADABLE_ENTRY)
 
-  const branding = price.serviceBranding
-  if (!Array.isArray(branding) || branding.length !== 1 || branding[0] !== 'NONE') return null
-  const upsell = asRecord(cta.meta)?.upSellService
-  if (upsell !== undefined && upsell !== null && upsell !== 'NONE') return null
-  if (!Array.isArray(price.qualifications) || price.qualifications.length > 0) return null
-
+  const { applicability, isTiedToSubscription, isExclusive, isFree, serviceBranding } = price
   const amount = kopecksOf(price.discountedValue)
   const base = kopecksOf(price.basePriceValue)
-  if (amount === null || base === null) return null
-  if (cta.type === 'ADD_TO_CART' && (price.isFree !== false || amount === 0)) return null
-  if (cta.type === 'DOWNLOAD' && (price.isFree !== true || amount !== 0 || base !== 0)) return null
+  const upsell = asRecord(cta.meta)?.upSellService ?? null
+  const qualifications = Array.isArray(price.qualifications)
+    ? price.qualifications.map((qualification) => asRecord(qualification)?.type)
+    : null
+  if (
+    typeof applicability !== 'string' ||
+    typeof isTiedToSubscription !== 'boolean' ||
+    typeof isExclusive !== 'boolean' ||
+    typeof isFree !== 'boolean' ||
+    !Array.isArray(serviceBranding) ||
+    !serviceBranding.every((brand): brand is string => typeof brand === 'string') ||
+    (upsell !== null && typeof upsell !== 'string') ||
+    !qualifications?.every((kind): kind is string => typeof kind === 'string') ||
+    amount === null ||
+    base === null
+  ) {
+    throw new Error(UNREADABLE_ENTRY)
+  }
+  return {
+    type: cta.type,
+    applicability,
+    tiedToSubscription: isTiedToSubscription,
+    exclusive: isExclusive,
+    free: isFree,
+    branding: serviceBranding,
+    upsell,
+    qualifications,
+    amount,
+    base,
+    endTime: price.endTime,
+  }
+}
+
+/**
+ * Whether the entry is offered to everybody, leaving aside whom its discount is for: the price is
+ * `APPLICABLE` and not an `UPSELL`; it is not tied to a subscription and not exclusive; and it is
+ * branded with no service (`serviceBranding` is exactly `["NONE"]`, and `meta.upSellService`,
+ * where stated, is `NONE`). Each is one of the ways the store was seen to mark a subscriber's
+ * price.
+ */
+function isForEverybody(entry: PurchaseEntry): boolean {
+  return (
+    entry.applicability === 'APPLICABLE' &&
+    !entry.tiedToSubscription &&
+    !entry.exclusive &&
+    entry.branding.length === 1 &&
+    entry.branding[0] === 'NONE' &&
+    (entry.upsell === null || entry.upsell === 'NONE')
+  )
+}
+
+/**
+ * The price anyone in Ukraine can buy the product at through this entry, or `null` when the entry
+ * is not that: it is for everybody (`isForEverybody`), **it has no qualification**, and a purchase
+ * is not free and charges more than nothing, while a free game charges nothing and has no regular
+ * price above nothing.
+ */
+function plainPriceOf(entry: PurchaseEntry): PlaystationPrice | null {
+  if (!isForEverybody(entry) || entry.qualifications.length > 0) return null
+  const { amount, base } = entry
+  if (entry.type === 'ADD_TO_CART' && (entry.free || amount === 0)) return null
+  if (entry.type === 'DOWNLOAD' && (!entry.free || amount !== 0 || base !== 0)) return null
 
   const regularAmount = Math.max(amount, base)
   return {
@@ -303,8 +373,41 @@ function purchasePriceOf(entry: unknown): PlaystationPrice | null {
     regularAmount,
     discountPercent: discountPercentOf(amount, regularAmount),
     // A sale's end belongs to a sale: an entry at its regular price has none, whatever it says.
-    saleEndsAt: amount < regularAmount ? saleEndOf(price.endTime) : null,
+    saleEndsAt: amount < regularAmount ? saleEndOf(entry.endTime) : null,
   }
+}
+
+/**
+ * The regular price of a purchase whose discount is listed for the buyers of an experiment, or
+ * `null` when the entry is not that.
+ *
+ * A sale can be listed with `qualifications` of type `USER_IN_EXPERIMENT` — seen on Red Dead
+ * Redemption 2 and on Metro Exodus, both of one campaign. Such a discount is one price for some
+ * buyers and another for the rest, and which of them a visitor is cannot be known, so the
+ * discounted amount is never taken. The base price under it is what everybody else is charged:
+ * on both entries it is the same whole sum the product's other entries carry. So the entry is
+ * taken **at its base price, as a price with no discount and no end of a sale**, on conditions
+ * that are all of the rule:
+ *
+ * - every qualification is `USER_IN_EXPERIMENT`. An entitlement, an owner's upgrade or anything
+ *   else may be a condition on the base itself, and stays no price;
+ * - the entry is otherwise a purchase for everybody (`isForEverybody`), and not free;
+ * - its base price is above nothing;
+ * - and it is only ever a fallback (`playstationPurchasePrice`): a product with an unqualified
+ *   purchase has that one's price.
+ *
+ * What it shows is the dearer of two sums the store may charge: the row never promises a
+ * discount, and where the store gives one the buyer finds it on the store's page.
+ */
+function experimentPriceOf(entry: PurchaseEntry): PlaystationPrice | null {
+  if (entry.type !== 'ADD_TO_CART' || !isForEverybody(entry) || entry.free) return null
+  const { qualifications, base } = entry
+  if (qualifications.length === 0 || !qualifications.every((kind) => kind === IN_EXPERIMENT)) {
+    return null
+  }
+  return base > 0
+    ? { amount: base, regularAmount: base, discountPercent: 0, saleEndsAt: null }
+    : null
 }
 
 /** The earlier of two moments a discount may end at; a moment before none at all. */
@@ -314,21 +417,38 @@ function earlier(left: string | null, right: string | null): string | null {
 }
 
 /**
- * The price anyone pays for a product, from its `webctas`: the one entry that is such a price
- * (`purchasePriceOf`), or `null`.
+ * The price anyone pays for a product, from its `webctas` — each a way of getting the product —
+ * or `null` when none of them is such a price.
  *
- * Every priced product seen had exactly one. Should there be several, they have to agree to the
- * kopeck, as the Microsoft Store's availabilities have to (`microsoftPurchasePrice`): when they
- * do not, there is no telling which a visitor would be charged, so there is no price. Where they
- * agree and name two ends for the discount, the earlier one stands — a regular price shown a
- * little early is the lesser mistake.
+ * It is the product's unqualified purchase (`plainPriceOf`). Only a product that has none is
+ * looked at again for a purchase whose discount is an experiment's, which is taken at its regular
+ * price (`experimentPriceOf`); the two kinds are never weighed against each other.
+ *
+ * Every priced product seen had exactly one such entry. Should there be several, they have to
+ * agree to the kopeck, as the Microsoft Store's availabilities have to
+ * (`microsoftPurchasePrice`): when they do not, there is no telling which a visitor would be
+ * charged, so there is no price. Where they agree and name two ends for the discount, the earlier
+ * one stands — a regular price shown a little early is the lesser mistake.
+ *
+ * Throws for a purchase entry that cannot be read (`purchaseEntryOf`), and for `webctas` that are
+ * not a list.
  */
 export function playstationPurchasePrice(webctas: unknown): PlaystationPrice | null {
-  if (!Array.isArray(webctas)) return null
+  if (!Array.isArray(webctas)) throw new Error(UNREADABLE_ENTRY)
+  const entries = webctas.flatMap((entry) => {
+    const purchase = purchaseEntryOf(entry)
+    return purchase ? [purchase] : []
+  })
+  const priced = (rule: (entry: PurchaseEntry) => PlaystationPrice | null) =>
+    entries.flatMap((entry) => {
+      const price = rule(entry)
+      return price ? [price] : []
+    })
+  const plain = priced(plainPriceOf)
+  const candidates = plain.length > 0 ? plain : priced(experimentPriceOf)
+
   let found: PlaystationPrice | null = null
-  for (const entry of webctas) {
-    const price = purchasePriceOf(entry)
-    if (!price) continue
+  for (const price of candidates) {
     if (!found) {
       found = price
       continue
@@ -364,14 +484,14 @@ function errorCodeOf(errors: readonly unknown[]): number | null {
  * title among its `titleIds` — a title asked about under its American id comes back in a concept
  * that lists it beside the European ones, which is the whole of how the mapping works — and then:
  *
- * - one entry with a concept's `id` — that concept;
+ * - one concept's `id`, in one entry or repeated in several — that concept;
  * - an entry with `errorCode` `NOT_IN_THE_STORE` and no `id` — no concept. Every PlayStation 3
  *   and Vita title answers so, and so does a title id Sony has never heard of;
- * - several concepts for one title — no concept either. Choosing among them would be a guess, and
- *   a guess here is another game's price.
+ * - several different concepts for one title — no concept either. Choosing among them would be a
+ *   guess, and a guess here is another game's price.
  *
  * Anything else is thrown, as the failure it is: an answer that is not such a list, one that says
- * nothing of the title, an error of another kind. "No concept" is remembered for good
+ * nothing of the title, an error of another kind. "No concept" is remembered for thirty days
  * (`IndexedStoreRefs`), so it is said only when Sony said it.
  */
 export function parsePlaystationConcept(body: unknown, titleId: string): number | null {
@@ -386,7 +506,7 @@ export function parsePlaystationConcept(body: unknown, titleId: string): number 
   })
   if (about.length === 0) throw new Error('Sony answered without a word about the title asked for')
 
-  const concepts: number[] = []
+  const concepts = new Set<number>()
   for (const entry of about) {
     const { id, errorCode } = entry
     if (errorCode !== undefined && errorCode !== null) {
@@ -396,9 +516,10 @@ export function parsePlaystationConcept(body: unknown, titleId: string): number 
     if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) {
       throw new Error('Sony answered about a title with a concept that has no id')
     }
-    concepts.push(id)
+    concepts.add(id)
   }
-  return concepts.length === 1 ? concepts[0]! : null
+  const [only] = concepts
+  return concepts.size === 1 && only !== undefined ? only : null
 }
 
 /**
@@ -416,8 +537,9 @@ export function parsePlaystationConcept(body: unknown, titleId: string): number 
  *
  * Anything else is thrown, and a caller keeps the offer it had: any other `errors`, an answer
  * about another concept than the one asked for, a default product or a list of `webctas` that is
- * missing rather than `null`. A field that has gone is this job not understanding the answer any
- * more, and that must never read as "Sony does not sell it".
+ * missing rather than `null`, a purchase entry that has lost a field or is in another currency.
+ * A field that has gone is this job not understanding the answer any more, and that must never
+ * read as "Sony does not sell it".
  */
 export function parsePlaystationPrice(body: unknown, conceptId: number): PlaystationProduct | null {
   const answer = asRecord(body)

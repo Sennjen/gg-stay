@@ -42,6 +42,7 @@ import priceGodOfWar from '../../fixtures/playstation/price-227770.json' with { 
 import priceGtaSanAndreas from '../../fixtures/playstation/price-201957.json' with { type: 'json' }
 import priceGtaV from '../../fixtures/playstation/price-201930.json' with { type: 'json' }
 import priceLifeIsStrange from '../../fixtures/playstation/price-202416.json' with { type: 'json' }
+import priceMetroExodus from '../../fixtures/playstation/price-231769.json' with { type: 'json' }
 import priceNotRegistered from '../../fixtures/playstation/price-not-registered.json' with { type: 'json' }
 import priceRedDead from '../../fixtures/playstation/price-209441.json' with { type: 'json' }
 import priceStardew from '../../fixtures/playstation/price-227229.json' with { type: 'json' }
@@ -578,6 +579,17 @@ describe('parsePlaystationConcept', () => {
     expect(parsePlaystationConcept(several, TITLE)).toBeNull()
   })
 
+  it('reads one concept where the answer names the same one twice', () => {
+    // One concept listed twice is one concept: "none" would stand for a month on a repetition.
+    const twice = [...sonyConcept(7, [TITLE]), ...sonyConcept(7, [TITLE, 'CUSA10601_00'])]
+    expect(parsePlaystationConcept(twice, TITLE)).toBe(7)
+    expect(parsePlaystationConcept([...twice, ...sonyConcept(8, [TITLE])], TITLE)).toBeNull()
+    // And beside "no such title" for the same title, the concept that was named.
+    expect(
+      parsePlaystationConcept([...sonyNoConcept(TITLE), ...sonyConcept(7, [TITLE])], TITLE),
+    ).toBe(7)
+  })
+
   it.each([
     ['not a list', { id: 7, titleIds: [TITLE] }],
     ['nothing', null],
@@ -660,16 +672,28 @@ describe('parsePlaystationPrice, on the recorded answers', () => {
     })
   })
 
-  it('reads no price where the sale is for the buyers of an experiment', () => {
+  it('reads a sale that is for the buyers of an experiment at its regular price, with no discount', () => {
     // Red Dead Redemption 2 on 2026-10-13: 649,75 against 2 599,00, for `USER_IN_EXPERIMENT`.
     const purchase = productOf(priceRedDead as typeof priceTerraria).webctas[1]!
     expect(purchase.type).toBe('ADD_TO_CART')
+    expect(purchase.price).toMatchObject({ discountedValue: 64_975, basePriceValue: 259_900 })
     expect(purchase.price.qualifications.map((entry) => entry.type)).toEqual([
       'USER_IN_EXPERIMENT',
       'USER_IN_EXPERIMENT',
     ])
 
-    expect(parsePlaystationPrice(priceRedDead, 209_441)).toBeNull()
+    expect(parsePlaystationPrice(priceRedDead, 209_441)).toEqual({
+      id: 'EP1004-CUSA08519_00-REDEMPTIONFULL02',
+      title: 'Red Dead Redemption 2',
+      // What everybody is charged: never the discount, and no end of a sale that is not shown.
+      price: { amount: 259_900, regularAmount: 259_900, discountPercent: 0, saleEndsAt: null },
+      url: 'https://store.playstation.com/uk-ua/product/EP1004-CUSA08519_00-REDEMPTIONFULL02',
+    })
+    // Metro Exodus, of the same campaign: 94,90 against 949,00.
+    expect(parsePlaystationPrice(priceMetroExodus, 231_769)).toMatchObject({
+      title: 'Metro Exodus',
+      price: { amount: 94_900, regularAmount: 94_900, discountPercent: 0, saleEndsAt: null },
+    })
   })
 
   it('reads no price for a concept with no default product', () => {
@@ -754,9 +778,8 @@ describe('parsePlaystationPrice, on every shape that is not a price anyone can p
     ['with no branding stated', { serviceBranding: [] }],
     ['exclusive', { isExclusive: true }],
     ['an upsell', { applicability: 'UPSELL' }],
-    ['not said to be applicable', { applicability: undefined }],
+    ['applicable in a word this job does not know', { applicability: 'ELIGIBLE' }],
     ['said to be free', { isFree: true }],
-    ['not said to be tied to nothing', { isTiedToSubscription: undefined }],
   ])('reads no price from a purchase that is %s: a subscriber’s price', (_what, price) => {
     expect(priceOf([sonyPurchase(79_900, 39_950, { price })])).toBeUndefined()
   })
@@ -765,35 +788,150 @@ describe('parsePlaystationPrice, on every shape that is not a price anyone can p
     expect(priceOf([sonyPurchase(79_900, 39_950, { upSellService: 'PS_PLUS' })])).toBeUndefined()
   })
 
-  it('reads no price from a purchase with a qualification, of any kind', () => {
-    for (const type of ['USER_IN_EXPERIMENT', 'ENTITLEMENT_IN_CART', 'OWNS_PRODUCT']) {
+  it('reads no price from a purchase with a qualification that is not an experiment', () => {
+    for (const type of ['ENTITLEMENT_IN_CART', 'OWNS_PRODUCT', 'user_in_experiment', '']) {
       const qualified = sonyPurchase(79_900, 39_950, { qualifications: [{ type, value: 'x' }] })
       expect(priceOf([qualified]), type).toBeUndefined()
     }
-    // Nor from one whose qualifications cannot be read as "none".
-    expect(
-      priceOf([sonyPurchase(79_900, 39_950, { price: { qualifications: null } })]),
-    ).toBeUndefined()
   })
 
-  it('reads no price in another currency', () => {
-    expect(priceOf([sonyPurchase(1_999, 1_999, { currency: 'USD' })])).toBeUndefined()
-    expect(priceOf([sonyPurchase(1_999, 1_999, { currency: 'uah' })])).toBeUndefined()
-  })
+  describe('a purchase whose discount is for the buyers of an experiment', () => {
+    const experiment = (...values: string[]) =>
+      values.map((value) => ({ type: 'USER_IN_EXPERIMENT', value }))
+    const AT_BASE = { amount: 79_900, regularAmount: 79_900, discountPercent: 0, saleEndsAt: null }
+    /** A sale at half price until its end, with these qualifications. */
+    const sale = (qualifications: { type: string; value: string }[], extra: object = {}) =>
+      sonyPurchase(79_900, 39_950, { qualifications, endTime: JOB_PLAYSTATION_SALE_ENDS, ...extra })
 
-  it('reads no price from amounts that are not whole kopecks', () => {
-    for (const [base, discounted] of [
-      [79_900, 399.5],
-      ['79900', 39_950],
-      [79_900, -1],
-      [null, 39_950],
-      [79_900, Number.NaN],
-    ] as [unknown, unknown][]) {
-      const entry = sonyPurchase(1, 1, {
-        price: { basePriceValue: base, discountedValue: discounted, isFree: false },
+    it('is read at its base price: no discount, and no end of a sale', () => {
+      expect(priceOf([sale(experiment('a'))])).toEqual(AT_BASE)
+      expect(priceOf([sale(experiment('a', 'b', 'c'))])).toEqual(AT_BASE)
+      // Whatever the discount under it comes to, a price below it or none at all.
+      expect(priceOf([sonyPurchase(79_900, 79_900, { qualifications: experiment('a') })])).toEqual(
+        AT_BASE,
+      )
+      expect(priceOf([sonyPlusCatalogue(79_900), sale(experiment('a')), sonyTrial()])).toEqual(
+        AT_BASE,
+      )
+    })
+
+    it('is no price when any of its qualifications is of another kind', () => {
+      const mixed = [...experiment('a'), { type: 'ENTITLEMENT_IN_CART', value: 'x' }]
+      expect(priceOf([sale(mixed)])).toBeUndefined()
+      expect(priceOf([sale([{ type: 'ENTITLEMENT_IN_CART', value: 'x' }])])).toBeUndefined()
+    })
+
+    it('is only a fallback: a product with an unqualified purchase has that price', () => {
+      // The two would disagree, and are never weighed against each other.
+      expect(priceOf([sale(experiment('a')), sonyPurchase(79_900, 59_925)])).toEqual({
+        amount: 59_925,
+        regularAmount: 79_900,
+        discountPercent: 25,
+        saleEndsAt: null,
       })
-      expect(priceOf([entry]), `${String(base)} / ${String(discounted)}`).toBeUndefined()
-    }
+      expect(priceOf([sonyFreeDownload(), sale(experiment('a'))])).toMatchObject({ amount: 0 })
+      // Two unqualified purchases that disagree are no price, and the experiment's is not taken
+      // in their place.
+      expect(
+        priceOf([sonyPurchase(79_900), sonyPurchase(89_900), sale(experiment('a'))]),
+      ).toBeUndefined()
+    })
+
+    it('is no price when two such purchases name different base prices', () => {
+      const dearer = sonyPurchase(89_900, 39_950, { qualifications: experiment('b') })
+      expect(priceOf([sale(experiment('a')), dearer])).toBeUndefined()
+      expect(priceOf([sale(experiment('a')), sale(experiment('b'))])).toEqual(AT_BASE)
+    })
+
+    it('is no price when its base is nothing, or it is not a purchase for everybody', () => {
+      expect(
+        priceOf([
+          sonyPurchase(0, 0, { qualifications: experiment('a'), price: { isFree: false } }),
+        ]),
+      ).toBeUndefined()
+      expect(priceOf([sale(experiment('a'), { price: { isFree: true } })])).toBeUndefined()
+      expect(
+        priceOf([sonyCta('DOWNLOAD', 0, 0, { qualifications: experiment('a') })]),
+      ).toBeUndefined()
+      for (const price of [
+        { isTiedToSubscription: true },
+        { isExclusive: true },
+        { applicability: 'UPSELL' },
+        { serviceBranding: ['PS_PLUS'] },
+      ]) {
+        expect(priceOf([sale(experiment('a'), { price })]), JSON.stringify(price)).toBeUndefined()
+      }
+      expect(priceOf([sale(experiment('a'), { upSellService: 'PS_PLUS' })])).toBeUndefined()
+    })
+  })
+
+  /**
+   * "Not for everybody" is an answer. A purchase entry that has lost a field, or changed the kind
+   * of one, is not: read as "no price" it would take an offer away in a run that ends green.
+   */
+  describe('a purchase entry that cannot be read', () => {
+    const unreadable = (webctas: unknown[]) => () =>
+      parsePlaystationPrice(answerWith(webctas), CONCEPT)
+    const message = 'Sony answered with a purchase entry this job cannot read'
+
+    it.each([
+      ['no word on whether it is applicable', { applicability: undefined }],
+      ['no word on whether it is tied to a subscription', { isTiedToSubscription: undefined }],
+      ['no word on whether it is exclusive', { isExclusive: null }],
+      ['no word on whether it is free', { isFree: undefined }],
+      ['a flag that is a word', { isTiedToSubscription: 'false' }],
+      ['a branding that is not a list', { serviceBranding: 'NONE' }],
+      ['a branding that is a list of something else', { serviceBranding: [null] }],
+      ['no list of qualifications', { qualifications: null }],
+      ['a qualification with no kind', { qualifications: [{ value: 'x' }] }],
+      ['a qualification that is not an object', { qualifications: ['USER_IN_EXPERIMENT'] }],
+      ['an amount with a fraction of a kopeck', { discountedValue: 399.5 }],
+      ['a base price in a string', { basePriceValue: '79900' }],
+      ['an amount below nothing', { discountedValue: -1 }],
+      ['no base price', { basePriceValue: null }],
+      ['an amount that is not a number', { discountedValue: Number.NaN }],
+      ['dollars', { currencyCode: 'USD' }],
+      ['hryvnia spelled another way', { currencyCode: 'uah' }],
+      ['no currency', { currencyCode: undefined }],
+    ])('throws for a purchase with %s', (_what, price) => {
+      expect(unreadable([sonyPurchase(79_900, 39_950, { price })])).toThrow(message)
+      // And for a free download in the same state.
+      expect(unreadable([sonyCta('DOWNLOAD', 0, 0, { price })])).toThrow(message)
+    })
+
+    it('throws for a purchase with no price at all, or an upsell mark that is not a word', () => {
+      expect(unreadable([{ type: 'ADD_TO_CART', meta: {}, price: null }])).toThrow(message)
+      expect(unreadable([{ type: 'DOWNLOAD' }])).toThrow(message)
+      const marked = { ...sonyPurchase(79_900), meta: { upSellService: 7 } }
+      expect(unreadable([marked])).toThrow(message)
+      // An entry with no `meta` states no upsell, which is how a purchase for everybody reads.
+      const { meta: _meta, ...plain } = sonyPurchase(79_900)
+      expect(priceOf([plain])).toMatchObject({ amount: 79_900 })
+    })
+
+    it('throws even beside a purchase it can read: half an answer is not an answer', () => {
+      const broken = sonyPurchase(79_900, 39_950, { price: { isFree: undefined } })
+      expect(unreadable([sonyPurchase(79_900), broken])).toThrow(message)
+    })
+
+    it('passes over an entry that is not a purchase, whatever state it is in', () => {
+      const trial = { type: 'DOWNLOAD_TRIAL', price: { currencyCode: 'USD' } }
+      const upsell = { type: 'UPSELL_PS_PLUS_GAME_CATALOG', price: null }
+      expect(priceOf([trial, upsell, 'x', null, sonyPurchase(79_900)])).toMatchObject({
+        amount: 79_900,
+      })
+    })
+
+    it('counts as a failed request in the transport, and three of them end the asking', async () => {
+      const { store, sonyRequests, sonyPrices } = sony()
+      sonyPrices[CONCEPT] = answerWith([sonyPurchase(1_999, 1_999, { currency: 'USD' })])
+
+      const outcomes = (await askTimes(store, 5)) as Error[]
+
+      expect(outcomes[0]!.message).toBe(message)
+      expect(sonyRequests).toHaveLength(3)
+      expect(store.stopped()?.reason).toBe('failures')
+    })
   })
 
   it('reads no price from a purchase that charges nothing, or a free game that charges', () => {
@@ -863,7 +1001,7 @@ describe('parsePlaystationPrice, on every shape that is not a price anyone can p
     )
     expect(priceOf([sonyPurchase(79_900, 39_950), sonyPurchase(79_900, 39_949)])).toBeUndefined()
     expect(priceOf([sonyPurchase(79_900), sonyPurchase(89_900, 79_900)])).toBeUndefined()
-    expect(playstationPurchasePrice('webctas')).toBeNull()
+    expect(() => playstationPurchasePrice('webctas')).toThrow(/^Sony answered/)
   })
 
   it('reads no price for a product whose id is not one it can make an address of', () => {
