@@ -2,7 +2,7 @@ import { appendFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { appIdsForDocuments, attachAppIds, resolveAppIds, type AppIdMap } from './appIds'
 import { carryPublishedForward, collectCandidates, DEFAULT_CANDIDATE_PAGES } from './candidates'
-import { isoNow, type JobDeps } from './deps'
+import { isoNow, oneLine, type JobDeps } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import {
   OFFER_FLOOR_MIN_CARRIED,
@@ -14,6 +14,18 @@ import {
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
 import { createRequestMeter } from './requestMeter'
+import {
+  assertResolveOptions,
+  requestMeterOf,
+  RESOLVE_DEFAULT_FROM_PAGE,
+  RESOLVE_DEFAULT_PAGES,
+  RESOLVE_MAX_BUDGET,
+  resolveMoreGames,
+  resolveWarnings,
+  type ResolveReadingEnd,
+  type ResolveReport,
+  type ResolveStop,
+} from './resolve'
 import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
 import { countStoreRefs, sweepStoreRefs, type StoreRefMap, type SweepStop } from './storeRefs'
 import { collectStudioGames } from './studios'
@@ -44,6 +56,11 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  * is read by whichever run finds the last read more than eleven hours old (`offers.ts`), which
  * is every other prices run, and the National Bank's rate by every run.
  *
+ * A fourth mode has no cadence at all: `--mode=resolve` is run by hand, inside a number of RAWG
+ * requests it is told, to learn the store pages of games further down the popularity order than
+ * the index goes (`resolve.ts`). It holds the writer's lock like the others and publishes
+ * nothing: no documents, no version, no pointer, no metadata.
+ *
  * Everything that touches the outside world is built here and handed to the stages, so the stages
  * themselves stay testable on fixtures and a fake clock. The run starts with a write probe rather
  * than discovering half way through 3 000 games that it was handed the site's read-only token; it
@@ -53,9 +70,9 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  * logged.
  */
 
-export type JobMode = 'full' | 'prices' | 'languages'
+export type JobMode = 'full' | 'prices' | 'languages' | 'resolve'
 
-export const JOB_MODES: readonly JobMode[] = ['full', 'prices', 'languages']
+export const JOB_MODES: readonly JobMode[] = ['full', 'prices', 'languages', 'resolve']
 
 /** The cursor key the write probe sets and deletes. It never holds anything a reader wants. */
 export const PROBE_STAGE = 'probe'
@@ -86,10 +103,17 @@ function isCredentialRefusal(error: unknown): boolean {
 
 export interface JobOptions {
   mode: JobMode
-  /** RAWG pages of candidates; only `--mode=full` walks them. */
+  /**
+   * RAWG pages of the popularity order: how many `--mode=full` walks from the top, and the most
+   * `--mode=resolve` reads from `fromPage` on.
+   */
   pages: number
   /** Take the writer lock even when a dead run still holds it. */
   forceUnlock: boolean
+  /** `--mode=resolve` only: the most RAWG requests the run may send. It does not start without. */
+  budget?: number
+  /** `--mode=resolve` only: the first page it reads; `RESOLVE_DEFAULT_FROM_PAGE` when omitted. */
+  fromPage?: number
 }
 
 /**
@@ -174,9 +198,28 @@ export interface JobReport {
   similarWarning?: string | null
   /** A full run's stored tags, for judging the tag cut on live data (`tagReport`). */
   tags?: TagReport | null
+  /**
+   * What a resolve run did. The only part of the report such a run fills: it publishes nothing,
+   * so `outcome` stays `null` for it, in success as in failure.
+   */
+  resolve?: ResolveReport | null
   /** The stage that was running when the run failed, and why. */
   failedStage?: string
   error?: string
+}
+
+/**
+ * A whole number written in digits and in nothing else, or `null`. The numbers of a resolve run
+ * are quota, and come from a form somebody filled in: `8e3`, `0x1F40`, `8 000` and `8000.0` are
+ * all numbers to `Number`, and none of them is taken for one here.
+ */
+function wholeNumber(text: string): number | null {
+  return /^[0-9]{1,9}$/.test(text) ? Number(text) : null
+}
+
+/** An error of the command line that knows which mode it was refused in, for the summary. */
+function refusal(mode: JobMode, message: string): Error {
+  return Object.assign(new Error(message), { mode })
 }
 
 export function parseArgs(
@@ -185,8 +228,13 @@ export function parseArgs(
 ): JobOptions {
   let mode: JobMode = 'full'
   // An unset workflow input arrives as an empty string, which is "not given", not "zero pages".
-  let pages = Number(env.INDEX_PAGES?.trim() || DEFAULT_CANDIDATE_PAGES)
+  // What "not given" comes to depends on the mode, which is not known until the loop is done.
+  const pagesInput = env.INDEX_PAGES?.trim() ?? ''
+  let pages: number | null = pagesInput === '' ? null : Number(pagesInput)
   let forceUnlock = env.INDEX_FORCE_UNLOCK === 'true' || env.INDEX_FORCE_UNLOCK === '1'
+  // The two numbers only a resolve run reads, kept as they were typed until that is known.
+  let budget = env.INDEX_BUDGET?.trim() ?? ''
+  let fromPage = env.INDEX_FROM_PAGE?.trim() ?? ''
 
   for (const arg of argv) {
     const [name, value = ''] = arg.split('=', 2)
@@ -197,17 +245,49 @@ export function parseArgs(
       mode = value as JobMode
     } else if (name === '--pages') {
       pages = Number(value)
+    } else if (name === '--budget') {
+      budget = value.trim()
+    } else if (name === '--from-page') {
+      fromPage = value.trim()
     } else if (name === '--force-unlock') {
       forceUnlock = true
     } else {
-      throw new Error(`Unknown argument ${arg}. Use --mode=<${JOB_MODES.join('|')}> [--pages=N].`)
+      throw new Error(
+        `Unknown argument ${arg}. Use --mode=<${JOB_MODES.join('|')}> [--pages=N] ` +
+          '[--budget=N --from-page=N for resolve].',
+      )
     }
   }
 
+  pages ??= mode === 'resolve' ? RESOLVE_DEFAULT_PAGES : DEFAULT_CANDIDATE_PAGES
   if (!Number.isInteger(pages) || pages < 1) {
-    throw new Error(`--pages must be a positive whole number, got ${pages}.`)
+    throw refusal(mode, `--pages must be a positive whole number, got ${pages}.`)
   }
-  return { mode, pages, forceUnlock }
+  if (mode !== 'resolve') return { mode, pages, forceUnlock }
+
+  // A resolve run spends what it is told and nothing is assumed for it: no budget, no run.
+  if (budget === '') {
+    throw refusal(
+      mode,
+      '--mode=resolve needs a budget: the most RAWG requests the run may send ' +
+        `(--budget=N or INDEX_BUDGET, at most ${RESOLVE_MAX_BUDGET}).`,
+    )
+  }
+  const requests = wholeNumber(budget)
+  if (requests === null || requests < 1) {
+    throw refusal(mode, `--budget must be a positive whole number, got ${oneLine(budget)}.`)
+  }
+  if (requests > RESOLVE_MAX_BUDGET) {
+    throw refusal(
+      mode,
+      `--budget=${requests} is above the most one run may be given (${RESOLVE_MAX_BUDGET}).`,
+    )
+  }
+  const first = fromPage === '' ? RESOLVE_DEFAULT_FROM_PAGE : wholeNumber(fromPage)
+  if (first === null || first < 1) {
+    throw refusal(mode, `--from-page must be a positive whole number, got ${oneLine(fromPage)}.`)
+  }
+  return { mode, pages, forceUnlock, budget: requests, fromPage: first }
 }
 
 /**
@@ -253,6 +333,57 @@ function runStage(deps: JobDeps) {
   }
 }
 
+/**
+ * A resolve run, whole: the lock, the stage, the lock given back. It is `runJob` for the one mode
+ * that has no version to write.
+ *
+ * The lock is taken the way every run takes it — `beginVersion`, which is the port's only way —
+ * and given back with `discardVersion`, as a run that fails gives it back: the draft that was
+ * begun holds no key and is dropped unwritten. So the run leaves the published version, its
+ * pointer and its metadata exactly as it found them, and what it does leave — the two mappings —
+ * was written under the lock a scheduled run would have had to hold to write them too.
+ *
+ * It is refused before the lock is asked for when it has no usable budget or no meter to hold it
+ * to one: a run that cannot start should not make a scheduled run wait for it.
+ */
+async function runResolve(
+  deps: JobDeps,
+  options: JobOptions,
+  report: (extra?: Partial<JobReport>) => JobReport,
+  stage: ReturnType<typeof runStage>,
+): Promise<JobReport> {
+  const resolveOptions = {
+    budget: options.budget,
+    fromPage: options.fromPage ?? RESOLVE_DEFAULT_FROM_PAGE,
+    pages: options.pages,
+  }
+  assertResolveOptions(resolveOptions)
+  requestMeterOf(deps)
+
+  let version: number | null = null
+  let resolved: ResolveReport | null = null
+  try {
+    version = await stage('starting the version', () =>
+      deps.writer.beginVersion(options.forceUnlock ? { force: true } : undefined),
+    )
+    resolved = await stage('resolve', () => resolveMoreGames(deps, resolveOptions))
+    // RAWG cannot fail this run, so what it cost the run is said here instead.
+    for (const warning of resolveWarnings(resolved)) deps.log(`::warning::${warning}`)
+
+    const begun = version
+    await stage('releasing the lock', () => deps.writer.discardVersion(begun))
+    version = null
+    return report({ resolve: resolved })
+  } catch (error) {
+    if (version !== null) await deps.writer.discardVersion(version).catch(() => {})
+    // What the stage had done when the index failed it travels on the error it threw.
+    const reached = resolved ?? (error as { resolve?: ResolveReport } | null)?.resolve ?? null
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      report: report({ resolve: reached }),
+    })
+  }
+}
+
 export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobReport> {
   const startedAt = deps.clock.now()
   deps.log(`index refresh: mode=${options.mode}`)
@@ -272,6 +403,9 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
   })
 
   const stage = runStage(deps)
+
+  // Nothing below is a resolve run's: it has no documents, and publishes none.
+  if (options.mode === 'resolve') return runResolve(deps, options, report, stage)
 
   // The version — and, under the Upstash adapter, the writer lock — is taken first and given back
   // on every path out of this function. An orphaned draft is never swept, and a lock nobody
@@ -747,8 +881,137 @@ function storeRows(report: JobReport): [string, string][] {
   return rows
 }
 
+/** What the run cost the index's store: the row before the last of every summary. */
+function trafficRow(report: JobReport): [string, string] {
+  return [
+    'Index traffic',
+    report.writes
+      ? `${report.writes.requests} requests, ${report.writes.commands} commands, ${Math.round(
+          report.writes.bytes / 1024,
+        )} KiB`
+      : 'not counted',
+  ]
+}
+
+/** The rows as the Markdown table GitHub shows, under the summary's heading. */
+function summaryTable(rows: [string, string][]): string[] {
+  return [
+    '## Index refresh',
+    '',
+    '| Field | Value |',
+    '| --- | --- |',
+    ...rows.map(([field, value]) => `| ${field} | ${value} |`),
+    '',
+  ]
+}
+
+/** What to do about a lock another run still holds, under the table of a run that failed. */
+const HELD_LOCK_HINT = [
+  'If the run failed because another run still holds the writer lock, re-run the workflow',
+  'with `force_unlock` set, or delete `idx:lock` in the Upstash console.',
+  '',
+]
+
+const READING_ENDED: Record<ResolveReadingEnd, (report: ResolveReport) => string> = {
+  pages: () => 'every page it was given was read',
+  'list-end': () => `RAWG's list ended there`,
+  'page-failed': (report) => `RAWG failed page ${report.failedPage}`,
+  enough: () => 'the games already waiting needed every request that was left',
+  budget: () => 'no request was left to read another with',
+  time: () => 'the sixty minutes ran out',
+}
+
+const RESOLVE_STOPPED: Record<ResolveStop, (report: ResolveReport) => string> = {
+  budget: () => 'the budget was spent',
+  done: () => 'nobody was left to ask on the pages read',
+  failures: (report) =>
+    `RAWG was failing: ${report.failed} of ${report.asked} lookups failed, so the rest were not begun`,
+  time: () => 'the run had used its sixty minutes',
+}
+
+/**
+ * The rows of a resolve run: what it read, whom it left out and why, whom it asked and what came
+ * of it, what that cost RAWG against the budget, and why it stopped.
+ */
+function resolveRows(resolved: ResolveReport): [string, string][] {
+  const { skipped, requests } = resolved
+  const reading = resolved.readingEnded
+    ? `; the reading ended because ${READING_ENDED[resolved.readingEnded](resolved)}`
+    : ''
+  const span =
+    resolved.lastPage === resolved.fromPage
+      ? `page ${resolved.fromPage}`
+      : `pages ${resolved.fromPage} to ${resolved.lastPage}`
+  return [
+    [
+      'Pages read',
+      (resolved.lastPage === null
+        ? `none of at most ${resolved.pages} from page ${resolved.fromPage}`
+        : `${resolved.pagesRead} of at most ${resolved.pages}: ${span}`) + reading,
+    ],
+    ['Games seen', String(resolved.seen)],
+    [
+      'Skipped',
+      `${skipped.notReleased} not released, ${skipped.noStore} on none of the four stores, ` +
+        `${skipped.known} already known`,
+    ],
+    ['Asked', `${resolved.asked}, ${resolved.failed} failed`],
+    ['With a Steam page', String(resolved.steam)],
+    ['With a GOG page', String(resolved.gog)],
+    ['With a Microsoft Store product', String(resolved.microsoft)],
+    [
+      'RAWG requests',
+      `${requests.total} of a budget of ${resolved.budget}: ` +
+        `${plural(requests.pages, 'page', 'pages')}, ` +
+        `${plural(requests.lookups, 'lookup', 'lookups')}, ` +
+        `${plural(requests.retries, 'retry', 'retries')}; ` +
+        'counted as they left for RAWG, so nothing sent is missing',
+    ],
+    [
+      'Left unasked',
+      `${resolved.unasked} of the games waiting on the pages read` +
+        (resolved.firstUnaskedPage === null
+          ? ''
+          : `, the first of them on page ${resolved.firstUnaskedPage}`),
+    ],
+    [
+      'Stopped',
+      resolved.stopped
+        ? `because ${RESOLVE_STOPPED[resolved.stopped](resolved)}`
+        : 'by the failure above, not by itself',
+    ],
+  ]
+}
+
+/**
+ * The summary of a resolve run. It has a table of its own because nothing in the other one
+ * applies: there is no version, no price and no document to report, and the question a reader
+ * comes with is what the run spent and what it learned for it.
+ */
+function formatResolveSummary(report: JobReport): string {
+  const resolved = report.resolve ?? null
+  const failed = report.error !== undefined || resolved === null
+  const rows: [string, string][] = [['Mode', report.mode + (report.dryRun ? ' (dry run)' : '')]]
+  if (failed) {
+    rows.push(
+      ['Result', `failed in ${report.failedStage ?? 'an unknown stage'}`],
+      // On one line and in one cell: a refusal quotes what somebody typed into the form.
+      ['Error', cell(report.error ?? 'unknown')],
+    )
+  } else {
+    rows.push([
+      'Result',
+      `nothing published; the store pages of ${resolved.asked - resolved.failed} games were learned`,
+    ])
+  }
+  if (resolved) rows.push(...resolveRows(resolved))
+  rows.push(trafficRow(report), ['Duration', duration(report.durationMs)])
+  return [...summaryTable(rows), ...(failed ? HELD_LOCK_HINT : [])].join('\n')
+}
+
 /** The Markdown GitHub shows on the run's summary page, for a run that reached a verdict. */
 export function formatSummary(report: JobReport): string {
+  if (report.mode === 'resolve') return formatResolveSummary(report)
   const outcome = report.outcome
   const rows: [string, string][] = [['Mode', report.mode + (report.dryRun ? ' (dry run)' : '')]]
 
@@ -803,32 +1066,10 @@ export function formatSummary(report: JobReport): string {
     rows.push([title!, detail ?? ''])
   }
 
-  rows.push([
-    'Index traffic',
-    report.writes
-      ? `${report.writes.requests} requests, ${report.writes.commands} commands, ${Math.round(
-          report.writes.bytes / 1024,
-        )} KiB`
-      : 'not counted',
-  ])
+  rows.push(trafficRow(report))
   rows.push(['Duration', duration(report.durationMs)])
 
-  const lines = [
-    '## Index refresh',
-    '',
-    '| Field | Value |',
-    '| --- | --- |',
-    ...rows.map(([field, value]) => `| ${field} | ${value} |`),
-    '',
-  ]
-  if (!outcome) {
-    lines.push(
-      'If the run failed because another run still holds the writer lock, re-run the workflow',
-      'with `force_unlock` set, or delete `idx:lock` in the Upstash console.',
-      '',
-    )
-  }
-  return lines.join('\n')
+  return [...summaryTable(rows), ...(outcome ? [] : HELD_LOCK_HINT)].join('\n')
 }
 
 export async function writeJobSummary(
@@ -839,7 +1080,20 @@ export async function writeJobSummary(
   await appendFile(path, markdown, 'utf8')
 }
 
-/** 0 when a version was published, 1 for anything else. The workflow's red/green comes from here. */
+/**
+ * Whether the run did what its mode is for. A version published, for the three that publish; for
+ * a resolve run, which publishes nothing, that it ran to its own end — whatever stopped it, RAWG
+ * included, since RAWG is not allowed to fail it.
+ */
+function succeeded(report: JobReport): boolean {
+  if (report.mode === 'resolve') return report.error === undefined && report.resolve != null
+  return report.outcome?.published === true
+}
+
+/**
+ * 0 when a version was published — or, for a resolve run, when it ran to its end — and 1 for
+ * anything else. The workflow's red/green comes from here.
+ */
 export async function runCli(
   argv: readonly string[],
   env: Record<string, string | undefined> = process.env,
@@ -881,11 +1135,12 @@ export async function runCli(
   } catch (error) {
     // The message only: an upstream error object can carry the request it failed on.
     const message = error instanceof Error ? error.message : String(error)
-    const named = error as { stage?: unknown; report?: JobReport }
+    const named = error as { stage?: unknown; report?: JobReport; mode?: JobMode }
     console.error(message)
     const reached = named.report
     report = {
-      mode: reached?.mode ?? mode,
+      // A refusal of the command line names its mode itself: nothing had been parsed to say it.
+      mode: reached?.mode ?? named.mode ?? mode,
       dryRun,
       outcome: null,
       studios: reached?.studios ?? null,
@@ -897,6 +1152,7 @@ export async function runCli(
       writes: reached?.writes ?? writerStats?.() ?? null,
       similarWarning: reached?.similarWarning ?? null,
       tags: reached?.tags ?? null,
+      resolve: reached?.resolve ?? null,
       failedStage: typeof named.stage === 'string' ? named.stage : 'start-up',
       error: message,
     }
@@ -906,7 +1162,7 @@ export async function runCli(
   const summary = formatSummary(report)
   await writeJobSummary(summary).catch(() => {})
   log(summary)
-  return report.outcome?.published ? 0 : 1
+  return succeeded(report) ? 0 : 1
 }
 
 const entry = process.argv[1]

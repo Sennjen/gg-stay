@@ -1,10 +1,12 @@
 import type { JobClock, JobDeps, JobIndex } from '../../../scripts/index/deps'
+import { createRequestMeter, type RequestMeter } from '../../../scripts/index/requestMeter'
+import { createJobRawg } from '../../../scripts/index/upstreams'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import { parseSteamPrice } from '../../../server/steam/price'
 import { parseUkrainianSupport } from '../../../server/steam/languages'
 import type { SteamAppLanguages, SteamPriceFetch } from '../../../server/steam/steamPriceFetch'
 import { createRawgFetch, type CacheEntry, type RawgFetch } from '../../../server/rawg/rawgFetch'
-import type { RawgGameListItem } from '../../../server/rawg/types'
+import type { RawgGameListItem, RawgStoreLink } from '../../../server/rawg/types'
 import {
   JOB_GAMES,
   JOB_STEAM_APPS,
@@ -336,4 +338,131 @@ export function createJobHarness(
       log: (message) => void logs.push(message),
     },
   }
+}
+
+/** One request as it reached RAWG: the path under `/api/`, and the query without the key. */
+export interface WireRequest {
+  path: string
+  params: Record<string, string>
+  /** What `fetch` was told to do with a redirect, when it was told anything. */
+  redirect: string | undefined
+}
+
+/** What RAWG answers one request with: a status and a body, or nothing before the timeout. */
+export type WireAnswer = 'timeout' | { status: number; body?: unknown }
+
+export interface RawgWire {
+  /** RAWG behind `fetch`: a test installs it with `vi.stubGlobal('fetch', wire.fetch)`. */
+  fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
+  /** Every request that reached RAWG, in order. A retry is a request like any other. */
+  requests: WireRequest[]
+  /** The requests for a page of the list, and those for a game's store links. */
+  pageRequests: () => WireRequest[]
+  lookupRequests: () => WireRequest[]
+  /** The most-added order, page by page. A page that is not here does not exist (a 404). */
+  pages: Map<number, RawgGameListItem[]>
+  /** A game's store links by its slug; a game that is not here has none. */
+  links: Map<string, RawgStoreLink[]>
+  /** Has the next requests matching `match` answered with `answers`, one each, in order. */
+  answerNext: (match: (request: WireRequest) => boolean, ...answers: WireAnswer[]) => void
+  /** Called with every request before it is answered: how a test moves its clock under RAWG. */
+  onRequest: ((request: WireRequest) => void) | null
+}
+
+/**
+ * RAWG as the network sees it, for the rules that are statements about requests and not about
+ * calls: how many were sent, in what order, and what a retry cost. It answers the two things the
+ * job asks RAWG for — a page of the most-added order and a game's store links — from a small
+ * world a test builds, and any request can be scripted to fail the way RAWG fails.
+ *
+ * The fake RAWG above stands in for the transport, and so never sees a retry. This stands in for
+ * the network under the job's real transport (`createWireHarness`).
+ */
+export function createRawgWire(
+  pages: Record<number, RawgGameListItem[]> = {},
+  links: Record<string, RawgStoreLink[]> = {},
+): RawgWire {
+  const requests: WireRequest[] = []
+  const scripted: { match: (request: WireRequest) => boolean; answers: WireAnswer[] }[] = []
+  const answer = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+  const wire: RawgWire = {
+    requests,
+    pageRequests: () => requests.filter((request) => request.path === 'games'),
+    lookupRequests: () => requests.filter((request) => request.path.endsWith('/stores')),
+    pages: new Map(Object.entries(pages).map(([page, games]) => [Number(page), games])),
+    links: new Map(Object.entries(links)),
+    answerNext: (match, ...answers) => void scripted.push({ match, answers }),
+    onRequest: null,
+    fetch: async (input, init) => {
+      const url = new URL(String(input))
+      if (url.origin !== 'https://api.rawg.io')
+        throw new Error(`Unexpected request to ${url.origin}`)
+      const params = Object.fromEntries(url.searchParams)
+      delete params.key
+      const request: WireRequest = {
+        path: url.pathname.replace(/^\/api\//, ''),
+        params,
+        redirect: init?.redirect,
+      }
+      requests.push(request)
+      wire.onRequest?.(request)
+
+      const script = scripted.find((entry) => entry.match(request))
+      if (script) {
+        const next = script.answers.shift()!
+        if (script.answers.length === 0) scripted.splice(scripted.indexOf(script), 1)
+        // What `AbortSignal.timeout` aborts a request with.
+        if (next === 'timeout') throw new DOMException('The operation timed out.', 'TimeoutError')
+        return answer(next.status, next.body ?? null)
+      }
+
+      if (request.path === 'games') {
+        const page = Number(params.page ?? '1')
+        const results = wire.pages.get(page)
+        if (!results) return answer(404, { detail: 'Invalid page.' })
+        const next = wire.pages.has(page + 1)
+          ? `https://api.rawg.io/api/games?page=${page + 1}`
+          : null
+        return answer(200, { count: 1_000_000, next, previous: null, results })
+      }
+      const slug = /^games\/([^/]+)\/stores$/.exec(request.path)?.[1]
+      if (slug === undefined) throw new Error(`Unexpected RAWG path ${request.path}`)
+      const results = wire.links.get(slug) ?? []
+      return answer(200, { count: results.length, next: null, previous: null, results })
+    },
+  }
+  return wire
+}
+
+export interface WireHarness extends JobHarness {
+  wire: RawgWire
+  /** The meter the transport reports to, which is also `deps.rawgRequests`. */
+  meter: RequestMeter
+}
+
+/**
+ * The job harness with the transport `runCli` builds in place of the fake RAWG — `createJobRawg`,
+ * with its limiter on the harness's clock, its retry, its cache and its request meter — over a
+ * `RawgWire`. The test has to put the wire where the transport looks for the network:
+ * `vi.stubGlobal('fetch', harness.wire.fetch)`.
+ *
+ * A second harness over the same `wire` and `writer` is a second run of the job: the same RAWG
+ * and the same index, and a transport of its own with nothing in its cache.
+ */
+export function createWireHarness(
+  options: {
+    start?: string
+    writer?: JobIndex
+    wire?: RawgWire
+    pages?: Record<number, RawgGameListItem[]>
+    links?: Record<string, RawgStoreLink[]>
+  } = {},
+): WireHarness {
+  const harness = createJobHarness({ start: options.start, writer: options.writer })
+  const wire = options.wire ?? createRawgWire(options.pages, options.links)
+  const meter = createRequestMeter()
+  const rawg = createJobRawg({ apiKey: 'test-key', fixtures: false, clock: harness.clock, meter })
+  return { ...harness, wire, meter, deps: { ...harness.deps, rawg, rawgRequests: meter } }
 }

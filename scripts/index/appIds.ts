@@ -55,6 +55,20 @@ export interface AppIdsResult {
 export type AppIdMap = Map<number, string>
 
 /**
+ * The Steam app id a game's store links name: that of the first link RAWG files under Steam that
+ * is a Steam app page. The empty string when there is none — no Steam row, or one that leads
+ * somewhere else, such as a publisher's own page.
+ */
+export function steamAppIdFromLinks(links: readonly RawgStoreLink[] | null | undefined): string {
+  return (
+    (links ?? [])
+      .filter((link) => link.store_id === STEAM_STORE_ID)
+      .map((link) => steamAppIdFromUrl(link.url))
+      .find((id): id is string => id !== null) ?? ''
+  )
+}
+
+/**
  * The mapping as a full run's documents repeat it: what the stage has just answered for, plus
  * whatever the permanent mapping already holds for the games the stage said nothing about — the
  * ones RAWG does not list on Steam tonight, which `resolveAppIds` never considers.
@@ -140,11 +154,7 @@ export async function resolveAppIds(
         // By slug rather than by id: RAWG accepts either, and the slug is what the recorded
         // fixtures are named after, so a fixture-mode run resolves app ids like a live one.
         const response = (await deps.rawg(`games/${game.slug}/stores`)) as RawgList<RawgStoreLink>
-        const appId =
-          (response.results ?? [])
-            .filter((link) => link.store_id === STEAM_STORE_ID)
-            .map((link) => steamAppIdFromUrl(link.url))
-            .find((id): id is string => id !== null) ?? ''
+        const appId = steamAppIdFromLinks(response.results)
 
         known.set(game.id, appId)
         batch.push([game.id, appId])

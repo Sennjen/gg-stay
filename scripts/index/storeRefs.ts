@@ -81,6 +81,16 @@ export type SweepStop =
  */
 export const STORE_REF_TOLERATED_FAILURES = 5
 
+/**
+ * Whether a stage RAWG is not allowed to fail has seen enough of it failing: past
+ * `STORE_REF_TOLERATED_FAILURES` failures and past the share of its attempts a stage tolerates
+ * (`MAX_ITEM_FAILURE_RATIO`). Both, so that a handful of timeouts early in a long stage does not
+ * end it, and a RAWG that is refusing everything ends it at the sixth lookup.
+ */
+export function isFailingWholesale(failures: number, attempted: number): boolean {
+  return failures > STORE_REF_TOLERATED_FAILURES && failures > attempted * MAX_ITEM_FAILURE_RATIO
+}
+
 /** The RAWG store ids of GOG and of the Xbox store; `store_id` on a store link row. */
 const GOG_STORE_ID = 5
 const XBOX_STORE_ID = 2
@@ -423,10 +433,7 @@ export async function sweepStoreRefs(
         deps.log(
           `store references: ${oneLine(game.slug)} could not be read, leaving it for a later run`,
         )
-        if (
-          failures > STORE_REF_TOLERATED_FAILURES &&
-          failures > attempted * MAX_ITEM_FAILURE_RATIO
-        ) {
+        if (isFailingWholesale(failures, attempted)) {
           stopped = 'failures'
           break
         }
