@@ -187,8 +187,9 @@ export interface IndexedLanguages {
  * prefix under `storeref:{rawgId}` beside the Steam app ids, and for as long: RAWG is asked for a
  * game's store links once for each store it lists the game on.
  *
- * Each field is what RAWG's own link to that store carried, and nothing else — nothing is guessed
- * from a title — and each has three states, because "asked" is remembered store by store:
+ * Each of the two store fields is what RAWG's own link to that store carried, and nothing else —
+ * nothing is guessed from a title — and each has three states, because "asked" is remembered store
+ * by store:
  *
  * - a value: the link named a product;
  * - `null`: RAWG lists the game on the store and gave no link the job can read. That is an answer,
@@ -206,7 +207,39 @@ export interface IndexedStoreRefs {
     /** The name the link carried before the id. Microsoft's product page is addressed by both. */
     name: string
   } | null
+  /**
+   * Every link RAWG gave for the game when it was last asked, as `[RAWG store id, URL]` pairs in
+   * RAWG's order: the links of the stores above, and of every other store beside them. They are
+   * kept so that a store the job learns to read later can take its reference from what is already
+   * known, instead of spending a RAWG request a game to ask again.
+   *
+   * **Third-party text, kept as data and as nothing else.** A link is partly publisher-submitted.
+   * It is never rendered, never put into a line of the log or of a summary, and never followed:
+   * the only code that may read it is a reference parser, which takes a link by its shape (a known
+   * host, a known path) and hands on what it parsed, never the link. A link a page shows comes
+   * from a store's own answer (`IndexedOffer.url`), not from here.
+   *
+   * Bounded where the record is made (`linksToKeep` in `scripts/index/storeRefs.ts`): absolute
+   * http(s) URLs only, as `URL` writes them, of at most `MAX_STORE_LINK_LENGTH` characters, with a
+   * whole-number store id, and at most `MAX_STORE_LINKS` of them a game. A link that fails a check
+   * is left out; the others are kept.
+   *
+   * No part of the three states: a record's links say what RAWG linked, and nothing about which
+   * store the game has been asked about. Left out, not written empty, when RAWG gave no link
+   * that can be kept. Optional as well because records written before the job kept them have
+   * none.
+   */
+  links?: [storeId: number, url: string][]
 }
+
+/**
+ * The most links one store-reference record keeps (`IndexedStoreRefs.links`): a game has one link
+ * a store at RAWG, and the catalog knows six stores.
+ */
+export const MAX_STORE_LINKS = 12
+
+/** The longest link one of them may be, in characters; the recorded ones are under a hundred. */
+export const MAX_STORE_LINK_LENGTH = 300
 
 /**
  * The National Bank of Ukraine's official rate of one currency, as the refresh job read it. It
