@@ -10,6 +10,9 @@ on:
     # Prices every six hours — one batched Steam call over the published documents. Every other
     # one also reads GOG and the Microsoft Store: whichever run finds a store's last read more
     # than eleven hours old reads it, so those are read twice a day whatever else is scheduled.
+    # And every run of any kind reads its portion of the PlayStation Store, a game every ten
+    # seconds for forty minutes at the most, each game once a day: that, and not Steam, is what
+    # a prices run now spends its time on.
     - cron: '15 */6 * * *'
     # The whole catalog nightly at 02:30 UTC: candidates, Ukrainian studios' games, new app ids,
     # prices, due languages.
@@ -47,7 +50,8 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    # A full run is about an hour; the ceiling is there to end a wedged run, not to pace one.
+    # A full run is about an hour, and up to forty minutes more for the PlayStation Store; the
+    # ceiling is there to end a wedged run, not to pace one.
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
