@@ -291,6 +291,12 @@ describe('what the other stores charge, on a page RAWG answered', () => {
         isFree: false,
         updatedAt: READ_AT,
       },
+      // RAWG links the game on the PlayStation Store as well: the link it gave, and no price.
+      {
+        ...LINK,
+        store: 'playstation-store',
+        url: 'https://store.playstation.com/en-us/product/UP2456-CUSA06840_00-STARDEWVALLEY000',
+      },
     ])
     // Nothing on the page was estimated, so the page is told of no rate.
     expect(answer.exchangeRate).toBeNull()
@@ -302,7 +308,8 @@ describe('what the other stores charge, on a page RAWG answered', () => {
       { index: await indexHolding([stardew([microsoftOffer()])]) },
       STARDEW,
     )
-    expect(freeOnSteam.stores.map((row) => row.isFree)).toEqual([true, false])
+    // And a link to the PlayStation Store, which has no price to be free or not.
+    expect(freeOnSteam.stores.map((row) => row.isFree)).toEqual([true, false, null])
     expect(cheapestOf(freeOnSteam)).toEqual([])
 
     // 675 ₴ on Steam, free on GOG — which is weighed as nothing, with no rate asked of it.

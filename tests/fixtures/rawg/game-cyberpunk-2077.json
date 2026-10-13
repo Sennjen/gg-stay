@@ -1,0 +1,24 @@
+{
+  "id": 41494, "slug": "cyberpunk-2077", "name": "Cyberpunk 2077",
+  "description_raw": "An open-world, action-adventure story set in Night City, a megalopolis obsessed with power, glamour and body modification.",
+  "released": "2020-12-10", "tba": false,
+  "background_image": "https://media.rawg.io/media/games/26d/26d4437715bee60138dab4a7c8c59c92.jpg",
+  "website": "https://www.cyberpunk.net",
+  "rating": null, "ratings_count": 0, "metacritic": null, "playtime": null,
+  "platforms": [
+    { "platform": { "id": 4, "slug": "pc", "name": "PC" } },
+    { "platform": { "id": 18, "slug": "playstation4", "name": "PlayStation 4" } },
+    { "platform": { "id": 187, "slug": "playstation5", "name": "PlayStation 5" } },
+    { "platform": { "id": 1, "slug": "xbox-one", "name": "Xbox One" } },
+    { "platform": { "id": 186, "slug": "xbox-series-x", "name": "Xbox Series S/X" } }
+  ],
+  "genres": [{ "id": 4, "slug": "action", "name": "Action" }, { "id": 2, "slug": "shooter", "name": "Shooter" }, { "id": 5, "slug": "role-playing-games-rpg", "name": "RPG" }],
+  "tags": [{ "id": 31, "slug": "singleplayer", "name": "Singleplayer" }, { "id": 36, "slug": "open-world", "name": "Open World" }],
+  "developers": [{ "id": 9023, "slug": "cd-projekt-red", "name": "CD PROJEKT RED" }],
+  "publishers": [{ "id": 7411, "slug": "cd-projekt-red", "name": "CD PROJEKT RED" }],
+  "stores": [
+    { "id": 414940, "url": "", "store": { "id": 1, "slug": "steam", "name": "Steam" } },
+    { "id": 414941, "url": "", "store": { "id": 3, "slug": "playstation-store", "name": "PlayStation Store" } }
+  ],
+  "esrb_rating": { "id": 4, "slug": "mature", "name": "Mature" }
+}

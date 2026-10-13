@@ -402,7 +402,9 @@ function shiftTimestamp(iso: string, shift: number): string {
  * The recorded timeline moved forward so that the run the fixture describes ends at `seededAt`.
  * A price the fixture recorded three hours before its run stays three hours old — and so does
  * what another store charged: an offer the fixture read six hours before its run is still fresh
- * on a development page, and one it read two days before is still stale.
+ * on a development page, and one it read two days before is still stale. The end of a sale moves
+ * with the read that found it, so a sale that had a week left when the fixture was recorded has a
+ * week left on a development page, and one that was over is still over.
  */
 function shiftPriceTimestamps(games: readonly IndexedGame[], shift: number): IndexedGame[] {
   return games.map((game) => {
@@ -414,6 +416,9 @@ function shiftPriceTimestamps(games: readonly IndexedGame[], shift: number): Ind
       moved.offers = game.offers.map((offer) => ({
         ...offer,
         updatedAt: shiftTimestamp(offer.updatedAt, shift),
+        ...(typeof offer.saleEndsAt === 'string'
+          ? { saleEndsAt: shiftTimestamp(offer.saleEndsAt, shift) }
+          : {}),
       }))
     }
     return moved

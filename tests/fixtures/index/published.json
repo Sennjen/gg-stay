@@ -132,7 +132,8 @@
       ],
       "stores": [
         "steam",
-        "xbox-store"
+        "xbox-store",
+        "playstation-store"
       ],
       "gameModes": [
         "SINGLE",
@@ -161,6 +162,17 @@
           "discountPercent": 0,
           "url": "https://www.microsoft.com/uk-ua/p/stardew-valley/c3d891z6tnqm",
           "updatedAt": "2026-09-20T00:15:00.000Z"
+        },
+        {
+          "store": "playstation-store",
+          "title": "Stardew Valley",
+          "amount": 31430,
+          "regularAmount": 44900,
+          "currency": "UAH",
+          "discountPercent": 30,
+          "url": "https://store.playstation.com/uk-ua/product/EP2319-CUSA26625_00-2010147637670638",
+          "updatedAt": "2026-09-19T12:20:00.000Z",
+          "saleEndsAt": "2026-09-19T21:59:00.000Z"
         }
       ]
     },
@@ -185,7 +197,8 @@
       ],
       "stores": [
         "steam",
-        "gog"
+        "gog",
+        "playstation-store"
       ],
       "gameModes": [
         "SINGLE"
@@ -212,6 +225,17 @@
           "discountPercent": 0,
           "url": "https://www.gog.com/en/game/metro_exodus",
           "updatedAt": "2026-09-20T00:15:00.000Z"
+        },
+        {
+          "store": "playstation-store",
+          "title": "Metro Exodus",
+          "amount": 9490,
+          "regularAmount": 94900,
+          "currency": "UAH",
+          "discountPercent": 90,
+          "url": "https://store.playstation.com/uk-ua/product/EP4062-PPSA01749_00-METROEXODUS0GEN9",
+          "updatedAt": "2026-09-20T02:40:00.000Z",
+          "saleEndsAt": "2026-09-28T21:59:00.000Z"
         }
       ]
     },
@@ -427,7 +451,8 @@
         "role-playing-games-rpg"
       ],
       "stores": [
-        "steam"
+        "steam",
+        "playstation-store"
       ],
       "gameModes": [
         "SINGLE"
@@ -447,7 +472,19 @@
         "source": "steam"
       },
       "madeInUkraine": false,
-      "priceUpdatedAt": "2026-09-20T06:00:00.000Z"
+      "priceUpdatedAt": "2026-09-20T06:00:00.000Z",
+      "offers": [
+        {
+          "store": "playstation-store",
+          "title": "Cyberpunk 2077",
+          "amount": 149900,
+          "regularAmount": 149900,
+          "currency": "UAH",
+          "discountPercent": 0,
+          "url": "https://store.playstation.com/uk-ua/product/EP4497-PPSA04027_00-00000000000000N1",
+          "updatedAt": "2026-09-17T06:20:00.000Z"
+        }
+      ]
     },
     {
       "id": 16944,

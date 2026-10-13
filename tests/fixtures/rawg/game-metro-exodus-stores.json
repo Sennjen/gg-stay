@@ -1,0 +1,8 @@
+{
+  "count": 3, "next": null, "previous": null,
+  "results": [
+    { "id": 282010, "game_id": 28201, "store_id": 1, "url": "https://store.steampowered.com/app/412020/" },
+    { "id": 282011, "game_id": 28201, "store_id": 5, "url": "https://www.gog.com/game/metro_exodus" },
+    { "id": 282012, "game_id": 28201, "store_id": 3, "url": "https://store.playstation.com/en-us/product/UP4062-CUSA11408_00-METROEXODUS00000" }
+  ]
+}

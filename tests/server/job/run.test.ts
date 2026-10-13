@@ -1105,13 +1105,19 @@ describe('runCli', () => {
     // ones and find nothing there: The Witcher 3's GOG page is no longer in GOG's catalog, and
     // Stardew Valley's Microsoft product is not in the recorded answer.
     expect(summary).toContain(
-      '| Store references | 3 of 5 games on GOG, the Xbox store or the PlayStation Store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product, 0 with a PlayStation title; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
+      '| Store references | 3 of 5 games on GOG, the Xbox store or the PlayStation Store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product, 1 with a PlayStation title; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
       '| GOG prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
     )
     expect(summary).toContain(
       '| Microsoft Store prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
+    )
+    // The PlayStation Store, from its own recorded answers (`tests/fixtures/playstation`): RAWG's
+    // fixtures list Stardew Valley there, and the title in its link is one Sony names a concept
+    // for. A run prices what an earlier run mapped, so this one maps and publishes no offer.
+    expect(summary).toContain(
+      '| PlayStation Store prices | 1 reference, 1 mapped to a concept, 0 waiting to be; 0 prices read of 0 due, 0 removed, 1 title mapped, 0 failed; 0 offers published, 1 request; everything due was asked |',
     )
     // The recorded rate, under today's date in Kyiv whenever the suite runs.
     expect(summary).toMatch(

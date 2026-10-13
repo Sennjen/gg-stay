@@ -56,6 +56,41 @@ import type {
  * | Metro Exodus         | METRO EXODUS                                        | the same, but for |
  * |                      |                                                     | its capitals      |
  * | Sherlock Holmes: C1  | none                                                | nothing to say    |
+ *
+ * Three games carry what the PlayStation Store charges as well, one case each of what that
+ * store's offers add to tell apart — and each on a game the fixture build can open as a page,
+ * which takes a RAWG recording of the game (`tests/fixtures/rawg/game-<slug>.json`): without one
+ * RAWG's answer is "no such game", and that answer is never second-guessed from the index.
+ *
+ * | game                  | the PlayStation Store's offer        | what it is there for            |
+ * | --------------------- | ------------------------------------ | ------------------------------- |
+ * | Metro Exodus (28201)  | 94,90 ₴ against 949,00 ₴, read by    | a fresh offer on sale, whose    |
+ * |                       | the night's run; the sale ends in    | sale has days to run. Far below |
+ * |                       | eight days                           | Steam's 749 ₴ and GOG's         |
+ * |                       |                                      | ≈ 1 348 ₴, on a page where      |
+ * |                       |                                      | Steam's is the cheapest of the  |
+ * |                       |                                      | prices that are compared        |
+ * | Stardew Valley (654)  | 314,30 ₴ against 449,00 ₴, read      | a fresh offer whose sale is     |
+ * |                       | eighteen hours before the run; the   | over: its price is the regular  |
+ * |                       | sale ended eight hours before it     | one                             |
+ * | Cyberpunk 2077        | 1 499,00 ₴, read three days before   | an offer older than forty-eight |
+ * | (41494)               | the run                              | hours: not a price              |
+ *
+ * In all three the product's title is the game's own name, letter for letter, which is the case
+ * a page has to show for this store and for no other: the product Sony puts first is not always
+ * the game, so its name is shown whether or not it says anything new.
+ *
+ * What is recorded and what is not. The three products, their titles, and the prices of two of
+ * them are Sony's own for Ukraine on 2026-10-13 (`tests/fixtures/playstation`): Metro Exodus at
+ * 94,90 ₴ against 949,00 ₴, and Cyberpunk 2077 at 1 499,00 ₴. Two things a real run would have
+ * done otherwise that day. Sony listed Metro Exodus's sale for the buyers of an experiment, which
+ * the job reads as no price at all (`playstationPurchasePrice`); the seed carries it as a sale
+ * for everybody, with an end of its own. And Sony's concept for Stardew Valley lists that one
+ * product and puts no product first, so a real run reads no price for it either: its amounts
+ * here are made up, and the seed stands in for a game whose default product is the game — as The
+ * Witcher 3's GOG offer stands in above. The title ids in the three RAWG links are the real ones
+ * (Sony maps each to the concept the product is of); Cyberpunk 2077's link is RAWG's own, and the
+ * rest of the other two product ids is not recorded.
  */
 
 /** When the fixture run finished; `priceUpdatedAt` below is relative to it. */
@@ -71,6 +106,24 @@ export const DEV_FIXTURE_OFFERS_READ_AT = '2026-09-20T00:15:00.000Z'
 
 /** A read two days before the run: past thirty-six hours, so an offer dated then is stale. */
 export const DEV_FIXTURE_STALE_OFFER_AT = '2026-09-18T12:15:00.000Z'
+
+/**
+ * When the fixture run's own night read the PlayStation Store. That store is read a game at a
+ * time, once a day, so its offers are dated one by one and no stamp in the metadata says when.
+ */
+export const DEV_FIXTURE_PLAYSTATION_READ_AT = '2026-09-20T02:40:00.000Z'
+
+/** A sale that has eight days to run when the fixture run ends. */
+export const DEV_FIXTURE_SALE_ENDS_AT = '2026-09-28T21:59:00.000Z'
+
+/** A PlayStation Store read eighteen hours before the run: a day's read, and still a price. */
+export const DEV_FIXTURE_PLAYSTATION_EARLIER_READ_AT = '2026-09-19T12:20:00.000Z'
+
+/** A sale that was on at that read and ended eight hours before the run. */
+export const DEV_FIXTURE_SALE_ENDED_AT = '2026-09-19T21:59:00.000Z'
+
+/** A PlayStation Store read three days before the run: past forty-eight hours, so not a price. */
+export const DEV_FIXTURE_PLAYSTATION_STALE_AT = '2026-09-17T06:20:00.000Z'
 
 /** The National Bank's dollar rate the fixture run read, for the day it ran on. */
 export const DEV_FIXTURE_EXCHANGE_RATE: IndexedExchangeRate = {
@@ -128,6 +181,31 @@ function microsoftOffer(
     discountPercent: Math.round((1 - amount / regularAmount) * 100),
     url: `https://www.microsoft.com/uk-ua/p/${name}/${id}`,
     updatedAt,
+  }
+}
+
+/**
+ * A PlayStation Store offer in kopecks, as the refresh job writes one: the product's page in the
+ * Ukrainian store, and the end of the sale only where there is a sale with a stated end.
+ */
+function playstationOffer(
+  productId: string,
+  title: string,
+  amount: number,
+  regularAmount: number,
+  updatedAt: string,
+  saleEndsAt?: string,
+): IndexedOffer {
+  return {
+    store: 'playstation-store',
+    title,
+    amount,
+    regularAmount,
+    currency: 'UAH',
+    discountPercent: Math.round((1 - amount / regularAmount) * 100),
+    url: `https://store.playstation.com/uk-ua/product/${productId}`,
+    updatedAt,
+    ...(saleEndsAt === undefined ? {} : { saleEndsAt }),
   }
 }
 
@@ -220,7 +298,7 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     popularity: 9800,
     platforms: [4, 7],
     genres: ['indie', 'simulation'],
-    stores: ['steam', 'xbox-store'],
+    stores: ['steam', 'xbox-store', 'playstation-store'],
     gameModes: ['SINGLE', 'ONLINE_COOP'],
     ageRating: 'PEGI7',
     rating: 4.4,
@@ -237,15 +315,29 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     steamAppId: '413150',
     // The Microsoft Store in hryvnia, beside a Steam page that gives the game away: the product
     // and the price are the store's own for Ukraine.
-    offers: [microsoftOffer('stardew-valley', 'c3d891z6tnqm', 'Stardew Valley', 38_500, 38_500)],
+    //
+    // And the PlayStation Store, read while a sale was on that has since ended: from that moment
+    // the offer's price is its regular one.
+    offers: [
+      microsoftOffer('stardew-valley', 'c3d891z6tnqm', 'Stardew Valley', 38_500, 38_500),
+      playstationOffer(
+        'EP2319-CUSA26625_00-2010147637670638',
+        'Stardew Valley',
+        31_430,
+        44_900,
+        DEV_FIXTURE_PLAYSTATION_EARLIER_READ_AT,
+        DEV_FIXTURE_SALE_ENDED_AT,
+      ),
+    ],
   },
 ]
 
 /**
  * Games made in Ukraine, so fixture mode has something for the "Зроблено в Україні" shelf and the
- * `madeInUkraine` filter. They are index-only: the RAWG fixtures do not show them, which is the
+ * `madeInUkraine` filter. They are index-only: the RAWG fixtures do not list them, which is the
  * shape the refresh job's studios stage produces for a studio game outside the popularity list —
- * and why their game pages have no RAWG fixture to open in fixture mode.
+ * and why their game pages have no RAWG fixture to open in fixture mode. Metro Exodus is the one
+ * exception to the second half: it has a recording of its own page, so that the page opens.
  *
  * The ids, slugs, release dates and covers are RAWG's own; platforms, genres and stores are the
  * real ones. Popularity and rating figures are rounded stand-ins, and the prices are plausible
@@ -318,7 +410,7 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     popularity: 9500,
     platforms: [4, 18, 1, 187, 186],
     genres: ['action', 'shooter'],
-    stores: ['steam', 'gog'],
+    stores: ['steam', 'gog', 'playstation-store'],
     ageRating: 'PEGI18',
     rating: 4.2,
     ratingsCount: 2900,
@@ -326,9 +418,21 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     playtime: 18,
     price: { priceUah: 749, regularPriceUah: 1249, discountPercent: 40 },
     // GOG at its regular price, which is not cheaper than Steam's sale: $29.99 is ≈ 1 348 ₴.
-    // The game has no RAWG fixture, so its page is the one built from this document alone.
     // The store shouts the title; it is the game's own name all the same.
-    offers: [gogOffer('metro_exodus', 'METRO EXODUS', 2999, 2999)],
+    //
+    // And the PlayStation Store on sale for eight more days, at an eighth of Steam's price: the
+    // one row of the page that is below Steam's, and the one that is never weighed against it.
+    offers: [
+      gogOffer('metro_exodus', 'METRO EXODUS', 2999, 2999),
+      playstationOffer(
+        'EP4062-PPSA01749_00-METROEXODUS0GEN9',
+        'Metro Exodus',
+        9_490,
+        94_900,
+        DEV_FIXTURE_PLAYSTATION_READ_AT,
+        DEV_FIXTURE_SALE_ENDS_AT,
+      ),
+    ],
   }),
   // GSC Game World, Kyiv.
   madeInUkraine({
@@ -428,9 +532,18 @@ interface ShelfGame
   > {
   price: { priceUah: number; regularPriceUah: number; discountPercent: number }
   ukrainianText: boolean
+  /** The stores RAWG lists the game on besides Steam, and what they charge. */
+  otherStores?: string[]
+  offers?: IndexedOffer[]
 }
 
-function shelfGame({ price, ukrainianText, ...game }: ShelfGame): IndexedGame {
+function shelfGame({
+  price,
+  ukrainianText,
+  otherStores = [],
+  offers,
+  ...game
+}: ShelfGame): IndexedGame {
   return {
     id: game.id,
     slug: game.slug,
@@ -441,7 +554,7 @@ function shelfGame({ price, ukrainianText, ...game }: ShelfGame): IndexedGame {
     popularity: game.popularity,
     platforms: game.platforms,
     genres: game.genres,
-    stores: ['steam'],
+    stores: ['steam', ...otherStores],
     gameModes: ['SINGLE'],
     ageRating: null,
     rating: null,
@@ -455,6 +568,8 @@ function shelfGame({ price, ukrainianText, ...game }: ShelfGame): IndexedGame {
     localisation: ukrainianText ? { text: true, audio: false, source: 'steam' } : null,
     madeInUkraine: false,
     priceUpdatedAt: DEV_FIXTURE_PRICES_UPDATED_AT,
+    // Left out, not written empty, as the refresh job leaves it.
+    ...(offers ? { offers } : {}),
   }
 }
 
@@ -482,6 +597,18 @@ export const DEV_FIXTURE_SHELF_GAMES: IndexedGame[] = [
     genres: ['action', 'shooter', 'role-playing-games-rpg'],
     price: { priceUah: 1399, regularPriceUah: 1399, discountPercent: 0 },
     ukrainianText: true,
+    // The one shelf game with a RAWG recording of its own page, so that the page opens in
+    // fixture mode: it carries the PlayStation Store's offer that is too old to be a price.
+    otherStores: ['playstation-store'],
+    offers: [
+      playstationOffer(
+        'EP4497-PPSA04027_00-00000000000000N1',
+        'Cyberpunk 2077',
+        149_900,
+        149_900,
+        DEV_FIXTURE_PLAYSTATION_STALE_AT,
+      ),
+    ],
   }),
   shelfGame({
     id: 16944,

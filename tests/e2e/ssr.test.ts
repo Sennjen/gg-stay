@@ -574,6 +574,31 @@ describe('server-side rendering', async () => {
     expect(html).toContain('https://store.steampowered.com/app/292030/')
   })
 
+  it('opens the page of each game seeded with a PlayStation Store offer, the store’s row still a link', async () => {
+    // Three games carry that store's offer in the seed, one for each case a page will have to
+    // tell apart (`tests/fixtures/index/devGames.ts`), and each has a RAWG recording so that its
+    // page opens here. The offers are published and no page shows them yet: the row is the link
+    // RAWG gave, with no price on it.
+    const withOffer = seeded.filter((game) =>
+      game.offers?.some((offer) => offer.store === 'playstation-store'),
+    )
+    expect(withOffer.map((game) => game.slug)).toEqual([
+      'stardew-valley',
+      'metro-exodus',
+      'cyberpunk-2077',
+    ])
+    for (const game of withOffer) {
+      const html = await $fetch<string>(`/games/${game.slug}`)
+      expect(html, game.slug).toMatch(new RegExp(`<h1[^>]*>\\s*${game.name}\\s*</h1>`))
+      // No priced row for the store, and its link among the stores that are links alone.
+      expect(html, game.slug).not.toContain('data-test="store-row-playstation-store"')
+      const links = html.match(/<ul[^>]*data-test="store-links"[\s\S]*?<\/ul>/)?.[0] ?? ''
+      expect(links, game.slug).toContain('href="https://store.playstation.com/en-us/product/')
+      // The address of the offer itself, the product's page for Ukraine, is nowhere on the page.
+      expect(html, game.slug).not.toContain('store.playstation.com/uk-ua/product')
+    }
+  })
+
   it('renders the hero title and scoreboard row on the detail page', async () => {
     const html = await $fetch<string>('/games/the-witcher-3-wild-hunt')
     expect(html).toMatch(/<h1[^>]*>\s*The Witcher 3: Wild Hunt\s*<\/h1>/)
