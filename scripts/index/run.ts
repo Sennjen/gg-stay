@@ -11,9 +11,13 @@ import {
   type RateReport,
   type StoreReadReport,
 } from './offers'
-import { refreshPlaystationOffers, type PlaystationReport } from './playstationOffers'
+import {
+  refreshPlaystationOffers,
+  type PlaystationAsks,
+  type PlaystationReport,
+} from './playstationOffers'
 import { refreshPrices } from './prices'
-import { publishVersion, type PublishOutcome } from './publish'
+import { publicationRefusal, publishVersion, type PublishOutcome } from './publish'
 import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
 import { countStoreRefs, sweepStoreRefs, type StoreRefMap, type SweepStop } from './storeRefs'
 import { collectStudioGames } from './studios'
@@ -43,10 +47,11 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  *
  * One thing keeps a cadence of its own, across all three: what GOG and the Microsoft Store charge
  * is read by whichever run finds the last read more than eleven hours old (`offers.ts`), which
- * is every other prices run, and the National Bank's rate by every run. And one thing is done a
- * portion at a time by every run: what the PlayStation Store charges is read a game a request,
- * ten seconds apart, each game once a day (`playstationOffers.ts`) — which is why a prices run
- * that Steam takes a minute and a half over is given up to forty more.
+ * is every other prices run, and the National Bank's rate by every run. And one store is read a
+ * portion at a time: what the PlayStation Store charges is asked a game a request, ten seconds
+ * apart, each game once a day, by the prices runs alone — which is why a prices run that Steam
+ * takes a minute and a half over is given up to forty more — and which concept a game's title
+ * belongs to is asked by the nightly run, sixty titles a night (`playstationOffers.ts`).
  *
  * Everything that touches the outside world is built here and handed to the stages, so the stages
  * themselves stay testable on fixtures and a fake clock. The run starts with a write probe rather
@@ -188,6 +193,18 @@ export interface JobReport {
   /** The stage that was running when the run failed, and why. */
   failedStage?: string
   error?: string
+}
+
+/**
+ * What each kind of run asks the PlayStation Store. The prices runs read prices, four times a
+ * day; the nightly run asks which concept a title belongs to, right after the sweep that finds
+ * the titles; the weekly languages run asks nothing. One kind of question a run, so that neither
+ * can take the other's requests (`playstationOffers.ts`).
+ */
+export const PLAYSTATION_ASKS: Record<JobMode, PlaystationAsks> = {
+  prices: 'prices',
+  full: 'mappings',
+  languages: 'nothing',
 }
 
 export function parseArgs(
@@ -466,12 +483,20 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     // page for whoever does not.
     for (const warning of storeWarnings(stores)) deps.log(`::warning::${warning}`)
 
-    // The PlayStation Store, last of the stores and by far the slowest: up to forty minutes of a
-    // request every ten seconds, in every mode. After the others so that what they read is on the
-    // documents whatever becomes of this one; and, like them, it cannot fail the run — Sony
-    // refusing ends this stage with a warning, and the version is published as it stands.
+    // The PlayStation Store, last of the stores and by far the slowest: a request every ten
+    // seconds, for up to forty minutes of a prices run and ten of the nightly one. After the
+    // others so that what they read is on the documents whatever becomes of this one; and, like
+    // them, it cannot fail the run — Sony refusing ends this stage with a warning, and the
+    // version is published as it stands.
+    //
+    // Whether the version will be published at all is known by now: the checks weigh the games
+    // and their Steam prices, which this stage does not touch. A run that is going to be refused
+    // asks Sony nothing, as a prices run Steam has failed never gets this far.
     const playstation = await stage('PlayStation Store prices', () =>
-      refreshPlaystationOffers(deps, games, storeRefs, offers.playstation),
+      refreshPlaystationOffers(deps, games, storeRefs, offers.playstation, {
+        asks: PLAYSTATION_ASKS[options.mode],
+        refusal: publicationRefusal({ games, candidateCount }, published),
+      }),
     )
     stores = { ...stores, playstation }
     for (const warning of playstationWarnings(playstation)) deps.log(`::warning::${warning}`)
@@ -685,18 +710,24 @@ export function storeWarnings(stores: StoresReport): string[] {
 /**
  * The warnings a run owes about the PlayStation Store: one for every way its stage ended that is
  * not the design. A refusal by Sony — a 403, a 429, a redirect, a page where data was asked for
- * — and three requests failing in a row both end the stage for the run; answers that would have
- * removed most of the offers the run asked about are not believed (`removalsNotBelieved`); a
- * mapping that has forgotten most of the games carrying an offer is not believed either; and a
- * believed mapping that cost the store twenty offers or more is said as it is for the others.
+ * — and three requests failing in a row both end the stage for the run; answers that are not
+ * believed — most of the offers asked about removed, not one price among twenty games, most of a
+ * night's titles without a concept (`playstationOffers.ts`); a mapping that has forgotten most of
+ * the games carrying an offer; and a believed mapping that cost the store twenty offers or more,
+ * said as it is for the others.
  *
  * Nothing for a stage that ran out of its requests or its time: that is every ordinary run, the
- * ration being what it is. And nothing here is Sony's own text — every reason is this job's
- * words and its own counts.
+ * ration being what it is. Nothing for a run of a kind that asks Sony nothing, or for one that
+ * is going to be refused publication: that run is red, and says why itself. And nothing here is
+ * Sony's own text — every reason is this job's words and its own counts.
  */
 export function playstationWarnings(read: PlaystationReport | null | undefined): string[] {
   if (!read) return []
   const name = 'PlayStation Store'
+  const stands =
+    read.asks === 'mappings'
+      ? 'every title that was not answered about waits for another night'
+      : 'every offer that was not read stands as it was'
   const warnings: string[] = []
   if (read.status === 'references-lost') {
     warnings.push(
@@ -706,22 +737,22 @@ export function playstationWarnings(read: PlaystationReport | null | undefined):
   }
   if (read.stopped?.reason === 'refused') {
     warnings.push(
-      `${name} prices: Sony refused a request (${cell(read.stopped.detail)}), so nothing more ` +
-        `was asked in this run, after ${plural(read.requests, 'request', 'requests')} — ` +
-        'every offer that was not read stands as it was',
+      `${name}: Sony refused a request (${cell(read.stopped.detail)}), so nothing more ` +
+        `was asked in this run, after ${plural(read.requests, 'request', 'requests')} — ${stands}`,
     )
   }
   if (read.stopped?.reason === 'failures') {
     warnings.push(
-      `${name} prices: ${cell(read.stopped.detail)}, so nothing more was asked in this run, ` +
-        `after ${plural(read.requests, 'request', 'requests')} — ` +
-        'every offer that was not read stands as it was',
+      `${name}: ${cell(read.stopped.detail)}, so nothing more was asked in this run, ` +
+        `after ${plural(read.requests, 'request', 'requests')} — ${stands}`,
     )
   }
   if (read.status === 'failed') {
     warnings.push(
-      `${name} prices: ${cell(read.error ?? 'the answers were not believed')} — ` +
-        'the prices that were read are published',
+      `${name}: ${cell(read.error ?? 'the answers were not believed')} — ` +
+        (read.asks === 'mappings'
+          ? 'the concepts that were named are kept'
+          : 'the prices that were read are published'),
     )
   }
   const dropped = (read.dropped ?? 0) >= OFFER_FLOOR_MIN_CARRIED ? droppedNote(read.dropped) : null
@@ -834,33 +865,72 @@ function playstationStopNote(read: PlaystationReport): string {
 }
 
 /**
- * The PlayStation Store's row: how many games have a title and how many of those a concept, what
- * this run read, removed and failed at, what it cost in requests, and why it stopped.
+ * How old the oldest of the store's published prices is, in whole hours. It is the number to
+ * watch: a price is a price on the site for forty-eight hours, and with more concepts than a
+ * day's 900 price reads the oldest one creeps past twenty-four.
+ */
+function oldestPriceNote(read: PlaystationReport): string {
+  if (read.oldestPriceAgeMs === null) return 'no price to date'
+  const hours = Math.floor(read.oldestPriceAgeMs / 3_600_000)
+  return hours < 1 ? 'the oldest read under an hour ago' : `the oldest read ${hours} h ago`
+}
+
+/**
+ * The PlayStation Store's row, in every kind of run: how many games have a title, and what Sony
+ * has said of those titles; what this run asked and what came of it, or that a run of this kind
+ * does not ask; how many offers are published and how old the oldest is; and what the rule about
+ * references cost.
  */
 function playstationRow(read: PlaystationReport): [string, string] {
   const name = 'PlayStation Store prices'
-  const references = plural(read.references, 'reference', 'references')
-  const offers = plural(read.offers, 'offer', 'offers')
   const dropped = droppedNote(read.dropped)
   const tail = dropped ? `; ${dropped}` : ''
   if (read.status === 'no-references') return [name, `no references, nothing to read${tail}`]
-  if (read.status === 'references-lost') {
+
+  const mapping =
+    `${plural(read.references, 'reference', 'references')}, ${read.mapped} mapped to a concept, ` +
+    `${read.withoutConcept} with none, ${read.unmapped} waiting to be`
+  const offers = (verb: string) =>
+    `${plural(read.offers, 'offer', 'offers')} ${verb}, ${oldestPriceNote(read)}`
+  const requests = plural(read.requests, 'request', 'requests')
+  const unbelieved =
+    read.status === 'failed' ? ` (${cell(read.error ?? 'the answers were not believed')})` : ''
+
+  switch (read.status) {
+    case 'references-lost':
+      return [
+        name,
+        `${mapping}; not read (${cell(read.error ?? 'the store references look lost')}); ` +
+          `${offers('kept as they were')}; the next run looks again${tail}`,
+      ]
+    case 'not-in-this-run':
+      return [name, `${mapping}; not read in this kind of run; ${offers('carried')}${tail}`]
+    case 'run-refused':
+      return [
+        name,
+        `${mapping}; not read: the run is going to be refused publication ` +
+          `(${cell(read.error ?? 'validation failed')}); ${offers('carried')}${tail}`,
+      ]
+    default:
+      break
+  }
+  if (read.asks === 'mappings') {
     return [
       name,
-      `${references}, not read (${cell(read.error ?? 'the store references look lost')}); ` +
-        `${offers} kept as they were; the next run looks again${tail}`,
+      `${mapping}; ${plural(read.mappingsRead, 'title', 'titles')} answered about of ` +
+        `${read.due} due, ${read.noConcept} of them with no concept, ${read.failed} failed; ` +
+        `prices are read by the prices runs: ${offers('carried')}; ${requests}; ` +
+        playstationStopNote(read) +
+        unbelieved +
+        tail,
     ]
   }
   return [
     name,
-    `${references}, ${read.mapped} mapped to a concept, ${read.unmapped} waiting to be; ` +
-      `${plural(read.pricesRead, 'price', 'prices')} read of ${read.due} due, ` +
-      `${read.removed} removed, ${plural(read.mappingsRead, 'title', 'titles')} mapped, ` +
-      `${read.failed} failed; ${offers} published, ${plural(read.requests, 'request', 'requests')}; ` +
+    `${mapping}; ${plural(read.pricesRead, 'price', 'prices')} read of ${read.due} due, ` +
+      `${read.removed} removed, ${read.failed} failed; ${offers('published')}; ${requests}; ` +
       playstationStopNote(read) +
-      (read.status === 'failed'
-        ? ` (${cell(read.error ?? 'the answers were not believed')})`
-        : '') +
+      unbelieved +
       tail,
   ]
 }

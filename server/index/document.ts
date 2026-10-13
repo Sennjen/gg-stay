@@ -236,17 +236,17 @@ export interface IndexedStoreRefs {
     /**
      * Sony's concept for the title, which is what its store prices and is the same in every
      * region: a number when the title has one in the Ukrainian store; `null` when Sony answered
-     * that it has none, and the title is not asked about again; absent while Sony has not been
-     * asked yet (`scripts/index/playstationOffers.ts`).
+     * that it has none, which stands for thirty days and is then asked again; absent while Sony
+     * has not answered yet (`scripts/index/playstationOffers.ts`).
      */
     conceptId?: number | null
     /**
-     * When Sony last answered about the concept with no price anyone can pay (ISO timestamp). A
-     * game with such an answer has no offer to carry the date of its read, and would otherwise
-     * look like one never read: asked about first, by every run. With it, it is asked about once
-     * a day like any other.
+     * When Sony was last asked anything about the game — which concept its title belongs to, or
+     * what that concept costs — whatever came of the request (ISO timestamp). It is written
+     * before the request leaves, and it is what "once a day" is counted from: not the date of an
+     * offer, which only a published version carries and a game without a price has not got.
      */
-    unpricedAt?: string
+    askedAt?: string
   } | null
 }
 
@@ -323,8 +323,8 @@ export interface IndexMeta {
    * failed does not move it, so the next run tries again. Optional: a store that has never been
    * read has no entry, and metadata published before the job read these stores has no field.
    *
-   * The PlayStation Store never has an entry: it is not read in full by any run, but a game at a
-   * time, and each offer's own `updatedAt` is the date of its read.
+   * The PlayStation Store never has an entry: it is not read in full by any run, but a concept
+   * at a time, and each offer's own `updatedAt` is the date of its read.
    */
   offersReadAt?: Partial<Record<OfferStore, string>>
 }

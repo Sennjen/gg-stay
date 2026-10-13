@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { PLAYSTATION_PAUSE_MS } from '../../../scripts/index/playstation'
 import {
   formatSummary,
+  PLAYSTATION_ASKS,
   runJob,
   type JobReport,
   type StoresReport,
@@ -33,7 +34,7 @@ import { createJobHarness, type JobHarness } from './harness'
  * The whole job with the PlayStation Store in it. RAWG lists four games of the job catalog there
  * (`tests/fixtures/index/jobPlaystation.ts`): 103 with a PlayStation 3 link, which is no
  * reference, and 101, 106 and 108 with a PlayStation 4 or PlayStation 5 title. The rules here are
- * about what each run of the job does with them, and what a run does when Sony will not answer.
+ * about what each kind of run does with them, and what a run does when Sony will not answer.
  */
 
 const RUN_AT = '2026-09-20T03:00:00.000Z'
@@ -46,6 +47,14 @@ const LANGUAGES = { mode: 'languages', pages: 1, forceUnlock: false } as const
 const later = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString()
 /** The moment the `n`th request of a run that began asking at `iso` left, counted from nought. */
 const request = (iso: string, n: number) => later(iso, n * PLAYSTATION_PAUSE_MS)
+/** The date its game is stamped with: written before the request, so a pause before it leaves. */
+const stamp = (iso: string, n: number) => request(iso, Math.max(0, n - 1))
+
+/**
+ * The first prices run that finds the night's titles due: the one twenty hours on from the night
+ * that mapped them, and a little more, as the 00:15 run is from the 02:30 one.
+ */
+const FIRST_PRICES_AT = later(RUN_AT, 21 * HOUR)
 
 const urlOf = (id: keyof typeof JOB_PLAYSTATION_PRODUCTS) =>
   `https://store.playstation.com/uk-ua/product/${JOB_PLAYSTATION_PRODUCTS[id]}`
@@ -90,7 +99,7 @@ const meridianOffer = (updatedAt: string): IndexedOffer => ({
 const psOffers = (game: IndexedGame | null) =>
   (game?.offers ?? []).filter((offer) => offer.store === 'playstation-store')
 
-/** A first full run with the PlayStation Store listed, published. */
+/** A first full run with the PlayStation Store listed, published: the titles found and mapped. */
 async function firstNight(): Promise<JobHarness> {
   const harness = createJobHarness({ start: RUN_AT, playstation: true })
   await runJob(harness.deps, FULL)
@@ -100,13 +109,12 @@ async function firstNight(): Promise<JobHarness> {
 const nextRun = (previous: JobHarness, start: string) =>
   createJobHarness({ writer: previous.writer, start, playstation: true })
 
-/** The night, then the prices run six hours on, which reads the three prices. */
-async function firstMorning(): Promise<{ night: JobHarness; morning: JobHarness; at: string }> {
+/** The night, then the first prices run that finds its titles due, which reads the three prices. */
+async function firstPrices(): Promise<{ night: JobHarness; prices: JobHarness; at: string }> {
   const night = await firstNight()
-  const at = later(RUN_AT, 6 * HOUR)
-  const morning = nextRun(night, at)
-  await runJob(morning.deps, PRICES)
-  return { night, morning, at }
+  const prices = nextRun(night, FIRST_PRICES_AT)
+  await runJob(prices.deps, PRICES)
+  return { night, prices, at: FIRST_PRICES_AT }
 }
 
 const sent = (harness: JobHarness) =>
@@ -116,7 +124,11 @@ const EVERY_PRICE = [101, 106, 108].map(
 )
 
 describe('runJob and the PlayStation Store', () => {
-  it('finds the titles with a full run, and asks Sony which concepts they belong to', async () => {
+  it('asks one kind of question in each kind of run', () => {
+    expect(PLAYSTATION_ASKS).toEqual({ prices: 'prices', full: 'mappings', languages: 'nothing' })
+  })
+
+  it('finds the titles with the nightly run, and asks Sony which concepts they belong to', async () => {
     const harness = createJobHarness({ start: RUN_AT, playstation: true })
 
     const report = await runJob(harness.deps, FULL)
@@ -135,8 +147,7 @@ describe('runJob and the PlayStation Store', () => {
       playstation: 3,
       sweep: { attempted: 2, failures: 0, remaining: 0, stopped: null },
     })
-    // Sony: the three titles, the most popular game first, ten seconds apart. No price yet — a
-    // game mapped by one run is priced by the next.
+    // Sony: the three titles, the most popular game first, ten seconds apart — and no price.
     expect(sent(harness)).toEqual([
       `concept ${JOB_PLAYSTATION_TITLES[101]}`,
       `concept ${JOB_PLAYSTATION_TITLES[106]}`,
@@ -146,28 +157,45 @@ describe('runJob and the PlayStation Store', () => {
     expect([left[1]! - left[0]!, left[2]! - left[1]!]).toEqual([10_000, 10_000])
     expect(report.stores?.playstation).toEqual({
       status: 'read',
+      asks: 'mappings',
       references: 3,
       mapped: 3,
+      withoutConcept: 0,
       unmapped: 0,
-      due: 0,
+      due: 3,
       pricesRead: 0,
       mappingsRead: 3,
+      noConcept: 0,
       removed: 0,
       failed: 0,
       requests: 3,
       offers: 0,
+      oldestPriceAgeMs: null,
       stopped: null,
     })
     expect(await harness.writer.getStoreRefs([101, 103, 106, 108])).toEqual(
       new Map([
         [
           101,
-          { gog: 'hollow_cradle', playstation: { titleId: 'PPSA10100_00', conceptId: 10_101 } },
+          {
+            gog: 'hollow_cradle',
+            playstation: { titleId: 'PPSA10100_00', conceptId: 10_101, askedAt: stamp(RUN_AT, 0) },
+          },
         ],
         // Listed there, asked, and the link is a PlayStation 3 product: no reference.
         [103, { playstation: null }],
-        [106, { playstation: { titleId: 'CUSA10600_00', conceptId: 10_106 } }],
-        [108, { playstation: { titleId: 'PPSA10800_00', conceptId: 10_108 } }],
+        [
+          106,
+          {
+            playstation: { titleId: 'CUSA10600_00', conceptId: 10_106, askedAt: stamp(RUN_AT, 1) },
+          },
+        ],
+        [
+          108,
+          {
+            playstation: { titleId: 'PPSA10800_00', conceptId: 10_108, askedAt: stamp(RUN_AT, 2) },
+          },
+        ],
       ]),
     )
     expect(psOffers(await harness.writer.getOne(106))).toEqual([])
@@ -177,45 +205,69 @@ describe('runJob and the PlayStation Store', () => {
     expect((await harness.writer.getOne(101))?.offers).toHaveLength(1)
   })
 
-  it('reads the prices with the next run, and publishes them beside the other stores’', async () => {
-    const { morning, at } = await firstMorning()
+  it('reads no price for a title the night mapped until twenty hours have passed', async () => {
+    const night = await firstNight()
+
+    // The 06:15 and the 18:15 run after it: the games were asked about that night.
+    for (const hours of [3, 15]) {
+      const run = nextRun(night, later(RUN_AT, hours * HOUR))
+      const report = await runJob(run.deps, PRICES)
+
+      expect(run.sonyRequests, `${hours} hours on`).toHaveLength(0)
+      expect(report.stores?.playstation).toMatchObject({
+        status: 'read',
+        asks: 'prices',
+        mapped: 3,
+        due: 0,
+        requests: 0,
+        offers: 0,
+      })
+    }
+  })
+
+  it('reads the prices with the first prices run after that, and publishes them', async () => {
+    const { prices, at } = await firstPrices()
 
     // RAWG is asked nothing by a prices run, and Sony only for the three prices.
-    expect(morning.calls).toHaveLength(0)
-    expect(sent(morning)).toEqual(EVERY_PRICE)
-    expect(await morning.writer.getOne(106)).toMatchObject({
+    expect(prices.calls).toHaveLength(0)
+    expect(sent(prices)).toEqual(EVERY_PRICE)
+    expect(await prices.writer.getOne(106)).toMatchObject({
       // Steam's price is where it always was.
       priceUah: 599,
       steamAppId: '416000',
       offers: [amberOffer(request(at, 1))],
     })
     // Each is dated by its own answer, ten seconds after the one before.
-    expect((await morning.writer.getOne(108))?.offers).toEqual([meridianOffer(request(at, 2))])
+    expect((await prices.writer.getOne(108))?.offers).toEqual([meridianOffer(request(at, 2))])
     // And stands after the offers the game already had, in the stores' own order.
-    expect((await morning.writer.getOne(101))?.offers).toEqual([
-      expect.objectContaining({ store: 'gog', updatedAt: RUN_AT }),
+    expect((await prices.writer.getOne(101))?.offers).toEqual([
+      expect.objectContaining({ store: 'gog' }),
       hollowOffer(at),
     ])
-    const meta = await morning.writer.meta()
+    const meta = await prices.writer.meta()
     expect(meta?.stats).toMatchObject({
       playstationOfferCount: 3,
       gogOfferCount: 1,
       microsoftOfferCount: 1,
     })
-    // The store has no stamp of its own; the other two keep theirs.
-    expect(meta?.offersReadAt).toEqual({ gog: RUN_AT, 'xbox-store': RUN_AT })
+    // The store has no stamp of its own in the metadata.
+    expect(Object.keys(meta?.offersReadAt ?? {}).sort()).toEqual(['gog', 'xbox-store'])
     // The version is published when the stage is over, twenty seconds in.
     expect(meta?.updatedAt).toBe(request(at, 2))
+    // What is remembered of the asking is on the reference, not only on the offer.
+    expect((await prices.writer.getStoreRefs([108])).get(108)).toEqual({
+      playstation: { titleId: 'PPSA10800_00', conceptId: 10_108, askedAt: stamp(at, 2) },
+    })
   })
 
   // The job's tests and the site's tests each read their own fixtures; this is the one place
   // what the job really writes for this store is put through what the site really reads.
   it('writes offers that the site reads as they stand', async () => {
-    const { morning, at } = await firstMorning()
+    const { prices, at } = await firstPrices()
     const now = later(at, 5 * MINUTE)
-    const rate = exchangeRateAt(await morning.writer.meta(), now)
+    const rate = exchangeRateAt(await prices.writer.meta(), now)
 
-    const amber = (await morning.writer.getOne(106))!
+    const amber = (await prices.writer.getOne(106))!
     expect(readableOffers(amber)).toEqual(amber.offers)
     expect(toStoreOffer(readableOffers(amber)[0]!, rate)).toMatchObject({
       store: 'playstation-store',
@@ -229,7 +281,7 @@ describe('runJob and the PlayStation Store', () => {
       discountPercent: 50,
     })
 
-    const meridian = (await morning.writer.getOne(108))!
+    const meridian = (await prices.writer.getOne(108))!
     expect(readableOffers(meridian)).toEqual(meridian.offers)
     expect(toStoreOffer(readableOffers(meridian)[0]!, rate)).toMatchObject({
       title: 'Silent Meridian: Deluxe Edition',
@@ -239,7 +291,7 @@ describe('runJob and the PlayStation Store', () => {
     })
 
     // Both of a game's offers are read, each of its own store.
-    const hollow = (await morning.writer.getOne(101))!
+    const hollow = (await prices.writer.getOne(101))!
     expect(readableOffers(hollow)).toEqual(hollow.offers)
     expect(toStoreOffer(readableOffers(hollow)[1]!, rate)).toMatchObject({
       store: 'playstation-store',
@@ -252,14 +304,14 @@ describe('runJob and the PlayStation Store', () => {
   // What the pages do with this store's offers is the next change's to decide (the design,
   // section 4). Until then no page shows them by the other stores' rules.
   it('publishes them without any page showing or weighing them yet', async () => {
-    const { morning, at } = await firstMorning()
+    const { prices, at } = await firstPrices()
     const now = later(at, 5 * MINUTE)
-    const rate = exchangeRateAt(await morning.writer.meta(), now)
+    const rate = exchangeRateAt(await prices.writer.meta(), now)
     const terms = { now, rate }
 
     // RAWG lists the game on the store, the offer is readable and fresh, and it is far below
     // Steam's price: every reason the other stores' rules would have to show and name it.
-    const amber = (await morning.writer.getOne(106))!
+    const amber = (await prices.writer.getOne(106))!
     expect(amber.stores).toContain('playstation-store')
     expect(amber.priceUah).toBeGreaterThan(400 * 1.1)
     expect(pageOffers(amber)).toEqual([])
@@ -271,17 +323,16 @@ describe('runJob and the PlayStation Store', () => {
     expect(page.stores.some((row) => row.cheapest)).toBe(false)
 
     // And a game with a GOG offer is weighed exactly as if Sony gave nothing away.
-    const hollow = (await morning.writer.getOne(101))!
+    const hollow = (await prices.writer.getOne(101))!
     const without = { ...hollow, offers: hollow.offers!.filter((offer) => offer.store === 'gog') }
     expect(psOffers(hollow)[0]).toMatchObject({ amount: 0 })
     expect(pageOffers(hollow)).toEqual(without.offers)
     expect(toGame(hollow, terms)).toEqual(toGame(without, terms))
-    expect(toGame(hollow, terms).stores.map((row) => row.store)).toEqual(['steam', 'gog'])
     expect(cheaperAtOf(hollow, now, rate)).toBe(cheaperAtOf(without, now, rate))
   })
 
   it('does not ask about a game again before twenty hours have passed', async () => {
-    const { night, at } = await firstMorning()
+    const { night, at } = await firstPrices()
 
     for (const hours of [6, 12, 19]) {
       const run = nextRun(night, later(at, hours * HOUR))
@@ -299,44 +350,65 @@ describe('runJob and the PlayStation Store', () => {
       expect((await run.writer.getOne(106))?.offers).toEqual([amberOffer(request(at, 1))])
     }
 
-    // The prices were read ten seconds apart: twenty hours on, to the second, the first of them
-    // is due and the other two are not yet.
+    // The third game was stamped ten seconds after the first two: twenty hours on, to the
+    // second, two are due and it is not yet.
     const due = later(at, 20 * HOUR)
     const next = nextRun(night, due)
     await runJob(next.deps, PRICES)
 
-    expect(sent(next)).toEqual([`price ${JOB_PLAYSTATION_CONCEPTS[101]}`])
+    expect(sent(next)).toEqual(EVERY_PRICE.slice(0, 2))
     expect(psOffers(await next.writer.getOne(101))).toEqual([hollowOffer(due)])
-    expect((await next.writer.getOne(106))?.offers).toEqual([amberOffer(request(at, 1))])
+    expect((await next.writer.getOne(108))?.offers).toEqual([meridianOffer(request(at, 2))])
   })
 
-  it('carries the offers through a full run, which maps every document afresh from RAWG', async () => {
-    const { night, at } = await firstMorning()
-    const nextNight = nextRun(night, later(at, 15 * HOUR))
+  it('reads no price in the nightly run, which carries the offers and maps what is waiting', async () => {
+    const { night, at } = await firstPrices()
+    // A day and more after the prices were read: every one of them would be due.
+    const nextNight = nextRun(night, later(at, 26 * HOUR))
 
     const report = await runJob(nextNight.deps, FULL)
 
     expect(report.outcome?.published).toBe(true)
+    // Every title has its answer, so there is nothing to map either.
     expect(nextNight.sonyRequests).toHaveLength(0)
     expect(nextNight.storeCalls()).toHaveLength(0)
     expect((await nextNight.writer.getOne(106))?.offers).toEqual([amberOffer(request(at, 1))])
-    expect(report.stores?.playstation).toMatchObject({ references: 3, mapped: 3, offers: 3 })
+    expect(report.stores?.playstation).toMatchObject({
+      status: 'read',
+      asks: 'mappings',
+      references: 3,
+      mapped: 3,
+      due: 0,
+      offers: 3,
+      // The first of the three prices was read twenty-six hours before this run began.
+      oldestPriceAgeMs: 26 * HOUR,
+    })
   })
 
-  it('reads them in a languages run too, when that is the run that finds them due', async () => {
-    const { night, at } = await firstMorning()
+  it('asks Sony nothing in a languages run, and still reports the store', async () => {
+    const { night, at } = await firstPrices()
     const weekly = nextRun(night, later(at, 26 * HOUR))
 
     const report = await runJob(weekly.deps, LANGUAGES)
 
     expect(report.outcome?.published).toBe(true)
-    expect(weekly.priceBatches).toHaveLength(0)
-    expect(sent(weekly)).toEqual(EVERY_PRICE)
-    expect(psOffers(await weekly.writer.getOne(101))).toEqual([hollowOffer(later(at, 26 * HOUR))])
+    expect(weekly.sonyRequests).toHaveLength(0)
+    expect(psOffers(await weekly.writer.getOne(101))).toEqual([hollowOffer(at)])
+    expect(report.stores?.playstation).toMatchObject({
+      status: 'not-in-this-run',
+      asks: 'nothing',
+      references: 3,
+      mapped: 3,
+      offers: 3,
+      requests: 0,
+    })
+    expect(formatSummary(report)).toContain(
+      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 with none, 0 waiting to be; not read in this kind of run; 3 offers carried, the oldest read 26 h ago |',
+    )
   })
 
   it('removes the offer of a game Sony stops pricing, and asks about it a day later', async () => {
-    const { night, at } = await firstMorning()
+    const { night, at } = await firstPrices()
     const day = later(at, 24 * HOUR)
     const gone = nextRun(night, day)
     gone.sonyPrices[JOB_PLAYSTATION_CONCEPTS[106]] = sonyPrice(JOB_PLAYSTATION_CONCEPTS[106], null)
@@ -346,7 +418,7 @@ describe('runJob and the PlayStation Store', () => {
     expect(report.stores?.playstation).toMatchObject({ pricesRead: 2, removed: 1, offers: 2 })
     expect(psOffers(await gone.writer.getOne(106))).toEqual([])
     expect((await gone.writer.getStoreRefs([106])).get(106)).toEqual({
-      playstation: { titleId: 'CUSA10600_00', conceptId: 10_106, unpricedAt: request(day, 1) },
+      playstation: { titleId: 'CUSA10600_00', conceptId: 10_106, askedAt: stamp(day, 1) },
     })
 
     // Six hours on it is not asked about; a day on it is, and the price is back.
@@ -358,6 +430,98 @@ describe('runJob and the PlayStation Store', () => {
     await runJob(back.deps, PRICES)
     expect(sent(back)).toEqual(EVERY_PRICE)
     expect(psOffers(await back.writer.getOne(106))).toHaveLength(1)
+  })
+})
+
+/**
+ * The date of a read used to live on the offer alone, in a version that is published forty
+ * minutes later or not at all. A run that asked and then did not publish left every game as due
+ * as it had been, and the next run asked Sony about the same games six hours after they were
+ * asked.
+ */
+describe('runJob when the run that asked does not publish', () => {
+  it('does not ask again, six hours on, about games a failed run asked about', async () => {
+    const { night, at } = await firstPrices()
+    const day = later(at, 24 * HOUR)
+    const failing = nextRun(night, day)
+    // The version is read, the prices are read — and the write of the version breaks.
+    vi.spyOn(failing.writer, 'writeVersion').mockRejectedValue(new Error('the index is full'))
+
+    const error = await runJob(failing.deps, PRICES).catch((caught: unknown) => caught)
+
+    expect((error as { stage: string }).stage).toBe('publish')
+    expect(sent(failing)).toEqual(EVERY_PRICE)
+    vi.restoreAllMocks()
+    // Nothing was published: the offers are yesterday's, under yesterday's dates.
+    expect((await night.writer.getOne(106))?.offers).toEqual([amberOffer(request(at, 1))])
+
+    const soon = nextRun(night, later(day, 6 * HOUR))
+    const report = await runJob(soon.deps, PRICES)
+    expect(soon.sonyRequests).toHaveLength(0)
+    expect(report.stores?.playstation).toMatchObject({ due: 0, offers: 3 })
+
+    // A day after the asking they are asked about again, like any other game.
+    const next = nextRun(night, later(day, 21 * HOUR))
+    await runJob(next.deps, PRICES)
+    expect(sent(next)).toEqual(EVERY_PRICE)
+  })
+
+  it('asks Sony nothing in a prices run that is going to be refused publication', async () => {
+    const { night, at } = await firstPrices()
+    const refused = nextRun(night, later(at, 24 * HOUR))
+    // The published version prices far more games than this run will: the gate will refuse it.
+    const meta = (await night.writer.meta())!
+    vi.spyOn(refused.writer, 'meta').mockResolvedValue({
+      ...meta,
+      stats: { ...meta.stats, pricedCount: 100 },
+    })
+
+    const report = await runJob(refused.deps, PRICES)
+
+    expect(report.outcome).toMatchObject({ published: false })
+    expect(refused.sonyRequests).toHaveLength(0)
+    expect(report.stores?.playstation).toMatchObject({
+      status: 'run-refused',
+      requests: 0,
+      offers: 3,
+      error: 'the run priced 5 games, against 100 in the published version',
+    })
+    expect(formatSummary(report)).toContain(
+      'not read: the run is going to be refused publication (the run priced 5 games, against 100 in the published version); 3 offers carried',
+    )
+    vi.restoreAllMocks()
+
+    // The games were not asked about, so the next run that may publish asks about them.
+    const next = nextRun(night, later(at, 30 * HOUR))
+    await runJob(next.deps, PRICES)
+    expect(sent(next)).toEqual(EVERY_PRICE)
+  })
+
+  it('asks Sony nothing in a nightly run whose candidates have collapsed', async () => {
+    // A first version with far more candidates than this night will find.
+    const before = createJobHarness({ start: RUN_AT, playstation: true })
+    await runJob(before.deps, FULL)
+    const meta = (await before.writer.meta())!
+    const truncated = createJobHarness({
+      writer: before.writer,
+      start: later(RUN_AT, 24 * HOUR),
+      playstation: true,
+    })
+    // Its titles are waiting again, as on a night after RAWG named some more.
+    await before.writer.setStoreRefs([
+      [106, { playstation: { titleId: 'CUSA10600_00' } }],
+      [108, { playstation: { titleId: 'PPSA10800_00' } }],
+    ])
+    vi.spyOn(truncated.writer, 'meta').mockResolvedValue({
+      ...meta,
+      stats: { ...meta.stats, candidateCount: 3_000 },
+    })
+
+    const report = await runJob(truncated.deps, FULL)
+
+    expect(report.outcome).toMatchObject({ published: false })
+    expect(truncated.sonyRequests).toHaveLength(0)
+    expect(report.stores?.playstation).toMatchObject({ status: 'run-refused', unmapped: 2 })
   })
 })
 
@@ -394,10 +558,10 @@ describe('runJob when Sony will not answer', () => {
   ])(
     'does everything it would have done when Sony %s, and only the refresh is missing',
     async (_what, outcome, reason, requests) => {
-      // Two worlds from the same morning; a day on, one of them finds Sony like this.
-      const day = later(RUN_AT, 30 * HOUR)
-      const up = nextRun((await firstMorning()).night, day)
-      const down = nextRun((await firstMorning()).night, day)
+      // Two worlds from the same first day; a day on, one of them finds Sony like this.
+      const day = later(FIRST_PRICES_AT, 24 * HOUR)
+      const up = nextRun((await firstPrices()).night, day)
+      const down = nextRun((await firstPrices()).night, day)
       down.sonyAnswersWith(outcome, { times: Infinity })
 
       const withSony = await runJob(up.deps, PRICES)
@@ -419,10 +583,13 @@ describe('runJob when Sony will not answer', () => {
       expect(down.priceBatches).toEqual(up.priceBatches)
 
       // What is missing is the refresh: yesterday's offers, under yesterday's dates.
-      const read = later(RUN_AT, 6 * HOUR)
       expect((await up.writer.getOne(106))?.offers).toEqual([amberOffer(request(day, 1))])
-      expect((await down.writer.getOne(106))?.offers).toEqual([amberOffer(request(read, 1))])
-      expect((await down.writer.getOne(108))?.offers).toEqual([meridianOffer(request(read, 2))])
+      expect((await down.writer.getOne(106))?.offers).toEqual([
+        amberOffer(request(FIRST_PRICES_AT, 1)),
+      ])
+      expect((await down.writer.getOne(108))?.offers).toEqual([
+        meridianOffer(request(FIRST_PRICES_AT, 2)),
+      ])
       expect((await down.writer.meta())?.stats).toMatchObject({ playstationOfferCount: 3 })
       // The stage stopped, at the first refusal or the third failure, and asked no more.
       expect(down.sonyRequests).toHaveLength(requests)
@@ -441,28 +608,49 @@ describe('runJob when Sony will not answer', () => {
     },
   )
 
-  it('stops at the first refusal: one request, and no more until the next run', async () => {
-    const { night, at } = await firstMorning()
-    const refused = nextRun(night, later(at, 24 * HOUR))
+  it('stops at the first refusal, and knocks again with one request, about another game', async () => {
+    const { night, at } = await firstPrices()
+    const day = later(at, 24 * HOUR)
+    const refused = nextRun(night, day)
     refused.sonyAnswersWith({ status: 429 }, { times: Infinity })
 
     await runJob(refused.deps, PRICES)
 
-    expect(sent(refused)).toEqual([`price ${JOB_PLAYSTATION_CONCEPTS[101]}`])
+    expect(sent(refused)).toEqual([EVERY_PRICE[0]])
     expect(warnings(refused)).toEqual([
-      '::warning::PlayStation Store prices: Sony refused a request (HTTP 429), so nothing more was asked in this run, after 1 request — every offer that was not read stands as it was',
+      '::warning::PlayStation Store: Sony refused a request (HTTP 429), so nothing more was asked in this run, after 1 request — every offer that was not read stands as it was',
     ])
 
-    // The next run asks again, from the oldest.
-    const after = nextRun(night, later(at, 30 * HOUR))
+    // The next run does not ask about the game that was refused: it was asked about. It asks
+    // about the next one, and when Sony answers again the rest follows.
+    const after = nextRun(night, later(day, 6 * HOUR))
     await runJob(after.deps, PRICES)
-    expect(sent(after)).toEqual(EVERY_PRICE)
+    expect(sent(after)).toEqual(EVERY_PRICE.slice(1))
+  })
+
+  it('stops the night’s mapping at a refusal as well, and leaves the titles for another night', async () => {
+    const night = createJobHarness({ start: RUN_AT, playstation: true })
+    night.sonyAnswersWith({ status: 403 }, { times: Infinity })
+
+    const report = await runJob(night.deps, FULL)
+
+    expect(report.outcome?.published).toBe(true)
+    expect(night.sonyRequests).toHaveLength(1)
+    expect(report.stores?.playstation).toMatchObject({
+      asks: 'mappings',
+      mapped: 0,
+      unmapped: 3,
+      stopped: { reason: 'refused' },
+    })
+    expect(warnings(night)).toEqual([
+      '::warning::PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 1 request — every title that was not answered about waits for another night',
+    ])
   })
 
   it('writes no warning in a run that read everything, or had nothing due', async () => {
-    const { night, morning, at } = await firstMorning()
+    const { night, prices, at } = await firstPrices()
     expect(warnings(night)).toEqual([])
-    expect(warnings(morning)).toEqual([])
+    expect(warnings(prices)).toEqual([])
 
     const idle = nextRun(night, later(at, 6 * HOUR))
     await runJob(idle.deps, PRICES)
@@ -470,7 +658,7 @@ describe('runJob when Sony will not answer', () => {
   })
 
   it('keeps Sony’s own words out of the log, whatever it answers', async () => {
-    const { night, at } = await firstMorning()
+    const { night, at } = await firstPrices()
     const run = nextRun(night, later(at, 24 * HOUR))
     run.sonyAnswersWith(
       { status: 200, body: { errors: [{ message: 'a\n::error::injected', extensions: {} }] } },
@@ -481,12 +669,12 @@ describe('runJob when Sony will not answer', () => {
 
     expect(run.logs.join('\n')).not.toContain('injected')
     expect(warnings(run)).toEqual([
-      '::warning::PlayStation Store prices: 3 requests in a row failed, so nothing more was asked in this run, after 3 requests — every offer that was not read stands as it was',
+      '::warning::PlayStation Store: 3 requests in a row failed, so nothing more was asked in this run, after 3 requests — every offer that was not read stands as it was',
     ])
   })
 
   it('asks Sony nothing in a run Steam has already failed', async () => {
-    const { night, at } = await firstMorning()
+    const { night, at } = await firstPrices()
     const failing = nextRun(night, later(at, 24 * HOUR))
     for (const appId of Object.values(JOB_APP_IDS)) failing.failPriceChunkWith(appId)
 
@@ -564,7 +752,7 @@ describe('runJob over what the build before the PlayStation Store published', ()
     // And the same run asks Sony about the three titles the sweep found.
     expect(report.stores?.playstation).toMatchObject({ mappingsRead: 3, mapped: 3 })
     // The reference the mapping already held is as it was, beside the new one.
-    expect((await nextNight.writer.getStoreRefs([101])).get(101)).toEqual({
+    expect((await nextNight.writer.getStoreRefs([101])).get(101)).toMatchObject({
       gog: 'hollow_cradle',
       playstation: { titleId: 'PPSA10100_00', conceptId: 10_101 },
     })
@@ -594,56 +782,43 @@ describe('runJob and the PlayStation Store, through the Upstash adapter', () => 
         .sort(),
     ).toEqual(['storeref:101', 'storeref:103', 'storeref:106', 'storeref:108', 'storeref:109'])
 
-    const at = later(RUN_AT, 6 * HOUR)
-    const morning = adapterRun(redis, 'the-prices-run', at)
-    await runJob(morning.deps, PRICES)
+    const prices = adapterRun(redis, 'the-prices-run', FIRST_PRICES_AT)
+    await runJob(prices.deps, PRICES)
 
-    // The concepts were read back from the mapping: Sony is asked for prices, not for titles.
-    expect(sent(morning)).toEqual(EVERY_PRICE)
-    expect(psOffers(await reader.getOne(106))).toEqual([amberOffer(request(at, 1))])
+    // The concepts, and the dates of the asking, were read back from the mapping: Sony is asked
+    // for prices, not for titles, and not before the twenty hours.
+    expect(sent(prices)).toEqual(EVERY_PRICE)
+    expect(psOffers(await reader.getOne(106))).toEqual([amberOffer(request(FIRST_PRICES_AT, 1))])
     expect((await reader.meta())?.stats).toMatchObject({ playstationOfferCount: 3 })
   })
 
-  it('adds one command to a run that maps titles, and none to a run that reads prices', async () => {
-    /** What a full run and the prices run after it cost the index, with Sony up or refusing. */
+  it('adds a command for each request to Sony, and one for each answer it has to remember', async () => {
+    /** What the night and the first prices run after it cost the index, with Sony up or refusing. */
     async function traffic(sonyAnswers: boolean) {
       const redis = createFakeRedis()
       const night = adapterRun(redis, 'the-full-run', RUN_AT)
       if (!sonyAnswers) night.sonyAnswersWith({ status: 403 }, { times: Infinity })
       const full = (await runJob(night.deps, FULL)).writes!
 
-      const morning = adapterRun(redis, 'the-prices-run', later(RUN_AT, 6 * HOUR))
-      if (!sonyAnswers) morning.sonyAnswersWith({ status: 403 }, { times: Infinity })
+      const morning = adapterRun(redis, 'the-prices-run', FIRST_PRICES_AT)
       const prices = (await runJob(morning.deps, PRICES)).writes!
-      return {
-        full,
-        prices,
-        mapped: sonyAnswers ? await night.writer.getStoreRefs([101, 106, 108]) : null,
-      }
+      return { full, prices }
     }
     const asking = await traffic(true)
     const refused = await traffic(false)
 
-    // The three titles Sony mapped are one `MSET`, in one request.
-    expect(asking.full.requests - refused.full.requests).toBe(1)
-    expect(asking.full.commands - refused.full.commands).toBe(1)
-    const written = [...asking.mapped!].reduce(
-      (bytes, [id, refs]) => bytes + `storeref:${id}`.length + JSON.stringify(refs).length,
-      0,
-    )
-    expect(asking.full.bytes - refused.full.bytes).toBeGreaterThanOrEqual(written)
-    expect(asking.full.bytes - refused.full.bytes).toBeLessThan(written + 64)
-
-    // The prices run after it: Sony mapped nothing in the refused world, so it has nothing to
-    // price there; in the other, three offers are on the documents and nothing else was sent.
-    expect(asking.prices.requests).toBe(refused.prices.requests)
-    expect(asking.prices.commands).toBe(refused.prices.commands)
-    expect(asking.prices.bytes).toBeGreaterThan(refused.prices.bytes)
+    // The night: three dates of asking and three concepts, against the one date of the request
+    // that was refused. Each a command in a request of its own.
+    expect(asking.full.requests - refused.full.requests).toBe(5)
+    expect(asking.full.commands - refused.full.commands).toBe(5)
+    // The prices run: three dates of asking, where the refused world has no concept to ask about.
+    expect(asking.prices.requests - refused.prices.requests).toBe(3)
+    expect(asking.prices.commands - refused.prices.commands).toBe(3)
   })
 })
 
 describe('formatSummary and the PlayStation Store', () => {
-  it('gains a row for the store, and names it among the references', async () => {
+  it('gains a row for the store in the nightly run, and names it among the references', async () => {
     const harness = createJobHarness({ start: RUN_AT, playstation: true })
 
     const summary = formatSummary(await runJob(harness.deps, FULL))
@@ -652,19 +827,26 @@ describe('formatSummary and the PlayStation Store', () => {
       '| Store references | 5 of 9 games on GOG, the Xbox store or the PlayStation Store at RAWG, 5 asked; 1 with a GOG page, 1 with a Microsoft Store product, 3 with a PlayStation title; RAWG: 2 lookups this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
-      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 waiting to be; 0 prices read of 0 due, 0 removed, 3 titles mapped, 0 failed; 0 offers published, 3 requests; everything due was asked |',
+      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 with none, 0 waiting to be; 3 titles answered about of 3 due, 0 of them with no concept, 0 failed; prices are read by the prices runs: 0 offers carried, no price to date; 3 requests; everything due was asked |',
     )
-  })
-
-  it('says in the log what a prices run read', async () => {
-    const { morning } = await firstMorning()
-
-    expect(morning.logs.filter((line) => line.startsWith('playstation:'))).toEqual([
-      'playstation: 3 references; 3 prices read of 3 due, 0 offers removed, 0 titles mapped, 0 failed, in 3 requests',
+    expect(harness.logs.filter((line) => line.startsWith('playstation:'))).toEqual([
+      'playstation: 3 references; 3 titles answered about of 3 due, 0 of them with no concept, 0 failed, in 3 requests',
     ])
   })
 
-  it('says when no game has a title, and nothing for a run that never reached the store', async () => {
+  it('says what a prices run read, and how old the oldest price is', async () => {
+    const { night, prices, at } = await firstPrices()
+
+    expect(prices.logs.filter((line) => line.startsWith('playstation:'))).toEqual([
+      'playstation: 3 references; 3 prices read of 3 due, 0 offers removed, 0 failed, in 3 requests',
+    ])
+    const idle = nextRun(night, later(at, 6 * HOUR))
+    expect(formatSummary(await runJob(idle.deps, PRICES))).toContain(
+      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 with none, 0 waiting to be; 0 prices read of 0 due, 0 removed, 0 failed; 3 offers published, the oldest read 6 h ago; 0 requests; everything due was asked |',
+    )
+  })
+
+  it('says when no game has a title', async () => {
     const harness = createJobHarness({ start: RUN_AT })
 
     expect(formatSummary(await runJob(harness.deps, FULL))).toContain(
@@ -685,18 +867,23 @@ describe('formatSummary and the PlayStation Store', () => {
   }
   const read: NonNullable<StoresReport['playstation']> = {
     status: 'read',
+    asks: 'prices',
     references: 810,
     mapped: 640,
+    withoutConcept: 60,
     unmapped: 110,
     due: 300,
     pricesRead: 220,
     mappingsRead: 0,
+    noConcept: 0,
     removed: 3,
     failed: 2,
     requests: 225,
     offers: 598,
+    oldestPriceAgeMs: 31 * HOUR + 59 * MINUTE,
     stopped: null,
   }
+  const MAPPING = '810 references, 640 mapped to a concept, 60 with none, 110 waiting to be'
   const rowOf = (playstation: Partial<NonNullable<StoresReport['playstation']>> | null) =>
     formatSummary({
       ...base,
@@ -722,7 +909,7 @@ describe('formatSummary and the PlayStation Store', () => {
     expect(
       rowOf({ stopped: { reason: 'requests', detail: 'the run has made its 225 requests' } }),
     ).toContain(
-      '| PlayStation Store prices | 810 references, 640 mapped to a concept, 110 waiting to be; 220 prices read of 300 due, 3 removed, 0 titles mapped, 2 failed; 598 offers published, 225 requests; stopped at its requests for one run, the rest waits for the next |',
+      `| PlayStation Store prices | ${MAPPING}; 220 prices read of 300 due, 3 removed, 2 failed; 598 offers published, the oldest read 31 h ago; 225 requests; stopped at its requests for one run, the rest waits for the next |`,
     )
     expect(
       rowOf({ stopped: { reason: 'time', detail: 'the run has used its forty minutes' } }),
@@ -735,17 +922,48 @@ describe('formatSummary and the PlayStation Store', () => {
     ).toContain('225 requests; stopped: 3 requests in a row failed |')
   })
 
-  it('says what the floor saw, and what the mapping cost, without breaking the table', () => {
+  it('says what the nightly run mapped, and that it reads no price', () => {
+    expect(
+      rowOf({
+        asks: 'mappings',
+        due: 170,
+        mappingsRead: 58,
+        noConcept: 17,
+        pricesRead: 0,
+        removed: 0,
+        requests: 60,
+      }),
+    ).toContain(
+      `| PlayStation Store prices | ${MAPPING}; 58 titles answered about of 170 due, 17 of them with no concept, 2 failed; prices are read by the prices runs: 598 offers carried, the oldest read 31 h ago; 60 requests; everything due was asked |`,
+    )
+  })
+
+  it('says when a run of its kind does not ask, and when a run is going to be refused', () => {
+    expect(rowOf({ status: 'not-in-this-run', asks: 'nothing', requests: 0 })).toContain(
+      `| PlayStation Store prices | ${MAPPING}; not read in this kind of run; 598 offers carried, the oldest read 31 h ago |`,
+    )
+    expect(
+      rowOf({ status: 'run-refused', requests: 0, error: 'the run priced no games | at\nall' }),
+    ).toContain(
+      `${MAPPING}; not read: the run is going to be refused publication (the run priced no games / at all); 598 offers carried, the oldest read 31 h ago |`,
+    )
+  })
+
+  it('says what a floor saw, and what the mapping cost, without breaking the table', () => {
     expect(
       rowOf({ status: 'failed', removed: 0, error: 'asked about 40 | and\n30 would go' }),
     ).toContain('225 requests; everything due was asked (asked about 40 / and 30 would go) |')
     expect(
       rowOf({ status: 'references-lost', error: 'carried 600, the mapping names 12', dropped: 4 }),
     ).toContain(
-      '| PlayStation Store prices | 810 references, not read (carried 600, the mapping names 12); 598 offers kept as they were; the next run looks again; 4 offers dropped because their games no longer have a store reference |',
+      `| PlayStation Store prices | ${MAPPING}; not read (carried 600, the mapping names 12); 598 offers kept as they were, the oldest read 31 h ago; the next run looks again; 4 offers dropped because their games no longer have a store reference |`,
     )
     expect(rowOf({ dropped: 1 })).toContain(
       'everything due was asked; 1 offer dropped because its game no longer has a store reference |',
     )
+    expect(rowOf({ offers: 0, oldestPriceAgeMs: null })).toContain(
+      '0 offers published, no price to date;',
+    )
+    expect(rowOf({ oldestPriceAgeMs: 59 * MINUTE })).toContain('the oldest read under an hour ago;')
   })
 })

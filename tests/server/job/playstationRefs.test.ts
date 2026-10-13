@@ -194,13 +194,13 @@ describe('storeRefsFromLinks and the PlayStation Store', () => {
     const asked = '2026-10-13T06:15:00.000Z'
     const previous: IndexedStoreRefs = {
       gog: 'an_old_slug',
-      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, unpricedAt: asked },
+      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, askedAt: asked },
     }
 
     // Everything RAWG knows is replaced; what was never RAWG's is kept.
     expect(storeRefsFromLinks([{ store_id: 3, url: GTA }], ['gog'], previous)).toEqual({
       gog: null,
-      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, unpricedAt: asked },
+      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, askedAt: asked },
     })
     // "Sony has none" is an answer about the title too.
     expect(
@@ -231,17 +231,37 @@ describe('storeRefsFromLinks and the PlayStation Store', () => {
 describe('usableStoreRefs and the PlayStation Store', () => {
   const corrupt = (record: unknown) => usableStoreRefs(record as never)
 
-  it('passes on a title with what Sony said about it, in each of its three states', () => {
-    const unpricedAt = '2026-10-13T06:15:00.000Z'
+  it('passes on a title with what Sony said about it, and when it was asked, in each state', () => {
+    const askedAt = '2026-10-13T06:15:00.000Z'
     for (const playstation of [
       { titleId: 'CUSA00419_00' },
-      { titleId: 'CUSA00419_00', conceptId: null },
+      // Asked, and the request failed: a date and no answer.
+      { titleId: 'CUSA00419_00', askedAt },
+      { titleId: 'CUSA00419_00', conceptId: null, askedAt },
       { titleId: 'PPSA01721_00', conceptId: 201_930 },
-      { titleId: 'PPSA01721_00', conceptId: 201_930, unpricedAt },
+      { titleId: 'PPSA01721_00', conceptId: 201_930, askedAt },
     ]) {
       expect(usableStoreRefs({ playstation })).toEqual({ playstation })
     }
     expect(usableStoreRefs({ playstation: null })).toEqual({})
+  })
+
+  it('ignores whatever else a record holds, beside the stores and inside the reference', () => {
+    // A field another build may add to the record — RAWG's raw links, say — is not this
+    // module's to read, and is in nobody's way.
+    const record = {
+      gog: 'limbo',
+      links: [{ store_id: 3, url: 'https://store.playstation.com/en-us/product/x' }],
+      playstation: { titleId: 'CUSA00419_00', conceptId: 7, unpricedAt: 'an older build’s' },
+    }
+    expect(corrupt(record)).toEqual({
+      gog: 'limbo',
+      playstation: { titleId: 'CUSA00419_00', conceptId: 7 },
+    })
+    expect(needsStoreLookup({ stores: ['gog', 'playstation-store'] }, record as never)).toBe(false)
+    expect(
+      countStoreRefs([{ id: 1, stores: ['gog'] } as never], new Map([[1, record as never]])),
+    ).toEqual({ listed: 1, asked: 1, gog: 1, microsoft: 0, playstation: 1 })
   })
 
   it('has no reference for a title that is not one, and keeps the other stores', () => {
@@ -253,19 +273,14 @@ describe('usableStoreRefs and the PlayStation Store', () => {
     expect(corrupt({ playstation: { conceptId: 201_930 } })).toEqual({})
   })
 
-  it('reads a concept or a date that is not one as "not asked yet", and keeps the title', () => {
+  it('reads a concept or a date that is not one as not there, and keeps the title', () => {
     const title = { playstation: { titleId: 'CUSA00419_00' } }
     for (const conceptId of ['201930', 0, -5, 1.5, Number.NaN, 2 ** 60, {}, true]) {
       expect(corrupt({ playstation: { titleId: 'CUSA00419_00', conceptId } })).toEqual(title)
     }
     // A date without a zone, a date in words, a number: none is one this job wrote.
-    for (const unpricedAt of [
-      '2026-10-13T06:15:00',
-      '13.10.2026',
-      'yesterday',
-      1_792_000_000_000,
-    ]) {
-      expect(corrupt({ playstation: { titleId: 'CUSA00419_00', unpricedAt } })).toEqual(title)
+    for (const askedAt of ['2026-10-13T06:15:00', '13.10.2026', 'yesterday', 1_792_000_000_000]) {
+      expect(corrupt({ playstation: { titleId: 'CUSA00419_00', askedAt } })).toEqual(title)
     }
     // And nothing else a record holds there is passed on.
     expect(

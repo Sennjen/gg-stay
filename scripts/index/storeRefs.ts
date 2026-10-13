@@ -273,27 +273,26 @@ const JOB_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 /**
  * What a record says of the PlayStation Store, as far as it is what this job would have written:
- * the title, and what Sony said about it. `undefined` for a field that is `null`, absent, or
- * holds a title id that is not one.
+ * the title, what Sony said about it, and when Sony was last asked. `undefined` for a field that
+ * is `null`, absent, or holds a title id that is not one.
  *
  * A concept id that is not a positive whole number or `null` is left out, which reads as "Sony
- * has not been asked yet", and a date that is not one of the job's own is left out too: both are
- * then simply asked for again.
+ * has not answered yet", and a date that is not one of the job's own is left out too, which
+ * reads as "never asked": both are then simply asked for again. Nothing else the field holds is
+ * passed on.
  */
 function usablePlaystationRef(
   value: unknown,
 ): NonNullable<IndexedStoreRefs['playstation']> | undefined {
   if (value === null || typeof value !== 'object') return undefined
-  const { titleId, conceptId, unpricedAt } = value as Record<string, unknown>
+  const { titleId, conceptId, askedAt } = value as Record<string, unknown>
   if (!isPlaystationTitleId(titleId)) return undefined
   const ref: NonNullable<IndexedStoreRefs['playstation']> = { titleId }
   if (conceptId === null) ref.conceptId = null
   else if (typeof conceptId === 'number' && Number.isSafeInteger(conceptId) && conceptId > 0) {
     ref.conceptId = conceptId
   }
-  if (typeof unpricedAt === 'string' && JOB_TIMESTAMP.test(unpricedAt)) {
-    ref.unpricedAt = unpricedAt
-  }
+  if (typeof askedAt === 'string' && JOB_TIMESTAMP.test(askedAt)) ref.askedAt = askedAt
   return ref
 }
 
@@ -313,10 +312,10 @@ function usablePlaystationRef(
  *
  * `previous` is the record the game had, when it had one. RAWG's links are the whole of what
  * RAWG knows, so nothing of the old record survives a new one — except what was never RAWG's:
- * what Sony answered about the game's PlayStation title (`conceptId`, `unpricedAt`). That cost a
- * request to Sony, which is the scarcest thing this job spends, and it is still true for as long
- * as the link names the same title; so it is kept exactly then, and dropped with a title that
- * changed.
+ * what Sony answered about the game's PlayStation title, and when it was last asked (`conceptId`,
+ * `askedAt`). That cost a request to Sony, which is the scarcest thing this job spends, and it is
+ * still true for as long as the link names the same title; so it is kept exactly then, and
+ * dropped with a title that changed.
  */
 export function storeRefsFromLinks(
   links: readonly RawgStoreLink[] | null | undefined,

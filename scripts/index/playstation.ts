@@ -9,10 +9,11 @@ import { safeExternalUrl } from '../../shared/url'
  * most of this module, because how slowly Sony is asked matters more here than what is asked.
  *
  * **Sony is asked two things, a game at a time.** RAWG's link names a title (`CUSA00419_00`), and
- * the store prices a concept, so a game is first asked about once, for good: which concept its
- * title belongs to in the Ukrainian store (`concept`). After that it is asked about once a day:
- * what the concept's default product costs (`price`). Neither endpoint takes more than one game a
- * request, and nothing else was found that does.
+ * the store prices a concept, so a game is first asked about once: which concept its title
+ * belongs to in the Ukrainian store (`concept`). After that it is asked about once a day: what
+ * the concept's default product costs (`price`). Neither endpoint takes more than one game a
+ * request, and nothing else was found that does. Which run asks which, and how often a game is
+ * asked at all, is the stage's to say (`playstationOffers.ts`).
  *
  * **The read is rationed, and the ration is the transport's.** Sony documents neither endpoint
  * and its website terms restrict automated access; the project's owner accepted that for a

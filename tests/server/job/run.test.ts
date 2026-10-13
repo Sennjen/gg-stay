@@ -1116,9 +1116,9 @@ describe('runCli', () => {
     )
     // The PlayStation Store, from its own recorded answers (`tests/fixtures/playstation`): RAWG's
     // fixtures list Stardew Valley there, and the title in its link is one Sony names a concept
-    // for. A run prices what an earlier run mapped, so this one maps and publishes no offer.
+    // for. A full run maps titles and reads no price, so it publishes no offer.
     expect(summary).toContain(
-      '| PlayStation Store prices | 1 reference, 1 mapped to a concept, 0 waiting to be; 0 prices read of 0 due, 0 removed, 1 title mapped, 0 failed; 0 offers published, 1 request; everything due was asked |',
+      '| PlayStation Store prices | 1 reference, 1 mapped to a concept, 0 with none, 0 waiting to be; 1 title answered about of 1 due, 0 of them with no concept, 0 failed; prices are read by the prices runs: 0 offers carried, no price to date; 1 request; everything due was asked |',
     )
     // The recorded rate, under today's date in Kyiv whenever the suite runs.
     expect(summary).toMatch(

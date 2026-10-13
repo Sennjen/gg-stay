@@ -994,7 +994,7 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
       })
 
       it('stores a PlayStation reference in each of its states, as it was written', async () => {
-        const unpricedAt = '2026-10-13T06:15:00.000Z'
+        const askedAt = '2026-10-13T06:15:00.000Z'
         const records: [number, IndexedStoreRefs][] = [
           // A title Sony has not been asked about yet.
           [7100, { playstation: { titleId: 'CUSA00419_00' } }],
@@ -1007,10 +1007,12 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
               playstation: { titleId: 'CUSA16596_00', conceptId: 234_567 },
             },
           ],
-          // One it has no concept for: `null`, which is not "not asked yet".
-          [7102, { playstation: { titleId: 'CUSA99999_00', conceptId: null } }],
-          // One it answered about with no price, and when.
-          [7103, { playstation: { titleId: 'CUSA06840_00', conceptId: 227_229, unpricedAt } }],
+          // One it has no concept for: `null`, which is not "not answered yet".
+          [7102, { playstation: { titleId: 'CUSA99999_00', conceptId: null, askedAt } }],
+          // One with its concept, and the date Sony was last asked about it.
+          [7103, { playstation: { titleId: 'CUSA06840_00', conceptId: 227_229, askedAt } }],
+          // One asked about and not answered: the date alone.
+          [7106, { playstation: { titleId: 'CUSA11408_00', askedAt } }],
           // And a game listed there with no title to read.
           [7104, { playstation: null }],
         ]

@@ -33,9 +33,10 @@ import { createUpstashCommands, createUpstashIndex } from '../../server/index/up
  * So about 90 seconds at the worst, and thirty minutes is twenty times that — margin enough for a
  * stalled upstream, a slow runner or a garbage-collection pause, while still freeing the lock long
  * before the next six-hourly run arrives. The PlayStation Store's stage is the one that is longer
- * than the lock — forty minutes at the most — and is no exception to the rule: it renews after
- * every request, so its gap is the twenty-five seconds of its row. A run that dies therefore blocks nothing for more than
- * half an hour, and `force_unlock` is there for the operator who will not wait.
+ * than the lock — forty minutes at the most, in a prices run — and is no exception to the rule:
+ * it renews after every request, so its gap is the twenty-five seconds of its row. A run that
+ * dies therefore blocks nothing for more than half an hour, and `force_unlock` is there for the
+ * operator who will not wait.
  */
 export const INDEX_LOCK_TTL_SECONDS = 30 * 60
 

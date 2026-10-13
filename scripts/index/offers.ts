@@ -59,8 +59,8 @@ import { safeExternalUrl } from '../../shared/url'
  * evidence about the mapping: it is then not believed for that store, no offer of the store is
  * dropped for want of a reference, the store is not read, and its stamp stays where it was.
  *
- * **The PlayStation Store is not read here.** It is read a game at a time, slowly, by a stage of
- * its own that comes after this one (`playstationOffers.ts`). What is done for it here is what
+ * **The PlayStation Store is not read here.** It is read a concept at a time, slowly, by a stage
+ * of its own that comes after this one (`playstationOffers.ts`). What is done for it here is what
  * needs no request, and is one rule for every store: an offer of it is kept only while the
  * mapping names the game's title there, and the mapping is believed about it only so far. What
  * that came to is handed on to its stage (`OffersResult.playstation`).
@@ -216,7 +216,7 @@ export function referencesLookLost(carrying: number, referenced: number): string
 }
 
 /** A stamp as epoch milliseconds, or `null` when it is missing, unreadable or in the future. */
-export function stampOf(iso: string | undefined | null, now: number): number | null {
+function stampOf(iso: string | undefined | null, now: number): number | null {
   if (typeof iso !== 'string') return null
   const at = Date.parse(iso)
   return Number.isFinite(at) && at <= now ? at : null
