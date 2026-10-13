@@ -26,7 +26,7 @@ import {
   isFreshOffer,
   listedOffers,
   markedCheapest,
-  readableOffers,
+  pageOffers,
   wholeHryvnia,
   type PricedRow,
 } from './offerRules'
@@ -166,9 +166,9 @@ function toOfferLink(offer: Pick<IndexedOffer, 'store' | 'url'>): StoreOffer | n
  *
  * `null` when the offer's address does not pass the allow-list (`toOfferLink`): a row exists to
  * be followed, and there is no row to make of a price without an address to send anyone to. The
- * offers a document is read through have been checked already (`readableOffers`), so a caller
- * that went through them never sees it — but the address is checked here and not taken on that
- * word, because this is where it leaves for a page.
+ * offers a document is read through have been checked already (`readableOffers`, by way of
+ * `pageOffers`), so a caller that went through them never sees it — but the address is checked
+ * here and not taken on that word, because this is where it leaves for a page.
  */
 export function toStoreOffer(
   offer: IndexedOffer,
@@ -221,7 +221,7 @@ export function withStoreOffers(
 ): StoreOffer[] {
   if (!game) return rows
   const offers = new Map(
-    readableOffers(game)
+    pageOffers(game)
       .filter((offer) => isFreshOffer(offer, terms.now))
       .map((offer) => [offer.store as string, offer]),
   )

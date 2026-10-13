@@ -60,6 +60,7 @@ describe('publishVersion', () => {
         similarMedianLength: 0,
         gogOfferCount: 0,
         microsoftOfferCount: 0,
+        playstationOfferCount: 0,
       },
       // And no rate and no store stamps: a field the run has nothing for is left out, not
       // written empty.

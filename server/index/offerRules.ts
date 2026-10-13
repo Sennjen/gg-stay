@@ -5,6 +5,7 @@ import {
   type IndexedExchangeRate,
   type IndexedGame,
   type IndexedOffer,
+  type OfferStore,
 } from './document'
 
 /**
@@ -179,8 +180,33 @@ export function readableOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[
 }
 
 /**
- * The offers a page built from the document alone may show a store for: the readable ones, for a
- * store RAWG lists the game on (`IndexedGame.stores`).
+ * The stores whose offers a page or a card shows, weighs and compares today: GOG and the
+ * Microsoft Store.
+ *
+ * It is a shorter list than the one the refresh job publishes (`OFFER_STORES`), on purpose. The
+ * job reads the PlayStation Store as well, and its offers are on the documents, readable like any
+ * other (`readableOffers`); but every rule below was written for the two stores here. A
+ * PlayStation Store offer is a price for forty-eight hours and not thirty-six, it stops being a
+ * discount at its `saleEndsAt`, and it must never be marked the cheapest or weighed against
+ * another row: it is a console's store, and its product may be another thing than the game
+ * (`docs/specs/2026-10-13-playstation-store-prices-design.md`, section 4). Until a page knows
+ * those rules, it shows that store as it always has — the link RAWG gave, without a price — and
+ * a store joins this list in the same change that teaches the pages about it.
+ */
+export const PAGE_OFFER_STORES: readonly OfferStore[] = ['gog', 'xbox-store']
+
+/**
+ * The offers a page or a card may use at all: the readable ones, of a store whose offers the
+ * pages know how to show (`PAGE_OFFER_STORES`). The one door a document's offers go through on
+ * their way to anything a visitor sees — a row's price, the cheapest mark, a card's line.
+ */
+export function pageOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[] {
+  return readableOffers(game).filter((offer) => PAGE_OFFER_STORES.includes(offer.store))
+}
+
+/**
+ * The offers a page built from the document alone may show a store for: the ones a page may use
+ * (`pageOffers`), for a store RAWG lists the game on (`IndexedGame.stores`).
  *
  * The second condition is the one `steamStorePageOf` asks of the Steam link, for the same reason.
  * An offer says what a store charged for the product a permanent mapping names, not that the game
@@ -189,7 +215,7 @@ export function readableOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[
  * answered needs no such check: its rows are RAWG's own links.
  */
 export function listedOffers(game: Pick<IndexedGame, 'stores' | 'offers'>): IndexedOffer[] {
-  return readableOffers(game).filter((offer) => game.stores.includes(offer.store))
+  return pageOffers(game).filter((offer) => game.stores.includes(offer.store))
 }
 
 /**

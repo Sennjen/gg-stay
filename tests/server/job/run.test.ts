@@ -1105,7 +1105,7 @@ describe('runCli', () => {
     // ones and find nothing there: The Witcher 3's GOG page is no longer in GOG's catalog, and
     // Stardew Valley's Microsoft product is not in the recorded answer.
     expect(summary).toContain(
-      '| Store references | 3 of 5 games on GOG or the Xbox store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
+      '| Store references | 3 of 5 games on GOG, the Xbox store or the PlayStation Store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product, 0 with a PlayStation title; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
       '| GOG prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',

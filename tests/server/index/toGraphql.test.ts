@@ -643,6 +643,28 @@ describe('withStoreOffers', () => {
     expect(priced.map((row) => row.store)).toEqual(['steam', 'gog', 'playstation-store'])
   })
 
+  it('leaves the PlayStation Store’s row the link RAWG gave, whatever the document holds for it', () => {
+    // The job publishes that store's offers before any page knows its rules (`PAGE_OFFER_STORES`).
+    const playstation: IndexedOffer = {
+      store: 'playstation-store',
+      title: 'Grand Theft Auto Online (PlayStation\u00AE5)',
+      amount: 89_900,
+      regularAmount: 89_900,
+      currency: 'UAH',
+      discountPercent: 0,
+      url: 'https://store.playstation.com/uk-ua/product/EP1004-PPSA01721_00-GTAOSTANDALONE01',
+      updatedAt: gogOffer().updatedAt,
+    }
+    const before = rows()
+    const priced = withStoreOffers(before, holding(gogOffer(), playstation), TERMS)
+
+    expect(priced[2]).toBe(before[2])
+    expect(priced[2]).toMatchObject({ url: 'https://store.playstation.com/x' })
+    expect(priced[2]!.priceUah ?? null).toBeNull()
+    // The row it does know is priced as ever.
+    expect(priced[1]).toEqual(rowOf(gogOffer(), RATE))
+  })
+
   it('leaves the link RAWG gave when the offer is too old to be a price', () => {
     const before = rows()
     const stale = withStoreOffers(before, holding(gogOffer({ updatedAt: TOO_OLD })), TERMS)

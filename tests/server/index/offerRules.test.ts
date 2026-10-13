@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { RATE_KEPT_MS } from '../../../scripts/index/offers'
-import type { IndexedExchangeRate, IndexedGame, IndexedOffer } from '../../../server/index/document'
+import {
+  OFFER_STORES,
+  type IndexedExchangeRate,
+  type IndexedGame,
+  type IndexedOffer,
+} from '../../../server/index/document'
 import {
   APPROXIMATE_MARGIN_PERCENT,
   CHEAPER_MARGIN_PERCENT,
   CLOCK_AHEAD_ALLOWED_MS,
   EXCHANGE_RATE_KEPT_MS,
   OFFER_FRESH_FOR_MS,
+  PAGE_OFFER_STORES,
   cheaperAtOf,
   cheapestRow,
   exchangeRateAt,
@@ -16,6 +22,7 @@ import {
   isFreshOffer,
   listedOffers,
   markedCheapest,
+  pageOffers,
   readableOffers,
   wholeHryvnia,
   type PricedRow,
@@ -53,6 +60,20 @@ const microsoft = (overrides: Partial<IndexedOffer> = {}): IndexedOffer => ({
   discountPercent: 0,
   url: 'https://www.microsoft.com/uk-ua/p/stardew-valley/c3d891z6tnqm',
   updatedAt: ago(6 * HOUR),
+  ...overrides,
+})
+
+/** What the refresh job publishes for the PlayStation Store: hryvnia, and the end of a sale. */
+const playstation = (overrides: Partial<IndexedOffer> = {}): IndexedOffer => ({
+  store: 'playstation-store',
+  title: 'Terraria \u2013 PlayStation\u00AE4 Edition',
+  amount: 30_950,
+  regularAmount: 61_900,
+  currency: 'UAH',
+  discountPercent: 50,
+  url: 'https://store.playstation.com/uk-ua/product/EP4040-CUSA00737_00-TERRARIA00000001',
+  updatedAt: ago(6 * HOUR),
+  saleEndsAt: '2026-10-21T22:59:00.000Z',
   ...overrides,
 })
 
@@ -214,6 +235,47 @@ describe('the offers a build can show', () => {
   it('keep an offer that is too old to be a price: it still names the store’s page', () => {
     const old = gog({ updatedAt: ago(3 * DAY) })
     expect(readableOffers(game([old]))).toEqual([old])
+  })
+})
+
+/**
+ * The refresh job publishes the PlayStation Store's offers from the change that taught it to
+ * read them; the pages are taught what to do with them in the change after. In between, a
+ * document carries an offer every rule here could read and none of them was written for.
+ */
+describe('the offers a page may use', () => {
+  const everywhere = ['steam', 'gog', 'xbox-store', 'playstation-store']
+
+  it('are those of GOG and the Microsoft Store, which is fewer stores than the job reads', () => {
+    expect(PAGE_OFFER_STORES).toEqual(['gog', 'xbox-store'])
+    expect(OFFER_STORES).toEqual(['gog', 'xbox-store', 'playstation-store'])
+    for (const store of PAGE_OFFER_STORES) expect(OFFER_STORES).toContain(store)
+  })
+
+  it('read a PlayStation Store offer as the offer it is, and use it for nothing', () => {
+    const offers = [gog(), microsoft(), playstation()]
+    const document = game(offers, everywhere)
+
+    // Readable: a store the build knows, hryvnia, whole kopecks, an address it would link to.
+    expect(readableOffers(document)).toEqual(offers)
+    // And not among what a page shows, lists or weighs.
+    expect(pageOffers(document)).toEqual([gog(), microsoft()])
+    expect(listedOffers(document)).toEqual([gog(), microsoft()])
+    expect(freshOffers(document, NOW)).toEqual([gog(), microsoft()])
+    expect(pageOffers(game([playstation()], everywhere))).toEqual([])
+  })
+
+  it('never name the PlayStation Store as cheaper than Steam, however far below it is', () => {
+    const steam = { priceUah: 1_000, priceUpdatedAt: ago(HOUR) }
+    const free = playstation({ amount: 0, regularAmount: 0, discountPercent: 0 })
+
+    expect(cheaperAtOf({ ...steam, ...game([playstation()], everywhere) }, NOW, RATE)).toBeNull()
+    expect(cheaperAtOf({ ...steam, ...game([free], everywhere) }, NOW, RATE)).toBeNull()
+    // And a store that is clearly cheaper is named exactly as it would be without that offer.
+    const cheap = microsoft({ amount: 50_000, regularAmount: 50_000 })
+    expect(cheaperAtOf({ ...steam, ...game([cheap, free], everywhere) }, NOW, RATE)).toBe(
+      'xbox-store',
+    )
   })
 })
 

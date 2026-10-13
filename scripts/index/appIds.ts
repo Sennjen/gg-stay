@@ -24,10 +24,16 @@ import { steamAppIdFromUrl } from '../../server/steam/steam'
  * as `''`, which would make the failure permanent — and the next run picks it up. Only a stage
  * failing beyond the run's tolerance ends the run.
  *
- * The same response carries every other store's link to the game, so the game's GOG page and its
- * Microsoft product (`storeRefs.ts`) are read from it here and written beside its app id: a game
- * new to the index costs RAWG one request for all three, not two. A game with neither link, on
- * neither store, has nothing written about it.
+ * The same response carries every other store's link to the game, so the game's GOG page, its
+ * Microsoft product and its PlayStation title (`storeRefs.ts`) are read from it here and written
+ * beside its app id: a game new to the index costs RAWG one request for all of them, not two. A
+ * game with none of those links, on none of those stores, has nothing written about it.
+ *
+ * A game can come to this stage with a record already — one the sweep wrote while RAWG did not
+ * list the game on Steam. The record is rewritten from the links like any other, and what Sony
+ * had said about its PlayStation title is carried over (`storeRefsFromLinks`): that is why the
+ * records of the games about to be asked about are read first, in one request, on a night that
+ * has any.
  */
 
 export const APP_ID_BATCH_SIZE = 100
@@ -116,6 +122,10 @@ export async function resolveAppIds(
   const known = await deps.writer.getAppIds(candidates.map((game) => game.id))
 
   const pending = candidates.filter((game) => !known.has(game.id))
+  const previousRefs =
+    pending.length > 0
+      ? await deps.writer.getStoreRefs(pending.map((game) => game.id))
+      : new Map<number, IndexedStoreRefs>()
   let batch: [number, string][] = []
   let storeRefs: [number, IndexedStoreRefs][] = []
 
@@ -151,7 +161,7 @@ export async function resolveAppIds(
         // game's other stores, and the sweep asks about it again rather than remember "no link".
         // And only a record that says something: a game on neither store needs none.
         const links = storeLinksOf(response)
-        const refs = links ? storeRefsFromLinks(links, game.stores) : {}
+        const refs = links ? storeRefsFromLinks(links, game.stores, previousRefs.get(game.id)) : {}
         if (Object.keys(refs).length > 0) storeRefs.push([game.id, refs])
         if (batch.length >= batchSize) await flush()
       } catch {

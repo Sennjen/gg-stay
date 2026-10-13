@@ -58,6 +58,12 @@ import { safeExternalUrl } from '../../shared/url'
  * one game, but twenty of them agreeing against a mapping that has forgotten most of them are
  * evidence about the mapping: it is then not believed for that store, no offer of the store is
  * dropped for want of a reference, the store is not read, and its stamp stays where it was.
+ *
+ * **The PlayStation Store is not read here.** It is read a game at a time, slowly, by a stage of
+ * its own that comes after this one (`playstationOffers.ts`). What is done for it here is what
+ * needs no request, and is one rule for every store: an offer of it is kept only while the
+ * mapping names the game's title there, and the mapping is believed about it only so far. What
+ * that came to is handed on to its stage (`OffersResult.playstation`).
  */
 
 /** A store's prices are read again once its last full read is older than this: eleven hours. */
@@ -145,9 +151,22 @@ export interface RateReport {
   rate: IndexedExchangeRate | null
 }
 
+/**
+ * What "an offer needs a reference" came to for a store whose read is another stage's: whether
+ * the mapping was believed about it, and what a believed mapping cost it.
+ */
+export interface ReferenceVerdict {
+  /** Why the mapping is not believed for the store (`referencesLookLost`), or `null` when it is. */
+  lost: string | null
+  /** Games that arrived with an offer of the store and lost it here for want of a reference. */
+  dropped: number
+}
+
 export interface OffersResult {
   gog: StoreReadReport
   microsoft: StoreReadReport
+  /** The PlayStation Store's share of the rule about references; its read is its own stage's. */
+  playstation: ReferenceVerdict
   rate: RateReport
   /** The two fields of the metadata this stage owns, as the publication should write them. */
   offersReadAt: Partial<Record<OfferStore, string>>
@@ -197,7 +216,7 @@ export function referencesLookLost(carrying: number, referenced: number): string
 }
 
 /** A stamp as epoch milliseconds, or `null` when it is missing, unreadable or in the future. */
-function stampOf(iso: string | undefined | null, now: number): number | null {
+export function stampOf(iso: string | undefined | null, now: number): number | null {
   if (typeof iso !== 'string') return null
   const at = Date.parse(iso)
   return Number.isFinite(at) && at <= now ? at : null
@@ -210,13 +229,24 @@ export function isOffersReadDue(lastReadAt: string | undefined | null, now: numb
 }
 
 /** The store's own title as an offer carries it: the field, or no field when there is none. */
-function titled(title: string | null): { title?: string } {
+export function titled(title: string | null): { title?: string } {
   return title === null ? {} : { title }
 }
 
-/** Whether the mapping names the game's product in a store. */
+/**
+ * Whether the mapping names the game's product in a store. For the PlayStation Store that is the
+ * title RAWG's link gave: it is what the game's offer there rests on, whether or not Sony has
+ * yet been asked which concept the title belongs to.
+ */
 function hasReference(refs: IndexedStoreRefs, store: OfferStore): boolean {
-  return store === 'gog' ? typeof refs.gog === 'string' : Boolean(refs.microsoft)
+  switch (store) {
+    case 'gog':
+      return typeof refs.gog === 'string'
+    case 'xbox-store':
+      return Boolean(refs.microsoft)
+    case 'playstation-store':
+      return Boolean(refs.playstation)
+  }
 }
 
 /** The game's offers in the order of `OFFER_STORES`, or no field at all when it has none. */
@@ -230,12 +260,12 @@ function writeOffers(game: IndexedGame, offers: readonly IndexedOffer[]): void {
 }
 
 /** Gives the game this store's offer, or takes away the one it had. */
-function setOffer(game: IndexedGame, store: OfferStore, offer: IndexedOffer | null): void {
+export function setOffer(game: IndexedGame, store: OfferStore, offer: IndexedOffer | null): void {
   const others = (game.offers ?? []).filter((candidate) => candidate.store !== store)
   writeOffers(game, offer ? [...others, offer] : others)
 }
 
-function countOffers(games: readonly IndexedGame[], store: OfferStore): number {
+export function countOffers(games: readonly IndexedGame[], store: OfferStore): number {
   return games.filter((game) => game.offers?.some((offer) => offer.store === store)).length
 }
 
@@ -243,8 +273,11 @@ function countOffers(games: readonly IndexedGame[], store: OfferStore): number {
  * A lock renewal that cannot be mistaken for a store's failure. The reads renew the lock as they
  * go, from inside the code whose failures mean "the store is down"; an index that will not renew
  * is another matter, and is thrown once the store's own verdict is in.
+ *
+ * `held` is for a read long enough to be worth cutting short: a run whose lock will not renew
+ * cannot publish, so nothing more need be asked of a store on its behalf.
  */
-function createLockKeeper(deps: JobDeps) {
+export function createLockKeeper(deps: JobDeps) {
   let failure: unknown = null
   return {
     renew: async (): Promise<void> => {
@@ -254,6 +287,7 @@ function createLockKeeper(deps: JobDeps) {
         failure ??= error
       }
     },
+    held: (): boolean => failure === null,
     assertHeld: (): void => {
       if (failure !== null) throw failure
     },
@@ -564,7 +598,7 @@ export async function refreshOffers(
   }
 
   /** Games that lose an offer of each store here, for want of a reference the mapping has not. */
-  const dropped: Record<OfferStore, number> = { gog: 0, 'xbox-store': 0 }
+  const dropped: Record<OfferStore, number> = { gog: 0, 'xbox-store': 0, 'playstation-store': 0 }
   for (const { game, usable, carried } of arrived) {
     if (usable.gog) gogGames.push({ game, slug: usable.gog })
     if (usable.microsoft) microsoftGames.push({ game, product: usable.microsoft })
@@ -599,5 +633,12 @@ export async function refreshOffers(
   if (gog.lastReadAt) offersReadAt.gog = gog.lastReadAt
   if (microsoft.lastReadAt) offersReadAt['xbox-store'] = microsoft.lastReadAt
 
-  return { gog, microsoft, rate, offersReadAt, exchangeRate: rate.rate ?? undefined }
+  // The mapping's verdict on the PlayStation Store goes with the result as it stands: the stage
+  // that reads that store asks nothing while the mapping is not believed, as the two above do not.
+  const playstation: ReferenceVerdict = {
+    lost: lost['playstation-store'] ?? null,
+    dropped: dropped['playstation-store'],
+  }
+
+  return { gog, microsoft, playstation, rate, offersReadAt, exchangeRate: rate.rate ?? undefined }
 }

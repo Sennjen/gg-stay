@@ -25,8 +25,14 @@ export interface IndexedLocalisation {
 /** The longest store title an offer carries, in characters. Real ones are a few dozen. */
 export const MAX_OFFER_TITLE_LENGTH = 200
 
-/** The stores, other than Steam, whose price the refresh job reads: RAWG's own slugs for them. */
-export const OFFER_STORES = ['gog', 'xbox-store'] as const
+/**
+ * The stores, other than Steam, whose price the refresh job reads: RAWG's own slugs for them.
+ *
+ * What the job reads and what a page shows are two lists. This one is the job's and the
+ * document's; the site keeps its own (`PAGE_OFFER_STORES`, `server/index/offerRules.ts`), so a
+ * store can be published before any page knows what to do with its offers.
+ */
+export const OFFER_STORES = ['gog', 'xbox-store', 'playstation-store'] as const
 export type OfferStore = (typeof OFFER_STORES)[number]
 
 /**
@@ -34,24 +40,33 @@ export type OfferStore = (typeof OFFER_STORES)[number]
  * it from the store itself (`scripts/index/offers.ts`).
  *
  * The amounts are in minor units — cents, kopecks — and in the currency the store charges
- * Ukraine in: GOG in US dollars, the Microsoft Store in hryvnia. A dollar amount is never
- * converted here and never stored as hryvnia: what a visitor is shown beside it is an estimate
- * made when the page is, from `IndexMeta.exchangeRate`.
+ * Ukraine in: GOG in US dollars, the Microsoft Store and the PlayStation Store in hryvnia. A
+ * dollar amount is never converted here and never stored as hryvnia: what a visitor is shown
+ * beside it is an estimate made when the page is, from `IndexMeta.exchangeRate`.
  *
  * `regularAmount` is the price without the discount and is never below `amount`; the two are
  * equal, and `discountPercent` is 0, when the game is not on sale. A free game is an offer of 0.
  *
  * `url` is the store's own address for the product — GOG's `storeLink`, Microsoft's product page
- * for Ukraine — and has been through `safeExternalUrl`, like every other outbound link.
+ * for Ukraine, the PlayStation Store's page for Ukraine — and has been through `safeExternalUrl`,
+ * like every other outbound link.
  *
  * `title` is what the store itself calls the product. RAWG's link sometimes names another edition
  * than the game it is filed under — a complete season, a "Game of the Year Edition" — and the
  * price is that edition's; the title is how a page can say so. Plain text, trimmed, at most
- * `MAX_OFFER_TITLE_LENGTH` characters; left out when the store gave none.
+ * `MAX_OFFER_TITLE_LENGTH` characters; left out when the store gave none. For the PlayStation
+ * Store it is more than an edition: the price is that of the product Sony puts first for the
+ * game's concept, which is sometimes another product altogether (`scripts/index/playstation.ts`).
  *
  * `updatedAt` is when the store was last read and gave this price. A read that failed leaves the
  * offer and its date as they were, so an old date is exactly an old price: the site shows no
  * price it cannot call fresh.
+ *
+ * `saleEndsAt` is when the store said the discount ends. The PlayStation Store is read once a
+ * day, so without it an offer would go on quoting a sale for up to two days after the sale was
+ * over; with it, whoever shows the offer knows the moment from which `regularAmount` is the
+ * price. Only on an offer that is below its regular price, and only when the store named the
+ * moment; any store may carry it, and today only the PlayStation Store does.
  */
 export interface IndexedOffer {
   store: OfferStore
@@ -63,6 +78,8 @@ export interface IndexedOffer {
   url: string
   /** ISO timestamp of the read the price came from. */
   updatedAt: string
+  /** ISO timestamp; after it the offer's price is its regular price. */
+  saleEndsAt?: string
 }
 
 export interface IndexedGame {
@@ -156,9 +173,10 @@ export interface IndexedGame {
    */
   similar?: number[]
   /**
-   * What GOG and the Microsoft Store charge for the game in Ukraine: at most one offer a store,
-   * and only for a store the permanent mapping of store references (`storeref:{rawgId}`) names a
-   * product of. Steam's price is not among them; it stays in `priceUah` and its neighbours.
+   * What GOG, the Microsoft Store and the PlayStation Store charge for the game in Ukraine: at
+   * most one offer a store, and only for a store the permanent mapping of store references
+   * (`storeref:{rawgId}`) names a product of. Steam's price is not among them; it stays in
+   * `priceUah` and its neighbours.
    *
    * Left out, not written empty, for a game no store has a price for. Optional as well because
    * documents published before the job read these stores have none.
@@ -195,6 +213,11 @@ export interface IndexedLanguages {
  *   and the game is not asked about that store again;
  * - absent: the game has not been asked about the store — RAWG did not list it there when its
  *   links were last read, or they never were. A game that gains the store later is asked then.
+ *
+ * The PlayStation Store's field holds more than RAWG's link gave, because RAWG's link is not
+ * enough there: it names a title, and Sony prices a concept. What Sony answered about the title
+ * is kept beside it, and is Sony's and the job's own — a record rewritten from RAWG's links keeps
+ * it for as long as the links still name the same title (`storeRefsFromLinks`).
  */
 export interface IndexedStoreRefs {
   /** The slug of the game's GOG page: the path segment after `/game/` in RAWG's link. */
@@ -205,6 +228,25 @@ export interface IndexedStoreRefs {
     id: string
     /** The name the link carried before the id. Microsoft's product page is addressed by both. */
     name: string
+  } | null
+  /** The game's PlayStation 4 or PlayStation 5 title, from RAWG's link to the PlayStation Store. */
+  playstation?: {
+    /** The title id in the middle of the product id RAWG's link carries: `CUSA00419_00`. */
+    titleId: string
+    /**
+     * Sony's concept for the title, which is what its store prices and is the same in every
+     * region: a number when the title has one in the Ukrainian store; `null` when Sony answered
+     * that it has none, and the title is not asked about again; absent while Sony has not been
+     * asked yet (`scripts/index/playstationOffers.ts`).
+     */
+    conceptId?: number | null
+    /**
+     * When Sony last answered about the concept with no price anyone can pay (ISO timestamp). A
+     * game with such an answer has no offer to carry the date of its read, and would otherwise
+     * look like one never read: asked about first, by every run. With it, it is asked about once
+     * a day like any other.
+     */
+    unpricedAt?: string
   } | null
 }
 
@@ -248,9 +290,10 @@ export interface IndexRunStats {
    * collapsed candidate list.
    */
   candidateCount: number
-  /** Games published with a GOG offer, and with a Microsoft Store one. */
+  /** Games published with a GOG offer, with a Microsoft Store one, and a PlayStation Store one. */
   gogOfferCount: number
   microsoftOfferCount: number
+  playstationOfferCount: number
 }
 
 export interface IndexMeta {
@@ -279,6 +322,9 @@ export interface IndexMeta {
    * store again once this is more than eleven hours old, whatever kind of run it is; a read that
    * failed does not move it, so the next run tries again. Optional: a store that has never been
    * read has no entry, and metadata published before the job read these stores has no field.
+   *
+   * The PlayStation Store never has an entry: it is not read in full by any run, but a game at a
+   * time, and each offer's own `updatedAt` is the date of its read.
    */
   offersReadAt?: Partial<Record<OfferStore, string>>
 }

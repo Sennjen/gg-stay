@@ -279,12 +279,15 @@ describe('needsStoreLookup', () => {
   const limbo = { id: 'BTQMHK78ZPF9', name: 'limbo' }
 
   it('is the documents’ own list of stores that says which games are asked about', () => {
-    // The slugs the site knows the two stores by, which is what a document's `stores` holds.
+    // The slugs the site knows the stores by, which is what a document's `stores` holds.
     expect(listedOfferStores(game('steam', 'gog', 'xbox-store', 'nintendo'))).toEqual([
       'gog',
       'xbox-store',
     ])
-    expect(listedOfferStores(game('steam', 'epic-games', 'playstation-store'))).toEqual([])
+    expect(listedOfferStores(game('steam', 'epic-games', 'playstation-store'))).toEqual([
+      'playstation-store',
+    ])
+    expect(listedOfferStores(game('steam', 'epic-games', 'xbox360', 'apple-appstore'))).toEqual([])
     expect(listedOfferStores(game())).toEqual([])
   })
 
@@ -369,6 +372,7 @@ describe('sweepStoreRefs', () => {
       asked: 2,
       gog: 1,
       microsoft: 1,
+      playstation: 0,
     })
   })
 
@@ -390,6 +394,7 @@ describe('sweepStoreRefs', () => {
       asked: 9,
       gog: 1,
       microsoft: 1,
+      playstation: 0,
     })
 
     const nextNight = createJobHarness({ writer: harness.writer })

@@ -128,15 +128,17 @@ export interface StudioReport {
 export interface StoresReport {
   references: {
     /**
-     * Games of the run; those of them RAWG lists on GOG or on the Xbox store, which are the ones
-     * asked about; and those of the listed that have been asked about already.
+     * Games of the run; those of them RAWG lists on GOG, on the Xbox store or on the PlayStation
+     * Store, which are the ones asked about; and those of the listed that have been asked about
+     * every one of those stores already.
      */
     games: number
     listed: number
     asked: number
-    /** Games the mapping names a GOG page for, and a Microsoft Store product. */
+    /** Games the mapping names a GOG page for, a Microsoft Store product, a PlayStation title. */
     gog: number
     microsoft: number
+    playstation: number
     /** What the sweep did, in a full run; `null` in the modes that ask RAWG nothing. */
     sweep: {
       attempted: number
@@ -729,9 +731,10 @@ function storeRows(report: JobReport): [string, string][] {
   const rows: [string, string][] = [
     [
       'Store references',
-      `${references.listed} of ${references.games} games on GOG or the Xbox store at RAWG, ` +
-        `${references.asked} asked; ${references.gog} with a GOG page, ` +
-        `${references.microsoft} with a Microsoft Store product` +
+      `${references.listed} of ${references.games} games on GOG, the Xbox store or the ` +
+        `PlayStation Store at RAWG, ${references.asked} asked; ${references.gog} with a GOG page, ` +
+        `${references.microsoft} with a Microsoft Store product, ` +
+        `${references.playstation} with a PlayStation title` +
         (sweep
           ? `; RAWG: ${plural(sweep.attempted, 'lookup', 'lookups')} this run, ${sweep.failures} failed, ` +
             `${sweep.remaining} left for the next full run` +

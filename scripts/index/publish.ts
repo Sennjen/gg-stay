@@ -57,7 +57,9 @@ export interface PublishInput {
   /**
    * The National Bank's rate this run read or kept, and when GOG and the Microsoft Store were
    * last read in full (`offers.ts`). Both go into the metadata as they are; neither is weighed by
-   * the checks below — a store or a bank that is down is never a reason to refuse a version.
+   * the checks below — a store or a bank that is down is never a reason to refuse a version. Nor
+   * is anything the PlayStation Store did: its offers are on the documents, and are counted and
+   * nothing more.
    */
   exchangeRate?: IndexedExchangeRate
   offersReadAt?: Partial<Record<OfferStore, string>>
@@ -83,6 +85,7 @@ export function countIndexed(games: IndexedGame[]) {
     similarMedianLength: median(games.map((game) => game.similar?.length ?? 0)),
     gogOfferCount: offerCount(games, 'gog'),
     microsoftOfferCount: offerCount(games, 'xbox-store'),
+    playstationOfferCount: offerCount(games, 'playstation-store'),
   }
 }
 
@@ -137,6 +140,7 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
       similarMedianLength: counts.similarMedianLength,
       gogOfferCount: counts.gogOfferCount,
       microsoftOfferCount: counts.microsoftOfferCount,
+      playstationOfferCount: counts.playstationOfferCount,
       ...(candidateCount === undefined ? {} : { candidateCount }),
     },
     // Left out rather than written empty, like every optional field of the metadata.

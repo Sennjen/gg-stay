@@ -1204,7 +1204,15 @@ describe('the floor under a full read', () => {
     /** The annotations a run would write about the stores, given this stage's result. */
     const warningsOf = (result: OffersResult) =>
       storeWarnings({
-        references: { games: 0, listed: 0, asked: 0, gog: 0, microsoft: 0, sweep: null },
+        references: {
+          games: 0,
+          listed: 0,
+          asked: 0,
+          gog: 0,
+          microsoft: 0,
+          playstation: 0,
+          sweep: null,
+        },
         gog: result.gog,
         microsoft: result.microsoft,
         rate: result.rate,

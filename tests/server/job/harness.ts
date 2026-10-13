@@ -13,6 +13,7 @@ import {
   jobGamesPage,
   jobStudioPage,
 } from '../../fixtures/index/jobCatalog'
+import { JOB_PLAYSTATION_LINKS, PLAYSTATION_STORE } from '../../fixtures/index/jobPlaystation'
 import {
   bankAnswer,
   gogCatalogPage,
@@ -74,8 +75,21 @@ export interface FakeRawg {
  * `studios` is what `games?developers=<slug>` lists per slug (`JOB_STUDIO_GAMES` in the studio
  * tests); a slug it does not name has no games, so a test that is not about the studios stage
  * sees the stage find nothing.
+ *
+ * With `playstation`, RAWG also lists three of the catalog's games on the PlayStation Store and
+ * links them there (`JOB_PLAYSTATION_LINKS`); without it, it lists none, as the catalog is
+ * written.
  */
-export function createFakeRawg(studios: Record<string, RawgGameListItem[]> = {}): FakeRawg {
+export function createFakeRawg(
+  studios: Record<string, RawgGameListItem[]> = {},
+  playstation = false,
+): FakeRawg {
+  const extraLinks = playstation ? JOB_PLAYSTATION_LINKS : {}
+  /** A game as RAWG lists it, on the PlayStation Store as well when the test says it is. */
+  const listed = (game: RawgGameListItem): RawgGameListItem =>
+    game.id !== undefined && extraLinks[game.id]
+      ? { ...game, stores: [...(game.stores ?? []), PLAYSTATION_STORE] }
+      : game
   const calls: RawgCall[] = []
   const failures: { match: (call: RawgCall) => boolean; error?: Error }[] = []
   const answers: { match: (call: RawgCall) => boolean; body: unknown }[] = []
@@ -98,13 +112,20 @@ export function createFakeRawg(studios: Record<string, RawgGameListItem[]> = {})
     if (path === 'games' && flat.developers) {
       return jobStudioPage(studios, flat.developers, Number(flat.page ?? '1'))
     }
-    if (path === 'games') return jobGamesPage(Number(flat.page ?? '1'))
+    if (path === 'games') {
+      const page = jobGamesPage(Number(flat.page ?? '1'))
+      return { ...page, results: (page.results ?? []).map(listed) }
+    }
     const storeMatch = /^games\/([a-z0-9-]+)\/stores$/.exec(path)
     if (storeMatch) {
       const game = [...JOB_GAMES, ...Object.values(studios).flat()].find(
         (entry) => entry.slug === storeMatch[1],
       )
-      return (game?.id && JOB_STORE_LINKS[game.id]) ?? { count: 0, next: null, results: [] }
+      const links = (game?.id && JOB_STORE_LINKS[game.id]) || { count: 0, next: null, results: [] }
+      const extra = (game?.id && extraLinks[game.id]) || []
+      if (extra.length === 0) return links
+      const results = [...(links.results ?? []), ...extra]
+      return { ...links, count: results.length, results }
     }
     throw new Error(`Unexpected RAWG path ${path}`)
   }
@@ -309,10 +330,12 @@ export function createJobHarness(
     start?: string
     writer?: JobIndex
     studios?: Record<string, RawgGameListItem[]>
+    /** Whether RAWG lists three of the catalog's games on the PlayStation Store (`createFakeRawg`). */
+    playstation?: boolean
   } = {},
 ): JobHarness {
   const clock = createFakeClock(options.start)
-  const fakeRawg = createFakeRawg(options.studios)
+  const fakeRawg = createFakeRawg(options.studios, options.playstation)
   const fakeSteam = createFakeSteam(clock)
   const { gog, microsoft, bank, ...fakeStores } = createFakeStores()
   const writer = options.writer ?? createMemoryGameIndex()
