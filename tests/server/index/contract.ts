@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../shared/catalog'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../../server/index/GameIndex'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
-import { MAX_SLUG_LENGTH } from '../../../server/index/document'
+import { MAX_SLUG_LENGTH, offerWay } from '../../../server/index/document'
 import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
 
 /**
@@ -682,6 +682,63 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         const published = await adapter.writer.allGames()
         expect(published.find((game) => game.id === 1)?.offers).toEqual(offers)
         expect('offers' in published.find((game) => game.id === 2)!).toBe(false)
+      })
+
+      it('hands back how an offer was found, and nothing for one that never said', async () => {
+        const adapter = await fresh()
+        const offers: IndexedGame['offers'] = [
+          {
+            store: 'gog',
+            via: 'edition',
+            title: 'Alpha Quest - Complete Edition',
+            amount: 1749,
+            regularAmount: 3499,
+            currency: 'USD',
+            discountPercent: 50,
+            url: 'https://www.gog.com/en/game/alpha_quest_complete_edition',
+            updatedAt: '2026-10-13T00:15:00.000Z',
+          },
+          {
+            store: 'xbox-store',
+            via: 'relation',
+            amount: 119_900,
+            regularAmount: 119_900,
+            currency: 'UAH',
+            discountPercent: 0,
+            url: 'https://www.microsoft.com/uk-ua/p/alpha-quest/9n2s04lgxxh4',
+            updatedAt: '2026-10-13T00:15:00.000Z',
+          },
+        ]
+        // An offer as every one was written before there was a way other than RAWG's link.
+        const before: IndexedGame['offers'] = [
+          {
+            store: 'gog',
+            amount: 899,
+            regularAmount: 3999,
+            currency: 'USD',
+            discountPercent: 78,
+            url: 'https://www.gog.com/en/game/beta_strike',
+            updatedAt: '2026-09-20T00:15:00.000Z',
+          },
+        ]
+        await publishGames(adapter, [
+          { ...FIXTURE_GAMES[0]!, offers },
+          { ...FIXTURE_GAMES[1]!, offers: before },
+        ])
+
+        expect((await adapter.index.getOne(1))?.offers).toEqual(offers)
+        expect((await adapter.index.getMany([1])).get(1)?.offers?.map(offerWay)).toEqual([
+          'edition',
+          'relation',
+        ])
+        const old = (await adapter.index.getOne(2))?.offers
+        expect(old).toEqual(before)
+        expect('via' in old![0]!).toBe(false)
+        expect(old!.map(offerWay)).toEqual(['link'])
+        // The job reads its own documents back the same way.
+        const published = await adapter.writer.allGames()
+        expect(published.find((game) => game.id === 1)?.offers).toEqual(offers)
+        expect(published.find((game) => game.id === 2)?.offers).toEqual(before)
       })
 
       it('reports the rate and the store stamps a publication carried, and none it did not', async () => {

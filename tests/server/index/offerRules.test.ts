@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { RATE_KEPT_MS } from '../../../scripts/index/offers'
-import type { IndexedExchangeRate, IndexedGame, IndexedOffer } from '../../../server/index/document'
+import {
+  OFFER_WAYS,
+  offerWay,
+  type IndexedExchangeRate,
+  type IndexedGame,
+  type IndexedOffer,
+} from '../../../server/index/document'
 import {
   APPROXIMATE_MARGIN_PERCENT,
   CHEAPER_MARGIN_PERCENT,
@@ -214,6 +220,37 @@ describe('the offers a build can show', () => {
   it('keep an offer that is too old to be a price: it still names the store’s page', () => {
     const old = gog({ updatedAt: ago(3 * DAY) })
     expect(readableOffers(game([old]))).toEqual([old])
+  })
+
+  it('are the same offers whatever way the job found them by: nothing here reads it', () => {
+    const offers = [gog({ via: 'edition' }), microsoft({ via: 'relation' })]
+    expect(readableOffers(game(offers))).toEqual(offers)
+    // A way a newer job has and this build has never heard of is not a reason to pass over a
+    // price: the offer is handed on as it stands.
+    const newer = gog({ via: 'catalogue-number' as IndexedOffer['via'] })
+    expect(readableOffers(game([newer]))).toEqual([newer])
+    expect(freshOffers(game([newer]), NOW)).toEqual([newer])
+  })
+})
+
+describe('the way an offer was found', () => {
+  it('is one of four, in the order the job tries them', () => {
+    expect(OFFER_WAYS).toEqual(['link', 'relation', 'name', 'edition'])
+  })
+
+  it('is what the offer says', () => {
+    for (const via of OFFER_WAYS) expect(offerWay(gog({ via }))).toBe(via)
+  })
+
+  it('is RAWG’s link for an offer that says nothing, as every offer did before', () => {
+    const written = gog()
+    expect('via' in written).toBe(false)
+    expect(offerWay(written)).toBe('link')
+  })
+
+  it('is RAWG’s link for a way this build does not know', () => {
+    expect(offerWay({ via: 'catalogue-number' as IndexedOffer['via'] })).toBe('link')
+    expect(offerWay({ via: 7 as unknown as IndexedOffer['via'] })).toBe('link')
   })
 })
 

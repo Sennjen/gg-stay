@@ -30,6 +30,21 @@ export const OFFER_STORES = ['gog', 'xbox-store'] as const
 export type OfferStore = (typeof OFFER_STORES)[number]
 
 /**
+ * The ways the refresh job finds the product an offer is for, in the order it tries them
+ * (`scripts/index/offers.ts`, `scripts/index/storeFallbacks.ts`):
+ *
+ * - `link` — the product RAWG's own link to the store names;
+ * - `relation` — a product the store itself relates to the linked one, under the linked one's
+ *   title (the Microsoft Store only);
+ * - `name` — a product the store sells under the game's own name;
+ * - `edition` — a product the store sells under the game's name and an edition's words after it.
+ *
+ * A game has no price at a store only when none of them finds one.
+ */
+export const OFFER_WAYS = ['link', 'relation', 'name', 'edition'] as const
+export type OfferWay = (typeof OFFER_WAYS)[number]
+
+/**
  * What one store other than Steam charges a buyer in Ukraine for the game, as the refresh job read
  * it from the store itself (`scripts/index/offers.ts`).
  *
@@ -52,9 +67,15 @@ export type OfferStore = (typeof OFFER_STORES)[number]
  * `updatedAt` is when the store was last read and gave this price. A read that failed leaves the
  * offer and its date as they were, so an old date is exactly an old price: the site shows no
  * price it cannot call fresh.
+ *
+ * `via` is how the job came to the product (`OFFER_WAYS`), and is left out for `link`: an offer
+ * without it was found through RAWG's link, which is every offer written before there was
+ * another way. Nothing on the site reads it. It is there so that each way can be counted and
+ * audited, and so that a later change of a way's rule can find again what that way found.
  */
 export interface IndexedOffer {
   store: OfferStore
+  via?: OfferWay
   title?: string
   amount: number
   regularAmount: number
@@ -63,6 +84,14 @@ export interface IndexedOffer {
   url: string
   /** ISO timestamp of the read the price came from. */
   updatedAt: string
+}
+
+/**
+ * The way an offer was found: what it says, or `link` when it says nothing — or says something
+ * this build does not know, which a newer job may one day write.
+ */
+export function offerWay(offer: Pick<IndexedOffer, 'via'>): OfferWay {
+  return (OFFER_WAYS as readonly unknown[]).includes(offer.via) ? (offer.via as OfferWay) : 'link'
 }
 
 export interface IndexedGame {
