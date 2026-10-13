@@ -13,6 +13,7 @@ import {
 } from './offers'
 import { refreshPrices } from './prices'
 import { publishVersion, type PublishOutcome } from './publish'
+import { createRequestMeter } from './requestMeter'
 import { attachSimilar, similarHealthWarning, tagReport, type TagReport } from './similarity'
 import { countStoreRefs, sweepStoreRefs, type StoreRefMap, type SweepStop } from './storeRefs'
 import { collectStudioGames } from './studios'
@@ -859,8 +860,11 @@ export async function runCli(
     if (!apiKey && !fixtures) throw new Error('RAWG_API_KEY is required (or RAWG_FIXTURES=1).')
 
     const clock = systemClock
+    // Every request the run sends RAWG is counted where it leaves, retries included.
+    const rawgRequests = createRequestMeter()
     const deps: JobDeps = {
-      rawg: createJobRawg({ apiKey, fixtures, clock }),
+      rawg: createJobRawg({ apiKey, fixtures, clock, meter: rawgRequests }),
+      rawgRequests,
       steam: createJobSteam({ apiKey, fixtures, clock }),
       gog: createJobGog({ fixtures, clock }),
       microsoft: createJobMicrosoft({ fixtures, clock }),

@@ -3,6 +3,7 @@ import type { JobClock } from '../../../scripts/index/deps'
 import { parseUsdRate } from '../../../scripts/index/bank'
 import { walkGogCatalog } from '../../../scripts/index/gog'
 import { parseMicrosoftProducts } from '../../../scripts/index/microsoft'
+import { createRequestMeter } from '../../../scripts/index/requestMeter'
 import {
   createJobBank,
   createJobGog,
@@ -108,6 +109,181 @@ describe('the refresh job’s transports', () => {
 
     expect(info).not.toHaveBeenCalled()
     expect(log).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * What the job's RAWG transport is counted and limited by (`requestMeter.ts`). RAWG's quota is a
+ * number of requests, so the rules here are about what reaches the network: the stand-in for it
+ * below is `fetch` itself, under the transport `runCli` builds, with its retry and its cache.
+ */
+describe('the refresh job’s RAWG transport and its request meter', () => {
+  const still: JobClock = { now: () => 0, sleep: async () => {} }
+
+  /** A network that answers each request with the next of `answers`, and the last one for good. */
+  function scriptedNetwork(...answers: (number | 'timeout')[]) {
+    const network = vi.fn(async () => {
+      const answer = answers.length > 1 ? answers.shift()! : answers[0]!
+      if (answer === 'timeout') throw new DOMException('The operation timed out.', 'TimeoutError')
+      return new Response(JSON.stringify({ results: [] }), { status: answer })
+    })
+    vi.stubGlobal('fetch', network)
+    return network
+  }
+
+  it('counts a request for every call the network answers', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+
+    await rawg('games', { page: 76 })
+    await rawg('games/portal-2/stores')
+
+    expect(network).toHaveBeenCalledTimes(2)
+    expect(meter.issued()).toBe(2)
+  })
+
+  it.each([
+    ['a 5xx', 502],
+    ['a timeout', 'timeout'],
+  ] as const)(
+    'counts the transport’s retry after %s as a request of its own',
+    async (_what, bad) => {
+      const network = scriptedNetwork(bad, 200)
+      const meter = createRequestMeter()
+      const rawg = createJobRawg({ ...options(still), meter })
+
+      expect(await rawg('games/portal-2/stores')).toEqual({ results: [] })
+
+      // One call of the stage, two requests of RAWG's quota.
+      expect(network).toHaveBeenCalledTimes(2)
+      expect(meter.issued()).toBe(2)
+    },
+  )
+
+  it('counts both attempts of a call that fails for good, and one for an answer that is not retried', async () => {
+    const meter = createRequestMeter()
+    scriptedNetwork(503)
+    await expect(
+      createJobRawg({ ...options(still), meter })('games', { page: 1 }),
+    ).rejects.toThrow()
+    expect(meter.issued()).toBe(2)
+
+    // A 404 is an answer: the transport does not ask again.
+    scriptedNetwork(404)
+    await expect(
+      createJobRawg({ ...options(still), meter })('games/gone/stores'),
+    ).rejects.toMatchObject({ kind: 'NOT_FOUND' })
+    expect(meter.issued()).toBe(3)
+  })
+
+  it('counts nothing for an answer out of the transport’s cache', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+
+    await rawg('games/portal-2/stores')
+    await rawg('games/portal-2/stores')
+
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(meter.issued()).toBe(1)
+  })
+
+  it('sends exactly as many requests as the limit, and refuses the next before the network', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(3)
+
+    for (const page of [1, 2, 3]) await rawg('games', { page })
+    await expect(rawg('games', { page: 4 })).rejects.toMatchObject({ source: 'RAWG' })
+
+    expect(network).toHaveBeenCalledTimes(3)
+    expect(meter.issued()).toBe(3)
+    expect(meter.refused()).toBeGreaterThan(0)
+  })
+
+  it('refuses a retry that would be one request too many', async () => {
+    const network = scriptedNetwork(502)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(1)
+
+    await expect(rawg('games/portal-2/stores')).rejects.toMatchObject({ source: 'RAWG' })
+
+    // The first attempt was the last request there was: the retry it earned was not sent.
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(meter.issued()).toBe(1)
+    expect(meter.refused()).toBe(1)
+  })
+
+  it('lets a retry through when it is the last request of the limit', async () => {
+    const network = scriptedNetwork(502, 200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(2)
+
+    expect(await rawg('games/portal-2/stores')).toEqual({ results: [] })
+
+    expect(network).toHaveBeenCalledTimes(2)
+    expect(meter.remaining()).toBe(0)
+    expect(meter.refused()).toBe(0)
+  })
+
+  it('follows no redirect under a limit: one counted request is one request sent', async () => {
+    const network = scriptedNetwork(301)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(5)
+
+    await expect(rawg('games/portal-2/stores')).rejects.toMatchObject({
+      kind: 'ERROR',
+      status: 301,
+    })
+
+    // Asked not to follow, answered with the redirect, and not asked again.
+    expect((network.mock.calls as unknown as [string, RequestInit][])[0]![1]).toEqual({
+      signal: expect.any(AbortSignal),
+      redirect: 'manual',
+    })
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(meter.issued()).toBe(1)
+  })
+
+  it('asks as it always did while no limit is set, meter or no meter', async () => {
+    const network = scriptedNetwork(200)
+
+    await createJobRawg({ ...options(still), meter: createRequestMeter() })('games', { page: 1 })
+
+    expect((network.mock.calls as unknown as [string, RequestInit][])[0]![1]).toEqual({
+      signal: expect.any(AbortSignal),
+    })
+  })
+
+  it('counts a recorded answer as the request it stands for, and refuses one past the limit', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ apiKey: '', fixtures: true, clock: still, meter })
+    meter.limitTo(3)
+
+    await rawg('games', { ordering: '-added', page: 76 })
+    await rawg('games/portal-2/stores')
+    // The studios stage's lists are answered apart from the transport, and counted like the rest.
+    await rawg('games', { developers: 'gsc-game-world', page: 1 })
+    await expect(rawg('games/stardew-valley/stores')).rejects.toThrow()
+
+    expect(meter.issued()).toBe(3)
+    expect(network).not.toHaveBeenCalled()
+  })
+
+  it('is RAWG’s alone: nothing Steam is asked is counted on it', async () => {
+    scriptedNetwork(200)
+    const meter = createRequestMeter()
+    createJobRawg({ ...options(still), meter })
+
+    await createJobSteam(options(still)).fetchPrices(['292030'])
+
+    expect(meter.issued()).toBe(0)
   })
 })
 
