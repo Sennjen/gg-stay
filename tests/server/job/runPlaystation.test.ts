@@ -923,18 +923,23 @@ describe('formatSummary and the PlayStation Store', () => {
   })
 
   it('says what the nightly run mapped, and that it reads no price', () => {
+    const night = {
+      asks: 'mappings',
+      due: 170,
+      mappingsRead: 168,
+      noConcept: 17,
+      pricesRead: 0,
+      removed: 0,
+      requests: 170,
+    } as const
+    expect(rowOf(night)).toContain(
+      `| PlayStation Store prices | ${MAPPING}; 168 titles answered about of 170 due, 17 of them with no concept, 2 failed; prices are read by the prices runs: 598 offers carried, the oldest read 31 h ago; 170 requests; everything due was asked |`,
+    )
+    // A night with more waiting than it asks about says how many it left.
     expect(
-      rowOf({
-        asks: 'mappings',
-        due: 170,
-        mappingsRead: 58,
-        noConcept: 17,
-        pricesRead: 0,
-        removed: 0,
-        requests: 60,
-      }),
+      rowOf({ ...night, due: 460, mappingsRead: 198, requests: 200, heldOver: 260 }),
     ).toContain(
-      `| PlayStation Store prices | ${MAPPING}; 58 titles answered about of 170 due, 17 of them with no concept, 2 failed; prices are read by the prices runs: 598 offers carried, the oldest read 31 h ago; 60 requests; everything due was asked |`,
+      '198 titles answered about of 460 due, 17 of them with no concept, 2 failed; prices are read by the prices runs: 598 offers carried, the oldest read 31 h ago; 200 requests; the 200 titles of one night were asked about, 260 wait for another night |',
     )
   })
 

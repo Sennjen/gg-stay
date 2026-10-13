@@ -12,6 +12,7 @@ import {
   type StoreReadReport,
 } from './offers'
 import {
+  PLAYSTATION_MAPPINGS_PER_RUN,
   refreshPlaystationOffers,
   type PlaystationAsks,
   type PlaystationReport,
@@ -51,7 +52,7 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  * portion at a time: what the PlayStation Store charges is asked a game a request, ten seconds
  * apart, each game once a day, by the prices runs alone — which is why a prices run that Steam
  * takes a minute and a half over is given up to forty more — and which concept a game's title
- * belongs to is asked by the nightly run, sixty titles a night (`playstationOffers.ts`).
+ * belongs to is asked by the nightly run, two hundred titles a night (`playstationOffers.ts`).
  *
  * Everything that touches the outside world is built here and handed to the stages, so the stages
  * themselves stay testable on fixtures and a fake clock. The run starts with a write probe rather
@@ -484,10 +485,10 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     for (const warning of storeWarnings(stores)) deps.log(`::warning::${warning}`)
 
     // The PlayStation Store, last of the stores and by far the slowest: a request every ten
-    // seconds, for up to forty minutes of a prices run and ten of the nightly one. After the
-    // others so that what they read is on the documents whatever becomes of this one; and, like
-    // them, it cannot fail the run — Sony refusing ends this stage with a warning, and the
-    // version is published as it stands.
+    // seconds, for up to forty minutes of a prices run and thirty-five of the nightly one.
+    // After the others so that what they read is on the documents whatever becomes of this one;
+    // and, like them, it cannot fail the run — Sony refusing ends this stage with a warning, and
+    // the version is published as it stands.
     //
     // Whether the version will be published at all is known by now: the checks weigh the games
     // and their Steam prices, which this stage does not touch. A run that is going to be refused
@@ -852,7 +853,10 @@ function storeRows(report: JobReport): [string, string][] {
 function playstationStopNote(read: PlaystationReport): string {
   switch (read.stopped?.reason) {
     case undefined:
-      return 'everything due was asked'
+      return read.heldOver
+        ? `the ${PLAYSTATION_MAPPINGS_PER_RUN} titles of one night were asked about, ` +
+            `${read.heldOver} wait for another night`
+        : 'everything due was asked'
     case 'requests':
       return 'stopped at its requests for one run, the rest waits for the next'
     case 'time':

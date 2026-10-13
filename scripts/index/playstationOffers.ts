@@ -30,8 +30,8 @@ import type { IndexedGame, IndexedOffer, IndexedStoreRefs } from '../../server/i
  *   a day at 225 requests each are 900 price reads a day.
  * - **The nightly full run maps titles** — which concept a title belongs to — for the games that
  *   have a title and no answer yet, at most `PLAYSTATION_MAPPINGS_PER_RUN` a night, right after
- *   the sweep that finds the titles. Mapping a thousand titles takes seventeen nights. It has a
- *   run of its own because a ration shared with the prices is a ration the prices take whole.
+ *   the sweep that finds the titles. Mapping a thousand titles takes five nights. It has a run
+ *   of its own because a ration shared with the prices is a ration the prices take whole.
  * - **A languages run asks nothing.**
  *
  * Every kind of run still reports the store: how many games have a title, a concept and an
@@ -81,8 +81,14 @@ const STORE = 'playstation-store'
 /** A game is asked about again once its last asking is this old: twenty hours, so once a day. */
 export const PLAYSTATION_REREAD_AFTER_MS = 20 * 3_600_000
 
-/** The most titles one nightly run asks Sony to name a concept for. */
-export const PLAYSTATION_MAPPINGS_PER_RUN = 60
+/**
+ * The most titles one nightly run asks Sony to name a concept for: two hundred, about thirty-five
+ * minutes of requests ten seconds apart, so that a catalog of a thousand titles is mapped in five
+ * nights. It is under the transport's own limits on purpose — 225 requests and forty minutes a
+ * run (`playstation.ts`) — and those bound a night whatever this number says: a slow Sony ends
+ * the mapping at the forty minutes with fewer.
+ */
+export const PLAYSTATION_MAPPINGS_PER_RUN = 200
 
 /**
  * How long "Sony has no concept for this title" stands before the title is asked about again:
@@ -162,6 +168,11 @@ export interface PlaystationReport {
    * `null` when it asked about everything that was due.
    */
   stopped: PlaystationStopReport | null
+  /**
+   * Titles that were due and that the night's `PLAYSTATION_MAPPINGS_PER_RUN` left for another
+   * night. Left out when there were none.
+   */
+  heldOver?: number
   /**
    * Games that arrived with an offer of this store and lost it in this run for want of a
    * reference, the mapping being believed (`refreshOffers`). Left out when there were none.
@@ -523,8 +534,9 @@ export async function refreshPlaystationOffers(
 
   let mappingsRead = 0
   const none: Referenced[] = []
+  const tonight = due.slice(0, PLAYSTATION_MAPPINGS_PER_RUN)
 
-  for (const question of due.slice(0, PLAYSTATION_MAPPINGS_PER_RUN)) {
+  for (const question of tonight) {
     if (!mayAsk()) {
       cutShort = true
       break
@@ -560,6 +572,7 @@ export async function refreshPlaystationOffers(
       due: dueGames,
       mappingsRead,
       noConcept: none.length,
+      ...(due.length > tonight.length ? { heldOver: due.length - tonight.length } : {}),
       ...(unbelieved ? { error: unbelieved } : {}),
     },
     `${mappingsRead} titles answered about of ${dueGames} due, ${none.length} of them with no concept`,

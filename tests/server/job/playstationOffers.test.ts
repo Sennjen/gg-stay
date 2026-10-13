@@ -1045,23 +1045,63 @@ describe('the nightly run: mapping titles to concepts', () => {
     expect(run.psOffer(1)).toEqual(offerOf(1, iso(STARTED + 20 * HOUR)))
   })
 
-  it('maps at most sixty titles a night, the most popular first', async () => {
-    const run = world(many(100, (id) => ({ mapped: false, popularity: id })))
+  it('maps at most two hundred titles a night, the most popular first', async () => {
+    const run = world(many(300, (id) => ({ mapped: false, popularity: id })))
+    // Half a second an answer, as Sony was seen to take.
+    run.harness.sonyState.latencyMs = 500
 
     const report = await run.run('mappings')
 
-    expect(PLAYSTATION_MAPPINGS_PER_RUN).toBe(60)
-    expect(run.asked('concept')).toEqual(Array.from({ length: 60 }, (_, index) => 100 - index))
+    expect(PLAYSTATION_MAPPINGS_PER_RUN).toBe(200)
+    expect(run.asked('concept')).toEqual(Array.from({ length: 200 }, (_, index) => 300 - index))
     expect(report).toMatchObject({
-      due: 100,
-      mappingsRead: 60,
-      mapped: 60,
-      unmapped: 40,
-      requests: 60,
-      // Sixty a night is the design, not a stage cut short.
+      due: 300,
+      mappingsRead: 200,
+      mapped: 200,
+      unmapped: 100,
+      requests: 200,
+      // Two hundred a night is the design, not a stage cut short: the rest is held over.
       stopped: null,
+      heldOver: 100,
     })
     expect(playstationWarnings(report)).toEqual([])
+    // Thirty-five minutes of it, inside the forty the transport gives a run.
+    const took = run.harness.clock.now() - STARTED
+    expect(took).toBe(200 * 500 + 199 * PLAYSTATION_PAUSE_MS)
+    expect(took).toBeLessThan(PLAYSTATION_BUDGET_MS)
+    // And nothing is held over on a night that asks about all there is.
+    expect(await world(many(3, () => ({ mapped: false }))).run('mappings')).not.toHaveProperty(
+      'heldOver',
+    )
+  })
+
+  it('is bound by the run’s forty minutes and its 225 requests, whatever the night’s number', async () => {
+    expect(PLAYSTATION_MAPPINGS_PER_RUN).toBeLessThanOrEqual(PLAYSTATION_REQUESTS_PER_RUN)
+
+    // A slow Sony: five seconds an answer. The forty minutes end the night at 160 titles.
+    const slow = world(many(300, () => ({ mapped: false })))
+    slow.harness.sonyState.latencyMs = 5_000
+    const cut = await slow.run('mappings')
+    expect(slow.harness.sonyRequests).toHaveLength(160)
+    expect(cut).toMatchObject({
+      mappingsRead: 160,
+      requests: 160,
+      stopped: { reason: 'time' },
+      heldOver: 100,
+    })
+    expect(slow.harness.clock.now() - STARTED).toBeLessThanOrEqual(
+      PLAYSTATION_BUDGET_MS + PLAYSTATION_PAUSE_MS,
+    )
+    // Running out of the time is the design: no warning.
+    expect(playstationWarnings(cut)).toEqual([])
+
+    // A run whose transport has already made thirty requests: the 225 end the night at 195.
+    const spent = world(many(300, () => ({ mapped: false })))
+    for (let asked = 0; asked < 30; asked += 1) await spent.harness.deps.playstation.price(1)
+    const capped = await spent.run('mappings')
+    expect(spent.asked('concept')).toHaveLength(195)
+    expect(spent.harness.sonyRequests).toHaveLength(PLAYSTATION_REQUESTS_PER_RUN)
+    expect(capped).toMatchObject({ mappingsRead: 195, stopped: { reason: 'requests' } })
   })
 
   it('asks first about a title never asked about, then about the one asked longest ago', async () => {
@@ -1078,16 +1118,16 @@ describe('the nightly run: mapping titles to concepts', () => {
     expect(run.asked('concept')).toEqual([2, 4, 5, 3, 1])
   })
 
-  it('stamps a title whose request failed, counts it in the sixty, and asks again another night', async () => {
-    const run = world(many(70, () => ({ mapped: false })))
+  it('stamps a title whose request failed, counts it in the two hundred, and asks again another night', async () => {
+    const run = world(many(210, () => ({ mapped: false })))
     // Every fourth request fails: no three in a row do.
     const failing = (request: { id: string }) => Number(request.id.slice(4, 9)) % 4 === 0
     run.harness.sonyAnswersWith({ status: 502 }, { times: Infinity, match: failing })
 
     const report = await run.run('mappings')
 
-    expect(run.harness.sonyRequests).toHaveLength(60)
-    expect(report).toMatchObject({ mappingsRead: 45, failed: 15, mapped: 45, unmapped: 25 })
+    expect(run.harness.sonyRequests).toHaveLength(200)
+    expect(report).toMatchObject({ mappingsRead: 150, failed: 50, mapped: 150, unmapped: 60 })
     // A failure is not "no concept", which would stand for a month. But it was asked.
     expect(await run.stored(4)).toEqual({ titleId: titleOf(4), askedAt: stampedAt(3) })
 
@@ -1096,14 +1136,14 @@ describe('the nightly run: mapping titles to concepts', () => {
     const again = later(run, STARTED + 2 * HOUR, 'mappings')
     await again.run()
     expect(again.sent()).toEqual(
-      Array.from({ length: 10 }, (_, index) => `concept ${titleOf(61 + index)}`),
+      Array.from({ length: 10 }, (_, index) => `concept ${titleOf(201 + index)}`),
     )
 
     // The next night they are, after everything that has not been asked yet.
     const nextNight = later(run, STARTED + DAY, 'mappings')
     await nextNight.run()
     expect(nextNight.sent()).toEqual(
-      Array.from({ length: 15 }, (_, index) => `concept ${titleOf(4 * (index + 1))}`),
+      Array.from({ length: 50 }, (_, index) => `concept ${titleOf(4 * (index + 1))}`),
     )
   })
 
