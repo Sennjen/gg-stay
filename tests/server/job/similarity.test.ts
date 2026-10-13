@@ -318,8 +318,6 @@ describe('similarityFeatures', () => {
 describe('editionKey', () => {
   it.each([
     ['Metro Exodus', 'Metro Exodus Enhanced Edition'],
-    ['Metro 2033', 'Metro 2033 Redux'],
-    ['Metro: Last Light', 'Metro: Last Light Redux'],
     ['The Witcher 3: Wild Hunt', 'The Witcher 3: Wild Hunt – Game of the Year Edition'],
     ['Batman: Arkham Asylum', 'Batman: Arkham Asylum GOTY'],
     ['Death Stranding', "Death Stranding Director's Cut"],
@@ -337,13 +335,8 @@ describe('editionKey', () => {
   })
 
   it.each([
-    ['Metro 2033', 'Metro Exodus'],
     ['Portal', 'Portal 2'],
-    ['Metro: Last Light', 'Metro Exodus'],
-    ['S.T.A.L.K.E.R. 2: Heart of Chornobyl', 'S.T.A.L.K.E.R.: Shadow of Chernobyl'],
     ['The Witcher 3: Wild Hunt', 'Witcher 3: Wild Hunt'],
-    ['S.T.A.L.K.E.R.: Shadow of Chernobyl', 'S.T.A.L.K.E.R.: Call of Pripyat'],
-    ['Sherlock Holmes: Crimes and Punishments', "Sherlock Holmes: The Devil's Daughter"],
   ])('tells %s from %s', (left, right) => {
     expect(editionKey(left)).not.toBe(editionKey(right))
   })

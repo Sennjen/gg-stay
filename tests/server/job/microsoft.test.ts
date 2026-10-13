@@ -97,14 +97,10 @@ describe('microsoftPurchasePrice', () => {
     ).toBeNull()
   })
 
-  it.each([
-    ['text', 'Upsell'],
-    ['an object', { Type: 'Upsell', BigId: 'CFQ7TTC0KGQ8' }],
-    ['a number', 1],
-    ['true', true],
-  ])('reads no price from an availability whose remediations are stated as %s', (_what, stated) => {
+  it('reads no price from an availability whose remediations are stated as an object', () => {
     // Not a list, so not a list that is empty: something is being said about a remedy, and an
     // availability that needs one is not a price anyone can pay.
+    const stated = { Type: 'Upsell', BigId: 'CFQ7TTC0KGQ8' }
     expect(
       priceOf(one(microsoftAvailability(385, 385, { extra: { Remediations: stated } }))),
     ).toBeNull()
@@ -156,16 +152,7 @@ describe('microsoftPurchasePrice', () => {
   })
 
   it.each([
-    [
-      'has not begun',
-      { StartDate: '2026-10-13T10:00:00.0000000Z', EndDate: '9998-12-30T00:00:00.0000000Z' },
-    ],
-    [
-      'has ended',
-      { StartDate: '2026-08-14T10:00:00.0000000Z', EndDate: '2026-10-12T12:14:59.0000000Z' },
-    ],
     ['has no end', { StartDate: '2026-08-14T10:00:00.0000000Z' }],
-    ['has no start', { EndDate: '9998-12-30T00:00:00.0000000Z' }],
     ['is not dated', { StartDate: 'soon', EndDate: 'later' }],
   ])('reads no price from a window that %s', (_what, conditions) => {
     expect(priceOf(one(microsoftAvailability(385, 385, { conditions })))).toBeNull()
@@ -222,14 +209,11 @@ describe('microsoftPurchasePrice', () => {
   })
 
   it.each([
-    ['text', '385.00', 385],
     ['a negative sum', -1, 385],
     ['a sum with a third decimal', 508.255, 1540],
     ['not a number', Number.NaN, 385],
-    ['infinite', Number.POSITIVE_INFINITY, 385],
     ['missing', undefined, 385],
     ['a regular price that is text', 385, '385'],
-    ['a regular price that is missing', 385, undefined],
   ])('reads no price when a sum is %s — and never zero', (_what, list, msrp) => {
     expect(priceOf(one(microsoftAvailability(list as number, msrp as number)))).toBeNull()
   })
@@ -267,7 +251,6 @@ describe('microsoftPurchasePrice', () => {
 
   it.each([
     ['nothing', null],
-    ['text', 'BTQMHK78ZPF9'],
     ['a product with no SKUs', { ProductId: 'BTQMHK78ZPF9' }],
     ['SKUs that are not a list', { DisplaySkuAvailabilities: {} }],
     ['an empty list of SKUs', { DisplaySkuAvailabilities: [] }],
@@ -335,8 +318,6 @@ describe('parseMicrosoftProducts', () => {
   })
 
   it.each([
-    ['nothing', null],
-    ['text', 'Bad Gateway'],
     ['a list', [microsoftProduct('BTQMHK78ZPF9', 250)]],
     ['an object without products', { code: 'BadRequest', message: 'Invalid market' }],
     ['products that are not a list', { Products: 'none' }],

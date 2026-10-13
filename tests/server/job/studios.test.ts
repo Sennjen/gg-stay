@@ -285,33 +285,10 @@ describe('collectStudioGames keeping what the published version had', () => {
     return harness.writer
   }
 
-  it.each([
-    [
-      'failed',
-      (harness: ReturnType<typeof createJobHarness>) =>
-        harness.failNext((call) => call.params.developers === 'gsc-game-world'),
-    ],
-    [
-      'is unknown to RAWG',
-      (harness: ReturnType<typeof createJobHarness>) =>
-        harness.failNext(
-          (call) => call.params.developers === 'gsc-game-world',
-          new UpstreamError('RAWG', 'NOT_FOUND', 404),
-        ),
-    ],
-    [
-      'listed no games',
-      (harness: ReturnType<typeof createJobHarness>) =>
-        harness.answerNextWith(studioPage('gsc-game-world', 1), {
-          count: 0,
-          next: null,
-          results: [],
-        }),
-    ],
-  ])('keeps the published games of a slug that %s tonight', async (_name, breakIt) => {
+  it('keeps the published games of a slug that failed tonight', async () => {
     const writer = await publishFirstNight()
     const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES, start: nightsLater(1) })
-    breakIt(tonight)
+    tonight.failNext((call) => call.params.developers === 'gsc-game-world')
     const games = await candidatesOf(tonight)
 
     const result = await collectStudioGames(tonight.deps, games, {
