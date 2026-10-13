@@ -4,7 +4,7 @@ import { collectCandidates } from '../../../scripts/index/candidates'
 import type { JobDeps } from '../../../scripts/index/deps'
 import { refreshLanguages } from '../../../scripts/index/languages'
 import { refreshPrices } from '../../../scripts/index/prices'
-import { publishVersion } from '../../../scripts/index/publish'
+import { publicationRefusal, publishVersion } from '../../../scripts/index/publish'
 import type { IndexedGame } from '../../../server/index/document'
 import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
 import { createJobHarness, type JobHarness } from './harness'
@@ -332,5 +332,73 @@ describe('publishVersion', () => {
 
       expect((await harness.writer.meta())?.stats?.candidateCount).toBe(7)
     })
+  })
+})
+
+/**
+ * Whether a version will be refused is asked before it is written, too: by the run, of the same
+ * games and the same published metadata, so that a stage which cannot take back what it spends —
+ * the PlayStation Store's — spends nothing on a version nobody will see.
+ */
+describe('publicationRefusal', () => {
+  async function published() {
+    const harness = createJobHarness({ start: RUN_AT })
+    const games = await indexedGames(harness)
+    await publish(harness.deps, games, games.length)
+    return { harness, games, meta: (await harness.writer.meta())! }
+  }
+  const unpriced = (game: IndexedGame): IndexedGame => ({ ...game, priceUah: null, free: false })
+
+  it('says beforehand exactly what the publication will say', async () => {
+    const { harness, games, meta } = await published()
+    const cases: { games: IndexedGame[]; candidateCount?: number }[] = [
+      { games },
+      { games: games.slice(0, 4) },
+      { games: games.filter((game) => [101, 102, 105, 106, 108].includes(game.id)) },
+      { games: games.map((game) => ([101, 102].includes(game.id) ? unpriced(game) : game)) },
+      { games: games.map((game) => (game.id === 101 ? unpriced(game) : game)) },
+      { games: games.map(unpriced) },
+      { games, candidateCount: 3 },
+      { games, candidateCount: 5 },
+    ]
+
+    const foretold = cases.map((input) => publicationRefusal(input, meta))
+
+    expect(foretold).toEqual([
+      null,
+      'the run indexed 4 games, fewer than half of the published 9',
+      null,
+      'the run priced 3 games, against 5 in the published version',
+      null,
+      'the run priced no games while the published version prices 5',
+      'the run collected 3 candidates, fewer than half of the published 9',
+      null,
+    ])
+    // And the publication, asked of the same games over the same version, says the same.
+    for (const [index, input] of cases.entries()) {
+      const again = createJobHarness({ start: RUN_AT })
+      await publish(again.deps, games, games.length)
+      const outcome = await publish(again.deps, input.games, input.candidateCount)
+      expect(outcome.reason, `case ${index}`).toBe(foretold[index])
+    }
+    expect(harness.logs.filter((line) => line.startsWith('publish: refused'))).toEqual([])
+  })
+
+  it('refuses nothing when there is no version to be worse than', async () => {
+    const { games } = await published()
+
+    expect(publicationRefusal({ games: [] }, null)).toBeNull()
+    expect(publicationRefusal({ games: games.map(unpriced) }, null)).toBeNull()
+  })
+
+  it('reads nothing and writes nothing: it is asked before anything is', async () => {
+    const { harness, games, meta } = await published()
+    const read = vi.spyOn(harness.writer, 'meta')
+    const discard = vi.spyOn(harness.writer, 'discardVersion')
+
+    publicationRefusal({ games: games.slice(0, 2) }, meta)
+
+    expect(read).not.toHaveBeenCalled()
+    expect(discard).not.toHaveBeenCalled()
   })
 })

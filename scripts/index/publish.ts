@@ -99,7 +99,7 @@ function offerCount(games: IndexedGame[], store: OfferStore): number {
  * its total stands in. Any other run republishes the published documents and is measured on them.
  */
 function truncatedRunReason(
-  input: PublishInput,
+  input: Pick<PublishInput, 'candidateCount'>,
   gameCount: number,
   previous: IndexMeta,
 ): string | null {
@@ -111,6 +111,34 @@ function truncatedRunReason(
   }
   return gameCount < previous.gameCount * MIN_GAME_RATIO
     ? `the run indexed ${gameCount} games, fewer than half of the published ${previous.gameCount}`
+    : null
+}
+
+/**
+ * Why a run with these games will be refused publication over the version that is live, or
+ * `null` when it will not be: the checks above, and nothing but them.
+ *
+ * It is a function of the run's games and of the published metadata alone, so it can be asked
+ * before the version is written — and is, by the one stage that would otherwise spend something
+ * that cannot be had back on a run with nothing to publish: the PlayStation Store's
+ * (`run.ts`). `publishVersion` asks it again when the time comes, of the same two things.
+ */
+export function publicationRefusal(
+  input: Pick<PublishInput, 'games' | 'candidateCount'>,
+  previous: IndexMeta | null,
+): string | null {
+  if (!previous) return null
+  const counts = countIndexed(input.games)
+  const truncated = truncatedRunReason(input, counts.gameCount, previous)
+  if (truncated) return truncated
+
+  const previouslyPriced = previous.stats?.pricedCount ?? 0
+  if (previouslyPriced === 0) return null
+  if (counts.pricedCount === 0) {
+    return `the run priced no games while the published version prices ${previouslyPriced}`
+  }
+  return counts.pricedCount < previouslyPriced * MIN_PRICED_RATIO
+    ? `the run priced ${counts.pricedCount} games, against ${previouslyPriced} in the published version`
     : null
 }
 
@@ -150,17 +178,7 @@ export async function publishVersion(deps: JobDeps, input: PublishInput): Promis
       : {}),
   }
 
-  const previouslyPriced = previous?.stats?.pricedCount ?? 0
-
-  let reason = previous ? truncatedRunReason(input, counts.gameCount, previous) : null
-  if (!reason && previouslyPriced > 0) {
-    if (counts.pricedCount === 0) {
-      reason = `the run priced no games while the published version prices ${previouslyPriced}`
-    } else if (counts.pricedCount < previouslyPriced * MIN_PRICED_RATIO) {
-      reason = `the run priced ${counts.pricedCount} games, against ${previouslyPriced} in the published version`
-    }
-  }
-
+  const reason = publicationRefusal(input, previous)
   if (reason) {
     await deps.writer.discardVersion(input.version)
     deps.log(`publish: refused, ${reason}`)
