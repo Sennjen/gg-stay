@@ -75,8 +75,10 @@ export interface JobDeps {
   /** The National Bank's dollar rate for one day. */
   bank: BankRateFetch
   /**
-   * The PlayStation Store for Ukraine, a game a request and never faster than its own pause: the
-   * one transport that holds a run's ration itself, so it is built for one run.
+   * The PlayStation Store for Ukraine, one question a request and never faster than its own
+   * pause: the one transport that holds a run's ration itself, so it is built for one run. A dry
+   * run's is the one that answers from recordings, whatever its other transports are
+   * (`createJobDeps` in `run.ts`).
    */
   playstation: PlaystationStore
   writer: JobIndex

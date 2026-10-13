@@ -2,7 +2,7 @@ import { appendFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { appIdsForDocuments, attachAppIds, resolveAppIds, type AppIdMap } from './appIds'
 import { carryPublishedForward, collectCandidates, DEFAULT_CANDIDATE_PAGES } from './candidates'
-import { isoNow, type JobDeps } from './deps'
+import { isoNow, type JobClock, type JobDeps, type JobIndex, type JobLog } from './deps'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import {
   OFFER_FLOOR_MIN_CARRIED,
@@ -957,6 +957,42 @@ export async function writeJobSummary(
   await appendFile(path, markdown, 'utf8')
 }
 
+export interface JobDepsOptions {
+  apiKey: string
+  /** Serve every upstream from its recorded answers (`RAWG_FIXTURES=1`). */
+  fixtures: boolean
+  /** The run writes to an index that dies with the process (`INDEX_DRY_RUN=1`). */
+  dryRun: boolean
+  clock: JobClock
+  writer: JobIndex
+  log: JobLog
+}
+
+/**
+ * Everything a run of the job is handed, built for a plain Node process.
+ *
+ * **A dry run is never given the way to Sony.** A dry run keeps nothing — its index is in memory
+ * and dies with it — and holds no lock anybody else can see. On the live network it would ask
+ * Sony about the same titles on every run, with nothing to remember that it had; and started
+ * while the scheduled run is in its stage it would be a second caller, pausing for itself and
+ * not for the other. So its PlayStation transport reads the recorded answers whatever the other
+ * transports do, and a title with no recording is a request that failed.
+ */
+export function createJobDeps(options: JobDepsOptions): JobDeps {
+  const { apiKey, fixtures, clock } = options
+  return {
+    rawg: createJobRawg({ apiKey, fixtures, clock }),
+    steam: createJobSteam({ apiKey, fixtures, clock }),
+    gog: createJobGog({ fixtures, clock }),
+    microsoft: createJobMicrosoft({ fixtures, clock }),
+    bank: createJobBank({ fixtures, clock }),
+    playstation: createJobPlaystation({ fixtures: fixtures || options.dryRun, clock }),
+    writer: options.writer,
+    clock,
+    log: options.log,
+  }
+}
+
 /** 0 when a version was published, 1 for anything else. The workflow's red/green comes from here. */
 export async function runCli(
   argv: readonly string[],
@@ -977,18 +1013,14 @@ export async function runCli(
     const apiKey = env.RAWG_API_KEY ?? ''
     if (!apiKey && !fixtures) throw new Error('RAWG_API_KEY is required (or RAWG_FIXTURES=1).')
 
-    const clock = systemClock
-    const deps: JobDeps = {
-      rawg: createJobRawg({ apiKey, fixtures, clock }),
-      steam: createJobSteam({ apiKey, fixtures, clock }),
-      gog: createJobGog({ fixtures, clock }),
-      microsoft: createJobMicrosoft({ fixtures, clock }),
-      bank: createJobBank({ fixtures, clock }),
-      playstation: createJobPlaystation({ fixtures, clock }),
+    const deps = createJobDeps({
+      apiKey,
+      fixtures,
+      dryRun,
+      clock: systemClock,
       writer: fromEnv.writer,
-      clock,
       log,
-    }
+    })
     // A failed run is the one whose traffic is most worth knowing; the catch below has no `deps`.
     writerStats = () => fromEnv.writer.stats?.() ?? null
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { LANGUAGE_BUDGET } from '../../../scripts/index/languages'
 import {
+  createJobDeps,
   formatSummary,
   parseArgs,
   PROBE_STAGE,
@@ -1125,6 +1126,51 @@ describe('runCli', () => {
     )
     expect(summary).toContain('| Item failures | 0 |')
     vi.restoreAllMocks()
+  })
+
+  /**
+   * A dry run keeps nothing and holds no lock that anybody else sees. On the live network it
+   * would ask Sony about the same titles every time it is started, and be a second caller beside
+   * the scheduled run. So it is never given the way there, whatever its other transports are.
+   */
+  it('never hands a dry run the way to Sony, on the live network or off it', async () => {
+    const network = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', network)
+    let now = 0
+    const clock = { now: () => now, sleep: async (ms: number) => void (now += ms) }
+    const dependencies = (fixtures: boolean, dryRun: boolean) =>
+      createJobDeps({
+        apiKey: 'test-key',
+        fixtures,
+        dryRun,
+        clock,
+        writer: createJobHarness().writer,
+        log: () => {},
+      })
+
+    // A dry run with real RAWG and Steam behind it: Sony's answers are the recorded ones.
+    const dry = dependencies(false, true)
+    expect(await dry.playstation.concept('CUSA00419_00')).toBe(201_930)
+    expect(await dry.playstation.price(201_930)).toMatchObject({ price: { amount: 89_900 } })
+    // A title with no recording is a request that failed, not a request that was sent.
+    await expect(dry.playstation.concept('CUSA00001_00')).rejects.toMatchObject({
+      source: 'PLAYSTATION',
+      kind: 'NOT_FOUND',
+    })
+    expect(network).not.toHaveBeenCalled()
+    expect(await dependencies(true, false).playstation.concept('CUSA00419_00')).toBe(201_930)
+    expect(await dependencies(true, true).playstation.concept('CUSA00419_00')).toBe(201_930)
+    expect(network).not.toHaveBeenCalled()
+
+    // Only a real run, writing to the real index, reaches Sony.
+    await dependencies(false, false)
+      .playstation.concept('CUSA00419_00')
+      .catch(() => {})
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(String((network.mock.calls as unknown as [string][])[0]![0])).toContain(
+      'm.np.playstation.com',
+    )
+    vi.unstubAllGlobals()
   })
 
   it('exits non-zero, and says why, when it cannot even start', async () => {
