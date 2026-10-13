@@ -1,0 +1,167 @@
+{
+  "Products": [
+    {
+      "ProductId": "9MTNPF414F65",
+      "ProductKind": "Game",
+      "LocalizedProperties": [{"ProductTitle": "Resident Evil Village", "Language": "en"}],
+      "MarketProperties": [
+        {
+          "Markets": ["UA"],
+          "OriginalReleaseDate": "9998-12-30T00:00:00.0000000Z",
+          "RelatedProducts": [
+            {"RelatedProductId": "9MW7MFV29CMF", "RelationshipType": "Parent"},
+            {"RelatedProductId": "9N19JBMWKSPT", "RelationshipType": "Parent"},
+            {"RelatedProductId": "9N1HZ1PWLXTV", "RelationshipType": "Parent"},
+            {"RelatedProductId": "9N2TRSW63FM2", "RelationshipType": "Parent"}
+          ]
+        }
+      ],
+      "Properties": {"ProductGroupId": "db97de36-8e9e-4a95-a5fd-d88bfbdd220b", "ProductGroupName": "VILLAGE"}
+    },
+    {
+      "ProductId": "BTQMHK78ZPF9",
+      "ProductKind": "Game",
+      "LocalizedProperties": [{"ProductTitle": "LIMBO", "Language": "en-us"}],
+      "MarketProperties": [
+        {
+          "Markets": ["UA"],
+          "OriginalReleaseDate": "2014-12-05T00:00:00.0000000Z",
+          "RelatedProducts": [
+            {"RelatedProductId": "C1WP25BWLVTF", "RelationshipType": "Bundle"}
+          ]
+        }
+      ],
+      "Properties": {"ProductGroupId": "0382d552-fcc2-4783-87e9-720b8c208d5a", "ProductGroupName": "Limbo"}
+    },
+    {
+      "ProductId": "BR765873CQJD",
+      "ProductKind": "Game",
+      "LocalizedProperties": [{"ProductTitle": "The Witcher 3: Wild Hunt", "Language": "en-us"}],
+      "MarketProperties": [
+        {
+          "Markets": ["UA"],
+          "OriginalReleaseDate": "9998-12-30T00:00:00.0000000Z",
+          "RelatedProducts": [
+            {"RelatedProductId": "BNV61JB748C5", "RelationshipType": "Bundle"}
+          ]
+        }
+      ],
+      "Properties": {"ProductGroupId": "0e3c88c9-f776-4bbe-8575-42a5e9509939", "ProductGroupName": "Witcher 3"}
+    },
+    {
+      "ProductId": "9MW7MFV29CMF",
+      "ProductKind": "Game",
+      "LocalizedProperties": [{"ProductTitle": "Resident Evil Village", "Language": "en"}],
+      "MarketProperties": [
+        {
+          "Markets": ["UA"],
+          "OriginalReleaseDate": "9998-12-30T00:00:00.0000000Z",
+          "RelatedProducts": [
+            {"RelatedProductId": "9N80HXXJH52H", "RelationshipType": "SellableBy"},
+            {"RelatedProductId": "9NXC8NRZ2T5N", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NBKC3TMN0X4", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9PJLQL01X3PJ", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9MTNPF414F65", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9N2S04LGXXH4", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P1SJ041LF3J", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P3MC376DZR5", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P9ZV41FG0BZ", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9N5Z7Q11M4DM", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9N7T25ZJJQ9T", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NH99HSM856B", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NQWB2KZBS1P", "RelationshipType": "Bundle"}
+          ]
+        }
+      ],
+      "Properties": {"ProductGroupId": "db97de36-8e9e-4a95-a5fd-d88bfbdd220b", "ProductGroupName": "VILLAGE"}
+    },
+    {
+      "ProductId": "9N19JBMWKSPT",
+      "ProductKind": "Game",
+      "LocalizedProperties": [{"ProductTitle": "Resident Evil Re:Verse", "Language": "en"}],
+      "MarketProperties": [
+        {
+          "Markets": ["UA"],
+          "OriginalReleaseDate": "9998-12-30T00:00:00.0000000Z",
+          "RelatedProducts": [
+            {"RelatedProductId": "9NN5TKSKRLQF", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NXC8NRZ2T5N", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NCBB3VFC274", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NBKC3TMN0X4", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9PJLQL01X3PJ", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9MTNPF414F65", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P82G1Z7698S", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P5376CHNTMX", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9N2S04LGXXH4", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9PL1FG017TPN", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P1SJ041LF3J", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P3MC376DZR5", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NHG4XSMLNQ8", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P9ZV41FG0BZ", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9MTCRG8198JK", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9N5Z7Q11M4DM", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9N7T25ZJJQ9T", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P7TSNKCKM5B", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NSXS00609CC", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NH99HSM856B", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9PFPG45GK5M9", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NQWB2KZBS1P", "RelationshipType": "Bundle"}
+          ]
+        }
+      ],
+      "Properties": {"ProductGroupId": "5db59777-8053-488a-9056-b0607c448bca", "ProductGroupName": "VILLAGE ONLINE"}
+    },
+    {
+      "ProductId": "9N1HZ1PWLXTV",
+      "ProductKind": "Durable",
+      "LocalizedProperties": [{"ProductTitle": "Mr. Raccoon Weapon Charm", "Language": "en"}],
+      "MarketProperties": [
+        {
+          "Markets": ["UA"],
+          "OriginalReleaseDate": "2026-01-20T00:00:00.0000000Z",
+          "RelatedProducts": [
+            {"RelatedProductId": "9MW7MFV29CMF", "RelationshipType": "addOnParent"},
+            {"RelatedProductId": "9N80HXXJH52H", "RelationshipType": "addOnParent"},
+            {"RelatedProductId": "9MW7MFV29CMF", "RelationshipType": "SellableBy"},
+            {"RelatedProductId": "9N80HXXJH52H", "RelationshipType": "SellableBy"},
+            {"RelatedProductId": "9NN5TKSKRLQF", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NXC8NRZ2T5N", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NCBB3VFC274", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NBKC3TMN0X4", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9PJLQL01X3PJ", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9MTNPF414F65", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P82G1Z7698S", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9ND733WD34DS", "RelationshipType": "Bundle"}
+          ]
+        }
+      ],
+      "Properties": {"ProductGroupId": "db97de36-8e9e-4a95-a5fd-d88bfbdd220b", "ProductGroupName": "VILLAGE"}
+    },
+    {
+      "ProductId": "9N2TRSW63FM2",
+      "ProductKind": "Durable",
+      "LocalizedProperties": [{"ProductTitle": "Survival Resources Pack", "Language": "en"}],
+      "MarketProperties": [
+        {
+          "Markets": ["UA"],
+          "OriginalReleaseDate": "2026-01-20T00:00:00.0000000Z",
+          "RelatedProducts": [
+            {"RelatedProductId": "9MW7MFV29CMF", "RelationshipType": "addOnParent"},
+            {"RelatedProductId": "9N80HXXJH52H", "RelationshipType": "addOnParent"},
+            {"RelatedProductId": "9MW7MFV29CMF", "RelationshipType": "SellableBy"},
+            {"RelatedProductId": "9N80HXXJH52H", "RelationshipType": "SellableBy"},
+            {"RelatedProductId": "9NN5TKSKRLQF", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NXC8NRZ2T5N", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NCBB3VFC274", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9NBKC3TMN0X4", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9PJLQL01X3PJ", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9MTNPF414F65", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9P82G1Z7698S", "RelationshipType": "Bundle"},
+            {"RelatedProductId": "9ND733WD34DS", "RelationshipType": "Bundle"}
+          ]
+        }
+      ],
+      "Properties": {"ProductGroupId": "db97de36-8e9e-4a95-a5fd-d88bfbdd220b", "ProductGroupName": "VILLAGE"}
+    }
+  ]
+}

@@ -125,19 +125,92 @@ export function microsoftSku(availabilities: unknown[], type: 'full' | 'trial' =
   }
 }
 
+/** What a product found by another way than RAWG's link is judged by, beside its title. */
+export interface MicrosoftListing {
+  /** `Properties.ProductGroupId`: the editions of one game share it. */
+  group?: string
+  /** `OriginalReleaseDate`, as the catalog writes it: the date of the listing. */
+  released?: string
+}
+
+/** The date the catalog gives a listing it has no date for. */
+export const MICROSOFT_NO_DATE = '9998-12-30T00:00:00.0000000Z'
+
+/** The part of an answer that says what group a product is in and when it was listed. */
+function microsoftListing(listing: MicrosoftListing, related: unknown[] = []) {
+  return {
+    ...(listing.group === undefined ? {} : { Properties: { ProductGroupId: listing.group } }),
+    MarketProperties: [
+      {
+        Markets: ['UA'],
+        OriginalReleaseDate: listing.released ?? MICROSOFT_NO_DATE,
+        RelatedProducts: related,
+      },
+    ],
+  }
+}
+
 /**
  * A product sold in Ukraine at `list`, regularly `msrp`, with the subscriber's zero beside it and
- * — when it is given a title — the one listing Microsoft answers with, in English.
+ * — when it is given a title — the one listing Microsoft answers with, in English. With a
+ * `listing` it also says what group it is in and when it was listed, as a real answer does.
  */
-export function microsoftProduct(id: string, list: number, msrp: number = list, title?: string) {
+export function microsoftProduct(
+  id: string,
+  list: number,
+  msrp: number = list,
+  title?: string,
+  listing?: MicrosoftListing,
+) {
   return {
     ProductId: id,
     ...(title === undefined
       ? {}
       : { LocalizedProperties: [{ ProductTitle: title, Language: 'en-us' }] }),
+    ...(listing === undefined ? {} : microsoftListing(listing)),
     DisplaySkuAvailabilities: [
       microsoftSku([microsoftAvailability(list, msrp), microsoftSubscriberAvailability()]),
     ],
+  }
+}
+
+/**
+ * A product as the catalog answers it with nothing filtered out, as far as the job reads that
+ * answer: its title, its group, and what it is related to. `parents` are what a bundle is made
+ * of; `bundles` are the products that contain this one.
+ */
+export function microsoftDetail(
+  id: string,
+  title: string,
+  relations: MicrosoftListing & { parents?: string[]; bundles?: string[] } = {},
+) {
+  const related = [
+    ...(relations.parents ?? []).map((RelatedProductId) => ({
+      RelatedProductId,
+      RelationshipType: 'Parent',
+    })),
+    ...(relations.bundles ?? []).map((RelatedProductId) => ({
+      RelatedProductId,
+      RelationshipType: 'Bundle',
+    })),
+  ]
+  return {
+    ProductId: id,
+    LocalizedProperties: [{ ProductTitle: title, Language: 'en-us' }],
+    ...microsoftListing(relations, related),
+  }
+}
+
+/** The store's answer to a search: a result set a product, as `autosuggest` gives them. */
+export function microsoftSearchAnswer(
+  products: { id: string; title: string; type?: string }[] = [],
+) {
+  return {
+    Results: products.map((product) => ({
+      ProductFamilyName: 'Games',
+      Products: [{ ProductId: product.id, Type: product.type ?? 'Game', Title: product.title }],
+    })),
+    TotalResultCount: products.length,
   }
 }
 

@@ -3,9 +3,10 @@ import { fileURLToPath } from 'node:url'
 import { createBankRateFetch, type BankRateFetch } from './bank'
 import type { JobClock } from './deps'
 import { createGogCatalogFetch, type GogCatalogFetch } from './gog'
-import { createMicrosoftProductsFetch, type MicrosoftProductsFetch } from './microsoft'
+import { createMicrosoftFetches, type MicrosoftFetches } from './microsoft'
 import type { StoreUpstreamRuntime } from './storeUpstream'
 import type { UpstreamCacheEntry } from '../../server/upstream/createUpstreamFetch'
+import { UpstreamError } from '../../server/upstream/errors'
 import { createRawgFetch, type RawgFetch } from '../../server/rawg/rawgFetch'
 import { createSteamFetch } from '../../server/steam/steamFetch'
 import { createSteamPriceFetch, type SteamPriceFetch } from '../../server/steam/steamPriceFetch'
@@ -153,8 +154,32 @@ export function createJobGog(options: StoreUpstreamOptions): GogCatalogFetch {
   return createGogCatalogFetch(storeRuntime(options, FIXTURE_DIRS.GOG))
 }
 
-export function createJobMicrosoft(options: StoreUpstreamOptions): MicrosoftProductsFetch {
-  return createMicrosoftProductsFetch(storeRuntime(options, FIXTURE_DIRS.MICROSOFT))
+/** A search with no recording, in fixture mode: the store's answer when it sells nothing by a name. */
+const NO_SEARCH_RESULTS = { Results: [], TotalResultCount: 0 }
+
+/**
+ * Everything the job asks the Microsoft Store, on one limiter (`createMicrosoftFetches`).
+ *
+ * In fixture mode a search is answered from the recording named after what was searched for
+ * (`tests/fixtures/microsoft/search-prey.json`), and a name with no recording is a name the
+ * store sells nothing under — as a studio without a recorded list is a studio with no games. A
+ * dry run searches for whichever games its fixtures leave without a price, and a missing file
+ * must not read as the store failing.
+ */
+export function createJobMicrosoft(options: StoreUpstreamOptions): MicrosoftFetches {
+  const microsoft = createMicrosoftFetches(storeRuntime(options, FIXTURE_DIRS.MICROSOFT))
+  if (!options.fixtures) return microsoft
+  return {
+    ...microsoft,
+    search: async (name) => {
+      try {
+        return await microsoft.search(name)
+      } catch (error) {
+        if (error instanceof UpstreamError && error.kind === 'NOT_FOUND') return NO_SEARCH_RESULTS
+        throw error
+      }
+    },
+  }
 }
 
 /** `2026-10-12` as the bank's answers write a day: `12.10.2026`. */

@@ -859,11 +859,14 @@ export async function runCli(
     if (!apiKey && !fixtures) throw new Error('RAWG_API_KEY is required (or RAWG_FIXTURES=1).')
 
     const clock = systemClock
+    // One transport for everything Microsoft is asked, so that its limiter is one.
+    const microsoft = createJobMicrosoft({ fixtures, clock })
     const deps: JobDeps = {
       rawg: createJobRawg({ apiKey, fixtures, clock }),
       steam: createJobSteam({ apiKey, fixtures, clock }),
       gog: createJobGog({ fixtures, clock }),
-      microsoft: createJobMicrosoft({ fixtures, clock }),
+      microsoft: microsoft.products,
+      microsoftCatalog: microsoft,
       bank: createJobBank({ fixtures, clock }),
       writer: fromEnv.writer,
       clock,
