@@ -720,6 +720,10 @@ export function storeWarnings(stores: StoresReport): string[] {
  * the games carrying an offer; and a believed mapping that cost the store twenty offers or more,
  * said as it is for the others.
  *
+ * A refusal is warned of once, by the run it came to. It also silences every run for a day, and
+ * the runs that keep that silence say so in their row and write no warning of their own: the
+ * operator has been told, and a warning every six hours is one nobody reads.
+ *
  * And one that is not about how the stage ended: a prices run that ends with a price the site
  * still shows read more than forty hours ago says so, with the number of concepts against a
  * day's price reads. Eight hours on that price stops being shown.
@@ -746,7 +750,8 @@ export function playstationWarnings(read: PlaystationReport | null | undefined):
   if (read.stopped?.reason === 'refused') {
     warnings.push(
       `${name}: Sony refused a request (${cell(read.stopped.detail)}), so nothing more ` +
-        `was asked in this run, after ${plural(read.requests, 'request', 'requests')} — ${stands}`,
+        `was asked in this run, after ${plural(read.requests, 'request', 'requests')}, and no ` +
+        `run asks anything before ${read.silentUntil ?? 'a day has passed'} — ${stands}`,
     )
   }
   if (read.stopped?.reason === 'failures') {
@@ -888,7 +893,12 @@ function playstationStopNote(read: PlaystationReport): string {
     case 'time':
       return 'stopped at its forty minutes, the rest waits for the next run'
     case 'refused':
-      return `stopped: Sony refused a request (${cell(read.stopped.detail)})`
+      return (
+        `stopped: Sony refused a request (${cell(read.stopped.detail)})` +
+        (read.refusedAt && read.silentUntil
+          ? `, refused at ${read.refusedAt}, silent until ${read.silentUntil}`
+          : '')
+      )
     case 'failures':
       return `stopped: ${cell(read.stopped.detail)}`
   }
@@ -940,6 +950,13 @@ function playstationRow(read: PlaystationReport): [string, string] {
         name,
         `${mapping}; not read: the run is going to be refused publication ` +
           `(${cell(read.error ?? 'validation failed')}); ${offers('carried')}${tail}`,
+      ]
+    case 'silent':
+      return [
+        name,
+        `${mapping}; not read: Sony refused a request, ` +
+          `refused at ${read.refusedAt ?? 'a moment unknown'}, ` +
+          `silent until ${read.silentUntil ?? 'a day has passed'}; ${offers('carried')}${tail}`,
       ]
     default:
       break

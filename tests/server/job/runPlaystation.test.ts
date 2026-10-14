@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PLAYSTATION_PAUSE_MS } from '../../../scripts/index/playstation'
+import { PLAYSTATION_REFUSED_CURSOR } from '../../../scripts/index/playstationOffers'
 import {
   formatSummary,
   PLAYSTATION_ASKS,
@@ -610,27 +611,91 @@ describe('runJob when Sony will not answer', () => {
     },
   )
 
-  it('stops at the first refusal, and knocks again with one request, about another game', async () => {
+  it('keeps silent for a day after a refusal, in every kind of run, and warns of it once', async () => {
     const { night, at } = await firstPrices()
     const day = later(at, 24 * HOUR)
+    const until = later(day, 24 * HOUR)
     const refused = nextRun(night, day)
     refused.sonyAnswersWith({ status: 429 }, { times: Infinity })
 
-    await runJob(refused.deps, PRICES)
+    const report = await runJob(refused.deps, PRICES)
 
     expect(sent(refused)).toEqual([EVERY_PRICE[0]])
+    expect(report.outcome?.published).toBe(true)
+    expect(report.stores?.playstation).toMatchObject({
+      stopped: { reason: 'refused' },
+      refusedAt: day,
+      silentUntil: until,
+    })
     expect(warnings(refused)).toEqual([
-      '::warning::PlayStation Store: Sony refused a request (HTTP 429), so nothing more was asked in this run, after 1 request — every offer that was not read stands as it was',
+      `::warning::PlayStation Store: Sony refused a request (HTTP 429), so nothing more was asked in this run, after 1 request, and no run asks anything before ${until} — every offer that was not read stands as it was`,
     ])
+    expect(formatSummary(report)).toContain(
+      `1 request; stopped: Sony refused a request (HTTP 429), refused at ${day}, silent until ${until} |`,
+    )
+    // The moment is beside the job's cursors, not in the version the run published.
+    expect(await night.writer.getCursor(PLAYSTATION_REFUSED_CURSOR)).toBe(day)
 
-    // The next run does not ask about the game that was refused: it was asked about. It asks
-    // about the next one, and when Sony answers again the rest follows.
-    const after = nextRun(night, later(day, 6 * HOUR))
-    await runJob(after.deps, PRICES)
-    expect(sent(after)).toEqual(EVERY_PRICE.slice(1))
+    // Sony would answer again, and nobody asks: not the day's prices runs, not the night's run
+    // between them, not the prices run a minute short of the twenty-four hours.
+    for (const [after, options] of [
+      [6 * HOUR, PRICES],
+      [12 * HOUR, PRICES],
+      [14 * HOUR, FULL],
+      [18 * HOUR, PRICES],
+      [24 * HOUR - MINUTE, PRICES],
+    ] as const) {
+      const silent = nextRun(night, later(day, after))
+      const quiet = await runJob(silent.deps, options)
+
+      expect(silent.sonyRequests, `${options.mode} at +${after / HOUR} h`).toHaveLength(0)
+      expect(quiet.outcome?.published).toBe(true)
+      expect(quiet.stores?.playstation).toMatchObject({
+        status: 'silent',
+        requests: 0,
+        offers: 3,
+        refusedAt: day,
+        silentUntil: until,
+      })
+      expect(formatSummary(quiet)).toContain(
+        `not read: Sony refused a request, refused at ${day}, silent until ${until}; 3 offers carried`,
+      )
+      // Said once, by the run that was refused.
+      expect(warnings(silent)).toEqual([])
+    }
+    // The offers are still the ones the last answered run read.
+    expect((await night.writer.getOne(106))?.offers).toEqual([amberOffer(request(at, 1))])
+
+    // A day after the refusal the next run asks again: the two games not asked about for two
+    // days first, then the one the refusal came to.
+    const again = nextRun(night, until)
+    const answered = await runJob(again.deps, PRICES)
+    expect(sent(again)).toEqual([EVERY_PRICE[1], EVERY_PRICE[2], EVERY_PRICE[0]])
+    expect(answered.stores?.playstation).toMatchObject({ status: 'read', pricesRead: 3 })
+    expect(answered.stores?.playstation).not.toHaveProperty('silentUntil')
+    expect(await night.writer.getCursor(PLAYSTATION_REFUSED_CURSOR)).toBeNull()
+    expect(warnings(again)).toEqual([])
   })
 
-  it('stops the night’s mapping at a refusal as well, and leaves the titles for another night', async () => {
+  it('remembers a refusal in a run that then publishes nothing', async () => {
+    const { night, at } = await firstPrices()
+    const day = later(at, 24 * HOUR)
+    const refused = nextRun(night, day)
+    refused.sonyAnswersWith({ status: 403 }, { times: Infinity })
+    vi.spyOn(refused.writer, 'writeVersion').mockRejectedValue(new Error('the index is full'))
+
+    const error = await runJob(refused.deps, PRICES).catch((caught: unknown) => caught)
+
+    expect((error as { stage: string }).stage).toBe('publish')
+    vi.restoreAllMocks()
+    // No version, no metadata of this run — and the next run knows all the same.
+    const next = nextRun(night, later(day, 6 * HOUR))
+    const report = await runJob(next.deps, PRICES)
+    expect(next.sonyRequests).toHaveLength(0)
+    expect(report.stores?.playstation).toMatchObject({ status: 'silent', refusedAt: day })
+  })
+
+  it('stops the night’s mapping at a refusal as well, and silences the day that follows', async () => {
     const night = createJobHarness({ start: RUN_AT, playstation: true })
     night.sonyAnswersWith({ status: 403 }, { times: Infinity })
 
@@ -643,10 +708,22 @@ describe('runJob when Sony will not answer', () => {
       mapped: 0,
       unmapped: 3,
       stopped: { reason: 'refused' },
+      refusedAt: RUN_AT,
     })
+    const until = later(RUN_AT, 24 * HOUR)
     expect(warnings(night)).toEqual([
-      '::warning::PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 1 request — every title that was not answered about waits for another night',
+      `::warning::PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 1 request, and no run asks anything before ${until} — every title that was not answered about waits for another night`,
     ])
+
+    // The next night comes a day later to the minute, and maps what the refusal left.
+    const nextNight = nextRun(night, until)
+    const mapped = await runJob(nextNight.deps, FULL)
+    expect(nextNight.sonyRequests.map((entry) => entry.kind)).toEqual([
+      'concept',
+      'concept',
+      'concept',
+    ])
+    expect(mapped.stores?.playstation).toMatchObject({ status: 'read', mapped: 3, unmapped: 0 })
   })
 
   it('writes no warning in a run that read everything, or had nothing due', async () => {
@@ -810,10 +887,12 @@ describe('runJob and the PlayStation Store, through the Upstash adapter', () => 
     const refused = await traffic(false)
 
     // The night: three dates of asking and three concepts, against the one date of the request
-    // that was refused. Each a command in a request of its own.
-    expect(asking.full.requests - refused.full.requests).toBe(5)
-    expect(asking.full.commands - refused.full.commands).toBe(5)
-    // The prices run: three dates of asking, where the refused world has no concept to ask about.
+    // that was refused and the moment of the refusal. Each a command in a request of its own;
+    // and each world looks once for a refusal to keep silent after.
+    expect(asking.full.requests - refused.full.requests).toBe(4)
+    expect(asking.full.commands - refused.full.commands).toBe(4)
+    // The prices run: three dates of asking, where the refused world keeps silent, and would
+    // have no concept to ask about if it did not.
     expect(asking.prices.requests - refused.prices.requests).toBe(3)
     expect(asking.prices.commands - refused.prices.commands).toBe(3)
   })
@@ -918,8 +997,14 @@ describe('formatSummary and the PlayStation Store', () => {
     expect(
       rowOf({ stopped: { reason: 'time', detail: 'the run has used its forty minutes' } }),
     ).toContain('225 requests; stopped at its forty minutes, the rest waits for the next run |')
-    expect(rowOf({ stopped: { reason: 'refused', detail: 'HTTP 403' } })).toContain(
-      '225 requests; stopped: Sony refused a request (HTTP 403) |',
+    expect(
+      rowOf({
+        stopped: { reason: 'refused', detail: 'HTTP 403' },
+        refusedAt: '2026-10-13T06:20:00.000Z',
+        silentUntil: '2026-10-14T06:20:00.000Z',
+      }),
+    ).toContain(
+      '225 requests; stopped: Sony refused a request (HTTP 403), refused at 2026-10-13T06:20:00.000Z, silent until 2026-10-14T06:20:00.000Z |',
     )
     expect(
       rowOf({ stopped: { reason: 'failures', detail: '3 requests in a row failed' } }),
@@ -944,6 +1029,20 @@ describe('formatSummary and the PlayStation Store', () => {
       rowOf({ ...night, due: 460, mappingsRead: 198, requests: 200, heldOver: 260 }),
     ).toContain(
       '198 titles answered about of 460 due, 17 of them with no concept, 2 failed; prices are read by the prices runs: 598 offers carried, the oldest read 31 h ago; 200 requests; the 200 titles of one night were asked about, 260 wait for another night |',
+    )
+  })
+
+  it('says, in a run that keeps silent after a refusal, when it was and until when', () => {
+    expect(
+      rowOf({
+        status: 'silent',
+        requests: 0,
+        refusedAt: '2026-10-13T06:20:00.000Z',
+        silentUntil: '2026-10-14T06:20:00.000Z',
+        dropped: 2,
+      }),
+    ).toContain(
+      `| PlayStation Store prices | ${MAPPING}; not read: Sony refused a request, refused at 2026-10-13T06:20:00.000Z, silent until 2026-10-14T06:20:00.000Z; 598 offers carried, the oldest read 31 h ago; 2 offers dropped because their games no longer have a store reference |`,
     )
   })
 

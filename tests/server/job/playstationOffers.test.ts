@@ -13,7 +13,9 @@ import {
   PLAYSTATION_PRICE_OLD_MS,
   PLAYSTATION_PRICE_READS_A_DAY,
   PLAYSTATION_PRICE_SHOWN_MS,
+  PLAYSTATION_REFUSED_CURSOR,
   PLAYSTATION_REREAD_AFTER_MS,
+  PLAYSTATION_SILENCE_MS,
   refreshPlaystationOffers,
   removalsNotBelieved,
   type PlaystationAsks,
@@ -773,8 +775,11 @@ describe('a prices run: how it ends', () => {
       // The game that was refused and the games never reached are as they were.
       for (const id of [4, 5, 10])
         expect(run.psOffer(id)).toEqual(offerOf(id, ago((100 - id) * HOUR)))
+      // Refused as the fourth request came back: thirty seconds into the stage.
+      const until = iso(STARTED + 3 * PLAYSTATION_PAUSE_MS + PLAYSTATION_SILENCE_MS)
+      expect(report).toMatchObject({ refusedAt: leftAt(3), silentUntil: until })
       expect(playstationWarnings(report)).toEqual([
-        `PlayStation Store: Sony refused a request (${detail}), so nothing more was asked in this run, after 4 requests — every offer that was not read stands as it was`,
+        `PlayStation Store: Sony refused a request (${detail}), so nothing more was asked in this run, after 4 requests, and no run asks anything before ${until} — every offer that was not read stands as it was`,
       ])
     },
   )
@@ -909,6 +914,134 @@ describe('a prices run: the warning before prices stop being shown', () => {
     expect(playstationWarnings(await old().run('nothing'))).toEqual([])
     expect(playstationWarnings(await old().run('prices', { refusal: 'no games' }))).toEqual([])
     expect(playstationWarnings(await old().run('prices'))).toHaveLength(1)
+  })
+})
+
+describe('after a refusal, a day of silence', () => {
+  const refusedAtOf = (run: World) => run.harness.writer.getCursor(PLAYSTATION_REFUSED_CURSOR)
+  const silencedAt = async (run: World, at: string) =>
+    void (await run.harness.writer.setCursor(PLAYSTATION_REFUSED_CURSOR, at))
+  /** Games with a price due and titles waiting: something to ask in either kind of run. */
+  const waiting = (): World =>
+    world([...many(3, () => read(30 * HOUR)), ...many(3, () => ({ mapped: false }), 4)])
+
+  it('writes down the moment Sony refused, the moment it does', async () => {
+    expect(PLAYSTATION_SILENCE_MS).toBe(24 * HOUR)
+    const run = waiting()
+    run.harness.sonyAnswersWith({ status: 403 }, { match: (request) => request.id === '50002' })
+    const written: string[] = []
+    const setCursor = run.harness.writer.setCursor.bind(run.harness.writer)
+    vi.spyOn(run.harness.writer, 'setCursor').mockImplementation(async (stage, value) => {
+      written.push(`${stage} ${value} after ${run.harness.sonyRequests.length} requests`)
+      await setCursor(stage, value)
+    })
+
+    const report = await run.run()
+
+    expect(written).toEqual([`${PLAYSTATION_REFUSED_CURSOR} ${leftAt(1)} after 2 requests`])
+    expect(await refusedAtOf(run)).toBe(leftAt(1))
+    expect(report).toMatchObject({
+      status: 'read',
+      stopped: { reason: 'refused' },
+      refusedAt: leftAt(1),
+      silentUntil: iso(STARTED + PLAYSTATION_PAUSE_MS + DAY),
+    })
+  })
+
+  it.each(['prices', 'mappings'] as const)(
+    'asks nothing in a %s run for twenty-four hours, and says until when',
+    async (asks) => {
+      const run = waiting()
+      const refusedAt = ago(DAY - 1)
+      await silencedAt(run, refusedAt)
+
+      const report = await run.run(asks)
+
+      expect(run.harness.sonyRequests).toHaveLength(0)
+      expect(report).toMatchObject({
+        status: 'silent',
+        asks,
+        requests: 0,
+        due: 0,
+        offers: 3,
+        refusedAt,
+        silentUntil: iso(STARTED + 1),
+        stopped: null,
+      })
+      // Nobody was asked about, so nobody is dated: the games are as due as they were.
+      expect(await run.stored(1)).toBeUndefined()
+      expect(await run.stored(4)).toBeUndefined()
+      // The refusal was warned of by the run it came to. This one says it in its row.
+      expect(playstationWarnings(report)).toEqual([])
+      expect(await refusedAtOf(run)).toBe(refusedAt)
+      expect(run.harness.logs.join('\n')).toContain(`silent until ${iso(STARTED + 1)}`)
+    },
+  )
+
+  it('asks again once the day has passed, and keeps the moment no longer', async () => {
+    const run = waiting()
+    await silencedAt(run, ago(DAY))
+
+    const report = await run.run()
+
+    expect(run.asked('price')).toEqual([1, 2, 3])
+    expect(report).toMatchObject({ status: 'read', pricesRead: 3 })
+    expect(report).not.toHaveProperty('refusedAt')
+    expect(report).not.toHaveProperty('silentUntil')
+    expect(await refusedAtOf(run)).toBeNull()
+  })
+
+  it.each([
+    ['a moment ahead of the clock', iso(STARTED + 3 * DAY)],
+    ['something that is no moment', 'yesterday'],
+    ['a date this job would not have written', '2026-10-12'],
+  ])('takes %s for a refusal just now, and counts the day from here', async (_what, value) => {
+    const run = waiting()
+    await silencedAt(run, value)
+
+    const report = await run.run()
+
+    expect(run.harness.sonyRequests).toHaveLength(0)
+    expect(report).toMatchObject({
+      status: 'silent',
+      refusedAt: START,
+      silentUntil: iso(STARTED + DAY),
+    })
+    // Written back, so the next run counts from the same moment and the silence does end.
+    expect(await refusedAtOf(run)).toBe(START)
+  })
+
+  it('is not kept after three failures in a row, which are not a refusal', async () => {
+    const run = waiting()
+    run.harness.sonyAnswersWith({ status: 500 }, { times: Infinity })
+
+    const report = await run.run()
+
+    expect(report.stopped).toMatchObject({ reason: 'failures' })
+    expect(report).not.toHaveProperty('refusedAt')
+    expect(await refusedAtOf(run)).toBeNull()
+  })
+
+  it('does not look for the moment in a run that asks Sony nothing anyway', async () => {
+    const run = waiting()
+    await silencedAt(run, ago(HOUR))
+    const getCursor = vi.spyOn(run.harness.writer, 'getCursor')
+
+    expect(await run.run('nothing')).toMatchObject({ status: 'not-in-this-run' })
+    expect(await run.run('prices', { refusal: 'no games' })).toMatchObject({
+      status: 'run-refused',
+    })
+    expect(getCursor).not.toHaveBeenCalled()
+  })
+
+  it('fails as the index’s failure when the moment cannot be written down', async () => {
+    const run = waiting()
+    run.harness.sonyAnswersWith({ status: 429 })
+    vi.spyOn(run.harness.writer, 'setCursor').mockRejectedValue(new Error('the index is full'))
+
+    await expect(run.run()).rejects.toThrow('the index is full')
+
+    expect(run.harness.sonyRequests).toHaveLength(1)
   })
 })
 
@@ -1293,9 +1426,14 @@ describe('the nightly run: mapping titles to concepts', () => {
 
     expect(refused.asked('concept')).toEqual([1, 2, 3])
     expect(report).toMatchObject({ mappingsRead: 2, failed: 1, stopped: { reason: 'refused' } })
+    // The night's refusal silences the day's prices runs as it would the night's own.
+    const until = iso(STARTED + 2 * PLAYSTATION_PAUSE_MS + PLAYSTATION_SILENCE_MS)
     expect(playstationWarnings(report)).toEqual([
-      'PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 3 requests — every title that was not answered about waits for another night',
+      `PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 3 requests, and no run asks anything before ${until} — every title that was not answered about waits for another night`,
     ])
+    const morning = later(refused, STARTED + 4 * HOUR)
+    expect(await morning.run()).toMatchObject({ status: 'silent', silentUntil: until })
+    expect(morning.sent()).toEqual([])
 
     const failing = world(many(10, () => ({ mapped: false })))
     failing.harness.sonyAnswersWith({ status: 500 }, { times: Infinity })

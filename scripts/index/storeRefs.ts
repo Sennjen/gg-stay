@@ -269,7 +269,7 @@ export function playstationTitleFromUrl(raw: string | null | undefined): string 
 }
 
 /** A timestamp this job wrote: ISO, in UTC, to the millisecond — `2026-10-13T06:15:00.000Z`. */
-const JOB_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+export const JOB_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 /**
  * What a record says of the PlayStation Store, as far as it is what this job would have written:

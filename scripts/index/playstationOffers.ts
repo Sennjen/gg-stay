@@ -14,7 +14,7 @@ import {
   type PlaystationProduct,
   type PlaystationStopReport,
 } from './playstation'
-import { usableStoreRefs, type StoreRefMap } from './storeRefs'
+import { JOB_TIMESTAMP, usableStoreRefs, type StoreRefMap } from './storeRefs'
 import { reasonOf } from './storeUpstream'
 import type { IndexedGame, IndexedOffer, IndexedStoreRefs } from '../../server/index/document'
 
@@ -70,6 +70,13 @@ import type { IndexedGame, IndexedOffer, IndexedStoreRefs } from '../../server/i
  * refused is known before the stage starts (`publicationRefusal`), and a ration spent for a
  * version nobody will see is a ration spent for nothing.
  *
+ * **After a refusal, a day of silence.** When Sony refuses a request — a 403, a 429, a page where
+ * data was expected — the moment is written beside the job's cursors
+ * (`PLAYSTATION_REFUSED_CURSOR`), where it outlives the run and its version, and no run of any
+ * kind asks Sony anything until `PLAYSTATION_SILENCE_MS` have passed since. The run that was
+ * refused says so in a warning, once; the runs that keep silent say it in their row. A refusal is
+ * Sony saying no, and knocking again every six hours is not taking that for an answer.
+ *
  * **Nothing here can cost the run.** A request that fails is one game left as it was. Sony
  * refusing, or failing three times in a row, ends the stage and not the run, and says so in a
  * warning (`run.ts`). Only the index failing — a lock that will not renew, a reference that will
@@ -98,6 +105,16 @@ export const PLAYSTATION_MAPPINGS_PER_RUN = 200
  * editing the mapping by hand.
  */
 export const PLAYSTATION_NO_CONCEPT_KEPT_MS = 30 * 86_400_000
+
+/** After Sony refuses a request, no run asks it anything for this long: a day. */
+export const PLAYSTATION_SILENCE_MS = 24 * 3_600_000
+
+/**
+ * The key, beside the job's cursors, that holds the moment Sony last refused a request. Not the
+ * published metadata: a run that is refused may publish nothing, and the next run has to know all
+ * the same. Cleared by the first run that finds the day has passed.
+ */
+export const PLAYSTATION_REFUSED_CURSOR = 'playstation-refused'
 
 /**
  * How long an offer of this store is a price on the site: forty-eight hours
@@ -137,6 +154,8 @@ export type PlaystationReadStatus =
   | 'not-in-this-run'
   /** The run's version is going to be refused publication, so nothing was asked. */
   | 'run-refused'
+  /** Sony refused a request less than a day ago, so nothing was asked (`refusedAt`). */
+  | 'silent'
   /** The mapping names no PlayStation title for any game of the run; no request was made. */
   | 'no-references'
   /**
@@ -197,6 +216,13 @@ export interface PlaystationReport {
    * `null` when it asked about everything that was due.
    */
   stopped: PlaystationStopReport | null
+  /**
+   * When Sony refused a request: in this run, or within the day before it, which is why this run
+   * asked nothing (`status: 'silent'`). Left out when there is no refusal to keep silent after.
+   */
+  refusedAt?: string
+  /** Until when no run asks Sony anything: a day after `refusedAt`. */
+  silentUntil?: string
   /**
    * Titles that were due and that the night's `PLAYSTATION_MAPPINGS_PER_RUN` left for another
    * night. Left out when there were none.
@@ -429,10 +455,40 @@ export async function refreshPlaystationOffers(
     return report({ status: 'run-refused', error: reasonOf(options.refusal) })
   }
 
+  const startedAt = deps.clock.now()
+  /** What a refusal at `at` means for a report: when it was, and until when nothing is asked. */
+  const silence = (at: number): Pick<PlaystationReport, 'refusedAt' | 'silentUntil'> => ({
+    refusedAt: new Date(at).toISOString(),
+    silentUntil: new Date(at + PLAYSTATION_SILENCE_MS).toISOString(),
+  })
+
+  // A refusal within the last day: nothing is asked, by this run or by any other. What the key
+  // holds is not taken on trust any more than a reference is. A moment that cannot be read, or
+  // lies ahead of the clock, tells nothing of when Sony refused, and for this store the safe
+  // reading is "just now": it is written back as now, and the day is counted from here.
+  const recorded = await deps.writer.getCursor(PLAYSTATION_REFUSED_CURSOR)
+  if (recorded !== null) {
+    const parsed = JOB_TIMESTAMP.test(recorded) ? Date.parse(recorded) : Number.NaN
+    const since = Number.isFinite(parsed) && parsed <= startedAt ? parsed : startedAt
+    if (startedAt - since < PLAYSTATION_SILENCE_MS) {
+      if (since !== parsed) {
+        await deps.writer.setCursor(PLAYSTATION_REFUSED_CURSOR, new Date(since).toISOString())
+      }
+      const { silentUntil } = silence(since)
+      deps.log(
+        `playstation: Sony refused a request less than a day ago; silent until ${silentUntil}`,
+      )
+      return report({ status: 'silent', ...silence(since) })
+    }
+    // The day has passed. A key nobody reads any more is not kept.
+    await deps.writer.clearCursor(PLAYSTATION_REFUSED_CURSOR)
+  }
+
   const lock = createLockKeeper(deps)
   const requestsBefore = store.requests()
-  const startedAt = deps.clock.now()
   let failed = 0
+  /** When Sony refused a request in this run, once it has; written down at that moment. */
+  let refusedAt: number | null = null
   /** Whether the stage left a question unput that it would have put. */
   let cutShort = false
 
@@ -473,6 +529,12 @@ export async function refreshPlaystationOffers(
       deps.log(
         `playstation: ${what} could not be read, leaving its game as it was: ${reasonOf(error)}`,
       )
+      // A refusal is written down the moment it comes, before anything else can go wrong with
+      // the run: it is what keeps the next run, and the one after, from knocking again.
+      if (refusedAt === null && store.stopped()?.reason === 'refused') {
+        refusedAt = deps.clock.now()
+        await deps.writer.setCursor(PLAYSTATION_REFUSED_CURSOR, new Date(refusedAt).toISOString())
+      }
       return 'failed'
     } finally {
       await lock.renew()
@@ -493,9 +555,16 @@ export async function refreshPlaystationOffers(
     deps.log(
       `playstation: ${referenced.length} references; ${said}, ${failed} failed, in ${requests} requests` +
         (stopped ? ` — stopped: ${stopped.detail}` : '') +
+        (refusedAt === null ? '' : `; silent until ${silence(refusedAt).silentUntil}`) +
         (extra.error ? ` — ${extra.error}` : ''),
     )
-    return report({ failed, requests, stopped, ...extra })
+    return report({
+      failed,
+      requests,
+      stopped,
+      ...(refusedAt === null ? {} : silence(refusedAt)),
+      ...extra,
+    })
   }
 
   // A date ahead of the clock was not written when it says. Nothing is known of when the game
