@@ -1,0 +1,13 @@
+{
+  "Results": [
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9N8TRM7F6KGC", "Type": "Game", "Title": "DOOM Eternal Deluxe Edition (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9PK09BL31FK1", "Type": "Game", "Title": "DOOM Eternal Standard Edition (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9PLHDCMXH1TL", "Type": "Game", "Title": "DOOM Eternal: The Ancient Gods - Part One (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9N099DG3GHGW", "Type": "Game", "Title": "DOOM Eternal: The Ancients Gods Expansion Pack (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9NCX176WZP0G", "Type": "Durable", "Title": "DOOM Eternal - Rip and Tear Pack (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9N9LXX68LKWF", "Type": "Game", "Title": "DOOM Eternal: The Ancient Gods - Part Two (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9NDD4M4FLRPK", "Type": "Durable", "Title": "DOOM Eternal: Complete Cosmetic Pack (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9P74BRFBXXC6", "Type": "Game", "Title": "DOOM Eternal (BATTLEMODE - PC)"}]}
+  ],
+  "TotalResultCount": 8
+}

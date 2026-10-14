@@ -1038,6 +1038,43 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect((await adapter.writer.getStoreRefs([4200])).get(4200)).toEqual({})
       })
 
+      it('keeps what the stores’ own ways found beside RAWG’s links, exactly as written', async () => {
+        const remembered = {
+          gog: null,
+          microsoft: { id: '9MTNPF414F65', name: 'resident-evil-village' },
+          fallbacks: {
+            gog: {
+              slug: 'resident_evil_village',
+              via: 'name' as const,
+              foundAt: '2026-10-13T03:00:00.000Z',
+            },
+            microsoft: {
+              searchedAt: '2026-10-13T03:00:00.000Z',
+              found: {
+                id: '9N2S04LGXXH4',
+                name: 'resident-evil-village',
+                via: 'relation' as const,
+                foundAt: '2026-10-13T03:00:00.000Z',
+              },
+            },
+          },
+        }
+        const searched = {
+          microsoft: null,
+          fallbacks: { microsoft: { searchedAt: '2026-10-13T03:00:00.000Z' } },
+        }
+        await adapter.writer.setStoreRefs([
+          [7100, remembered],
+          [7101, searched],
+        ])
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
+
+        const refs = await adapter.writer.getStoreRefs([7100, 7101])
+        expect(refs.get(7100)).toEqual(remembered)
+        expect(refs.get(7101)).toEqual(searched)
+        expect('found' in refs.get(7101)!.fallbacks!.microsoft!).toBe(false)
+      })
+
       it('overwrites a game’s store references with a newer answer', async () => {
         await adapter.writer.setStoreRefs([[7000, { gog: 'limbo' }]])
         await adapter.writer.setStoreRefs([[7000, {}]])
