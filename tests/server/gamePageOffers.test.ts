@@ -687,6 +687,50 @@ describe('what the other stores charge, on a page RAWG answered', () => {
   })
 })
 
+describe('an offer whose sale has ended, on both pages', () => {
+  /** The Microsoft Store at half price until `ends`: 192,50 ₴ against 385 ₴. */
+  const halfPrice = (ends: string) =>
+    microsoftOffer({ amount: 19_250, discountPercent: 50, saleEndsAt: ends })
+  const ON_SALE = { priceUah: 193, regularPriceUah: 385, discountPercent: 50 }
+  const OVER = { priceUah: 385, regularPriceUah: null, discountPercent: 0 }
+
+  /** The Microsoft Store's row of Stardew Valley's page, asked for at `now`. */
+  async function xboxRowAt(now: string, context: TestContext): Promise<Row> {
+    const { data, errors } = await runQuery({ now, ...context }, PAGE, { slug: STARDEW })
+    expect(errors).toBeUndefined()
+    // The path is the one the case names: the index's own page is the partial one.
+    expect((data!.game as Page).partial).toBe('rawg' in context)
+    return (data!.game as Page).stores.find((row) => row.store === 'xbox-store')!
+  }
+
+  it.each([
+    ['RAWG answered', {}],
+    ['built from the index', { rawg: rawgWithoutDetail }],
+  ] as const)(
+    'is shown at its sale price until the end and at its regular price after, on the page %s',
+    async (_path, upstream) => {
+      // One document, read by the request's clock a minute before the sale ends and a minute after.
+      const ends = ago(-HOUR)
+      const index = await indexHolding([stardew([halfPrice(ends)])])
+      const minute = 60_000
+
+      const before = await xboxRowAt(new Date(Date.parse(ends) - minute).toISOString(), {
+        index,
+        ...upstream,
+      })
+      const after = await xboxRowAt(new Date(Date.parse(ends) + minute).toISOString(), {
+        index,
+        ...upstream,
+      })
+
+      expect(before).toMatchObject(ON_SALE)
+      expect(after).toMatchObject(OVER)
+      // The same read, under its own date: only the sale is over.
+      expect(after.updatedAt).toBe(before.updatedAt)
+    },
+  )
+})
+
 describe('what the other stores charge, on the page built from the index', () => {
   it('shows the offers the document has on rows of their own, after Steam', async () => {
     const index = await indexHolding([witcher([gogOffer()])])

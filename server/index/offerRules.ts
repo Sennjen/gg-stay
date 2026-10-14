@@ -257,14 +257,39 @@ export function isFreshOffer(
 }
 
 /**
+ * The offer as it stands at `now`: as the store wrote it while its sale runs, and at its regular
+ * price, with no discount and no end of a sale, once `saleEndsAt` has passed.
+ *
+ * A store that names the end of a discount is read once a day at best (the PlayStation Store), so
+ * an offer read the day before can still be quoting a sale that ended this morning. From the
+ * moment the store named, the price anybody pays is the regular one, and that is what every
+ * reader of the offer is given — a row, the cheapest rule, a card.
+ *
+ * An end that cannot be read is taken as passed: a discount whose end is unknown is not one the
+ * page can stand behind, and the regular price is the one the store charges once any sale is
+ * over. An offer without `saleEndsAt` is returned as it is, whatever its discount — the other
+ * stores do not name an end, and their offers are read twice a day.
+ */
+export function offerAt(offer: IndexedOffer, now: string): IndexedOffer {
+  if (offer.saleEndsAt === undefined) return offer
+  const ends = typeof offer.saleEndsAt === 'string' ? Date.parse(offer.saleEndsAt) : Number.NaN
+  if (ends > Date.parse(now)) return offer
+  const { saleEndsAt: _ended, ...regular } = offer
+  return { ...regular, amount: offer.regularAmount, discountPercent: 0 }
+}
+
+/**
  * The offers that are prices at `now` for anything built from the document alone — a card, the
- * page the index answers by itself: listed (`listedOffers`), and fresh.
+ * page the index answers by itself: listed (`listedOffers`), fresh, and as they stand at `now`
+ * (`offerAt`).
  */
 export function freshOffers(
   game: Pick<IndexedGame, 'stores' | 'offers'>,
   now: string,
 ): IndexedOffer[] {
-  return listedOffers(game).filter((offer) => isFreshOffer(offer, now))
+  return listedOffers(game)
+    .filter((offer) => isFreshOffer(offer, now))
+    .map((offer) => offerAt(offer, now))
 }
 
 /**

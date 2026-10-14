@@ -26,6 +26,7 @@ import {
   isFreshOffer,
   listedOffers,
   markedCheapest,
+  offerAt,
   pageOffers,
   wholeHryvnia,
   type PricedRow,
@@ -206,8 +207,9 @@ export function toStoreOffer(
 
 /**
  * The rows of a page RAWG answered, with what the index holds of the other stores' prices put on
- * them: a store RAWG links gains its fresh offer, and with it the store's own address for the
- * product the price is for. Nothing else changes — a store RAWG does not link is not added, a
+ * them: a store RAWG links gains its fresh offer, as it stands at the request's moment
+ * (`offerAt`: past the end of its sale, at its regular price), and with it the store's own
+ * address for the product the price is for. Nothing else changes — a store RAWG does not link is not added, a
  * store without a fresh offer keeps the plain link RAWG gave, and the Steam row is left alone
  * (its price is the document's own, see `toSteamOffer`).
  *
@@ -223,7 +225,7 @@ export function withStoreOffers(
   const offers = new Map(
     pageOffers(game)
       .filter((offer) => isFreshOffer(offer, terms.now))
-      .map((offer) => [offer.store as string, offer]),
+      .map((offer) => [offer.store as string, offerAt(offer, terms.now)]),
   )
   if (offers.size === 0) return rows
   return rows.map((row) => {
@@ -369,7 +371,8 @@ export function steamStorePageOf(game: IndexedGame): string | null {
  * lists Steam among its stores (`steamStorePageOf`) — the address of the store page is built from
  * the app id, and the price fields are `toSteamOffer`'s. After it come the stores the document
  * holds an offer for and lists the game on (`listedOffers`), at the store's own address for the
- * product. With `terms`, an offer that is fresh carries its price (`toStoreOffer`); one that is
+ * product. With `terms`, an offer that is fresh carries its price as it stands at `terms.now`
+ * (`toStoreOffer`, `offerAt`); one that is
  * not is the link alone, and so is every offer when no `terms` are given — which is how a caller
  * withholds them, as it withholds Steam's price, while the index's prices are too old to show.
  * Any other store the document names is left out, as it always was: it is named by slug, and a
@@ -390,7 +393,7 @@ export function toGame(game: IndexedGame, terms: OfferTerms | null = null): Game
     ...(storePage ? [toSteamOffer(game, storePage)] : []),
     ...listedOffers(game).flatMap((offer) => {
       const fresh = terms !== null && isFreshOffer(offer, terms.now)
-      const row = fresh ? toStoreOffer(offer, terms.rate) : toOfferLink(offer)
+      const row = fresh ? toStoreOffer(offerAt(offer, terms.now), terms.rate) : toOfferLink(offer)
       return row ? [row] : []
     }),
   ]

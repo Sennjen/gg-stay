@@ -13,6 +13,7 @@ import {
   CLOCK_AHEAD_ALLOWED_MS,
   EXCHANGE_RATE_KEPT_MS,
   OFFER_FRESH_FOR_MS,
+  offerAt,
   offerFreshForMs,
   PLAYSTATION_OFFER_FRESH_FOR_MS,
   PAGE_OFFER_STORES,
@@ -335,6 +336,58 @@ describe('the offers of a page built from the document alone', () => {
   it('hold no fresh offer for a store the game is not listed on', () => {
     expect(freshOffers(game([gog(), microsoft()], ['steam', 'xbox-store']), NOW)).toEqual([
       microsoft(),
+    ])
+  })
+})
+
+describe('an offer after the end of its sale', () => {
+  /** The Microsoft Store on sale, 192,50 ₴ against 385 ₴, until `ends`. */
+  const onSale = (ends?: unknown) =>
+    microsoft({
+      amount: 19_250,
+      discountPercent: 50,
+      ...(ends === undefined ? {} : { saleEndsAt: ends as string }),
+    })
+  const REGULAR = { amount: 38_500, regularAmount: 38_500, discountPercent: 0 }
+
+  it('is the offer as written while the sale runs, to the millisecond before its end', () => {
+    expect(offerAt(onSale(ago(-1)), NOW)).toEqual(onSale(ago(-1)))
+    expect(offerAt(onSale('2026-10-21T22:59:00.000Z'), NOW)).toEqual(
+      onSale('2026-10-21T22:59:00.000Z'),
+    )
+  })
+
+  it('is the regular price, with no discount and no end, from the moment the sale ends', () => {
+    for (const ended of [NOW, ago(1), ago(8 * HOUR)]) {
+      const regular = offerAt(onSale(ended), NOW)
+      expect(regular, ended).toMatchObject(REGULAR)
+      expect(regular).not.toHaveProperty('saleEndsAt')
+      // Nothing else of the offer changes: the same product, address, title and date.
+      expect({ ...regular, ...REGULAR }).toEqual({ ...onSale(), ...REGULAR })
+    }
+  })
+
+  it('takes an end it cannot read for an end that has passed', () => {
+    for (const unreadable of ['next week', '', null, 1_792_623_540_000]) {
+      expect(offerAt(onSale(unreadable), NOW), String(unreadable)).toMatchObject(REGULAR)
+    }
+    // And measures nothing against a clock it cannot read either.
+    expect(offerAt(onSale(ago(-HOUR)), 'not a date')).toMatchObject(REGULAR)
+  })
+
+  it('leaves an offer that names no end as it is, sale and all', () => {
+    expect(offerAt(onSale(), NOW)).toEqual(onSale())
+    expect(offerAt(gog(), NOW)).toEqual(gog())
+  })
+
+  it('is what a card weighs: a sale that ended is not cheaper than Steam any more', () => {
+    const steam = { priceUah: 300, priceUpdatedAt: ago(HOUR) }
+    const card = (offer: IndexedOffer) =>
+      cheaperAtOf({ ...steam, ...game([offer], ['steam', 'xbox-store']) }, NOW, RATE)
+    expect(card(onSale(ago(-HOUR)))).toBe('xbox-store')
+    expect(card(onSale(ago(HOUR)))).toBeNull()
+    expect(freshOffers(game([onSale(ago(HOUR))], ['steam', 'xbox-store']), NOW)).toEqual([
+      offerAt(onSale(ago(HOUR)), NOW),
     ])
   })
 })
