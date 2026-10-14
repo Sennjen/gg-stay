@@ -922,6 +922,26 @@ describe('formatSummary and the other stores', () => {
     )
   })
 
+  it('says how many records the sweep completed from the links they keep, when it did', () => {
+    const summary = formatSummary({
+      ...base,
+      mode: 'full',
+      stores: {
+        references: {
+          ...references,
+          sweep: { attempted: 12, failures: 0, remaining: 0, stopped: null, fromLinks: 1 },
+        },
+        gog: null,
+        microsoft: null,
+        rate: null,
+      },
+    })
+
+    expect(summary).toContain(
+      'PlayStation title; 1 record completed from the links they keep, no request; RAWG: 12 lookups this run, 0 failed, 0 left for the next full run |',
+    )
+  })
+
   it('says when a store was not read because its references look lost', () => {
     const summary = formatSummary({
       ...base,

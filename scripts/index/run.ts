@@ -185,6 +185,11 @@ export interface StoresReport {
       remaining: number
       /** Why the sweep ended before its cap, or `null` when it did not. */
       stopped: SweepStop | null
+      /**
+       * Records completed from the RAWG links they keep, with no request (`playstationFromLinks`).
+       * Left out, or 0, when there were none.
+       */
+      fromLinks?: number
     } | null
   }
   /** `null` on a run that ended before the stores were read. */
@@ -554,6 +559,7 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
         failures: swept.failures,
         remaining: swept.remaining,
         stopped: swept.stopped,
+        ...(swept.fromLinks ? { fromLinks: swept.fromLinks } : {}),
       }
       failures += swept.failures
     } else {
@@ -1102,6 +1108,9 @@ function storeRows(report: JobReport): [string, string][] {
         `PlayStation Store at RAWG, ${references.asked} asked; ${references.gog} with a GOG page, ` +
         `${references.microsoft} with a Microsoft Store product, ` +
         `${references.playstation} with a PlayStation title` +
+        (sweep?.fromLinks
+          ? `; ${plural(sweep.fromLinks, 'record', 'records')} completed from the links they keep, no request`
+          : '') +
         (sweep
           ? `; RAWG: ${plural(sweep.attempted, 'lookup', 'lookups')} this run, ${sweep.failures} failed, ` +
             `${sweep.remaining} left for the next full run` +
