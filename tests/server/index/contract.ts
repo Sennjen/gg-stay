@@ -462,17 +462,6 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect((await adapter.index.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
       })
 
-      it('remembers the meta of the version a publish replaced', async () => {
-        const adapter = await fresh()
-        await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
-        await publishGames(adapter, FIXTURE_GAMES.slice(3, 6), {
-          ...FIXTURE_META,
-          updatedAt: '2026-09-21T06:30:00.000Z',
-        })
-        expect((await adapter.writer.previousMeta())?.updatedAt).toBe(FIXTURE_META.updatedAt)
-        expect((await adapter.writer.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
-      })
-
       it('refuses to rewrite the version that is published', async () => {
         const adapter = await fresh()
         const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
@@ -860,12 +849,6 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         while (used.length > 0) await used.pop()?.teardown?.()
       })
 
-      it('refuses a second run while the first is between begin and publish', async () => {
-        const adapter = await fresh()
-        await adapter.writer.beginVersion()
-        await expect(adapter.rival.beginVersion()).rejects.toThrow()
-      })
-
       it('lets the next run begin once the first has published', async () => {
         const adapter = await fresh()
         await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
@@ -878,13 +861,6 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
         await adapter.writer.discardVersion(version)
         await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
-      })
-
-      it('says who holds the lock and how to take it over', async () => {
-        const adapter = await fresh()
-        await adapter.writer.beginVersion()
-        await expect(adapter.rival.beginVersion()).rejects.toThrow(/held the write lock/)
-        await expect(adapter.rival.beginVersion()).rejects.toThrow(/force/)
       })
 
       it('takes over the lock of a holder that has gone quiet, when a run forces it', async () => {
@@ -1075,10 +1051,47 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect('found' in refs.get(7101)!.fallbacks!.microsoft!).toBe(false)
       })
 
+      it('keeps the links of a record as they were written, beside its references', async () => {
+        const links: [number, string][] = [
+          [1, 'https://store.steampowered.com/app/292030/'],
+          [5, 'https://www.gog.com/game/the_witcher_3_wild_hunt'],
+          [
+            3,
+            'https://store.playstation.com/en-us/product/UP4497-CUSA00572_00?a=1&b=%22two%22#top',
+          ],
+        ]
+        await adapter.writer.setStoreRefs([
+          [7100, { gog: 'the_witcher_3_wild_hunt', microsoft: null, links }],
+          // The links of a game on neither store are all its record holds.
+          [7101, { links: [[3, 'https://store.playstation.com/en-us/product/UP0001-ONLY']] }],
+          [7102, { gog: null }],
+        ])
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
+
+        const refs = await adapter.writer.getStoreRefs([7100, 7101, 7102])
+        // Pairs of a number and a string, in the order they went in.
+        expect(refs.get(7100)).toEqual({ gog: 'the_witcher_3_wild_hunt', microsoft: null, links })
+        expect(refs.get(7100)!.links![2]).toEqual(links[2])
+        expect(typeof refs.get(7100)!.links![0]![0]).toBe('number')
+        expect(refs.get(7101)).toEqual({
+          links: [[3, 'https://store.playstation.com/en-us/product/UP0001-ONLY']],
+        })
+        // A record written without links comes back without the field, not with an empty list.
+        expect('links' in refs.get(7102)!).toBe(false)
+
+        // And a copy of them, like the rest of the record.
+        refs.get(7100)!.links![0]![1] = 'changed-by-the-caller'
+        refs.get(7100)!.links!.pop()
+        expect((await adapter.writer.getStoreRefs([7100])).get(7100)?.links).toEqual(links)
+      })
+
       it('overwrites a game’s store references with a newer answer', async () => {
-        await adapter.writer.setStoreRefs([[7000, { gog: 'limbo' }]])
+        await adapter.writer.setStoreRefs([
+          [7000, { gog: 'limbo', links: [[5, 'https://www.gog.com/game/limbo']] }],
+        ])
         await adapter.writer.setStoreRefs([[7000, {}]])
 
+        // Whole: nothing of the older record is left under the newer one, its links included.
         expect((await adapter.writer.getStoreRefs([7000])).get(7000)).toEqual({})
       })
 

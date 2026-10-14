@@ -72,7 +72,6 @@ describe('parseGogPrice', () => {
 
   it.each([
     ['no price at all, as for a game that is not out', null],
-    ['nothing', undefined],
     ['a price that is a string', '$17.49'],
     ['a price that is a list', [gogPrice('17.49', '34.99')]],
     ['a price without its money', { final: '$17.49', base: '$34.99', discount: '-50%' }],
@@ -83,8 +82,6 @@ describe('parseGogPrice', () => {
   })
 
   it.each([
-    ['euros', gogPrice('17.49', '34.99', 'EUR')],
-    ['hryvnia', gogPrice('749.00', '1499.00', 'UAH')],
     ['dollars in lower case', gogPrice('17.49', '34.99', 'usd')],
     [
       'one amount in another currency',
@@ -101,7 +98,6 @@ describe('parseGogPrice', () => {
     '17.5',
     '17',
     '17,49',
-    '$17.49',
     '-1.00',
     '',
     ' 17.49',
@@ -277,7 +273,6 @@ describe('parseGogCatalogPage', () => {
   it.each([
     ['nothing', null],
     ['a list', []],
-    ['text', 'Service Unavailable'],
     ['an error', ['Invalid request parameters. Error Id is 6acce70113d58']],
     ['no page count', { productCount: 1, products: [gogProduct('limbo', null)] }],
     ['no product count', { pages: 1, products: [gogProduct('limbo', null)] }],

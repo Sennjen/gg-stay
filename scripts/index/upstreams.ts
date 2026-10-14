@@ -4,6 +4,7 @@ import { createBankRateFetch, type BankRateFetch } from './bank'
 import type { JobClock } from './deps'
 import { createGogCatalogFetch, type GogCatalogFetch } from './gog'
 import { createMicrosoftFetches, type MicrosoftFetches } from './microsoft'
+import type { RequestMeter } from './requestMeter'
 import type { StoreUpstreamRuntime } from './storeUpstream'
 import type { UpstreamCacheEntry } from '../../server/upstream/createUpstreamFetch'
 import { UpstreamError } from '../../server/upstream/errors'
@@ -46,8 +47,12 @@ function createFixtureReader(dir: URL) {
   }
 }
 
-async function fetchJson(url: string, signal: AbortSignal) {
-  const response = await fetch(url, { signal })
+/**
+ * One request and its answer. `redirect` is passed on to `fetch` only when it is given, so a
+ * transport that names none asks exactly as it always did.
+ */
+async function fetchJson(url: string, signal: AbortSignal, redirect?: 'manual') {
+  const response = await fetch(url, redirect ? { signal, redirect } : { signal })
   const body: unknown = await response.json().catch(() => null)
   return { status: response.status, body }
 }
@@ -77,12 +82,33 @@ export interface UpstreamOptions {
 /** A studio with no recorded list, in fixture mode: RAWG's answer for a developer with no games. */
 const NO_STUDIO_GAMES = { count: 0, next: null, results: [] }
 
-export function createJobRawg(options: UpstreamOptions): RawgFetch {
+export interface RawgUpstreamOptions extends UpstreamOptions {
+  /**
+   * Counts every request this transport sends RAWG, and holds the limit a run may set on them
+   * (`requestMeter.ts`). The one place they all pass is the call to the network below, so that is
+   * where each is counted: the transport's retry of a timeout or a 5xx goes through it like a
+   * first attempt, and an answer out of the transport's cache does not. Nothing is counted
+   * without one.
+   */
+  meter?: RequestMeter
+}
+
+export function createJobRawg(options: RawgUpstreamOptions): RawgFetch {
+  const meter = options.meter
   const readFixture = createFixtureReader(FIXTURE_DIRS.RAWG)
   const rawg = createRawgFetch({
     apiKey: options.apiKey,
     fixtures: options.fixtures,
-    fetchJson,
+    // Counted, or refused, before it leaves — and one counted request is one request sent. That
+    // holds for a redirect too once a limit is set: `fetch` follows one by itself, which is a
+    // second request RAWG may count and nothing here would see, so under a limit a redirect is
+    // not followed. It comes back as the answer it is, which the transport reads as a failure
+    // and does not retry. No link the job asks RAWG for is known to redirect; the rule is there
+    // so that the count does not depend on that.
+    fetchJson: async (url, signal) => {
+      meter?.take()
+      return fetchJson(url, signal, meter?.limited() ? 'manual' : undefined)
+    },
     readFixture,
     cache: createMemoryCache(),
     now: options.clock.now,
@@ -96,6 +122,9 @@ export function createJobRawg(options: UpstreamOptions): RawgFetch {
   // studios stage's requests are answered from a list recorded per developer slug instead
   // (`tests/fixtures/rawg/games-developers-<slug>.json`), and a studio without one has no games.
   return async (path, params, fetchOptions) => {
+    // In fixture mode a call is the request it would have been: there is no network to count at
+    // and no retry to miss, and a dry run then spends a limit the way a live one does.
+    meter?.take()
     const developers = path === 'games' ? params?.developers : undefined
     if (developers === undefined) return rawg(path, params, fetchOptions)
     if (Number(params?.page ?? 1) > 1) return NO_STUDIO_GAMES

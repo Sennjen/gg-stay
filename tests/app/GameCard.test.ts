@@ -286,7 +286,7 @@ describe('GameCard', () => {
     // parsing SSR'd HTML auto-closes an open `<p>` at the first `<ul>` it meets (even nested a
     // level or two deeper) and hoists the rest out as following siblings, corrupting the DOM
     // before hydration ever runs (see the comment above this row in GameCard.vue).
-    const lines = meta.querySelectorAll(':scope > div.mt-auto > :is(div, p)')
+    const lines = meta.querySelectorAll(':scope > [data-test="card-meta"] > :is(div, p)')
     expect(lines).toHaveLength(2)
     expect(lines[0]!.tagName).toBe('DIV')
     expect(lines[1]!.tagName).toBe('P')
@@ -311,8 +311,23 @@ describe('GameCard', () => {
   it('establishes a container-query context around the meta block, so the platform row can adapt without JS', async () => {
     const wrapper = await mountSuspended(GameCard, { props: { game } })
     const meta = wrapper.get('[data-test="card-title"]').element.parentElement!
-    const container = meta.querySelector(':scope > div.mt-auto')
+    const container = meta.querySelector(':scope > [data-test="card-meta"]')
     expect(container?.className).toContain('@container')
+  })
+
+  it('starts the meta block right under the title instead of pinning it to the bottom, so the year, score and price sit on the same lines in every card of a row whatever each card has below them', async () => {
+    const wrapper = await mountSuspended(GameCard, { props: { game } })
+    expect(wrapper.get('[data-test="card-meta"]').classes()).not.toContain('mt-auto')
+  })
+
+  it('gives the price line one height with or without the localisation badge, which is taller than the price text', async () => {
+    const wrapper = await mountSuspended(GameCard, {
+      props: {
+        game: { ...game, price: null, localisation: { text: true, audio: false, source: 'steam' } },
+      },
+    })
+    const row = wrapper.get('[data-test="localisation"]').element.parentElement!
+    expect(row.className).toContain('min-h-6')
   })
 
   describe('layout="list"', () => {

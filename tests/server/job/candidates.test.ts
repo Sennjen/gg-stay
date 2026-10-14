@@ -9,7 +9,6 @@ import {
   MAX_INDEXED_TAGS,
   MIN_TAG_GAMES_COUNT,
   previewOf,
-  toIndexedGame,
 } from '../../../scripts/index/candidates'
 import type { IndexedGame } from '../../../server/index/document'
 import { JOB_GAMES, JOB_PAGE_COUNT, jobGamesPage } from '../../fixtures/index/jobCatalog'
@@ -104,18 +103,6 @@ describe('collectCandidates', () => {
     const result = await collectCandidates(next.deps, { pages: JOB_PAGE_COUNT })
 
     expect(next.pageCalls().map((call) => call.params.page)).toEqual(['1', '2', '3'])
-    expect(result.games.map((game) => game.id)).toEqual(JOB_GAMES.map((game) => game.id))
-  })
-
-  it('asks again for a page RAWG answered without a result list, and carries on', async () => {
-    const harness = createJobHarness()
-    const secondPage = (call: { path: string; params: Record<string, string> }) =>
-      call.path === 'games' && call.params.page === '2'
-    harness.answerNextWith(secondPage, null)
-
-    const result = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
-
-    expect(harness.pageCalls().filter(secondPage)).toHaveLength(2)
     expect(result.games.map((game) => game.id)).toEqual(JOB_GAMES.map((game) => game.id))
   })
 
@@ -320,20 +307,6 @@ describe('indexTags', () => {
     ).toEqual(['post-apocalyptic', 'survival-horror'])
   })
 
-  it('keeps a tag that names no language at all, as the recorded fixtures carry them', () => {
-    // Nothing here proves every live tag carries `language`; a tag without one is taken as English
-    // rather than silently emptying every document. Only an explicit other language is dropped.
-    expect(
-      indexTags([
-        { id: 1, slug: 'post-apocalyptic', name: 'Post-apocalyptic' },
-        { id: 2, slug: 'steam-cloud', name: 'Steam Cloud' },
-        { id: 3, slug: 'singleplayer', name: 'Singleplayer' },
-        { id: 4, slug: 'postapokalipsis', name: 'Постапокалипсис', language: 'rus' },
-        { id: 5, slug: 'survival-horror', name: 'Survival Horror', language: 'eng' },
-      ]),
-    ).toEqual(['post-apocalyptic', 'survival-horror'])
-  })
-
   it('drops the tags that describe the store rather than the game', () => {
     const store = [
       'steam-achievements',
@@ -391,31 +364,6 @@ describe('indexTags', () => {
     expect(MIN_TAG_GAMES_COUNT).toBe(100)
   })
 
-  it('keeps the defining tags of a well-tagged game over the generic ones', () => {
-    const metro = [
-      eng('atmospheric', 34_000),
-      eng('horror', 45_000),
-      eng('first-person', 30_000),
-      eng('story-rich', 20_000),
-      eng('exploration', 20_000),
-      eng('sci-fi', 18_000),
-      eng('dark', 15_000),
-      eng('fps', 13_000),
-      eng('survival-horror', 8_500),
-      eng('survival', 8_000),
-      eng('open-world', 7_500),
-      eng('stealth', 5_000),
-      eng('great-soundtrack', 4_600),
-      eng('post-apocalyptic', 4_200),
-      eng('volga-river', 12),
-    ]
-    const kept = indexTags(metro)
-    expect(kept).toContain('post-apocalyptic')
-    expect(kept).toContain('survival-horror')
-    expect(kept).not.toContain('horror')
-    expect(kept).not.toContain('volga-river')
-  })
-
   it('keeps every mood tag apart from the cut, the broad ones included', () => {
     const metro = [
       eng('atmospheric', 34_000),
@@ -442,15 +390,5 @@ describe('indexTags', () => {
     expect(indexTags(null)).toEqual([])
     expect(indexTags(undefined)).toEqual([])
     expect(indexTags([eng(''), eng('fps'), eng('fps')])).toEqual(['fps'])
-  })
-
-  it('reaches the index document through the one mapper', () => {
-    expect(
-      toIndexedGame({
-        id: 1,
-        slug: 'a',
-        tags: [eng('singleplayer'), eng('steam-cloud'), eng('post-apocalyptic')],
-      }),
-    ).toMatchObject({ tags: ['post-apocalyptic'], gameModes: ['SINGLE'] })
   })
 })

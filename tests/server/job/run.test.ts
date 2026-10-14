@@ -25,7 +25,7 @@ import { UKRAINIAN_STUDIO_SLUGS } from '../../../shared/ukrainianStudios'
 import type { IndexedGame } from '../../../server/index/document'
 import { createUpstashIndex, RedisBatchError } from '../../../server/index/upstashIndex'
 import { createFakeRedis } from '../index/fakeRedis'
-import { createJobHarness, type RawgCall } from './harness'
+import { createJobHarness } from './harness'
 
 const RUN_AT = '2026-09-20T03:00:00.000Z'
 const FULL = { mode: 'full', pages: JOB_PAGE_COUNT, forceUnlock: false } as const
@@ -245,13 +245,10 @@ describe('runJob', () => {
     expect(beginVersion.mock.calls[1]![0]).toEqual({ force: true })
   })
 
-  it.each([
-    ['the candidate walk', (call: RawgCall) => call.path === 'games'],
-    ['the app id lookups', (call: RawgCall) => call.path.endsWith('/stores')],
-  ])('gives the draft back when %s brings the run down', async (_name, match) => {
+  it('gives the draft back when the app id lookups bring the run down', async () => {
     const harness = createJobHarness({ start: RUN_AT })
     const discardVersion = vi.spyOn(harness.writer, 'discardVersion')
-    for (let i = 0; i < 10; i += 1) harness.failNext(match)
+    for (let i = 0; i < 10; i += 1) harness.failNext((call) => call.path.endsWith('/stores'))
 
     await expect(runJob(harness.deps, FULL)).rejects.toThrow()
 

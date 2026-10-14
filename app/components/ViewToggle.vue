@@ -35,7 +35,7 @@ watch(
   <div
     role="group"
     :aria-label="t('catalog.view')"
-    class="inline-flex rounded-chip border border-line bg-surface-1 p-1"
+    class="inline-flex h-10 items-center rounded-chip border border-line bg-surface-1 p-[3px]"
   >
     <button
       type="button"

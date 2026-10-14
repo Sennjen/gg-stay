@@ -83,6 +83,25 @@ function publishedAt(at: string): IndexMeta {
 
 const LINK = { id: JOB_MICROSOFT_ID, name: 'lost-canton' }
 
+/**
+ * The records the sweep writes for the two games: the reference, and RAWG's links beside it
+ * (`IndexedStoreRefs.links`). The stores' own ways add to them and take nothing away.
+ */
+const RAWG_CRADLE: IndexedStoreRefs = {
+  gog: 'hollow_cradle',
+  links: [
+    [1, 'https://store.steampowered.com/app/411000/Hollow_Cradle/'],
+    [5, 'https://www.gog.com/game/hollow_cradle'],
+  ],
+}
+const RAWG_CANTON: IndexedStoreRefs = {
+  microsoft: LINK,
+  links: [
+    [6, 'https://www.nintendo.com/store/products/lost-canton/'],
+    [2, 'https://www.microsoft.com/en-us/p/lost-canton/9nlostcant0n?cid=msft_web_chart'],
+  ],
+}
+
 /** A product id as the catalog spells one, for hand-written worlds: `9N0000000007`. */
 const pid = (number: number) => `9N${String(number).padStart(10, '0')}`
 
@@ -137,7 +156,7 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     await refreshOffers(harness.deps, games, refs, null)
 
     const record: IndexedStoreRefs = {
-      gog: 'hollow_cradle',
+      ...RAWG_CRADLE,
       fallbacks: {
         gog: { slug: 'hollow_cradle_gold_edition', via: 'edition', foundAt: RUN_AT },
       },
@@ -194,7 +213,7 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     })
     expect(result.gog).not.toHaveProperty('otherWays')
     // Nothing was found, so nothing is remembered: the record is RAWG's alone.
-    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    expect(refs.get(101)).toEqual(RAWG_CRADLE)
   })
 
   it('is not looked for under a title while its slug is in the catalog, priced or not', async () => {
@@ -212,7 +231,7 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
 
     expect('offers' in byId(101)).toBe(false)
     expect(result.gog).not.toHaveProperty('fallbacks')
-    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    expect(refs.get(101)).toEqual(RAWG_CRADLE)
   })
 
   const COMPLETE = gogProduct('hollow_cradle_complete', gogPrice('9.99', '39.99'), {
@@ -263,7 +282,7 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
       updatedAt: noon,
     })
     expect((await next.harness.writer.getStoreRefs([101])).get(101)).toEqual({
-      gog: 'hollow_cradle',
+      ...RAWG_CRADLE,
       fallbacks: { gog: { slug: 'hollow_cradle_complete', via: 'edition', foundAt: noon } },
     })
   })
@@ -304,7 +323,7 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     expect('offers' in next.byId(101)).toBe(false)
     expect(result.gog).toMatchObject({ status: 'read', pricesRead: 0, offers: 0 })
     expect((await next.harness.writer.getStoreRefs([101])).get(101)).toEqual({
-      gog: 'hollow_cradle',
+      ...RAWG_CRADLE,
     })
   })
 
@@ -549,7 +568,7 @@ const RELATED_OFFER = (updatedAt: string, amount = 119_900): IndexedOffer => ({
 })
 
 const REMEMBERED = (searchedAt: string, foundAt = searchedAt): IndexedStoreRefs => ({
-  microsoft: LINK,
+  ...RAWG_CANTON,
   fallbacks: {
     microsoft: {
       searchedAt,
@@ -689,7 +708,7 @@ describe('the Microsoft Store: a game whose linked product is not sold any more'
     })
     expect(result.microsoft).not.toHaveProperty('otherWays')
     expect(refs.get(109)).toEqual({
-      microsoft: LINK,
+      ...RAWG_CANTON,
       fallbacks: { microsoft: { searchedAt: RUN_AT } },
     })
   })
@@ -705,7 +724,7 @@ describe('the Microsoft Store: a game whose linked product is not sold any more'
     expect(harness.microsoftDetailBatches).toEqual([])
     expect(harness.microsoftSearchNames).toEqual([])
     expect(result.microsoft).not.toHaveProperty('fallbacks')
-    expect(refs.get(109)).toEqual({ microsoft: LINK })
+    expect(refs.get(109)).toEqual(RAWG_CANTON)
   })
 })
 
@@ -1263,7 +1282,7 @@ describe('the Microsoft Store: what its own ways cannot do', () => {
     // No offer is published for a product the mapping does not name, nothing is remembered,
     // and the read itself stands: its stamp moved.
     expect('offers' in byId(109)).toBe(false)
-    expect(refs.get(109)).toEqual({ microsoft: LINK })
+    expect(refs.get(109)).toEqual(RAWG_CANTON)
     expect(result.microsoft).toMatchObject({
       status: 'read',
       lastReadAt: RUN_AT,
@@ -1413,7 +1432,7 @@ describe('a remake that took the game’s name', () => {
     expect(harness.microsoftSearchNames).toEqual([])
     expect(result.gog).toMatchObject({ pricesRead: 0, fallbacks: { searched: 1, found: {} } })
     expect(result.microsoft).toMatchObject({ fallbacks: { searched: 1, found: {}, requests: 1 } })
-    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    expect(refs.get(101)).toEqual(RAWG_CRADLE)
   })
 
   it('takes nothing from the older game’s relations: that way keeps its own rules', async () => {
@@ -1534,7 +1553,7 @@ describe('GOG: an index that will not take what the walk found', () => {
       lastReadAt: RUN_AT,
       error: 'the store references could not be written: READONLY',
     })
-    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    expect(refs.get(101)).toEqual(RAWG_CRADLE)
     expect(result.offersReadAt.gog).toBe(RUN_AT)
   })
 })

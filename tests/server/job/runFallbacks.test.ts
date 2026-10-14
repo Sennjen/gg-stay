@@ -169,8 +169,13 @@ describe('runJob and the stores’ own ways', () => {
 
     const refs = await night.writer.getStoreRefs([101, 109])
     expect(redis.keys()).toEqual(expect.arrayContaining(['storeref:101', 'storeref:109']))
+    // RAWG's links and what the store's own ways found, side by side in one record.
     expect(refs.get(109)).toEqual({
       microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' },
+      links: [
+        [6, 'https://www.nintendo.com/store/products/lost-canton/'],
+        [2, 'https://www.microsoft.com/en-us/p/lost-canton/9nlostcant0n?cid=msft_web_chart'],
+      ],
       fallbacks: {
         microsoft: {
           searchedAt: RUN_AT,
@@ -185,6 +190,10 @@ describe('runJob and the stores’ own ways', () => {
     })
     expect(refs.get(101)).toEqual({
       gog: 'hollow_cradle',
+      links: [
+        [1, 'https://store.steampowered.com/app/411000/Hollow_Cradle/'],
+        [5, 'https://www.gog.com/game/hollow_cradle'],
+      ],
       fallbacks: { gog: { slug: 'hollow_cradle_complete', via: 'edition', foundAt: RUN_AT } },
     })
     expect((await reader.getOne(109))?.offers?.[0]?.via).toBe('relation')

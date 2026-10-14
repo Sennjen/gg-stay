@@ -158,10 +158,10 @@ describe('what a record remembers of the stores’ own ways', () => {
   it('keeps whatever else a record holds: another build’s fields are not this one’s to drop', () => {
     const record = {
       gog: null,
-      links: ['https://www.gog.com/game/hollow_cradle'],
+      links: [[5, 'https://www.gog.com/game/hollow_cradle']],
       playstation: { id: 'UP0001' },
       fallbacks: { playstation: { searchedAt: FOUND_AT } },
-    } as IndexedStoreRefs
+    } as unknown as IndexedStoreRefs
 
     expect(withGogFound(record, gog)).toEqual({
       ...record,

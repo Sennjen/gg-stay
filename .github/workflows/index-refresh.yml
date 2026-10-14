@@ -16,6 +16,9 @@ on:
     - cron: '30 2 * * *'
     # The rest of the language sweep, weekly, Sunday 04:00 UTC.
     - cron: '0 4 * * 0'
+  # A manual run chooses its mode. `resolve` is manual only — no schedule above selects it, and
+  # none should: it spends RAWG requests on games the index does not hold yet, as many as its
+  # `budget` says and no more, and publishes nothing (scripts/index/resolve.ts).
   workflow_dispatch:
     inputs:
       mode:
@@ -26,8 +29,23 @@ on:
           - prices
           - full
           - languages
+          - resolve
       pages:
-        description: RAWG pages of candidates — full runs only, blank means the default 75
+        description: >-
+          RAWG pages. full: pages of candidates, blank means 75. resolve: the most pages to read
+          from from_page, blank means 250
+        type: string
+        required: false
+      budget:
+        description: >-
+          resolve only, and required for it: the most RAWG requests the run may send, retries
+          included (at most 8000)
+        type: string
+        required: false
+      from_page:
+        description: >-
+          resolve only: the first page of the most-added order to read, blank means 76 (pages 1
+          to 75 are the nightly run's)
         type: string
         required: false
       force_unlock:
@@ -61,7 +79,8 @@ jobs:
       # The schedule that fired decides the mode; a manual run says so itself. Both arrive through
       # the environment and neither is interpolated into a script, and the case statement is an
       # allow-list rather than a translation, so an input that ever becomes free text still cannot
-      # reach the shell as anything but one of these three words.
+      # reach the shell as anything but one of these four words. A schedule names one of three:
+      # `resolve` is in the manual arm alone.
       - id: mode
         env:
           SCHEDULE: ${{ github.event.schedule }}
@@ -73,7 +92,7 @@ jobs:
             '15 */6 * * *') mode=prices ;;
             '')
               case "$INPUT_MODE" in
-                full|prices|languages) mode="$INPUT_MODE" ;;
+                full|prices|languages|resolve) mode="$INPUT_MODE" ;;
                 '') mode=prices ;;
                 *) echo "Unknown mode input" >&2; exit 1 ;;
               esac
@@ -88,10 +107,16 @@ jobs:
       # A dead run's lock frees itself in half an hour (see INDEX_LOCK_TTL_SECONDS), which is well
       # inside the gap to the next scheduled run. `force_unlock` is for the operator who retries
       # sooner than that.
+      # The numbers of a resolve run are free text from a form: the script reads them from the
+      # environment and takes nothing but whole numbers, and refuses to start without a budget or
+      # with one above its ceiling. On a schedule all three are empty. Any other mode refuses to
+      # start when it is given a budget or a first page: a mode chosen by mistake spends nothing.
       - name: Refresh the index
         env:
           MODE: ${{ steps.mode.outputs.mode }}
           INDEX_PAGES: ${{ inputs.pages }}
+          INDEX_BUDGET: ${{ inputs.budget }}
+          INDEX_FROM_PAGE: ${{ inputs.from_page }}
           INDEX_FORCE_UNLOCK: ${{ inputs.force_unlock }}
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}

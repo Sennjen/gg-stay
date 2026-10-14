@@ -151,3 +151,28 @@ describe('FilterPanel: made in Ukraine', () => {
     expect(sectionTitles(await mount({}, true))).toContain('Походження')
   })
 })
+
+describe('FilterPanel: player rating', () => {
+  const group = '[role="radiogroup"][aria-label="Оцінка гравців"]'
+
+  it('offers three floors beside "any", under a title that does not repeat one of them', async () => {
+    const wrapper = await mount({ ratingMin: 4.5 })
+    expect(sectionTitles(wrapper)).toContain('Оцінка гравців')
+    const radios = wrapper.get(group).findAll('[role="radio"]')
+    expect(radios.map((radio) => radio.text())).toEqual(['Будь-який', '3,5+', '4,0+', '4,5+'])
+    expect(radios.map((radio) => radio.attributes('aria-checked'))).toEqual([
+      'false',
+      'false',
+      'false',
+      'true',
+    ])
+  })
+
+  it('passes the chosen floor through as a filter patch, and "any" clears it', async () => {
+    const wrapper = await mount({ ratingMin: 4 })
+    const radios = wrapper.get(group).findAll('[role="radio"]')
+    await radios[1]!.trigger('click')
+    await radios[0]!.trigger('click')
+    expect(wrapper.emitted('change')).toEqual([[{ ratingMin: 3.5 }], [{ ratingMin: undefined }]])
+  })
+})
