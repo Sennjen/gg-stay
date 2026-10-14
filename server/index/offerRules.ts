@@ -120,10 +120,10 @@ function isWithin(keptForMs: number, iso: unknown, now: string): boolean {
  * Whether a price dated `iso` is fresh at `now`: read no more than `OFFER_FRESH_FOR_MS` ago, and
  * not dated ahead of the clock (`CLOCK_AHEAD_ALLOWED_MS`).
  *
- * Steam's span, and the other stores' but the PlayStation Store's (`offerFreshForMs`). Another
- * store's offer is a price, and is weighed, only while it is fresh by its own store's span
- * (`isFreshOffer`, `isFreshFor`). Steam's price is
- * shown at any age, under its own date — but it is weighed against another only while it is
+ * It is Steam's span, and every other store's but the PlayStation Store's (`offerFreshForMs`).
+ * Another store's offer is a price, and is weighed, only while it is fresh by its own store's
+ * span (`isFreshOffer`, `isFreshFor`). Steam's price is shown at any age, under its own date —
+ * but it is weighed against another only while it is
  * fresh by this same clock: on a game page, where a row takes part in the mark by the date the
  * page shows for it (`withCheapest`, `toGraphql.ts`), and on a card (`cheaperAtOf`).
  */
@@ -405,8 +405,9 @@ export function markedCheapest<Row extends PricedRow>(rows: readonly Row[]): Row
  *
  * - **No Steam price to be cheaper than.** The card's price is the document's Steam price, and a
  *   document without one — or without the date of one — has no price on its card.
- * - **A price that is not fresh** (`isFreshAt`), on either side. Steam's price is held to the
- *   offers' own thirty-six hours here, though a card goes on showing it for as long as the index
+ * - **A price that is not fresh**, on either side: Steam's by `isFreshAt`, an offer by its own
+ *   store's span (`freshOffers`: forty-eight hours for the PlayStation Store, thirty-six for the
+ *   others). Steam's price is held to thirty-six hours here, though a card goes on showing it for as long as the index
  *   is not stale: the index carries a price forward under its old date when Steam stops answering
  *   for a game, and a price from six weeks ago is not the yardstick for "cheaper". An offer that
  *   is not fresh is not weighed at all. A game page holds its mark to the same clock.

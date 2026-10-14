@@ -100,11 +100,11 @@ The summary gains a row for the store in every kind of run (references, mapped, 
 - **Every store is compared, this one included.** A PlayStation Store row is weighed like any hryvnia row: it can carry the mark, it is a yardstick for the others, and a card's `cheaperAt` can name it ("Дешевше в PlayStation Store" / "Cheaper at PlayStation Store"). Every other rule of the mark and of `cheaperAt` holds as for the other stores: each row weighed while fresh by its own store's span, the 5 % an estimate has to win by, nothing marked when the lowest price is free, the 10 % for a card. One price of this store takes no part: a price of nothing. Sony's free default product is often not the game (Life Is Strange's is its free first episode), so such a row shows «Безкоштовно» and neither carries the mark nor keeps it from a cheaper paid row, and a card never names the store for it (`isComparedPrice`). _The first version of this section said the opposite: never marked, never weighed, never named. The owner decided on 2026-10-14 to compare every store, console stores included, and to call the mark «Вигідно» / "Good deal" instead of «Найдешевше» / "Cheapest": the mark says a price is the best on the page, not that the products are the same._
 - The footer's sources line names the PlayStation Store. README ("Known gaps", the status table, the architecture note on what the job reads) and DESIGN.md say what is true.
 
-The `/games` first-load JavaScript must not grow for this: no card shows anything new.
+The `/games` first-load JavaScript must not grow for this: a card's line can name this store, as it names the others ("Дешевше в PlayStation Store"), and needs no new code to.
 
 ## Not in this change
 
-The Epic Games Store; PlayStation Plus prices; choosing a product other than the concept's default; PS3 and Vita titles; a line on a card; any read from the site.
+The Epic Games Store; PlayStation Plus prices; choosing a product other than the concept's default; PS3 and Vita titles; any read from the site.
 
 ## Constraints
 
@@ -164,7 +164,7 @@ Answered 200 for the two default products tried (God of War, `EP9000-CUSA07412_0
 - **A title that belongs to several concepts has no concept.** Choosing among them would be a guess. None was met. One concept named twice is one concept.
 - **What Sony said about a title survives a record rewritten from RAWG's links**, for as long as the link still names that title; the app-id stage reads the records of the games it is about to ask about for that, one request on a night that has any.
 - **A run whose lock will not renew stops asking Sony.** It cannot publish, so nothing more is asked on its behalf.
-- **The pages do not use this store's offers yet.** The job publishes them from this change on; what a page shows of them is section 4, and until that is built a page keeps its own list of the stores whose offers it uses (`PAGE_OFFER_STORES`), which is the two it had. A PlayStation Store row is the link RAWG gave, as before.
+- **The pages do not use this store's offers yet.** The job publishes them from this change on; what a page shows of them is section 4, and until that is built a page keeps its own list of the stores whose offers it uses (`PAGE_OFFER_STORES`), which is the two it had. A PlayStation Store row is the link RAWG gave, as before. _Superseded by section 4 (2026-10-14): the pages use them._
 
 ## Decided in review (2026-10-13)
 
@@ -192,10 +192,15 @@ Known and left as they are:
 - **The lock keeper knows a renewal that threw, not a lock that was taken.** The adapter returns without a word when the lock is somebody else's. Not reachable while the stage renews every minute.
 - **What Node's `fetch` adds.** `accept-language: *`, `accept-encoding` and `sec-fetch-mode: cors` on every request, and one resend by itself on an HTTP 421, which the transport neither counts nor paces. Closing both means leaving `fetch` for `node:https`.
 - **A run that hears about fewer than twenty games carrying an offer removes what it hears**, unless it priced nothing at all.
+- **A run started by hand adds to the day.** The caps are a run's: a `prices` run dispatched by hand is a fifth ration of prices, a `full` one another 200 mappings. The twenty hours still hold for each game; "1 100 a day" and "200 a night" are true of the schedule.
+- **A run dispatched from a branch older than this one strips the store.** Its job does not know the PlayStation Store: it drops the store's offers, and rewrites any record it touches without the `playstation` reference, losing `conceptId` and `askedAt`. A branch must merge this one before any run is dispatched from it.
+- **The warning before prices stop being shown can come from one stuck offer.** An offer Sony fails for day after day, or one whose title has come back "no concept" after thirty days, keeps its date, passes forty hours and warns for the two prices runs before it is past forty-eight. Harmless, and it ends by itself.
+- **A refusal costs about a day of prices**, and the key `job:cursor:playstation-refused` is the one manual way to end the silence early.
+- **Some comments and Markdown lines run past the width the files otherwise keep** (`run.ts`, `storeRefs.ts`, `StoreLinks.vue`, `deps.ts`, `toGraphql.ts`, DESIGN.md): Prettier does not wrap comments, and they were left as they are.
 
 ## Decided while building the pages (2026-10-14)
 
-- **One span of freshness per store, in one place.** `offerFreshForMs` in `server/index/offerRules.ts` answers forty-eight hours for this store (`PLAYSTATION_OFFER_FRESH_FOR_MS`) and thirty-six for every other. The refresh job's warning before prices stop being shown reads that constant (`PLAYSTATION_PRICE_SHOWN_MS` is it, not a copy). Steam's price and every comparison keep the thirty-six hours: this store's longer span never meets a comparison.
+- **One span of freshness per store, in one place.** `offerFreshForMs` in `server/index/offerRules.ts` answers forty-eight hours for this store (`PLAYSTATION_OFFER_FRESH_FOR_MS`) and thirty-six for every other. The refresh job's warning before prices stop being shown reads that constant (`PLAYSTATION_PRICE_SHOWN_MS` is it, not a copy). Steam's price keeps the thirty-six hours. Since the owner's ruling of 2026-10-14 every comparison weighs each row by its own store's span (`isFreshFor`): a PlayStation Store row is weighed for forty-eight hours, every other row for thirty-six.
 - **A sale's end is applied wherever an offer is read for a visitor** (`offerAt`): the page RAWG answers, the page built from the index and a card alike, for any store that names an end. An end that cannot be read is taken as passed: a discount whose end is unknown is not one a page can stand behind.
 - **"Never compared" was built and then removed.** It was a list of stores (`UNCOMPARED_OFFER_STORES`) left out of the mark and of a card's line. On 2026-10-14 the owner ruled that every store is compared (section 4), and the list went: a PlayStation Store row is weighed while fresh by its own forty-eight hours (`isFreshFor`), where Steam's and the other stores' rows keep thirty-six.
 - **The title is always shown for this store**, the game's own name included (`shownTitle`, `app/utils/storeOffers.ts`), and nothing else about the row is new: a hryvnia row like the Xbox Store's.

@@ -67,9 +67,9 @@ import type {
  * | Metro Exodus (28201)  | 94,90 ₴ against 949,00 ₴, read by    | a fresh offer on sale, whose    |
  * |                       | the night's run; the sale ends in    | sale has days to run. Far below |
  * |                       | eight days                           | Steam's 749 ₴ and GOG's         |
- * |                       |                                      | ≈ 1 348 ₴, on a page where      |
- * |                       |                                      | Steam's is the cheapest of the  |
- * |                       |                                      | prices that are compared        |
+ * |                       |                                      | ≈ 1 348 ₴: the price marked     |
+ * |                       |                                      | «Вигідно», and the store a card |
+ * |                       |                                      | names as cheaper than Steam     |
  * | Stardew Valley (654)  | 314,30 ₴ against 449,00 ₴, read      | a fresh offer whose sale is     |
  * |                       | eighteen hours before the run; the   | over: its price is the regular  |
  * |                       | sale ended eight hours before it     | one                             |
@@ -432,7 +432,7 @@ export const DEV_FIXTURE_UKRAINIAN_GAMES: IndexedGame[] = [
     // The store shouts the title; it is the game's own name all the same.
     //
     // And the PlayStation Store on sale for eight more days, at an eighth of Steam's price: the
-    // one row of the page that is below Steam's, and the one that is never weighed against it.
+    // one row of the page that is below Steam's, marked «Вигідно», and named on the card.
     offers: [
       gogOffer('metro_exodus', 'METRO EXODUS', 2999, 2999),
       playstationOffer(
