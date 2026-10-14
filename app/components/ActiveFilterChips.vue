@@ -16,7 +16,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ change: [patch: Partial<CatalogFilter>]; clear: [] }>()
 const { t } = useI18n()
-const { formatUah } = useFormatters()
+const { formatUah, formatDecimal } = useFormatters()
 
 /** A label from `filterLabels`, with the click that removes it. */
 interface Chip extends FilterLabel {
@@ -35,10 +35,12 @@ function reasonFor(chip: Chip): string {
 // The words come from `filterLabels`, which the catalog's meta description reads too, so a chip
 // and the description of the same page never disagree.
 const chips = computed<Chip[]>(() =>
-  filterLabels(props.filter, { t, formatUah, genres: props.genres }).map((label) => ({
-    ...label,
-    remove: () => emit('change', label.patch),
-  })),
+  filterLabels(props.filter, { t, formatUah, formatDecimal, genres: props.genres }).map(
+    (label) => ({
+      ...label,
+      remove: () => emit('change', label.patch),
+    }),
+  ),
 )
 </script>
 

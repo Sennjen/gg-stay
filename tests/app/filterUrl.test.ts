@@ -100,6 +100,22 @@ describe('parseFilterQuery', () => {
     })
   })
 
+  it('accepts each player rating step, and only those', () => {
+    expect(parseFilterQuery({ ratingMin: '3.5' }).filter.ratingMin).toBe(3.5)
+    expect(parseFilterQuery({ ratingMin: '4' }).filter.ratingMin).toBe(4)
+    expect(parseFilterQuery({ ratingMin: '4.5' }).filter.ratingMin).toBe(4.5)
+    // A link written before the steps existed, or by hand with a trailing zero.
+    expect(parseFilterQuery({ ratingMin: '4.0' }).filter.ratingMin).toBe(4)
+    for (const raw of ['3', '4.2', '5', '4,5', '4.5abc', '-4', '']) {
+      expect(parseFilterQuery({ ratingMin: raw }).filter.ratingMin).toBeUndefined()
+    }
+  })
+
+  it('writes a half-point rating step back as it was read', () => {
+    const state = parseFilterQuery({ ratingMin: '4.5' })
+    expect(serializeFilterState(state)).toEqual({ ratingMin: '4.5' })
+  })
+
   it('caps page at 500', () => {
     expect(parseFilterQuery({ page: '9999' }).page).toBe(500)
   })

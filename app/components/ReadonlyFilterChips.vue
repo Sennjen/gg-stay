@@ -24,11 +24,13 @@ const props = defineProps<{
   indexStale?: boolean
 }>()
 const { t } = useI18n()
-const { formatUah } = useFormatters()
+const { formatUah, formatDecimal } = useFormatters()
 
 const labelId = useId()
 
-const chips = computed(() => filterLabels(props.filter, { t, formatUah, genres: props.genres }))
+const chips = computed(() =>
+  filterLabels(props.filter, { t, formatUah, formatDecimal, genres: props.genres }),
+)
 
 /**
  * A chip whose value is free text — the search, which in fallback is the whole question, up to 100

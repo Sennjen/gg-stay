@@ -57,7 +57,7 @@ const appliedCount = computed(() => countActiveFilters(state.value.filter, ignor
 
 const filtersButtonEl = ref<HTMLButtonElement>()
 
-const { formatUah } = useFormatters()
+const { formatUah, formatDecimal } = useFormatters()
 const { absoluteUrl } = useSiteUrl()
 const robots = useRobots()
 
@@ -68,7 +68,7 @@ const robots = useRobots()
  * to its own limit.
  */
 const filterProse = computed(() =>
-  filterLabels(state.value.filter, { t, formatUah, genres: genres.value }).map(
+  filterLabels(state.value.filter, { t, formatUah, formatDecimal, genres: genres.value }).map(
     (label) => label.prose,
   ),
 )
