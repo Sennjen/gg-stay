@@ -204,6 +204,9 @@ describe('matchTitle: the same game under an edition’s name', () => {
 
   it('needs the name whole, at the front, and ended where a word ends', () => {
     expect(matchTitle('DOOM', 'DOOMBRINGER Gold Edition')).toBeNull()
+    // Even when what the name runs into is a word of the list: the name has to end first.
+    expect(matchTitle('Hollow Cradle', 'Hollow Cradlegold Edition')).toBeNull()
+    expect(matchTitle('Hollow Cradle', 'Hollow Cradle Gold Edition')).toBe('edition')
     expect(matchTitle('Tony Hawk', "Tony Hawk's Gold Edition")).toBeNull()
     expect(matchTitle('N', 'N++ Ultimate Edition')).toBeNull()
     expect(
