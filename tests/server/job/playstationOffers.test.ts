@@ -9,6 +9,7 @@ import {
   noConceptNotBelieved,
   nothingPriced,
   PLAYSTATION_MAPPINGS_PER_RUN,
+  PLAYSTATION_NIGHT_REQUESTS,
   PLAYSTATION_NO_CONCEPT_KEPT_MS,
   PLAYSTATION_PRICE_OLD_MS,
   PLAYSTATION_PRICE_READS_A_DAY,
@@ -56,6 +57,8 @@ const BELIEVED = { lost: null, dropped: 0 }
 
 const iso = (at: number) => new Date(at).toISOString()
 const ago = (ms: number) => iso(STARTED - ms)
+/** When the games of these cases that have a concept were mapped to it: two months before. */
+const MAPPED_AT = ago(60 * 24 * 60 * 60_000)
 /** The moment the `n`th request of a stage that began at `START` left, counted from nought. */
 const leftAt = (n: number) => iso(STARTED + n * PLAYSTATION_PAUSE_MS)
 /**
@@ -89,7 +92,10 @@ interface Spec {
   id: number
   /** `false` for a title Sony has not answered about, `null` for one it has no concept for. */
   mapped?: boolean | null
-  /** How long before the run Sony was last asked about the game; never when left out. */
+  /**
+   * How long before the run Sony was last asked the game's question: its price for a game mapped
+   * to a concept, its concept for any other. Never when left out.
+   */
   askedAgo?: number
   /** How long before the run the offer on the game's document was read; no offer when left out. */
   readAgo?: number
@@ -108,7 +114,11 @@ interface World {
   psOffer: (id: number) => IndexedOffer | undefined
   run: (
     asks?: PlaystationAsks,
-    options?: { verdict?: { lost: string | null; dropped: number }; refusal?: string | null },
+    options?: {
+      verdict?: { lost: string | null; dropped: number }
+      refusal?: string | null
+      limit?: number
+    },
   ) => Promise<PlaystationReport>
   /** The games asked about, in order, by the kind of question. */
   asked: (kind: 'price' | 'concept') => number[]
@@ -163,7 +173,14 @@ function world(specs: Spec[], start = START): World {
         ...(spec.mapped === false
           ? {}
           : { conceptId: spec.mapped === null ? null : conceptOf(concept) }),
-        ...(spec.askedAgo === undefined ? {} : { askedAt: ago(spec.askedAgo) }),
+        ...(spec.mapped === false || spec.mapped === null
+          ? spec.askedAgo === undefined
+            ? {}
+            : { mappedAt: ago(spec.askedAgo) }
+          : {
+              mappedAt: MAPPED_AT,
+              ...(spec.askedAgo === undefined ? {} : { askedAt: ago(spec.askedAgo) }),
+            }),
       },
     })
     harness.sonyConcepts[title] = sonyConcept(conceptOf(concept), [title])
@@ -181,9 +198,10 @@ function world(specs: Spec[], start = START): World {
     refs,
     byId,
     psOffer: (id) => byId(id).offers?.find((offer) => offer.store === STORE),
-    run: (asks = 'prices', options = {}) =>
+    run: (asks = 'both', options = {}) =>
       refreshPlaystationOffers(harness.deps, games, refs, options.verdict ?? BELIEVED, {
         asks,
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
         refusal: options.refusal ?? null,
       }),
     asked: (kind) =>
@@ -208,7 +226,7 @@ const unsold = (run: World, id: number) =>
   void (run.harness.sonyPrices[conceptOf(id)] = sonyPrice(conceptOf(id), null))
 
 /** The same games and mapping, seen by a later run on the same index. */
-function later(run: World, at: number, asks: PlaystationAsks = 'prices') {
+function later(run: World, at: number, asks: PlaystationAsks = 'both') {
   const next = createJobHarness({ start: iso(at), writer: run.harness.writer })
   Object.assign(next.sonyPrices, run.harness.sonyPrices)
   Object.assign(next.sonyConcepts, run.harness.sonyConcepts)
@@ -236,7 +254,7 @@ describe('a prices run: which prices it reads', () => {
     expect(run.asked('price')).toEqual([3, 5, 6, 2, 1, 4])
     expect(report).toMatchObject({
       status: 'read',
-      asks: 'prices',
+      asks: 'both',
       due: 6,
       pricesRead: 6,
       requests: 6,
@@ -291,10 +309,20 @@ describe('a prices run: which prices it reads', () => {
   it('asks about a game whose date cannot be read as one never asked about', async () => {
     const run = world([{ id: 1, ...read(30 * HOUR) }, { id: 2 }, { id: 3 }])
     run.refs.set(2, {
-      playstation: { titleId: titleOf(2), conceptId: conceptOf(2), askedAt: 'the day before' },
+      playstation: {
+        titleId: titleOf(2),
+        conceptId: conceptOf(2),
+        mappedAt: MAPPED_AT,
+        askedAt: 'the day before',
+      },
     })
     run.refs.set(3, {
-      playstation: { titleId: titleOf(3), conceptId: conceptOf(3), askedAt: '2026-10-13T06:00:00' },
+      playstation: {
+        titleId: titleOf(3),
+        conceptId: conceptOf(3),
+        mappedAt: MAPPED_AT,
+        askedAt: '2026-10-13T06:00:00',
+      },
     })
 
     await run.run()
@@ -308,6 +336,7 @@ describe('a prices run: which prices it reads', () => {
       playstation: {
         titleId: titleOf(2),
         conceptId: conceptOf(2),
+        mappedAt: MAPPED_AT,
         askedAt: iso(STARTED + 5 * DAY),
       },
     })
@@ -319,6 +348,7 @@ describe('a prices run: which prices it reads', () => {
     expect(await run.stored(2)).toEqual({
       titleId: titleOf(2),
       conceptId: conceptOf(2),
+      mappedAt: MAPPED_AT,
       askedAt: START,
     })
     const day = later(run, STARTED + 21 * HOUR)
@@ -349,13 +379,19 @@ describe('a prices run: every request is stamped before it leaves', () => {
       expect(await run.stored(id), `game ${id}`).toEqual({
         titleId: titleOf(id),
         conceptId: conceptOf(id),
+        mappedAt: MAPPED_AT,
         askedAt: stampedAt(index),
       })
     }
     // Never asked, never stamped: it is still the oldest when the next run comes.
     expect(await run.stored(5)).toBeUndefined()
     expect(run.refs.get(5)).toEqual({
-      playstation: { titleId: titleOf(5), conceptId: conceptOf(5), askedAt: ago(24 * HOUR) },
+      playstation: {
+        titleId: titleOf(5),
+        conceptId: conceptOf(5),
+        mappedAt: MAPPED_AT,
+        askedAt: ago(24 * HOUR),
+      },
     })
     // And the run's own map says what the permanent one does.
     expect(run.refs.get(3)?.playstation).toEqual(await run.stored(3))
@@ -580,7 +616,11 @@ describe('a prices run: what an answer does to an offer', () => {
       microsoft: null,
       links: record.links,
       // The store's own field is written as this job knows it, and no wider.
-      playstation: { titleId: titleOf(1), conceptId: conceptOf(1), askedAt: START },
+      playstation: {
+        titleId: titleOf(1),
+        conceptId: conceptOf(1),
+        askedAt: START,
+      },
     })
   })
 
@@ -661,7 +701,11 @@ describe('a prices run: one concept is one request', () => {
     expect(report).toMatchObject({ due: 4, pricesRead: 4, requests: 2, offers: 4 })
     for (const id of [1, 2, 3]) {
       expect(run.psOffer(id), `game ${id}`).toEqual(offerOf(1, START))
-      expect(await run.stored(id)).toMatchObject({ conceptId: conceptOf(1), askedAt: START })
+      expect(await run.stored(id)).toMatchObject({
+        conceptId: conceptOf(1),
+        mappedAt: MAPPED_AT,
+        askedAt: START,
+      })
     }
   })
 
@@ -779,7 +823,7 @@ describe('a prices run: how it ends', () => {
       const until = iso(STARTED + 3 * PLAYSTATION_PAUSE_MS + PLAYSTATION_SILENCE_MS)
       expect(report).toMatchObject({ refusedAt: leftAt(3), silentUntil: until })
       expect(playstationWarnings(report)).toEqual([
-        `PlayStation Store: Sony refused a request (${detail}), so nothing more was asked in this run, after 4 requests, and no run asks anything before ${until} — every offer that was not read stands as it was`,
+        `PlayStation Store: Sony refused a request (${detail}), so nothing more was asked in this run, after 4 requests, and no run asks anything before ${until} — every offer that was not read stands as it was, and every title not asked about waits for another run`,
       ])
     },
   )
@@ -809,7 +853,7 @@ describe('a prices run: how it ends', () => {
       offers: 10,
     })
     expect(playstationWarnings(report)).toEqual([
-      'PlayStation Store: 3 requests in a row failed, so nothing more was asked in this run, after 3 requests — every offer that was not read stands as it was',
+      'PlayStation Store: 3 requests in a row failed, so nothing more was asked in this run, after 3 requests — every offer that was not read stands as it was, and every title not asked about waits for another run',
     ])
   })
 
@@ -908,12 +952,11 @@ describe('a prices run: the warning before prices stop being shown', () => {
     expect(playstationWarnings(all)).toEqual([])
   })
 
-  it('is a prices run’s to write: not the night’s, and not a run’s that asked nothing', async () => {
+  it('is a run’s that asked Sony, not one’s that asked nothing', async () => {
     const old = (): World => world([stuck(1, 45 * HOUR), { id: 2, mapped: false }])
-    expect(playstationWarnings(await old().run('mappings'))).toEqual([])
     expect(playstationWarnings(await old().run('nothing'))).toEqual([])
-    expect(playstationWarnings(await old().run('prices', { refusal: 'no games' }))).toEqual([])
-    expect(playstationWarnings(await old().run('prices'))).toHaveLength(1)
+    expect(playstationWarnings(await old().run('both', { refusal: 'no games' }))).toEqual([])
+    expect(playstationWarnings(await old().run('both'))).toHaveLength(1)
   })
 })
 
@@ -948,7 +991,7 @@ describe('after a refusal, a day of silence', () => {
     })
   })
 
-  it.each(['prices', 'mappings'] as const)(
+  it.each(['both'] as const)(
     'asks nothing in a %s run for twenty-four hours, and says until when',
     async (asks) => {
       const run = waiting()
@@ -984,8 +1027,9 @@ describe('after a refusal, a day of silence', () => {
 
     const report = await run.run()
 
-    expect(run.asked('price')).toEqual([1, 2, 3])
-    expect(report).toMatchObject({ status: 'read', pricesRead: 3 })
+    // The three prices that were due, then the three titles' prices once they are mapped.
+    expect(run.asked('price')).toEqual([1, 2, 3, 4, 5, 6])
+    expect(report).toMatchObject({ status: 'read', pricesRead: 6, mappingsRead: 3 })
     expect(report).not.toHaveProperty('refusedAt')
     expect(report).not.toHaveProperty('silentUntil')
     expect(await refusedAtOf(run)).toBeNull()
@@ -1028,7 +1072,7 @@ describe('after a refusal, a day of silence', () => {
     const getCursor = vi.spyOn(run.harness.writer, 'getCursor')
 
     expect(await run.run('nothing')).toMatchObject({ status: 'not-in-this-run' })
-    expect(await run.run('prices', { refusal: 'no games' })).toMatchObject({
+    expect(await run.run('both', { refusal: 'no games' })).toMatchObject({
       status: 'run-refused',
     })
     expect(getCursor).not.toHaveBeenCalled()
@@ -1074,7 +1118,7 @@ describe('a prices run: the floor under its answers', () => {
     // The nine that were priced are today's: only the removals are held back.
     expect(run.psOffer(12)?.updatedAt).toBe(leftAt(11))
     expect(playstationWarnings(report)).toEqual([
-      `PlayStation Store: ${reason} — the prices that were read are published`,
+      `PlayStation Store: ${reason} — the prices that were read are published and the concepts that were named are kept`,
     ])
   })
 
@@ -1120,7 +1164,7 @@ describe('a prices run: the floor under its answers', () => {
       'asked about 30 games and not one of the answers is a price anyone can pay, so the answers are not believed and no offer is removed'
     expect(report).toMatchObject({ status: 'failed', pricesRead: 0, removed: 0, error: reason })
     expect(playstationWarnings(report)).toEqual([
-      `PlayStation Store: ${reason} — the prices that were read are published`,
+      `PlayStation Store: ${reason} — the prices that were read are published and the concepts that were named are kept`,
     ])
 
     // And it keeps the few offers such a run would have removed.
@@ -1146,8 +1190,8 @@ describe('a prices run: the floor under its answers', () => {
   })
 })
 
-describe('the nightly run: mapping titles to concepts', () => {
-  it('asks which concept each waiting title belongs to, and remembers the answer', async () => {
+describe('a run’s mappings, and the price right after', () => {
+  it('maps the waiting titles after the prices that are due, and prices each one right after', async () => {
     const run = world([
       { id: 1, ...read(30 * HOUR) },
       { id: 2, mapped: false },
@@ -1157,59 +1201,86 @@ describe('the nightly run: mapping titles to concepts', () => {
     // Sony has no concept for the third title.
     run.harness.sonyConcepts[titleOf(3)] = sonyNoConcept(titleOf(3))
 
-    const report = await run.run('mappings')
+    const report = await run.run()
 
-    // Titles only: the price of the first game is the prices runs' to read, however old it is.
-    expect(run.harness.sonyRequests.map((request) => request.kind)).toEqual(['concept', 'concept'])
-    // A title Sony said has no concept, three days ago, is not asked about again yet.
-    expect(run.asked('concept')).toEqual([2, 3])
+    // The price that was due, then each title, and the price of the one that has a concept.
+    expect(run.harness.sonyRequests.map((request) => `${request.kind} ${request.id}`)).toEqual([
+      `price ${conceptOf(1)}`,
+      `concept ${titleOf(2)}`,
+      `price ${conceptOf(2)}`,
+      `concept ${titleOf(3)}`,
+    ])
+    // Two dates: when the title was mapped, and when its concept's price was asked.
     expect(await run.stored(2)).toEqual({
       titleId: titleOf(2),
       conceptId: conceptOf(2),
-      askedAt: START,
+      mappedAt: stampedAt(1),
+      askedAt: stampedAt(2),
     })
-    expect(await run.stored(3)).toEqual({ titleId: titleOf(3), conceptId: null, askedAt: START })
+    expect(await run.stored(3)).toEqual({
+      titleId: titleOf(3),
+      conceptId: null,
+      mappedAt: stampedAt(3),
+    })
     expect(run.refs.get(2)?.playstation).toEqual(await run.stored(2))
+    expect(run.psOffer(2)).toEqual(offerOf(2, leftAt(2)))
     expect(report).toMatchObject({
       status: 'read',
-      asks: 'mappings',
+      asks: 'both',
       references: 4,
       mapped: 2,
       withoutConcept: 2,
       unmapped: 0,
-      due: 2,
+      due: 1,
+      mappingsDue: 2,
       mappingsRead: 2,
       noConcept: 1,
-      pricesRead: 0,
-      requests: 2,
-      offers: 1,
+      pricesRead: 2,
+      pricedAfterMapping: 1,
+      requests: 4,
+      offers: 2,
     })
-    expect(run.psOffer(1)).toEqual(offerOf(1, ago(30 * HOUR)))
+  })
+
+  it('prices a title it maps in the same run, and neither question again for twenty hours', async () => {
+    const run = world([{ id: 1, mapped: false }])
+    await run.run()
+    expect(run.psOffer(1)).toEqual(offerOf(1, leftAt(1)))
+
+    // The 06:15 prices run, three hours on: both questions were put.
+    const morning = later(run, STARTED + 3 * HOUR)
+    expect(await morning.run()).toMatchObject({ mapped: 1, due: 0, mappingsDue: 0, requests: 0 })
+
+    // Twenty hours on, the price again; the mapping stands.
+    const next = later(run, STARTED + 20 * HOUR)
+    expect(await next.run()).toMatchObject({ due: 1, pricesRead: 1, mappingsRead: 0 })
+    expect(next.sent()).toEqual([`price ${conceptOf(1)}`])
   })
 
   it('never asks again about a title that has a concept, however long ago it was asked about', async () => {
     const run = world([
-      // Mapped by a build that did not date the asking; and one not asked about for forty days.
+      // Never priced; and one not priced for forty days.
       { id: 1 },
       { id: 2, askedAgo: 40 * DAY },
       { id: 3, mapped: false },
     ])
 
-    const report = await run.run('mappings')
+    const report = await run.run()
 
     expect(run.asked('concept')).toEqual([3])
-    expect(report).toMatchObject({ due: 1, mappingsRead: 1, mapped: 3, requests: 1 })
+    expect(run.asked('price')).toEqual([1, 2, 3])
+    expect(report).toMatchObject({ due: 2, mappingsRead: 1, mapped: 3, requests: 4 })
   })
 
-  it('writes the date of the asking before the request is sent, as a prices run does', async () => {
-    const run = world(many(3, () => ({ mapped: false })))
+  it('writes each date before its request is sent', async () => {
+    const run = world(many(2, () => ({ mapped: false })))
     const events: string[] = []
     const setStoreRefs = run.harness.writer.setStoreRefs.bind(run.harness.writer)
     vi.spyOn(run.harness.writer, 'setStoreRefs').mockImplementation(async (entries) => {
       const written = [...entries]
       for (const [id, record] of written) {
-        const { conceptId, askedAt } = record.playstation ?? {}
-        events.push(`write ${id}: ${conceptId ?? 'no concept yet'}, asked ${askedAt}`)
+        const { conceptId, mappedAt, askedAt } = record.playstation ?? {}
+        events.push(`write ${id}: ${conceptId ?? '-'}, mapped ${mappedAt}, priced ${askedAt}`)
       }
       await setStoreRefs(written)
     })
@@ -1218,14 +1289,20 @@ describe('the nightly run: mapping titles to concepts', () => {
       { times: Infinity, match: (request) => (events.push(`ask ${request.id}`), false) },
     )
 
-    await run.run('mappings')
+    await run.run()
 
     expect(events).toEqual(
-      [1, 2, 3].flatMap((id, index) => [
-        `write ${id}: no concept yet, asked ${stampedAt(index)}`,
-        `ask ${titleOf(id)}`,
-        `write ${id}: ${conceptOf(id)}, asked ${stampedAt(index)}`,
-      ]),
+      [1, 2].flatMap((id, index) => {
+        const mapped = stampedAt(2 * index)
+        const priced = stampedAt(2 * index + 1)
+        return [
+          `write ${id}: -, mapped ${mapped}, priced undefined`,
+          `ask ${titleOf(id)}`,
+          `write ${id}: ${conceptOf(id)}, mapped ${mapped}, priced undefined`,
+          `write ${id}: ${conceptOf(id)}, mapped ${mapped}, priced ${priced}`,
+          `ask ${conceptOf(id)}`,
+        ]
+      }),
     )
   })
 
@@ -1235,82 +1312,117 @@ describe('the nightly run: mapping titles to concepts', () => {
       new Error('the index is unreachable'),
     )
 
-    await expect(run.run('mappings')).rejects.toThrow('the index is unreachable')
+    await expect(run.run()).rejects.toThrow('the index is unreachable')
 
     expect(run.harness.sonyRequests).toHaveLength(0)
   })
 
-  it('leaves the price of a title it mapped to the prices run twenty hours on', async () => {
-    const run = world([{ id: 1, mapped: false }])
-    await run.run('mappings')
+  it('reads records of the build before, with one date, as mapped then and never priced', async () => {
+    // As #92 left the 203 titles it mapped: a concept and one date, the mapping's.
+    const run = world([
+      { id: 1, mapped: false },
+      { id: 2, mapped: false },
+    ])
+    const oneDate = (id: number) => ({
+      playstation: { titleId: titleOf(id), conceptId: conceptOf(id), askedAt: ago(5 * HOUR) },
+    })
+    run.refs.set(1, oneDate(1))
+    run.refs.set(2, { playstation: { titleId: titleOf(2), conceptId: null, askedAt: ago(DAY) } })
 
-    // The 06:15 prices run, three hours after the night's mapping: the game was asked about.
-    const morning = later(run, STARTED + 3 * HOUR)
-    expect(await morning.run()).toMatchObject({ mapped: 1, due: 0, requests: 0 })
+    const report = await run.run()
 
-    const nextNight = later(run, STARTED + 20 * HOUR)
-    expect(await nextNight.run()).toMatchObject({ due: 1, pricesRead: 1 })
-    expect(nextNight.sent()).toEqual([`price ${conceptOf(1)}`])
-    expect(run.psOffer(1)).toEqual(offerOf(1, iso(STARTED + 20 * HOUR)))
+    // Priced by the next run, five hours after the mapping, and not mapped again.
+    expect(run.harness.sonyRequests.map((request) => `${request.kind} ${request.id}`)).toEqual([
+      `price ${conceptOf(1)}`,
+    ])
+    expect(report).toMatchObject({ due: 1, pricesRead: 1, mappingsRead: 0 })
+    expect(await run.stored(1)).toEqual({
+      titleId: titleOf(1),
+      conceptId: conceptOf(1),
+      mappedAt: ago(5 * HOUR),
+      askedAt: START,
+    })
+    // "No concept" a day ago is a mapping a day old: asked again in thirty days, not now.
+    expect(await run.stored(2)).toBeUndefined()
   })
 
-  it('maps at most two hundred titles a night, the most popular first', async () => {
-    const run = world(many(300, (id) => ({ mapped: false, popularity: id })))
-    // Half a second an answer, as Sony was seen to take.
-    run.harness.sonyState.latencyMs = 500
+  it('maps at most two hundred titles a run, the most popular first', async () => {
+    // Every title of one concept: one price, and two hundred mappings.
+    const run = world(many(300, (id) => ({ mapped: false, popularity: id, conceptOf: 1 })))
 
-    const report = await run.run('mappings')
+    const report = await run.run()
 
     expect(PLAYSTATION_MAPPINGS_PER_RUN).toBe(200)
     expect(run.asked('concept')).toEqual(Array.from({ length: 200 }, (_, index) => 300 - index))
+    expect(run.asked('price')).toEqual([1])
     expect(report).toMatchObject({
-      due: 300,
+      mappingsDue: 300,
       mappingsRead: 200,
       mapped: 200,
       unmapped: 100,
-      requests: 200,
-      // Two hundred a night is the design, not a stage cut short: the rest is held over.
+      pricedAfterMapping: 200,
+      requests: 201,
+      // Two hundred a run is the design, not a stage cut short: the rest is held over.
       stopped: null,
       heldOver: 100,
     })
     expect(playstationWarnings(report)).toEqual([])
-    // Thirty-five minutes of it, inside the forty the transport gives a run.
-    const took = run.harness.clock.now() - STARTED
-    expect(took).toBe(200 * 500 + 199 * PLAYSTATION_PAUSE_MS)
-    expect(took).toBeLessThan(PLAYSTATION_BUDGET_MS)
-    // And nothing is held over on a night that asks about all there is.
-    expect(await world(many(3, () => ({ mapped: false }))).run('mappings')).not.toHaveProperty(
-      'heldOver',
-    )
+    // And nothing is held over by a run that asks about all there is.
+    expect(await world(many(3, () => ({ mapped: false }))).run()).not.toHaveProperty('heldOver')
   })
 
-  it('is bound by the run’s forty minutes and its 225 requests, whatever the night’s number', async () => {
+  it('maps with what the prices leave, and is bound by the 225 requests and the forty minutes', async () => {
     expect(PLAYSTATION_MAPPINGS_PER_RUN).toBeLessThanOrEqual(PLAYSTATION_REQUESTS_PER_RUN)
 
-    // A slow Sony: five seconds an answer. The forty minutes end the night at 160 titles.
+    // Two hundred prices due, and titles waiting: twenty-five requests are left for them.
+    const busy = world([
+      ...many(200, () => read(30 * HOUR)),
+      ...many(50, () => ({ mapped: false }), 201),
+    ])
+    const left = await busy.run()
+    expect(busy.harness.sonyRequests).toHaveLength(PLAYSTATION_REQUESTS_PER_RUN)
+    expect(busy.asked('price').slice(0, 200)).toEqual(Array.from({ length: 200 }, (_, i) => i + 1))
+    expect(left).toMatchObject({
+      pricesRead: 212,
+      mappingsRead: 13,
+      stopped: { reason: 'requests' },
+    })
+
+    // A slow Sony: five seconds an answer. The forty minutes end the run at 160 requests.
     const slow = world(many(300, () => ({ mapped: false })))
     slow.harness.sonyState.latencyMs = 5_000
-    const cut = await slow.run('mappings')
+    const cut = await slow.run()
     expect(slow.harness.sonyRequests).toHaveLength(160)
     expect(cut).toMatchObject({
-      mappingsRead: 160,
-      requests: 160,
+      mappingsRead: 80,
+      pricedAfterMapping: 80,
       stopped: { reason: 'time' },
-      heldOver: 100,
     })
     expect(slow.harness.clock.now() - STARTED).toBeLessThanOrEqual(
       PLAYSTATION_BUDGET_MS + PLAYSTATION_PAUSE_MS,
     )
     // Running out of the time is the design: no warning.
     expect(playstationWarnings(cut)).toEqual([])
+  })
 
-    // A run whose transport has already made thirty requests: the 225 end the night at 195.
-    const spent = world(many(300, () => ({ mapped: false })))
-    for (let asked = 0; asked < 30; asked += 1) await spent.harness.deps.playstation.price(1)
-    const capped = await spent.run('mappings')
-    expect(spent.asked('concept')).toHaveLength(195)
-    expect(spent.harness.sonyRequests).toHaveLength(PLAYSTATION_REQUESTS_PER_RUN)
-    expect(capped).toMatchObject({ mappingsRead: 195, stopped: { reason: 'requests' } })
+  it('keeps the night to its two hundred requests, prices and mappings together', async () => {
+    expect(PLAYSTATION_NIGHT_REQUESTS).toBe(200)
+    expect(4 * PLAYSTATION_REQUESTS_PER_RUN + PLAYSTATION_NIGHT_REQUESTS).toBe(1_100)
+    const night = world(many(300, () => ({ mapped: false })))
+
+    const report = await night.run('both', { limit: PLAYSTATION_NIGHT_REQUESTS })
+
+    expect(night.harness.sonyRequests).toHaveLength(200)
+    expect(report).toMatchObject({
+      mappingsRead: 100,
+      pricedAfterMapping: 100,
+      requests: 200,
+      stopped: { reason: 'requests', detail: 'the run has made its 200 requests' },
+    })
+    // A limit above the transport's is the transport's.
+    const prices = world(many(300, () => read(30 * HOUR)))
+    await prices.run('both', { limit: 1_000 })
+    expect(prices.harness.sonyRequests).toHaveLength(PLAYSTATION_REQUESTS_PER_RUN)
   })
 
   it('asks first about a title never asked about, then about the one asked longest ago', async () => {
@@ -1322,56 +1434,80 @@ describe('the nightly run: mapping titles to concepts', () => {
       { id: 5, mapped: null, askedAgo: 40 * DAY },
     ])
 
-    await run.run('mappings')
+    await run.run()
 
     expect(run.asked('concept')).toEqual([2, 4, 5, 3, 1])
   })
 
-  it('stamps a title whose request failed, counts it in the two hundred, and asks again another night', async () => {
-    const run = world(many(210, () => ({ mapped: false })))
+  it('stamps a title whose request failed, counts it in the two hundred, and asks it again a day on', async () => {
+    // One concept for all: its price once, and two hundred mappings.
+    const run = world(many(210, () => ({ mapped: false, conceptOf: 1 })))
     // Every fourth request fails: no three in a row do.
     const failing = (request: { id: string }) => Number(request.id.slice(4, 9)) % 4 === 0
     run.harness.sonyAnswersWith({ status: 502 }, { times: Infinity, match: failing })
 
-    const report = await run.run('mappings')
+    const report = await run.run()
 
-    expect(run.harness.sonyRequests).toHaveLength(200)
+    expect(run.asked('concept')).toHaveLength(200)
     expect(report).toMatchObject({ mappingsRead: 150, failed: 50, mapped: 150, unmapped: 60 })
     // A failure is not "no concept", which would stand for a month. But it was asked.
-    expect(await run.stored(4)).toEqual({ titleId: titleOf(4), askedAt: stampedAt(3) })
+    expect(await run.stored(4)).toEqual({ titleId: titleOf(4), mappedAt: stampedAt(4) })
 
     // The same night again, should the run be started twice: the failed ones are not asked,
-    // the ten never reached are.
-    const again = later(run, STARTED + 2 * HOUR, 'mappings')
+    // the ten never reached are, and their concept's price, read two hours ago, is not.
+    const again = later(run, STARTED + 2 * HOUR)
     await again.run()
     expect(again.sent()).toEqual(
       Array.from({ length: 10 }, (_, index) => `concept ${titleOf(201 + index)}`),
     )
 
-    // The next night they are, after everything that has not been asked yet.
-    const nextNight = later(run, STARTED + DAY, 'mappings')
-    await nextNight.run()
-    expect(nextNight.sent()).toEqual(
-      Array.from({ length: 50 }, (_, index) => `concept ${titleOf(4 * (index + 1))}`),
-    )
+    // A day on: the price that is due first, then the fifty that failed.
+    const nextDay = later(run, STARTED + DAY)
+    await nextDay.run()
+    expect(nextDay.sent()).toEqual([
+      `price ${conceptOf(1)}`,
+      ...Array.from({ length: 50 }, (_, index) => `concept ${titleOf(4 * (index + 1))}`),
+    ])
   })
 
-  it('asks once about a title two games link, and gives both the answer', async () => {
+  it('asks once about a title two games link, and gives both the answer and the price', async () => {
     const run = world([
       { id: 1, mapped: false },
       { id: 2, mapped: false, titleOf: 1, conceptOf: 1 },
       { id: 3, mapped: false },
     ])
 
-    const report = await run.run('mappings')
+    const report = await run.run()
 
     expect(run.asked('concept')).toEqual([1, 3])
-    expect(report).toMatchObject({ due: 3, mappingsRead: 3, mapped: 3, requests: 2 })
+    expect(report).toMatchObject({
+      mappingsDue: 3,
+      mappingsRead: 3,
+      mapped: 3,
+      pricedAfterMapping: 3,
+      requests: 4,
+    })
     expect(await run.stored(2)).toEqual({
       titleId: titleOf(1),
       conceptId: conceptOf(1),
+      mappedAt: START,
       askedAt: START,
     })
+    expect(run.psOffer(2)).toBeDefined()
+  })
+
+  it('gives a title mapped to a concept the run has priced already that price, with no request', async () => {
+    const run = world([
+      { id: 1, ...read(30 * HOUR) },
+      { id: 2, mapped: false, conceptOf: 1 },
+    ])
+
+    const report = await run.run()
+
+    expect(run.harness.sonyRequests.map((request) => request.kind)).toEqual(['price', 'concept'])
+    expect(report).toMatchObject({ pricesRead: 2, pricedAfterMapping: 1, requests: 2 })
+    expect(run.psOffer(2)).toEqual(run.psOffer(1))
+    expect((await run.stored(2))?.askedAt).toBe((await run.stored(1))?.askedAt)
   })
 
   it('asks again, after thirty days, about a title Sony said has no concept', async () => {
@@ -1386,7 +1522,7 @@ describe('the nightly run: mapping titles to concepts', () => {
     run.harness.sonyConcepts[titleOf(3)] = sonyNoConcept(titleOf(3))
     run.harness.sonyConcepts[titleOf(4)] = sonyNoConcept(titleOf(4))
 
-    const report = await run.run('mappings')
+    const report = await run.run()
 
     expect(PLAYSTATION_NO_CONCEPT_KEPT_MS).toBe(30 * DAY)
     expect(run.asked('concept')).toEqual([4, 3, 2])
@@ -1394,13 +1530,14 @@ describe('the nightly run: mapping titles to concepts', () => {
     expect(await run.stored(2)).toEqual({
       titleId: titleOf(2),
       conceptId: conceptOf(2),
-      askedAt: stampedAt(2),
+      mappedAt: stampedAt(2),
+      askedAt: stampedAt(3),
     })
     // "None" again, for another thirty days from today.
     expect(await run.stored(3)).toEqual({
       titleId: titleOf(3),
       conceptId: null,
-      askedAt: stampedAt(1),
+      mappedAt: stampedAt(1),
     })
     expect(report).toMatchObject({ mapped: 1, withoutConcept: 3, mappingsRead: 3, noConcept: 2 })
   })
@@ -1409,27 +1546,28 @@ describe('the nightly run: mapping titles to concepts', () => {
     const run = world([{ id: 1, mapped: null, askedAgo: 31 * DAY }])
     run.harness.sonyAnswersWith({ status: 500 })
 
-    await run.run('mappings')
+    await run.run()
 
-    // Asked again, and unanswered: it is tried the next night, not in a month.
-    expect(await run.stored(1)).toEqual({ titleId: titleOf(1), askedAt: START })
+    // Asked again, and unanswered: it is tried a day on, not in a month.
+    expect(await run.stored(1)).toEqual({ titleId: titleOf(1), mappedAt: START })
   })
 
-  it('stops at a refusal or at three failures in a row, like a prices run, and says which', async () => {
+  it('stops at a refusal or at three failures in a row, between mappings too, and says which', async () => {
     const refused = world(many(10, () => ({ mapped: false })))
     refused.harness.sonyAnswersWith(
       { status: 403 },
       { match: (request) => request.id === titleOf(3) },
     )
 
-    const report = await refused.run('mappings')
+    const report = await refused.run()
 
+    // Two titles mapped and priced, and the third refused.
     expect(refused.asked('concept')).toEqual([1, 2, 3])
     expect(report).toMatchObject({ mappingsRead: 2, failed: 1, stopped: { reason: 'refused' } })
-    // The night's refusal silences the day's prices runs as it would the night's own.
-    const until = iso(STARTED + 2 * PLAYSTATION_PAUSE_MS + PLAYSTATION_SILENCE_MS)
+    // Its refusal silences the next run.
+    const until = iso(STARTED + 4 * PLAYSTATION_PAUSE_MS + PLAYSTATION_SILENCE_MS)
     expect(playstationWarnings(report)).toEqual([
-      `PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 3 requests, and no run asks anything before ${until} — every title that was not answered about waits for another night`,
+      `PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 5 requests, and no run asks anything before ${until} — every offer that was not read stands as it was, and every title not asked about waits for another run`,
     ])
     const morning = later(refused, STARTED + 4 * HOUR)
     expect(await morning.run()).toMatchObject({ status: 'silent', silentUntil: until })
@@ -1437,7 +1575,7 @@ describe('the nightly run: mapping titles to concepts', () => {
 
     const failing = world(many(10, () => ({ mapped: false })))
     failing.harness.sonyAnswersWith({ status: 500 }, { times: Infinity })
-    expect(await failing.run('mappings')).toMatchObject({
+    expect(await failing.run()).toMatchObject({
       failed: 3,
       requests: 3,
       stopped: { reason: 'failures' },
@@ -1445,7 +1583,7 @@ describe('the nightly run: mapping titles to concepts', () => {
   })
 })
 
-describe('the nightly run: the floor under "no concept"', () => {
+describe('the floor under "no concept"', () => {
   /** `count` waiting titles, the first `noneCount` of which Sony says have no concept. */
   function waiting(count: number, noneCount: number): World {
     const run = world(many(count, () => ({ mapped: false })))
@@ -1458,7 +1596,7 @@ describe('the nightly run: the floor under "no concept"', () => {
   it('remembers none of them when more than half of twenty titles are said to have no concept', async () => {
     const run = waiting(20, 11)
 
-    const report = await run.run('mappings')
+    const report = await run.run('both')
 
     const reason =
       'asked about 20 titles and 11 of the answers say the title has no concept: over half, so the answers are not believed and none of them is remembered'
@@ -1471,26 +1609,28 @@ describe('the nightly run: the floor under "no concept"', () => {
       unmapped: 11,
       error: reason,
     })
-    // Asked, and no answer kept: the title is asked about again another night.
-    expect(await run.stored(1)).toEqual({ titleId: titleOf(1), askedAt: START })
+    // Asked, and no answer kept: the title is asked about again another day.
+    expect(await run.stored(1)).toEqual({ titleId: titleOf(1), mappedAt: START })
     // The concepts that were named are kept: only "none" is held back.
     expect(await run.stored(12)).toMatchObject({ conceptId: conceptOf(12) })
     expect(playstationWarnings(report)).toEqual([
-      `PlayStation Store: ${reason} — the concepts that were named are kept`,
+      `PlayStation Store: ${reason} — the prices that were read are published and the concepts that were named are kept`,
     ])
 
-    const nextNight = later(run, STARTED + DAY, 'mappings')
-    await nextNight.run()
-    expect(nextNight.harness.sonyRequests).toHaveLength(11)
+    // A day on, the eleven titles are asked again (after the nine concepts' prices, due again).
+    const nextDay = later(run, STARTED + DAY, 'both')
+    await nextDay.run()
+    expect(nextDay.sent().filter((sent) => sent.startsWith('concept'))).toHaveLength(11)
+    expect(nextDay.sent().filter((sent) => sent.startsWith('price'))).toHaveLength(9)
   })
 
   it('remembers them when exactly half say so, and when fewer than twenty titles were answered about', async () => {
     const half = waiting(20, 10)
-    expect(await half.run('mappings')).toMatchObject({ status: 'read', withoutConcept: 10 })
+    expect(await half.run('both')).toMatchObject({ status: 'read', withoutConcept: 10 })
     expect(await half.stored(1)).toMatchObject({ conceptId: null })
 
     const few = waiting(19, 19)
-    expect(await few.run('mappings')).toMatchObject({ status: 'read', withoutConcept: 19 })
+    expect(await few.run('both')).toMatchObject({ status: 'read', withoutConcept: 19 })
 
     expect(noConceptNotBelieved(20, 10)).toBeNull()
     expect(noConceptNotBelieved(20, 11)).not.toBeNull()
@@ -1509,7 +1649,7 @@ describe('the nightly run: the floor under "no concept"', () => {
       },
     )
 
-    expect(await run.run('mappings')).toMatchObject({
+    expect(await run.run('both')).toMatchObject({
       status: 'failed',
       mappingsRead: 20,
       noConcept: 11,
@@ -1521,7 +1661,7 @@ describe('the nightly run: the floor under "no concept"', () => {
     const run = waiting(3, 3)
     const setStoreRefs = vi.spyOn(run.harness.writer, 'setStoreRefs')
 
-    await run.run('mappings')
+    await run.run('both')
 
     // Three dates of asking, one by one, and then the three answers together.
     expect(setStoreRefs.mock.calls.map(([entries]) => [...entries].length)).toEqual([1, 1, 1, 3])
@@ -1536,22 +1676,30 @@ describe('which kind of run asks Sony what', () => {
     { id: 4, mapped: null, askedAgo: 40 * DAY },
   ]
 
-  it('reads prices in a prices run, and maps no title', async () => {
+  it('reads the prices that are due first, then maps the waiting titles and prices each', async () => {
     const run = world(games())
 
-    const report = await run.run('prices')
+    const report = await run.run('both')
 
-    expect(run.harness.sonyRequests.map((request) => request.kind)).toEqual(['price', 'price'])
-    expect(report).toMatchObject({ asks: 'prices', pricesRead: 2, mappingsRead: 0, unmapped: 1 })
-  })
-
-  it('maps titles in the nightly run, and reads no price', async () => {
-    const run = world(games())
-
-    const report = await run.run('mappings')
-
-    expect(run.harness.sonyRequests.map((request) => request.kind)).toEqual(['concept', 'concept'])
-    expect(report).toMatchObject({ asks: 'mappings', pricesRead: 0, mappingsRead: 2, offers: 2 })
+    expect(run.harness.sonyRequests.map((request) => `${request.kind} ${request.id}`)).toEqual([
+      // Oldest first.
+      `price ${conceptOf(2)}`,
+      `price ${conceptOf(1)}`,
+      // Never asked first, then "no concept" forty days ago.
+      `concept ${titleOf(3)}`,
+      `price ${conceptOf(3)}`,
+      `concept ${titleOf(4)}`,
+      `price ${conceptOf(4)}`,
+    ])
+    expect(report).toMatchObject({
+      asks: 'both',
+      due: 2,
+      pricesRead: 4,
+      mappingsDue: 2,
+      mappingsRead: 2,
+      pricedAfterMapping: 2,
+      offers: 4,
+    })
   })
 
   it('asks nothing in a languages run, and still says where the store stands', async () => {
@@ -1573,9 +1721,12 @@ describe('which kind of run asks Sony what', () => {
       pricesRead: 0,
       mappingsRead: 0,
       noConcept: 0,
+      mappingsDue: 0,
+      pricedAfterMapping: 0,
       removed: 0,
       failed: 0,
       requests: 0,
+      limit: 225,
       concepts: 2,
       offers: 2,
       oldestPriceAgeMs: 45 * HOUR,
@@ -1590,7 +1741,7 @@ describe('which kind of run asks Sony what', () => {
     ])
   })
 
-  it.each(['prices', 'mappings'] as const)(
+  it.each(['both'] as const)(
     'asks nothing in a %s run that is going to be refused publication',
     async (asks) => {
       const run = world(games())
@@ -1614,7 +1765,7 @@ describe('the mapping the stage is handed', () => {
     run.games.push(document({ id: 1 }))
     run.refs.set(1, { gog: 'game_1', playstation: null })
 
-    for (const asks of ['prices', 'mappings', 'nothing'] as const) {
+    for (const asks of ['both', 'both', 'nothing'] as const) {
       const report = await run.run(asks)
 
       expect(report).toMatchObject({ status: 'no-references', references: 0, requests: 0 })
@@ -1628,7 +1779,7 @@ describe('the mapping the stage is handed', () => {
     const lost =
       'carried 400, the mapping names a product for 5 of those games: under half, so the store references look lost'
 
-    for (const asks of ['prices', 'mappings', 'nothing'] as const) {
+    for (const asks of ['both', 'both', 'nothing'] as const) {
       const report = await run.run(asks, { verdict: { lost, dropped: 0 } })
 
       expect(report).toMatchObject({
@@ -1648,12 +1799,12 @@ describe('the mapping the stage is handed', () => {
   it('reports what a believed mapping cost the store, and warns from twenty offers up', async () => {
     const run = world([{ id: 1, ...read(3 * HOUR) }])
 
-    expect((await run.run('prices', { verdict: { lost: null, dropped: 19 } })).dropped).toBe(19)
+    expect((await run.run('both', { verdict: { lost: null, dropped: 19 } })).dropped).toBe(19)
     expect(
-      playstationWarnings(await run.run('prices', { verdict: { lost: null, dropped: 19 } })),
+      playstationWarnings(await run.run('both', { verdict: { lost: null, dropped: 19 } })),
     ).toEqual([])
     expect(
-      playstationWarnings(await run.run('prices', { verdict: { lost: null, dropped: 20 } })),
+      playstationWarnings(await run.run('both', { verdict: { lost: null, dropped: 20 } })),
     ).toEqual([
       'PlayStation Store: 20 offers dropped because their games no longer have a store reference',
     ])
@@ -1665,12 +1816,13 @@ describe('the mapping the stage is handed', () => {
     run.refs.set(1, { playstation: { titleId: 'NPUB31077_00', conceptId: 7 } })
     run.refs.set(2, { playstation: { titleId: titleOf(2), conceptId: '50002' } } as never)
 
-    // A title that is not one is no reference; a concept that is not one reads as not answered.
-    expect(await run.run('prices')).toMatchObject({ references: 2, mapped: 1, unmapped: 1 })
-    expect(await run.run('mappings')).toMatchObject({ mapped: 2, mappingsRead: 1 })
+    // A title that is not one is no reference; a concept that is not one reads as not answered,
+    // and is asked.
+    expect(await run.run('both')).toMatchObject({ references: 2, mapped: 2, mappingsRead: 1 })
     expect(run.harness.sonyRequests.map((request) => `${request.kind} ${request.id}`)).toEqual([
       'price 50003',
       `concept ${titleOf(2)}`,
+      'price 50002',
     ])
   })
 })
@@ -1710,7 +1862,7 @@ describe('refreshOffers and the PlayStation Store’s offers', () => {
     for (const game of run.games) expect(game.offers).toHaveLength(1)
 
     // And the stage that reads the store asks nothing on the strength of such a mapping.
-    const report = await run.run('prices', { verdict: result.playstation })
+    const report = await run.run('both', { verdict: result.playstation })
     expect(report).toMatchObject({ status: 'references-lost', offers: 20, requests: 0 })
     expect(run.harness.sonyRequests).toHaveLength(0)
   })
@@ -1744,10 +1896,10 @@ describe('the stage and the writer’s lock', () => {
     run.harness.sonyAnswersWith({ status: 500 }, { times: 2 })
     const renewLock = vi.spyOn(run.harness.writer, 'renewLock')
 
-    await run.run('prices')
-    expect(renewLock).toHaveBeenCalledTimes(4)
-    await run.run('mappings')
-    expect(renewLock).toHaveBeenCalledTimes(7)
+    await run.run('both')
+    // Four prices, two of them failed, and three titles each with its price: once a request.
+    expect(run.harness.sonyRequests).toHaveLength(10)
+    expect(renewLock).toHaveBeenCalledTimes(10)
   })
 
   it('stops asking Sony for a run whose lock will not renew, and fails as the index’s failure', async () => {

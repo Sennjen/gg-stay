@@ -139,16 +139,16 @@ const EVERY_PRICE = [101, 106, 108].map(
 )
 
 describe('runJob and the PlayStation Store', () => {
-  it('asks one kind of question in each kind of run', () => {
+  it('maps and prices in the prices runs and the nightly run, and asks nothing in the others', () => {
     expect(PLAYSTATION_ASKS).toEqual({
-      prices: 'prices',
-      full: 'mappings',
+      prices: 'both',
+      full: 'both',
       languages: 'nothing',
       resolve: 'nothing',
     })
   })
 
-  it('finds the titles with the nightly run, and asks Sony which concepts they belong to', async () => {
+  it('finds the titles with the nightly run, maps them, and prices each right after', async () => {
     const harness = createJobHarness({ start: RUN_AT, playstation: true })
 
     const report = await runJob(harness.deps, FULL)
@@ -167,71 +167,63 @@ describe('runJob and the PlayStation Store', () => {
       playstation: 3,
       sweep: { attempted: 2, failures: 0, remaining: 0, stopped: null },
     })
-    // Sony: the three titles, the most popular game first, ten seconds apart — and no price.
+    // Sony: each title, the most popular game first, and its price right after — ten seconds
+    // between any two.
     expect(sent(harness)).toEqual([
       `concept ${JOB_PLAYSTATION_TITLES[101]}`,
+      EVERY_PRICE[0],
       `concept ${JOB_PLAYSTATION_TITLES[106]}`,
+      EVERY_PRICE[1],
       `concept ${JOB_PLAYSTATION_TITLES[108]}`,
+      EVERY_PRICE[2],
     ])
     const left = harness.sonyRequests.map((entry) => entry.at)
-    expect([left[1]! - left[0]!, left[2]! - left[1]!]).toEqual([10_000, 10_000])
-    expect(report.stores?.playstation).toEqual({
+    expect(left.slice(1).map((at, index) => at - left[index]!)).toEqual(Array(5).fill(10_000))
+    expect(report.stores?.playstation).toMatchObject({
       status: 'read',
-      asks: 'mappings',
+      asks: 'both',
       references: 3,
       mapped: 3,
-      withoutConcept: 0,
       unmapped: 0,
-      due: 3,
-      pricesRead: 0,
+      due: 0,
+      mappingsDue: 3,
       mappingsRead: 3,
-      noConcept: 0,
-      removed: 0,
-      failed: 0,
-      requests: 3,
-      concepts: 3,
-      offers: 0,
-      oldestPriceAgeMs: null,
-      oldestShownPriceAgeMs: null,
+      pricedAfterMapping: 3,
+      pricesRead: 3,
+      requests: 6,
+      // The night keeps the ration it had when it only mapped: a day stays at 1 100.
+      limit: 200,
+      offers: 3,
       stopped: null,
     })
     const records = await harness.writer.getStoreRefs([101, 103, 106, 108])
+    const both = (titleId: string, conceptId: number, n: number) => ({
+      titleId,
+      conceptId,
+      mappedAt: stamp(RUN_AT, n),
+      askedAt: stamp(RUN_AT, n + 1),
+    })
     expect(new Map([...records].map(([id, record]) => [id, refsOf(record)]))).toEqual(
       new Map([
-        [
-          101,
-          {
-            gog: 'hollow_cradle',
-            playstation: { titleId: 'PPSA10100_00', conceptId: 10_101, askedAt: stamp(RUN_AT, 0) },
-          },
-        ],
+        [101, { gog: 'hollow_cradle', playstation: both('PPSA10100_00', 10_101, 0) }],
         // Listed there, asked, and the link is a PlayStation 3 product: no reference.
         [103, { playstation: null }],
-        [
-          106,
-          {
-            playstation: { titleId: 'CUSA10600_00', conceptId: 10_106, askedAt: stamp(RUN_AT, 1) },
-          },
-        ],
-        [
-          108,
-          {
-            playstation: { titleId: 'PPSA10800_00', conceptId: 10_108, askedAt: stamp(RUN_AT, 2) },
-          },
-        ],
+        [106, { playstation: both('CUSA10600_00', 10_106, 2) }],
+        [108, { playstation: both('PPSA10800_00', 10_108, 4) }],
       ]),
     )
-    expect(psOffers(await harness.writer.getOne(106))).toEqual([])
-    expect((await harness.writer.meta())?.stats).toMatchObject({ playstationOfferCount: 0 })
+    // The prices are on the version the night publishes.
+    expect(psOffers(await harness.writer.getOne(106))).toEqual([amberOffer(request(RUN_AT, 3))])
+    expect((await harness.writer.meta())?.stats).toMatchObject({ playstationOfferCount: 3 })
     // The other stores were read as on any night, and are none the worse for this one.
     expect(report.stores).toMatchObject({ gog: { status: 'read' }, microsoft: { status: 'read' } })
-    expect((await harness.writer.getOne(101))?.offers).toHaveLength(1)
+    expect((await harness.writer.getOne(101))?.offers).toHaveLength(2)
   })
 
-  it('reads no price for a title the night mapped until twenty hours have passed', async () => {
+  it('asks nothing more about a title the night mapped and priced until twenty hours have passed', async () => {
     const night = await firstNight()
 
-    // The 06:15 and the 18:15 run after it: the games were asked about that night.
+    // The 06:15 and the 18:15 run after it: both questions were put that night.
     for (const hours of [3, 15]) {
       const run = nextRun(night, later(RUN_AT, hours * HOUR))
       const report = await runJob(run.deps, PRICES)
@@ -239,11 +231,14 @@ describe('runJob and the PlayStation Store', () => {
       expect(run.sonyRequests, `${hours} hours on`).toHaveLength(0)
       expect(report.stores?.playstation).toMatchObject({
         status: 'read',
-        asks: 'prices',
+        asks: 'both',
         mapped: 3,
         due: 0,
+        mappingsDue: 0,
         requests: 0,
-        offers: 0,
+        // A prices run has the transport's whole 225.
+        limit: 225,
+        offers: 3,
       })
     }
   })
@@ -279,7 +274,12 @@ describe('runJob and the PlayStation Store', () => {
     expect(meta?.updatedAt).toBe(request(at, 2))
     // What is remembered of the asking is on the reference, not only on the offer.
     expect(refsOf((await prices.writer.getStoreRefs([108])).get(108))).toEqual({
-      playstation: { titleId: 'PPSA10800_00', conceptId: 10_108, askedAt: stamp(at, 2) },
+      playstation: {
+        titleId: 'PPSA10800_00',
+        conceptId: 10_108,
+        mappedAt: stamp(RUN_AT, 4),
+        askedAt: stamp(at, 2),
+      },
     })
   })
 
@@ -382,27 +382,26 @@ describe('runJob and the PlayStation Store', () => {
     expect((await next.writer.getOne(108))?.offers).toEqual([meridianOffer(request(at, 2))])
   })
 
-  it('reads no price in the nightly run, which carries the offers and maps what is waiting', async () => {
+  it('reads the prices that are due in the nightly run as well', async () => {
     const { night, at } = await firstPrices()
-    // A day and more after the prices were read: every one of them would be due.
+    // A day and more after the prices were read: every one of them is due.
     const nextNight = nextRun(night, later(at, 26 * HOUR))
 
     const report = await runJob(nextNight.deps, FULL)
 
     expect(report.outcome?.published).toBe(true)
-    // Every title has its answer, so there is nothing to map either.
-    expect(nextNight.sonyRequests).toHaveLength(0)
+    // Every title has its answer, so there is nothing to map; the prices are read.
+    expect(sent(nextNight)).toEqual(EVERY_PRICE)
     expect(nextNight.storeCalls()).toHaveLength(0)
-    expect((await nextNight.writer.getOne(106))?.offers).toEqual([amberOffer(request(at, 1))])
     expect(report.stores?.playstation).toMatchObject({
       status: 'read',
-      asks: 'mappings',
+      asks: 'both',
       references: 3,
       mapped: 3,
-      due: 0,
+      due: 3,
+      pricesRead: 3,
+      mappingsDue: 0,
       offers: 3,
-      // The first of the three prices was read twenty-six hours before this run began.
-      oldestPriceAgeMs: 26 * HOUR,
     })
   })
 
@@ -439,7 +438,12 @@ describe('runJob and the PlayStation Store', () => {
     expect(report.stores?.playstation).toMatchObject({ pricesRead: 2, removed: 1, offers: 2 })
     expect(psOffers(await gone.writer.getOne(106))).toEqual([])
     expect(refsOf((await gone.writer.getStoreRefs([106])).get(106))).toEqual({
-      playstation: { titleId: 'CUSA10600_00', conceptId: 10_106, askedAt: stamp(day, 1) },
+      playstation: {
+        titleId: 'CUSA10600_00',
+        conceptId: 10_106,
+        mappedAt: stamp(RUN_AT, 2),
+        askedAt: stamp(day, 1),
+      },
     })
 
     // Six hours on it is not asked about; a day on it is, and the price is back.
@@ -646,7 +650,7 @@ describe('runJob when Sony will not answer', () => {
       silentUntil: until,
     })
     expect(warnings(refused)).toEqual([
-      `::warning::PlayStation Store: Sony refused a request (HTTP 429), so nothing more was asked in this run, after 1 request, and no run asks anything before ${until} — every offer that was not read stands as it was`,
+      `::warning::PlayStation Store: Sony refused a request (HTTP 429), so nothing more was asked in this run, after 1 request, and no run asks anything before ${until} — every offer that was not read stands as it was, and every title not asked about waits for another run`,
     ])
     expect(formatSummary(report)).toContain(
       `1 request; stopped: Sony refused a request (HTTP 429), refused at ${day}, silent until ${until} |`,
@@ -722,7 +726,7 @@ describe('runJob when Sony will not answer', () => {
     expect(report.outcome?.published).toBe(true)
     expect(night.sonyRequests).toHaveLength(1)
     expect(report.stores?.playstation).toMatchObject({
-      asks: 'mappings',
+      asks: 'both',
       mapped: 0,
       unmapped: 3,
       stopped: { reason: 'refused' },
@@ -730,7 +734,7 @@ describe('runJob when Sony will not answer', () => {
     })
     const until = later(RUN_AT, 24 * HOUR)
     expect(warnings(night)).toEqual([
-      `::warning::PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 1 request, and no run asks anything before ${until} — every title that was not answered about waits for another night`,
+      `::warning::PlayStation Store: Sony refused a request (HTTP 403), so nothing more was asked in this run, after 1 request, and no run asks anything before ${until} — every offer that was not read stands as it was, and every title not asked about waits for another run`,
     ])
 
     // The next night comes a day later to the minute, and maps what the refusal left.
@@ -738,8 +742,11 @@ describe('runJob when Sony will not answer', () => {
     const mapped = await runJob(nextNight.deps, FULL)
     expect(nextNight.sonyRequests.map((entry) => entry.kind)).toEqual([
       'concept',
+      'price',
       'concept',
+      'price',
       'concept',
+      'price',
     ])
     expect(mapped.stores?.playstation).toMatchObject({ status: 'read', mapped: 3, unmapped: 0 })
   })
@@ -766,7 +773,7 @@ describe('runJob when Sony will not answer', () => {
 
     expect(run.logs.join('\n')).not.toContain('injected')
     expect(warnings(run)).toEqual([
-      '::warning::PlayStation Store: 3 requests in a row failed, so nothing more was asked in this run, after 3 requests — every offer that was not read stands as it was',
+      '::warning::PlayStation Store: 3 requests in a row failed, so nothing more was asked in this run, after 3 requests — every offer that was not read stands as it was, and every title not asked about waits for another run',
     ])
   })
 
@@ -853,7 +860,8 @@ describe('runJob over what the build before the PlayStation Store published', ()
       gog: 'hollow_cradle',
       playstation: { titleId: 'PPSA10100_00', conceptId: 10_101 },
     })
-    expect((await nextNight.writer.getOne(101))?.offers).toHaveLength(1)
+    // And prices each right after: 101 has its GOG offer and now its PlayStation Store one.
+    expect((await nextNight.writer.getOne(101))?.offers).toHaveLength(2)
   })
 })
 
@@ -907,11 +915,11 @@ describe('runJob and the PlayStation Store, through the Upstash adapter', () => 
     const asking = await traffic(true)
     const refused = await traffic(false)
 
-    // The night: three dates of asking and three concepts, against the one date of the request
-    // that was refused and the moment of the refusal. Each a command in a request of its own;
-    // and each world looks once for a refusal to keep silent after.
-    expect(asking.full.requests - refused.full.requests).toBe(4)
-    expect(asking.full.commands - refused.full.commands).toBe(4)
+    // The night: three dates of mapping, three concepts and three dates of pricing, against the
+    // one date of the request that was refused and the moment of the refusal. Each a command in
+    // a request of its own; and each world looks once for a refusal to keep silent after.
+    expect(asking.full.requests - refused.full.requests).toBe(7)
+    expect(asking.full.commands - refused.full.commands).toBe(7)
     // The prices run: three dates of asking, where the refused world keeps silent, and would
     // have no concept to ask about if it did not.
     expect(asking.prices.requests - refused.prices.requests).toBe(3)
@@ -929,10 +937,10 @@ describe('formatSummary and the PlayStation Store', () => {
       '| Store references | 5 of 9 games on GOG, the Xbox store or the PlayStation Store at RAWG, 5 asked; 1 with a GOG page, 1 with a Microsoft Store product, 3 with a PlayStation title; RAWG: 2 lookups this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
-      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 with none, 0 waiting to be; 3 titles answered about of 3 due, 0 of them with no concept, 0 failed; prices are read by the prices runs: 0 offers carried, no price to date; 3 requests; everything due was asked |',
+      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 with none, 0 waiting to be; 0 prices read of 0 due, 0 removed; 3 titles mapped this run of 3 waiting, 0 with no concept, 3 of them priced this run; 0 failed; 3 offers published, the oldest read under an hour ago; 6 requests; everything due was asked |',
     )
     expect(harness.logs.filter((line) => line.startsWith('playstation:'))).toEqual([
-      'playstation: 3 references; 3 titles answered about of 3 due, 0 of them with no concept, 0 failed, in 3 requests',
+      'playstation: 3 references; 0 prices read of 0 due, 0 offers removed; 3 titles answered about of 3 due, 0 of them with no concept, 3 of them priced, 0 failed, in 6 requests',
     ])
   })
 
@@ -940,11 +948,11 @@ describe('formatSummary and the PlayStation Store', () => {
     const { night, prices, at } = await firstPrices()
 
     expect(prices.logs.filter((line) => line.startsWith('playstation:'))).toEqual([
-      'playstation: 3 references; 3 prices read of 3 due, 0 offers removed, 0 failed, in 3 requests',
+      'playstation: 3 references; 3 prices read of 3 due, 0 offers removed; 0 titles answered about of 0 due, 0 of them with no concept, 0 of them priced, 0 failed, in 3 requests',
     ])
     const idle = nextRun(night, later(at, 6 * HOUR))
     expect(formatSummary(await runJob(idle.deps, PRICES))).toContain(
-      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 with none, 0 waiting to be; 0 prices read of 0 due, 0 removed, 0 failed; 3 offers published, the oldest read 6 h ago; 0 requests; everything due was asked |',
+      '| PlayStation Store prices | 3 references, 3 mapped to a concept, 0 with none, 0 waiting to be; 0 prices read of 0 due, 0 removed; 0 titles mapped this run of 0 waiting, 0 with no concept, 0 of them priced this run; 0 failed; 3 offers published, the oldest read 6 h ago; 0 requests; everything due was asked |',
     )
   })
 
@@ -969,7 +977,7 @@ describe('formatSummary and the PlayStation Store', () => {
   }
   const read: NonNullable<StoresReport['playstation']> = {
     status: 'read',
-    asks: 'prices',
+    asks: 'both',
     references: 810,
     mapped: 640,
     withoutConcept: 60,
@@ -978,9 +986,12 @@ describe('formatSummary and the PlayStation Store', () => {
     pricesRead: 220,
     mappingsRead: 0,
     noConcept: 0,
+    mappingsDue: 0,
+    pricedAfterMapping: 0,
     removed: 3,
     failed: 2,
     requests: 225,
+    limit: 225,
     concepts: 610,
     offers: 598,
     oldestPriceAgeMs: 31 * HOUR + 59 * MINUTE,
@@ -1013,7 +1024,7 @@ describe('formatSummary and the PlayStation Store', () => {
     expect(
       rowOf({ stopped: { reason: 'requests', detail: 'the run has made its 225 requests' } }),
     ).toContain(
-      `| PlayStation Store prices | ${MAPPING}; 220 prices read of 300 due, 3 removed, 2 failed; 598 offers published, the oldest read 31 h ago; 225 requests; stopped at its requests for one run, the rest waits for the next |`,
+      `| PlayStation Store prices | ${MAPPING}; 220 prices read of 300 due, 3 removed; 0 titles mapped this run of 0 waiting, 0 with no concept, 0 of them priced this run; 2 failed; 598 offers published, the oldest read 31 h ago; 225 requests; stopped at its requests for one run, the rest waits for the next |`,
     )
     expect(
       rowOf({ stopped: { reason: 'time', detail: 'the run has used its forty minutes' } }),
@@ -1032,24 +1043,23 @@ describe('formatSummary and the PlayStation Store', () => {
     ).toContain('225 requests; stopped: 3 requests in a row failed |')
   })
 
-  it('says what the nightly run mapped, and that it reads no price', () => {
-    const night = {
-      asks: 'mappings',
-      due: 170,
+  it('says what a run mapped, and how many of those it priced the same run', () => {
+    const run = {
+      due: 0,
+      pricesRead: 150,
+      mappingsDue: 170,
       mappingsRead: 168,
       noConcept: 17,
-      pricesRead: 0,
+      pricedAfterMapping: 150,
       removed: 0,
-      requests: 170,
+      requests: 200,
     } as const
-    expect(rowOf(night)).toContain(
-      `| PlayStation Store prices | ${MAPPING}; 168 titles answered about of 170 due, 17 of them with no concept, 2 failed; prices are read by the prices runs: 598 offers carried, the oldest read 31 h ago; 170 requests; everything due was asked |`,
+    expect(rowOf(run)).toContain(
+      `| PlayStation Store prices | ${MAPPING}; 0 prices read of 0 due, 0 removed; 168 titles mapped this run of 170 waiting, 17 with no concept, 150 of them priced this run; 2 failed; 598 offers published, the oldest read 31 h ago; 200 requests; everything due was asked |`,
     )
-    // A night with more waiting than it asks about says how many it left.
-    expect(
-      rowOf({ ...night, due: 460, mappingsRead: 198, requests: 200, heldOver: 260 }),
-    ).toContain(
-      '198 titles answered about of 460 due, 17 of them with no concept, 2 failed; prices are read by the prices runs: 598 offers carried, the oldest read 31 h ago; 200 requests; the 200 titles of one night were asked about, 260 wait for another night |',
+    // A run with more waiting than it asks about says how many it left.
+    expect(rowOf({ ...run, mappingsDue: 460, mappingsRead: 198, heldOver: 260 })).toContain(
+      '198 titles mapped this run of 460 waiting, 17 with no concept, 150 of them priced this run; 2 failed; 598 offers published, the oldest read 31 h ago; 200 requests; the 200 titles of one run were asked about, 260 wait for the next run |',
     )
   })
 

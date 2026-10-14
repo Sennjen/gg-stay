@@ -197,13 +197,13 @@ describe('storeRefsFromLinks and the PlayStation Store', () => {
     const asked = '2026-10-13T06:15:00.000Z'
     const previous: IndexedStoreRefs = {
       gog: 'an_old_slug',
-      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, askedAt: asked },
+      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, mappedAt: asked, askedAt: asked },
     }
 
     // Everything RAWG knows is replaced; what was never RAWG's is kept.
     expect(storeRefsFromLinks([{ store_id: 3, url: GTA }], ['gog'], previous)).toEqual({
       gog: null,
-      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, askedAt: asked },
+      playstation: { titleId: 'CUSA00419_00', conceptId: 201_930, mappedAt: asked, askedAt: asked },
     })
     // "Sony has none" is an answer about the title too.
     expect(
@@ -235,18 +235,37 @@ describe('usableStoreRefs and the PlayStation Store', () => {
   const corrupt = (record: unknown) => usableStoreRefs(record as never)
 
   it('passes on a title with what Sony said about it, and when it was asked, in each state', () => {
+    const mappedAt = '2026-10-12T02:30:00.000Z'
     const askedAt = '2026-10-13T06:15:00.000Z'
     for (const playstation of [
       { titleId: 'CUSA00419_00' },
-      // Asked, and the request failed: a date and no answer.
-      { titleId: 'CUSA00419_00', askedAt },
-      { titleId: 'CUSA00419_00', conceptId: null, askedAt },
+      // Asked for its concept, and the request failed: a date and no answer.
+      { titleId: 'CUSA00419_00', mappedAt },
+      { titleId: 'CUSA00419_00', conceptId: null, mappedAt },
       { titleId: 'PPSA01721_00', conceptId: 201_930 },
-      { titleId: 'PPSA01721_00', conceptId: 201_930, askedAt },
+      { titleId: 'PPSA01721_00', conceptId: 201_930, mappedAt },
+      { titleId: 'PPSA01721_00', conceptId: 201_930, mappedAt, askedAt },
     ]) {
       expect(usableStoreRefs({ playstation })).toEqual({ playstation })
     }
     expect(usableStoreRefs({ playstation: null })).toEqual({})
+  })
+
+  it('reads a record with one date, as the build before wrote it, as mapped then and never priced', () => {
+    const askedAt = '2026-10-13T02:40:00.000Z'
+    for (const conceptId of [201_930, null, undefined]) {
+      const before = {
+        titleId: 'PPSA01721_00',
+        ...(conceptId === undefined ? {} : { conceptId }),
+        askedAt,
+      }
+      const { askedAt: _price, ...mapped } = { ...before, mappedAt: askedAt }
+      expect(usableStoreRefs({ playstation: before })).toEqual({ playstation: mapped })
+    }
+    // A date that is no date is no mapping either.
+    expect(
+      usableStoreRefs({ playstation: { titleId: 'PPSA01721_00', conceptId: 7, askedAt: 'today' } }),
+    ).toEqual({ playstation: { titleId: 'PPSA01721_00', conceptId: 7 } })
   })
 
   it('ignores whatever else a record holds, beside the stores and inside the reference', () => {
@@ -563,6 +582,7 @@ describe('the PlayStation title from the links a record keeps', () => {
       playstation: {
         titleId: 'CUSA10600_00',
         conceptId: 10_106,
+        mappedAt: '2026-10-12T02:30:00.000Z',
         askedAt: '2026-10-13T06:15:00.000Z',
       },
       links: [[3, PS4]],

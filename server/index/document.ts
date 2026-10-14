@@ -275,10 +275,19 @@ export interface IndexedStoreRefs {
      */
     conceptId?: number | null
     /**
-     * When Sony was last asked anything about the game — which concept its title belongs to, or
-     * what that concept costs — whatever came of the request (ISO timestamp). It is written
-     * before the request leaves, and it is what "once a day" is counted from: not the date of an
-     * offer, which only a published version carries and a game without a price has not got.
+     * When Sony was last asked which concept the title belongs to, whatever came of it (ISO
+     * timestamp). Written before the request leaves; once a day at most, and "no concept" is
+     * asked again thirty days after it.
+     */
+    mappedAt?: string
+    /**
+     * When Sony was last asked what the game's concept costs, whatever came of the request (ISO
+     * timestamp). Written before the request leaves, and it is what "once a day" is counted from
+     * for the price: not the date of an offer, which only a published version carries and a game
+     * without a price has not got.
+     *
+     * A record written before the two were apart has `askedAt` and no `mappedAt`: its one date
+     * was the mapping's, and it is read so (`usableStoreRefs`).
      */
     askedAt?: string
   } | null

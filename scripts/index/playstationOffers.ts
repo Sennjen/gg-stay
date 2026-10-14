@@ -25,29 +25,33 @@ import { PLAYSTATION_OFFER_FRESH_FOR_MS } from '../../server/index/offerRules'
  * is nothing like that one in pace: Sony is asked about one game a request, ten seconds apart, a
  * couple of hundred times a run at the most (`playstation.ts`).
  *
- * **Each kind of run asks one kind of question, or none.**
+ * **A run that asks maps and prices, in that order of need.** Prices runs and the nightly full
+ * run alike (a languages run asks nothing):
  *
- * - **A prices run reads prices**, for the games whose title Sony has named a concept for: the
- *   concept asked about longest ago first, and one never asked about before any other. Four runs
- *   a day at 225 requests each are 900 price reads a day.
- * - **The nightly full run maps titles** — which concept a title belongs to — for the games that
- *   have a title and no answer yet, at most `PLAYSTATION_MAPPINGS_PER_RUN` a night, right after
- *   the sweep that finds the titles. Mapping a thousand titles takes five nights. It has a run
- *   of its own because a ration shared with the prices is a ration the prices take whole.
- * - **A languages run asks nothing.**
+ * 1. **The prices that are due**, for the games whose title Sony has named a concept for: the
+ *    concept asked about longest ago first, and one never asked about before any other.
+ * 2. **Then the titles waiting for a concept**, at most `PLAYSTATION_MAPPINGS_PER_RUN` a run and
+ *    only with what the run's requests leave — and a title Sony has just named a concept for is
+ *    priced right after, in the same run, at the same ten seconds, so that a game mapped at night
+ *    has its price that night and not twenty hours later.
+ *
+ * The prices come first because they are what a page shows; the mappings take what is left. A
+ * nightly run asks at most `PLAYSTATION_NIGHT_REQUESTS`, as it did when it only mapped, so a day
+ * is still at most four prices runs of 225 and one night of 200: 1 100 requests.
  *
  * Every kind of run still reports the store: how many games have a title, a concept and an
  * offer, how old the oldest price is, and what the rule about references cost.
  *
- * **A game is asked about once a day, by the date of the asking** (`askedAt` on the game's
- * reference). The date is written to the permanent mapping *before* the request leaves, whichever
- * question it is and whatever comes of it — a price, no price, a failure, a refusal — and a game
- * asked about in the last twenty hours is not asked about again (`PLAYSTATION_REREAD_AFTER_MS`).
+ * **Each question is put once a day, by the date of its asking**: `mappedAt` on the game's
+ * reference for which concept its title belongs to, `askedAt` for what that concept costs. The
+ * date is written to the permanent mapping *before* the request leaves, whatever comes of it — a
+ * price, no price, a failure, a refusal — and a question put in the last twenty hours is not put
+ * again (`PLAYSTATION_REREAD_AFTER_MS`). The two are separate: mapping a title does not keep its
+ * concept from being priced right after.
  * That is what the conditions the store is read on come to for one game, and it is why the date
  * is not the offer's: an offer is dated in a document that is published forty minutes later, or
  * not at all, and a game whose request failed has no new date there to show. So a run that does
- * not publish, and a game Sony fails for every time, are each asked about once a day and no more;
- * and a title the nightly run has mapped is first priced by the prices run twenty hours on.
+ * not publish, and a game Sony fails for every time, are each asked about once a day and no more.
  *
  * **One concept, one request.** RAWG files editions, remasters and standalone parts as games of
  * their own, and Sony gathers them in one concept: the games that share a concept are asked about
@@ -63,7 +67,7 @@ import { PLAYSTATION_OFFER_FRESH_FOR_MS } from '../../server/index/offerRules'
  * **And the answers are believed only so far.** A change of shape on Sony's side is answered by
  * every request, in a run that ends green. So a run that would take away most of the offers it
  * asked about takes none (`removalsNotBelieved`), a run that asked about twenty games and found a
- * price for none removes nothing either (`nothingPriced`), and a night on which most titles are
+ * price for none removes nothing either (`nothingPriced`), and a run in which most titles are
  * said to have no concept remembers none of those answers (`noConceptNotBelieved`). Each is the
  * floor the other stores' reads stand on, measured on what one run asked.
  *
@@ -87,15 +91,18 @@ import { PLAYSTATION_OFFER_FRESH_FOR_MS } from '../../server/index/offerRules'
 
 const STORE = 'playstation-store'
 
-/** A game is asked about again once its last asking is this old: twenty hours, so once a day. */
+/**
+ * A question is put again once it was last put this long ago: twenty hours, so once a day. The
+ * price and the mapping each by their own date (`askedAt`, `mappedAt`).
+ */
 export const PLAYSTATION_REREAD_AFTER_MS = 20 * 3_600_000
 
 /**
- * The most titles one nightly run asks Sony to name a concept for: two hundred, about thirty-five
- * minutes of requests ten seconds apart, so that a catalog of a thousand titles is mapped in five
- * nights. It is under the transport's own limits on purpose — 225 requests and forty minutes a
- * run (`playstation.ts`) — and those bound a night whatever this number says: a slow Sony ends
- * the mapping at the forty minutes with fewer.
+ * The most titles one run asks Sony to name a concept for: two hundred. They come after the
+ * prices that are due, and take only what the run's requests leave; each title mapped is priced
+ * right after. The transport's own limits — 225 requests and forty minutes a run
+ * (`playstation.ts`) — and a night's `PLAYSTATION_NIGHT_REQUESTS` bound a run whatever this number
+ * says.
  */
 export const PLAYSTATION_MAPPINGS_PER_RUN = 200
 
@@ -136,11 +143,23 @@ export const PLAYSTATION_PRICE_OLD_MS = 40 * 3_600_000
  */
 export const PLAYSTATION_PRICE_READS_A_DAY = 4 * PLAYSTATION_REQUESTS_PER_RUN
 
+/**
+ * The most requests a nightly full run makes to Sony, prices and mappings together: two hundred,
+ * the night's ration from when that run only mapped. The prices runs have the transport's own
+ * 225. So a day is at most 4 × 225 + 200 = 1 100 requests, as it was.
+ */
+export const PLAYSTATION_NIGHT_REQUESTS = 200
+
 /** What a run asks Sony, by its kind: see the module's note. */
-export type PlaystationAsks = 'prices' | 'mappings' | 'nothing'
+export type PlaystationAsks = 'both' | 'nothing'
 
 export interface PlaystationStageOptions {
   asks: PlaystationAsks
+  /**
+   * The most requests this stage may make; the transport's `PLAYSTATION_REQUESTS_PER_RUN` when
+   * left out. It can only lower the transport's cap, never raise it.
+   */
+  limit?: number
   /** Why the run's version is going to be refused publication, or `null` when it is not. */
   refusal?: string | null
 }
@@ -178,22 +197,28 @@ export interface PlaystationReport {
   /** Of them, games Sony has not answered about yet — after this run. */
   unmapped: number
   /**
-   * What was due when the stage began, in games: those whose price was to be read, in a prices
-   * run; those whose title was to be mapped, in a full run.
+   * Games whose price was due when the stage began; the titles waiting to be mapped are
+   * `mappingsDue`.
    */
   due: number
-  /** Games this run's read gave a price. */
+  /** Games this run's reads gave a price: those that were due, and those mapped this run. */
   pricesRead: number
   /** Games whose title Sony answered about in this run, with a concept or with none. */
   mappingsRead: number
   /** Of them, games whose title Sony said has no concept. */
   noConcept: number
+  /** Games whose title was waiting for a concept when the stage began. */
+  mappingsDue: number
+  /** Of the games mapped to a concept this run, those whose price was read this run too. */
+  pricedAfterMapping: number
   /** Offers this run took away because Sony answered with no price anyone can pay. */
   removed: number
   /** Requests of either kind that failed; their games are as they were. */
   failed: number
   /** Requests this run made to Sony, whatever came of them. */
   requests: number
+  /** The most requests this run's stage could make (`PlaystationStageOptions.limit`). */
+  limit: number
   /** Concepts those titles belong to — after this run. One concept is one price to read. */
   concepts: number
   /** Games the run publishes with an offer of this store, read now or carried. */
@@ -304,11 +329,17 @@ function offerOf(game: IndexedGame): IndexedOffer | undefined {
   return game.offers?.find((offer) => offer.store === STORE)
 }
 
-/** When the reference says Sony was last asked about the game, as it stands; `null` when it does not. */
-function stampOf(ref: PlaystationRef): number | null {
-  const at = typeof ref.askedAt === 'string' ? Date.parse(ref.askedAt) : Number.NaN
+/** A date on a reference as a moment, or `null` when there is none that can be read. */
+function momentOf(iso: string | undefined): number | null {
+  const at = typeof iso === 'string' ? Date.parse(iso) : Number.NaN
   return Number.isFinite(at) ? at : null
 }
+
+/** When Sony was last asked what the game's concept costs, or `null`. */
+const pricedAtOf = (ref: PlaystationRef): number | null => momentOf(ref.askedAt)
+
+/** When Sony was last asked which concept the game's title belongs to, or `null`. */
+const mappedAtOf = (ref: PlaystationRef): number | null => momentOf(ref.mappedAt)
 
 /** The more popular game first, and the lower id between two as popular: an order that is one order. */
 function byPopularity(left: IndexedGame, right: IndexedGame): number {
@@ -318,11 +349,13 @@ function byPopularity(left: IndexedGame, right: IndexedGame): number {
 /**
  * The games gathered into the questions they are, by what the question is about: the games of
  * one concept are one price to read, and the games of one title are one title to map. A question
- * was last put when any of its games was last asked about.
+ * was last put when any of its games was last asked it (`stampOf`: the price's date, or the
+ * mapping's).
  */
 function questionsOf(
   games: readonly Referenced[],
   key: (ref: PlaystationRef) => string | number,
+  stampOf: (ref: PlaystationRef) => number | null,
 ): Question[] {
   const byKey = new Map<string | number, Referenced[]>()
   for (const entry of games) {
@@ -432,9 +465,12 @@ export async function refreshPlaystationOffers(
     pricesRead: 0,
     mappingsRead: 0,
     noConcept: 0,
+    mappingsDue: 0,
+    pricedAfterMapping: 0,
     removed: 0,
     failed: 0,
     requests: 0,
+    limit: Math.min(options.limit ?? PLAYSTATION_REQUESTS_PER_RUN, PLAYSTATION_REQUESTS_PER_RUN),
     ...offersNow(games, deps.clock.now()),
     stopped: null,
     ...(verdict.dropped > 0 ? { dropped: verdict.dropped } : {}),
@@ -569,80 +605,88 @@ export async function refreshPlaystationOffers(
 
   // A date ahead of the clock was not written when it says. Nothing is known of when the game
   // was asked, and for this store the safe reading is "just now": it is written back as now,
-  // and the game is asked about in a day rather than first, by every run, until its date passes.
+  // and the question is put in a day rather than first, by every run, until its date passes.
+  const now = new Date(startedAt).toISOString()
   await remember(
-    referenced.filter(({ ref }) => (stampOf(ref) ?? 0) > startedAt),
-    (ref) => ({ ...ref, askedAt: new Date(startedAt).toISOString() }),
+    referenced.filter(
+      ({ ref }) => (pricedAtOf(ref) ?? 0) > startedAt || (mappedAtOf(ref) ?? 0) > startedAt,
+    ),
+    (ref) => ({
+      ...ref,
+      ...((pricedAtOf(ref) ?? 0) > startedAt ? { askedAt: now } : {}),
+      ...((mappedAtOf(ref) ?? 0) > startedAt ? { mappedAt: now } : {}),
+    }),
   )
   const isDue = ({ at }: Question, after: number): boolean => at === null || startedAt - at >= after
+  const limit = Math.min(
+    options.limit ?? PLAYSTATION_REQUESTS_PER_RUN,
+    PLAYSTATION_REQUESTS_PER_RUN,
+  )
+  /** Whether the stage's own ration, under the transport's, has a request left. */
+  const withinLimit = (): boolean => store.requests() - requestsBefore < limit
+  const conceptOf = (ref: PlaystationRef) => ref.conceptId as number
+  const hasConcept = ({ ref }: Referenced) => typeof ref.conceptId === 'number'
 
-  if (options.asks === 'prices') {
-    const due = questionsOf(
-      referenced.filter(({ ref }) => typeof ref.conceptId === 'number'),
-      (ref) => ref.conceptId as number,
-    )
-      .filter((question) => isDue(question, PLAYSTATION_REREAD_AFTER_MS))
-      .sort(byAge)
+  let pricesRead = 0
+  let answered = 0
+  /** Games that carried an offer and were answered about, and those of them left with no price. */
+  let answeredCarrying = 0
+  const removals: IndexedGame[] = []
+  /**
+   * What this run heard about each concept it priced, and when, to give a game mapped to it
+   * afterwards: the same price, under the date it was read.
+   */
+  const heardOf = new Map<number, { answer: PlaystationProduct | null; readAt: string }>()
 
-    let pricesRead = 0
-    let answered = 0
-    /** Games that carried an offer and were answered about, and those of them left with no price. */
-    let answeredCarrying = 0
-    const removals: IndexedGame[] = []
-
-    for (const question of due) {
-      if (!mayAsk()) {
-        cutShort = true
-        break
-      }
-      const conceptId = question.games[0]!.ref.conceptId as number
-      const askedAt = isoNow(deps.clock)
-      await remember(question.games, (ref) => ({ ...ref, askedAt }))
-      const heard = await ask(`the price of concept ${conceptId}`, () => store.price(conceptId))
-      if (heard === 'stopped') {
-        cutShort = true
-        break
-      }
-      if (heard === 'failed') continue
-
-      const readAt = isoNow(deps.clock)
-      for (const { game } of question.games) {
-        answered += 1
-        const carried = offerOf(game) !== undefined
-        if (carried) answeredCarrying += 1
-        if (heard.answer) {
-          setOffer(game, STORE, toOffer(heard.answer, readAt))
-          pricesRead += 1
-          // Held until the run's answers can be weighed together.
-        } else if (carried) removals.push(game)
-      }
+  /** The answer about a concept, given to these games of it. */
+  function apply(
+    entries: readonly Referenced[],
+    answer: PlaystationProduct | null,
+    readAt: string,
+  ) {
+    for (const { game } of entries) {
+      answered += 1
+      const carried = offerOf(game) !== undefined
+      if (carried) answeredCarrying += 1
+      if (answer) {
+        setOffer(game, STORE, toOffer(answer, readAt))
+        pricesRead += 1
+        // Held until the run's answers can be weighed together.
+      } else if (carried) removals.push(game)
     }
-    lock.assertHeld()
-
-    const unbelieved =
-      removalsNotBelieved(answeredCarrying, removals.length) ?? nothingPriced(answered, pricesRead)
-    if (!unbelieved) for (const game of removals) setOffer(game, STORE, null)
-    const removed = unbelieved ? 0 : removals.length
-    const dueGames = due.reduce((count, question) => count + question.games.length, 0)
-
-    return done(
-      {
-        status: unbelieved ? 'failed' : 'read',
-        due: dueGames,
-        pricesRead,
-        removed,
-        ...offersNow(games, deps.clock.now()),
-        ...(unbelieved ? { error: unbelieved } : {}),
-      },
-      `${pricesRead} prices read of ${dueGames} due, ${removed} offers removed`,
-    )
   }
 
-  // The nightly run: titles Sony has not answered about, and titles it said "no concept" about
-  // thirty days ago or more — except any asked about in the last twenty hours.
-  const due = questionsOf(
-    referenced.filter(({ ref }) => typeof ref.conceptId !== 'number'),
+  /** One price question: dated, put, and its answer given to every game of the concept. */
+  async function price(question: Question): Promise<'read' | 'failed' | 'stopped'> {
+    if (!mayAsk() || !withinLimit()) return 'stopped'
+    const conceptId = conceptOf(question.games[0]!.ref)
+    const askedAt = isoNow(deps.clock)
+    await remember(question.games, (ref) => ({ ...ref, askedAt }))
+    const heard = await ask(`the price of concept ${conceptId}`, () => store.price(conceptId))
+    if (heard === 'stopped' || heard === 'failed') return heard
+    const readAt = isoNow(deps.clock)
+    heardOf.set(conceptId, { answer: heard.answer, readAt })
+    apply(question.games, heard.answer, readAt)
+    return 'read'
+  }
+
+  // First the prices that are due.
+  const due = questionsOf(referenced.filter(hasConcept), conceptOf, pricedAtOf)
+    .filter((question) => isDue(question, PLAYSTATION_REREAD_AFTER_MS))
+    .sort(byAge)
+  for (const question of due) {
+    if ((await price(question)) === 'stopped') {
+      cutShort = true
+      break
+    }
+  }
+
+  // Then the titles waiting for a concept: never answered, or answered "no concept" thirty days
+  // ago or more — except any asked in the last twenty hours.
+  const waiting = questionsOf(
+    referenced.filter((entry) => !hasConcept(entry)),
     (ref) => ref.titleId,
+    mappedAtOf,
   )
     .filter((question) =>
       question.games.some(({ ref }) => ref.conceptId === undefined)
@@ -650,21 +694,21 @@ export async function refreshPlaystationOffers(
         : isDue(question, PLAYSTATION_NO_CONCEPT_KEPT_MS),
     )
     .sort(byAge)
+  const thisRun = waiting.slice(0, PLAYSTATION_MAPPINGS_PER_RUN)
 
   let mappingsRead = 0
+  let pricedAfterMapping = 0
   const none: Referenced[] = []
-  const tonight = due.slice(0, PLAYSTATION_MAPPINGS_PER_RUN)
-
-  for (const question of tonight) {
-    if (!mayAsk()) {
+  for (const question of cutShort ? [] : thisRun) {
+    if (!mayAsk() || !withinLimit()) {
       cutShort = true
       break
     }
     const { titleId } = question.games[0]!.ref
-    const askedAt = isoNow(deps.clock)
+    const mappedAt = isoNow(deps.clock)
     // What was known of the title's concept goes with the asking: "none, thirty days ago" is
     // not an answer any more once the question is put again.
-    await remember(question.games, () => ({ titleId, askedAt }))
+    await remember(question.games, () => ({ titleId, mappedAt }))
     const heard = await ask(`the concept of title ${titleId}`, () => store.concept(titleId))
     if (heard === 'stopped') {
       cutShort = true
@@ -674,26 +718,80 @@ export async function refreshPlaystationOffers(
 
     mappingsRead += question.games.length
     const conceptId = heard.answer
-    // A concept is kept as soon as it is named. "No concept" is held until the night's answers
+    // A concept is kept as soon as it is named. "No concept" is held until the run's answers
     // can be weighed together: it is the one answer that stands for a month.
-    if (conceptId === null) none.push(...question.games)
-    else await remember(question.games, (ref) => ({ ...ref, conceptId }))
+    if (conceptId === null) {
+      none.push(...question.games)
+      continue
+    }
+    await remember(question.games, (ref) => ({ ...ref, conceptId }))
+
+    // And its price, right after: every game of the concept is one question, as above.
+    const before = pricesRead
+    const heardBefore = heardOf.get(conceptId)
+    if (heardBefore) {
+      // Priced earlier in this run, for another game of it: the same answer and the same date
+      // of the asking, and no request.
+      const askedAt = referenced.find(
+        (entry) => entry.ref.conceptId === conceptId && !question.games.includes(entry),
+      )?.ref.askedAt
+      if (askedAt) await remember(question.games, (ref) => ({ ...ref, askedAt }))
+      apply(question.games, heardBefore.answer, heardBefore.readAt)
+    } else {
+      const [concept] = questionsOf(
+        referenced.filter((entry) => entry.ref.conceptId === conceptId),
+        conceptOf,
+        pricedAtOf,
+      )
+      if (concept && isDue(concept, PLAYSTATION_REREAD_AFTER_MS)) {
+        const priced = await price(concept)
+        if (priced === 'stopped') {
+          cutShort = true
+          break
+        }
+      }
+    }
+    if (pricesRead > before) {
+      pricedAfterMapping += question.games.filter(({ game }) => offerOf(game) !== undefined).length
+    }
   }
   lock.assertHeld()
 
-  const unbelieved = noConceptNotBelieved(mappingsRead, none.length)
-  if (!unbelieved) await remember(none, (ref) => ({ ...ref, conceptId: null }))
-  const dueGames = due.reduce((count, question) => count + question.games.length, 0)
+  const unbelievedPrices =
+    removalsNotBelieved(answeredCarrying, removals.length) ?? nothingPriced(answered, pricesRead)
+  if (!unbelievedPrices) for (const game of removals) setOffer(game, STORE, null)
+  const removed = unbelievedPrices ? 0 : removals.length
+  const unbelievedConcepts = noConceptNotBelieved(mappingsRead, none.length)
+  if (!unbelievedConcepts) await remember(none, (ref) => ({ ...ref, conceptId: null }))
+  const unbelieved = [unbelievedPrices, unbelievedConcepts].filter(Boolean).join('; ')
+  const gamesIn = (questions: readonly Question[]) =>
+    questions.reduce((count, question) => count + question.games.length, 0)
+  const dueGames = gamesIn(due)
+  const waitingGames = gamesIn(waiting)
+
+  // The stage's own ration ran out before the transport's: said as the transport says its own.
+  const limited =
+    cutShort && store.stopped() === null && !withinLimit()
+      ? { reason: 'requests' as const, detail: `the run has made its ${limit} requests` }
+      : null
 
   return done(
     {
       status: unbelieved ? 'failed' : 'read',
       due: dueGames,
+      pricesRead,
+      removed,
+      mappingsDue: waitingGames,
       mappingsRead,
       noConcept: none.length,
-      ...(due.length > tonight.length ? { heldOver: due.length - tonight.length } : {}),
+      pricedAfterMapping,
+      ...offersNow(games, deps.clock.now()),
+      ...(waiting.length > thisRun.length ? { heldOver: waiting.length - thisRun.length } : {}),
+      ...(limited ? { stopped: limited } : {}),
       ...(unbelieved ? { error: unbelieved } : {}),
     },
-    `${mappingsRead} titles answered about of ${dueGames} due, ${none.length} of them with no concept`,
+    `${pricesRead - pricedAfterMapping} prices read of ${dueGames} due, ${removed} offers removed; ` +
+      `${mappingsRead} titles answered about of ${waitingGames} due, ${none.length} of them with ` +
+      `no concept, ${pricedAfterMapping} of them priced`,
   )
 }
