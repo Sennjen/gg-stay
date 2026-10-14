@@ -716,6 +716,51 @@ describe('withCheapest', () => {
     expect(marked([steam(675), rowOf(gogOffer(), RATE)])).toEqual(['gog'])
   })
 
+  describe('and the PlayStation Store, which is never compared', () => {
+    /** A PlayStation Store row at so many whole hryvnia, read when the other offers were. */
+    const playstation = (uah: number): StoreOffer =>
+      rowOf(
+        {
+          store: 'playstation-store',
+          title: 'Grand Theft Auto Online (PlayStation\u00AE5)',
+          amount: uah * 100,
+          regularAmount: uah * 100,
+          currency: 'UAH',
+          discountPercent: 0,
+          url: 'https://store.playstation.com/uk-ua/product/EP1004-PPSA01721_00-GTAOSTANDALONE01',
+          updatedAt: gogOffer().updatedAt,
+        },
+        RATE,
+      )
+
+    it('is never marked, though it is the lowest price on the page by far', () => {
+      expect(marked([steam(675), playstation(95)])).toEqual([])
+      expect(marked([steam(675), rowOf(microsoftOffer(), RATE), playstation(95)])).toEqual([
+        'xbox-store',
+      ])
+    })
+
+    it('is no yardstick: the other rows are marked exactly as they would be without it', () => {
+      for (const others of [
+        [steam(400), rowOf(gogOffer(), RATE)],
+        [steam(675), rowOf(gogOffer(), RATE)],
+        [steam(386), rowOf(microsoftOffer(), RATE)],
+        [steam(425), rowOf(gogOffer(), RATE)],
+        [steam(385), rowOf(microsoftOffer(), RATE)],
+      ]) {
+        const without = marked(others)
+        for (const uah of [0, 95, 385, 404, 5_000]) {
+          expect(marked([...others, playstation(uah)]), `${without} and ${uah} ₴`).toEqual(without)
+          expect(marked([playstation(uah), ...others])).toEqual(without)
+        }
+      }
+    })
+
+    it('does not count as a second row: Steam alone beside it is marked nothing', () => {
+      expect(marked([steam(675), playstation(5_000)])).toEqual([])
+    })
+  })
+
   it('marks Steam when its price is the lowest', () => {
     expect(marked([steam(400), rowOf(gogOffer(), RATE)])).toEqual(['steam'])
     expect(marked([steam(300), rowOf(microsoftOffer(), RATE)])).toEqual(['steam'])

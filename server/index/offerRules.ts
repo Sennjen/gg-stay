@@ -221,6 +221,28 @@ export function readableOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[
 export const PAGE_OFFER_STORES: readonly OfferStore[] = ['gog', 'xbox-store']
 
 /**
+ * The stores whose prices are shown and never compared: the PlayStation Store.
+ *
+ * It is a console's store, and the product it prices for a game is the one Sony puts first for
+ * the game's concept — sometimes another thing than the game altogether (for Grand Theft Auto V,
+ * Grand Theft Auto Online), and always a console's copy where the other stores sell a computer's.
+ * So its row says what that product costs, under the product's own name, and is never weighed
+ * against the rest: it is never marked «Найдешевше», it is not a yardstick for the row that is,
+ * and a card never names it as cheaper than Steam, nor fails to name another store because of
+ * it (`docs/specs/2026-10-13-playstation-store-prices-design.md`, section 4).
+ */
+export const UNCOMPARED_OFFER_STORES: readonly OfferStore[] = ['playstation-store']
+
+/**
+ * Whether a store's price takes part in a comparison — the cheapest mark on a game page
+ * (`withCheapest`, `toGraphql.ts`) and a card's line (`cheaperAtOf`). Every store does but those
+ * in `UNCOMPARED_OFFER_STORES`; Steam, which is not an offer store at all, does.
+ */
+export function isComparedStore(store: string): boolean {
+  return !(UNCOMPARED_OFFER_STORES as readonly string[]).includes(store)
+}
+
+/**
  * The offers a page or a card may use at all: the readable ones, of a store whose offers the
  * pages know how to show (`PAGE_OFFER_STORES`). The one door a document's offers go through on
  * their way to anything a visitor sees — a row's price, the cheapest mark, a card's line.
@@ -383,7 +405,8 @@ export function markedCheapest<Row extends PricedRow>(rows: readonly Row[]): Row
  * names none — which is nearly always.
  *
  * It is the store of the game's cheapest price (`cheapestRow`, over Steam's price and the offers
- * of the stores the document lists the game on) when that store is not Steam and its amount is
+ * of the stores the document lists the game on, the stores that are never compared left out:
+ * `isComparedStore`) when that store is not Steam and its amount is
  * at least `CHEAPER_MARGIN_PERCENT` below Steam's. So, each of them `null`:
  *
  * - **No Steam price to be cheaper than.** The card's price is the document's Steam price, and a
@@ -418,6 +441,7 @@ export function cheaperAtOf(
   if (game.priceUah === null || !isFreshAt(game.priceUpdatedAt, now)) return null
   const steam: PricedRow = { store: 'steam', uah: game.priceUah, approximate: false }
   const others = freshOffers(game, now).flatMap((offer): PricedRow[] => {
+    if (!isComparedStore(offer.store)) return []
     const amount = hryvniaOf(offer, rate)
     return amount ? [{ store: offer.store, ...amount }] : []
   })

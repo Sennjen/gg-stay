@@ -16,6 +16,7 @@ import {
   offerAt,
   offerFreshForMs,
   PLAYSTATION_OFFER_FRESH_FOR_MS,
+  UNCOMPARED_OFFER_STORES,
   PAGE_OFFER_STORES,
   cheaperAtOf,
   cheapestRow,
@@ -23,6 +24,7 @@ import {
   freshOffers,
   hryvniaOf,
   isFreshAt,
+  isComparedStore,
   isFreshOffer,
   listedOffers,
   markedCheapest,
@@ -317,6 +319,16 @@ describe('the offers a page may use', () => {
     expect(cheaperAtOf({ ...steam, ...game([cheap, free], everywhere) }, NOW, RATE)).toBe(
       'xbox-store',
     )
+  })
+})
+
+describe('the stores whose prices are never compared', () => {
+  it('are the PlayStation Store alone', () => {
+    expect(UNCOMPARED_OFFER_STORES).toEqual(['playstation-store'])
+    expect(isComparedStore('playstation-store')).toBe(false)
+    for (const store of ['steam', 'gog', 'xbox-store', 'a-store-from-a-newer-job']) {
+      expect(isComparedStore(store), store).toBe(true)
+    }
   })
 })
 
