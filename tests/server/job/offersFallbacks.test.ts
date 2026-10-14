@@ -1253,15 +1253,28 @@ describe('the Microsoft Store: what its own ways cannot do', () => {
     expect(next.harness.calls).toHaveLength(next.rawgCalls)
   })
 
-  it('writes the mapping before any document, and an index that will not take it fails the stage as the index', async () => {
+  it('publishes nothing it found when the index will not take the records, and fails nothing', async () => {
     const { harness, games, refs, byId } = await unsold()
     relate(harness)
     vi.spyOn(harness.writer, 'setStoreRefs').mockRejectedValue(new Error('READONLY'))
 
-    await expect(refreshOffers(harness.deps, games, refs, null)).rejects.toThrow('READONLY')
+    const result = await refreshOffers(harness.deps, games, refs, null)
 
-    // No offer is published for a product the mapping does not name.
+    // No offer is published for a product the mapping does not name, nothing is remembered,
+    // and the read itself stands: its stamp moved.
     expect('offers' in byId(109)).toBe(false)
+    expect(refs.get(109)).toEqual({ microsoft: LINK })
+    expect(result.microsoft).toMatchObject({
+      status: 'read',
+      lastReadAt: RUN_AT,
+      fallbacks: {
+        searched: 1,
+        found: {},
+        waiting: 1,
+        stopped: 'index',
+        error: 'the store references could not be written: READONLY',
+      },
+    })
   })
 })
 
@@ -1488,5 +1501,40 @@ describe('a remake that took the game’s name', () => {
 
     expect('offers' in byId(101)).toBe(false)
     expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+  })
+})
+
+describe('GOG: an index that will not take what the walk found', () => {
+  it('fails nothing: the walk is reported as failed, and every offer and the stamp stand', async () => {
+    const { harness, games, refs, byId } = await runAt(later(RUN_AT, 12 * HOUR))
+    byId(101).offers = [
+      {
+        store: 'gog',
+        amount: 999,
+        regularAmount: 1999,
+        currency: 'USD',
+        discountPercent: 50,
+        url: 'https://www.gog.com/en/game/hollow_cradle',
+        updatedAt: RUN_AT,
+      },
+    ]
+    harness.gogCatalog.products = [
+      gogProduct('hollow_cradle_2021', gogPrice('19.99', '19.99'), {
+        title: 'Hollow Cradle',
+        releaseDate: '2021.03.11',
+      }),
+    ]
+    vi.spyOn(harness.writer, 'setStoreRefs').mockRejectedValue(new Error('READONLY'))
+
+    const result = await refreshOffers(harness.deps, games, refs, publishedAt(RUN_AT))
+
+    expect(byId(101).offers?.[0]).toMatchObject({ amount: 999, updatedAt: RUN_AT })
+    expect(result.gog).toMatchObject({
+      status: 'failed',
+      lastReadAt: RUN_AT,
+      error: 'the store references could not be written: READONLY',
+    })
+    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    expect(result.offersReadAt.gog).toBe(RUN_AT)
   })
 })

@@ -538,7 +538,21 @@ async function readGog(
     refs.set(entry.game.id, record)
     rewritten.push([entry.game.id, record])
   }
-  if (rewritten.length > 0) await deps.writer.setStoreRefs(rewritten)
+  if (rewritten.length > 0) {
+    try {
+      await deps.writer.setStoreRefs(rewritten)
+    } catch (cause) {
+      // An offer is not published for a product the mapping does not name, and an index that
+      // will not take a few records is not a reason to fail a run whose prices are good: the
+      // walk is reported as failed, and every offer and the stamp stay as they were.
+      for (const [id, record] of rewritten) {
+        refs.set(id, withGogFound(record, entries.find((e) => e.game.id === id)?.found ?? null))
+      }
+      const reason = `the store references could not be written: ${reasonOf(cause)}`
+      deps.log(`gog: ${reason}; every offer is kept as it was`)
+      return report({ status: 'failed', failed: referenced.length, requests, error: reason })
+    }
+  }
 
   for (const { entry, offer } of read) setOffer(entry.game, 'gog', offer)
 
@@ -572,6 +586,8 @@ async function readGog(
 /** What the stage knows of one game at the Microsoft Store before the read. */
 interface MicrosoftEntry {
   game: IndexedGame
+  /** The game's record as the run read it, to put back should the index refuse a newer one. */
+  record: IndexedStoreRefs | undefined
   /** RAWG's product for the game, when its link named one. */
   link: MicrosoftRef | null
   /** The product the store's own ways settled on in an earlier run, if any. */
@@ -861,7 +877,30 @@ async function tryMicrosoftWays(
       ways.push(find.via)
     }
   }
-  if (rewritten.length > 0) await deps.writer.setStoreRefs(rewritten)
+  if (rewritten.length > 0) {
+    try {
+      await deps.writer.setStoreRefs(rewritten)
+    } catch (cause) {
+      // Nothing of this run's finds is published or remembered: the offers the read left stand,
+      // and every game tried is still waiting. An index that will not take a few records is no
+      // reason to fail a run whose prices are good.
+      for (const [id] of rewritten) {
+        const entry = byGame.get(id)
+        if (entry?.record) refs.set(id, entry.record)
+        else refs.delete(id)
+      }
+      const error = `the store references could not be written: ${reasonOf(cause)}`
+      deps.log(`microsoft: ${error}; nothing the store's own ways found is published`)
+      return {
+        searched: result.settled.size,
+        found: {},
+        waiting: waiting.length,
+        requests: result.requests,
+        stopped: 'index',
+        error,
+      }
+    }
+  }
   for (const { game, offer } of offers) setOffer(game, 'xbox-store', offer)
 
   const left = waiting.length - result.settled.size
@@ -961,7 +1000,7 @@ export async function refreshOffers(
     const searchable =
       link !== null || (record?.microsoft === null && game.stores.includes('xbox-store'))
     if (searchable || fallbacks.microsoft.found) {
-      microsoftGames.push({ game, link, ...fallbacks.microsoft, searchable })
+      microsoftGames.push({ game, record, link, ...fallbacks.microsoft, searchable })
     }
     // The mapping is the only authority for which stores a game may carry an offer of — for as
     // long as it is believed about that store. Store by store: what is held, or dropped, of one

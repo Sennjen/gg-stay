@@ -625,6 +625,7 @@ const FALLBACK_STOPS = {
   refused: 'the store refused a request',
   failures: 'too many of their requests failed',
   time: 'they had used their ten minutes',
+  index: 'the index would not take what they found',
 } as const
 
 /**

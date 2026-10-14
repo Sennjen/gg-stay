@@ -137,6 +137,8 @@ export type FallbackStop =
   | 'failures'
   /** The ways' time for the run ran out: the store is answering, slowly. */
   | 'time'
+  /** The index would not take what they found: nothing of it is published or remembered. */
+  | 'index'
 
 /** Whether a timestamp is one: a string `Date.parse` reads. */
 function isTimestamp(value: unknown): value is string {

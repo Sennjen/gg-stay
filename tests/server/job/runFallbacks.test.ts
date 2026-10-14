@@ -323,6 +323,7 @@ describe('formatSummary and storeWarnings and the stores’ own ways', () => {
     ['refused', 'the store refused a request'],
     ['failures', 'too many of their requests failed'],
     ['time', 'they had used their ten minutes'],
+    ['index', 'the index would not take what they found'],
   ] as const)('warns when the ways stopped early because %s', (stopped, why) => {
     const report = {
       ...read,
