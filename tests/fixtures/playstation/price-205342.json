@@ -1,0 +1,31 @@
+{
+  "data": {
+    "conceptRetrieve": {
+      "id": "205342",
+      "defaultProduct": {
+        "id": "EP2097-PPSA01980_00-7357509687265755",
+        "name": "Warframe®",
+        "concept": {"id": "205342"},
+        "webctas": [
+          {
+            "type": "DOWNLOAD",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+              "applicability": "APPLICABLE",
+              "basePriceValue": 0,
+              "discountedValue": 0,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": true,
+              "isTiedToSubscription": false,
+              "qualifications": [],
+              "serviceBranding": ["NONE"]
+            }
+          }
+        ]
+      },
+      "products": [{"id": "EP2097-CUSA00106_00-0000000000000000", "name": "Warframe®"}, {"id": "EP2097-PPSA01980_00-7357509687265755", "name": "Warframe®"}]
+    }
+  }
+}

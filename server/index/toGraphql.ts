@@ -22,11 +22,13 @@ import {
 import {
   cheaperAtOf,
   hryvniaOf,
-  isFreshAt,
+  isComparedPrice,
+  isFreshFor,
   isFreshOffer,
   listedOffers,
   markedCheapest,
-  readableOffers,
+  offerAt,
+  pageOffers,
   wholeHryvnia,
   type PricedRow,
 } from './offerRules'
@@ -166,9 +168,9 @@ function toOfferLink(offer: Pick<IndexedOffer, 'store' | 'url'>): StoreOffer | n
  *
  * `null` when the offer's address does not pass the allow-list (`toOfferLink`): a row exists to
  * be followed, and there is no row to make of a price without an address to send anyone to. The
- * offers a document is read through have been checked already (`readableOffers`), so a caller
- * that went through them never sees it — but the address is checked here and not taken on that
- * word, because this is where it leaves for a page.
+ * offers a document is read through have been checked already (`readableOffers`, by way of
+ * `pageOffers`), so a caller that went through them never sees it — but the address is checked
+ * here and not taken on that word, because this is where it leaves for a page.
  */
 export function toStoreOffer(
   offer: IndexedOffer,
@@ -206,8 +208,9 @@ export function toStoreOffer(
 
 /**
  * The rows of a page RAWG answered, with what the index holds of the other stores' prices put on
- * them: a store RAWG links gains its fresh offer, and with it the store's own address for the
- * product the price is for. Nothing else changes — a store RAWG does not link is not added, a
+ * them: a store RAWG links gains its fresh offer, as it stands at the request's moment
+ * (`offerAt`: past the end of its sale, at its regular price), and with it the store's own
+ * address for the product the price is for. Nothing else changes — a store RAWG does not link is not added, a
  * store without a fresh offer keeps the plain link RAWG gave, and the Steam row is left alone
  * (its price is the document's own, see `toSteamOffer`).
  *
@@ -221,9 +224,9 @@ export function withStoreOffers(
 ): StoreOffer[] {
   if (!game) return rows
   const offers = new Map(
-    readableOffers(game)
+    pageOffers(game)
       .filter((offer) => isFreshOffer(offer, terms.now))
-      .map((offer) => [offer.store as string, offer]),
+      .map((offer) => [offer.store as string, offerAt(offer, terms.now)]),
   )
   if (offers.size === 0) return rows
   return rows.map((row) => {
@@ -240,8 +243,9 @@ export function withStoreOffers(
  * hryvnia price when the store charges in hryvnia, the estimate when it charges in another
  * currency and there is a rate, and an exact zero for a free game, whatever the currency.
  *
- * A row takes part only while its price is fresh by the date the page shows for it (`isFreshAt`,
- * the offers' own thirty-six hours) — Steam's row included. The page shows Steam's price at any
+ * A row takes part only while its price is fresh by the date the page shows for it, by its own
+ * store's span (`isFreshFor`: forty-eight hours for the PlayStation Store, thirty-six for every
+ * other row) — Steam's row included. The page shows Steam's price at any
  * age, under its date, and that is honest; calling it the cheapest, or calling another store the
  * cheapest against it, is a claim about today, and a price from last week does not support one.
  * The index carries a price forward under its old date when Steam stops answering for a game,
@@ -249,8 +253,12 @@ export function withStoreOffers(
  * and is fresh; another store's offer is on its row only while it is.
  */
 function pricedRowOf(row: StoreOffer, now: string): PricedRow | null {
-  if (!isFreshAt(row.updatedAt, now)) return null
-  if (row.priceUah != null) return { store: row.store, uah: row.priceUah, approximate: false }
+  if (!isFreshFor(row.store, row.updatedAt, now)) return null
+  if (row.priceUah != null) {
+    // A PlayStation Store price of nothing is shown and not weighed (`isComparedPrice`).
+    if (!isComparedPrice(row.store, row.priceUah)) return null
+    return { store: row.store, uah: row.priceUah, approximate: false }
+  }
   if (row.foreignPrice?.amount === 0) return { store: row.store, uah: 0, approximate: false }
   if (row.approxUah != null) return { store: row.store, uah: row.approxUah, approximate: true }
   return null
@@ -263,7 +271,12 @@ function pricedRowOf(row: StoreOffer, now: string): PricedRow | null {
  */
 function cannotBeWeighed(row: StoreOffer, now: string): boolean {
   const foreign = row.priceUah == null ? row.foreignPrice : null
-  return !!foreign && foreign.amount !== 0 && row.approxUah == null && isFreshAt(row.updatedAt, now)
+  return (
+    !!foreign &&
+    foreign.amount !== 0 &&
+    row.approxUah == null &&
+    isFreshFor(row.store, row.updatedAt, now)
+  )
 }
 
 /**
@@ -369,7 +382,8 @@ export function steamStorePageOf(game: IndexedGame): string | null {
  * lists Steam among its stores (`steamStorePageOf`) — the address of the store page is built from
  * the app id, and the price fields are `toSteamOffer`'s. After it come the stores the document
  * holds an offer for and lists the game on (`listedOffers`), at the store's own address for the
- * product. With `terms`, an offer that is fresh carries its price (`toStoreOffer`); one that is
+ * product. With `terms`, an offer that is fresh carries its price as it stands at `terms.now`
+ * (`toStoreOffer`, `offerAt`); one that is
  * not is the link alone, and so is every offer when no `terms` are given — which is how a caller
  * withholds them, as it withholds Steam's price, while the index's prices are too old to show.
  * Any other store the document names is left out, as it always was: it is named by slug, and a
@@ -390,7 +404,7 @@ export function toGame(game: IndexedGame, terms: OfferTerms | null = null): Game
     ...(storePage ? [toSteamOffer(game, storePage)] : []),
     ...listedOffers(game).flatMap((offer) => {
       const fresh = terms !== null && isFreshOffer(offer, terms.now)
-      const row = fresh ? toStoreOffer(offer, terms.rate) : toOfferLink(offer)
+      const row = fresh ? toStoreOffer(offerAt(offer, terms.now), terms.rate) : toOfferLink(offer)
       return row ? [row] : []
     }),
   ]

@@ -7,11 +7,13 @@ import {
   parseMicrosoftRelations,
   parseMicrosoftSearch,
 } from '../../../scripts/index/microsoft'
+import { PlaystationStopped } from '../../../scripts/index/playstation'
 import { createRequestMeter } from '../../../scripts/index/requestMeter'
 import {
   createJobBank,
   createJobGog,
   createJobMicrosoft,
+  createJobPlaystation,
   createJobRawg,
   createJobSteam,
   STORE_USER_AGENT,
@@ -465,5 +467,225 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     expect((network.mock.calls as unknown as [string, RequestInit][])[0]![1]).toEqual({
       signal: expect.any(AbortSignal),
     })
+  })
+})
+
+/**
+ * The PlayStation Store's transport as the job builds it: the limits are the transport's own and
+ * are tested with it (`playstation.test.ts`); what is decided here is what a request to Sony
+ * looks like on the wire, and that a dry run sends none.
+ */
+describe('the refresh job’s transport to the PlayStation Store', () => {
+  const storeOptions = (clock: JobClock, fixtures = false) => ({ fixtures, clock })
+  /** A clock that moves only when the transport sleeps on it, and remembers each sleep. */
+  function sleepingClock(): JobClock & { sleeps: number[] } {
+    let now = 0
+    const sleeps: number[] = []
+    return { now: () => now, sleep: async (ms) => void ((now += ms), sleeps.push(ms)), sleeps }
+  }
+  /** A network that answers each request with the next of `responses`, then with the last. */
+  function network(...responses: Response[]) {
+    const fetched = vi.fn(async () =>
+      responses.length > 1 ? responses.shift()! : responses[0]!.clone(),
+    )
+    vi.stubGlobal('fetch', fetched)
+    return fetched as unknown as { mock: { calls: [string, RequestInit][] } }
+  }
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    })
+  const concept = [{ id: 201_930, titleIds: ['CUSA00419_00'] }]
+  const noPrice = { data: { conceptRetrieve: { id: '201930', defaultProduct: null } } }
+
+  it('names the project on both requests, sends no cookie, and follows no redirect', async () => {
+    const sent = network(json(concept), json(noPrice))
+    const store = createJobPlaystation(storeOptions(sleepingClock()))
+
+    expect(await store.concept('CUSA00419_00')).toBe(201_930)
+    expect(await store.price(201_930)).toBeNull()
+
+    const [[titleUrl, title], [priceUrl, price]] = sent.mock.calls as [
+      [string, RequestInit],
+      [string, RequestInit],
+    ]
+    expect(new URL(titleUrl).host).toBe('m.np.playstation.com')
+    expect(new URL(priceUrl).host).toBe('web.np.playstation.com')
+    for (const init of [title, price]) {
+      expect(init.method).toBeUndefined()
+      expect(init.body).toBeUndefined()
+      // A redirect is handed back, not followed: a hop nobody counted is a request nobody paced.
+      expect(init.redirect).toBe('manual')
+      expect(init.credentials).toBeUndefined()
+      expect(init.headers).toMatchObject({
+        'User-Agent': STORE_USER_AGENT,
+        Accept: 'application/json',
+      })
+    }
+    // Nothing that identifies anybody else, and nothing that makes it look like a browser.
+    expect(Object.keys(title.headers as object).sort()).toEqual(['Accept', 'User-Agent'])
+    expect(Object.keys(price.headers as object).sort()).toEqual([
+      'Accept',
+      'Content-Type',
+      'User-Agent',
+      'x-psn-store-locale-override',
+    ])
+    expect(price.headers).toMatchObject({
+      'x-psn-store-locale-override': 'uk-UA',
+      'Content-Type': 'application/json',
+    })
+  })
+
+  it('waits ten seconds between two requests, and sends each once', async () => {
+    const sent = network(json(concept, 503), json(concept))
+    const clock = sleepingClock()
+    const store = createJobPlaystation(storeOptions(clock))
+
+    await expect(store.concept('CUSA00419_00')).rejects.toMatchObject({
+      source: 'PLAYSTATION',
+      status: 503,
+    })
+    expect(await store.concept('CUSA00419_00')).toBe(201_930)
+
+    // The failed one was not retried: two questions, two requests, one pause between them.
+    expect(sent.mock.calls).toHaveLength(2)
+    expect(clock.sleeps).toEqual([10_000])
+  })
+
+  it.each([
+    ['a 403', () => json({ message: 'Access Denied' }, 403)],
+    ['a 429', () => json({}, 429)],
+    ['a redirect', () => new Response(null, { status: 302, headers: { location: 'https://x/' } })],
+    [
+      'a page that says it is one',
+      () =>
+        new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    ],
+    [
+      'a page that does not say what it is',
+      () => new Response('  <!DOCTYPE html><html><body>Checking your browser</body></html>'),
+    ],
+    ['a page under an error status', () => new Response('<html>busy</html>', { status: 503 })],
+    ['a success with nothing in it', () => new Response('', { status: 200 })],
+  ])('takes %s for a refusal, and asks nothing after it', async (_what, answer) => {
+    const sent = network(answer())
+    const store = createJobPlaystation(storeOptions(sleepingClock()))
+
+    await expect(store.concept('CUSA00419_00')).rejects.toMatchObject({ source: 'PLAYSTATION' })
+
+    expect(store.stopped()?.reason).toBe('refused')
+    await expect(store.price(201_930)).rejects.toBeInstanceOf(PlaystationStopped)
+    expect(sent.mock.calls).toHaveLength(1)
+  })
+
+  it('takes a body that never arrived for a failure, not for an answer that was not data', async () => {
+    // A 200 whose body breaks off in the middle: the connection was reset, or the timeout passed.
+    const broken = () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error('socket hang up'))
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    const fetched = vi.fn(async () => broken())
+    vi.stubGlobal('fetch', fetched)
+    const store = createJobPlaystation(storeOptions(sleepingClock()))
+
+    await expect(store.concept('CUSA00419_00')).rejects.toMatchObject({
+      source: 'PLAYSTATION',
+      kind: 'ERROR',
+    })
+
+    // One failure, and the run goes on; it would have stopped at a refusal.
+    expect(store.stopped()).toBeNull()
+    await store.concept('CUSA00419_00').catch(() => {})
+    expect(fetched).toHaveBeenCalledTimes(2)
+  })
+
+  it('counts the pause on the clock that only goes forward, whatever the wall clock does', async () => {
+    network(json(concept), json(noPrice))
+    let wall = Date.parse('2026-10-13T06:15:00.000Z')
+    let monotonic = 0
+    const sleeps: number[] = []
+    const store = createJobPlaystation(
+      storeOptions({
+        now: () => wall,
+        monotonic: () => monotonic,
+        sleep: async (ms) => void (sleeps.push(ms), (monotonic += ms), (wall += ms)),
+      }),
+    )
+
+    await store.concept('CUSA00419_00')
+    // The runner's clock is set an hour ahead. By it, the pause would be long over.
+    wall += 3_600_000
+    await store.price(201_930)
+
+    expect(sleeps).toEqual([10_000])
+  })
+
+  it('is one transport a clock: a second caller shares the pause and the ration of the first', async () => {
+    const sent = network(json(concept), json(noPrice))
+    const clock = sleepingClock()
+    const first = createJobPlaystation(storeOptions(clock))
+    const second = createJobPlaystation(storeOptions(clock))
+
+    expect(second).toBe(first)
+    await first.concept('CUSA00419_00')
+    await second.price(201_930)
+
+    // Two callers, one line: the second waited out the first one's pause.
+    expect(clock.sleeps).toEqual([10_000])
+    expect(second.requests()).toBe(2)
+    expect(sent.mock.calls).toHaveLength(2)
+    // Another clock is another process's, in a test; and a transport that sends nothing has no
+    // pause to share.
+    expect(createJobPlaystation(storeOptions(sleepingClock()))).not.toBe(first)
+    expect(createJobPlaystation(storeOptions(clock, true))).not.toBe(
+      createJobPlaystation(storeOptions(clock, true)),
+    )
+  })
+
+  it('takes an error that is data for a failure and not a refusal', async () => {
+    const sent = network(json({ message: 'Query not whitelisted' }, 400), json(noPrice))
+    const store = createJobPlaystation(storeOptions(sleepingClock()))
+
+    await expect(store.price(201_930)).rejects.toMatchObject({ kind: 'ERROR', status: 400 })
+
+    expect(store.stopped()).toBeNull()
+    expect(await store.price(201_930)).toBeNull()
+    expect(sent.mock.calls).toHaveLength(2)
+  })
+
+  it('serves the recorded answers in fixture mode, and asks the network nothing', async () => {
+    const sent = network(json(null))
+    const clock = sleepingClock()
+    const store = createJobPlaystation(storeOptions(clock, true))
+
+    // Grand Theft Auto V's American title, and the product Sony puts first for its concept.
+    expect(await store.concept('CUSA00419_00')).toBe(201_930)
+    expect(await store.price(201_930)).toMatchObject({
+      id: 'EP1004-PPSA01721_00-GTAOSTANDALONE01',
+      title: 'Grand Theft Auto Online (PlayStation®5)',
+      price: { amount: 89_900, regularAmount: 89_900, discountPercent: 0, saleEndsAt: null },
+      url: 'https://store.playstation.com/uk-ua/product/EP1004-PPSA01721_00-GTAOSTANDALONE01',
+    })
+    expect(await store.concept('CUSA99999_00')).toBeNull()
+    expect(sent.mock.calls).toHaveLength(0)
+    expect(clock.sleeps).toEqual([])
+  })
+
+  it('writes no line of its own, whatever came of a request', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    network(json({}, 500))
+    const store = createJobPlaystation(storeOptions(sleepingClock()))
+
+    await store.concept('CUSA00419_00').catch(() => {})
+
+    expect(info).not.toHaveBeenCalled()
+    expect(log).not.toHaveBeenCalled()
   })
 })

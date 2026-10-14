@@ -1,0 +1,51 @@
+{
+  "data": {
+    "conceptRetrieve": {
+      "id": "234567",
+      "defaultProduct": {
+        "id": "EP4497-PPSA04027_00-00000000000000N1",
+        "name": "Cyberpunk 2077",
+        "concept": {"id": "234567"},
+        "webctas": [
+          {
+            "type": "UPSELL_PS_PLUS_GAME_CATALOG",
+            "meta": {"upSellService": "PS_PLUS"},
+            "price": {
+              "applicability": "UPSELL",
+              "basePriceValue": 149900,
+              "discountedValue": 0,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": true,
+              "isTiedToSubscription": true,
+              "qualifications": [{"type": "ENTITLEMENT_IN_CART", "value": "SUB001-SUBC00002_00-TJ4KZ94GWFC3NYB0"}],
+              "serviceBranding": ["PS_PLUS"]
+            }
+          },
+          {
+            "type": "ADD_TO_CART",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+              "applicability": "APPLICABLE",
+              "basePriceValue": 149900,
+              "discountedValue": 149900,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": false,
+              "isTiedToSubscription": false,
+              "qualifications": [],
+              "serviceBranding": ["NONE"]
+            }
+          }
+        ]
+      },
+      "products": [
+        {"id": "EP4497-PPSA04027_00-00000000000000N1", "name": "Cyberpunk 2077"},
+        {"id": "EP4497-PPSA04027_00-EXPANSION1B00000", "name": "Cyberpunk 2077: повне видання (PS5)"},
+        {"id": "EP4497-CUSA16579_00-0000000000000001", "name": "Cyberpunk 2077"}
+      ]
+    }
+  }
+}

@@ -532,6 +532,61 @@ test('game page → «Де купити» → what GOG charges in dollars, about
   await expectAccessible(page, 'game page with the other stores’ prices at 375 px')
 })
 
+test('game page → «Де купити» → what the PlayStation Store charges, under the product’s name, marked when it is the lowest — and a long name at 375 px', async ({
+  page,
+}) => {
+  // Metro Exodus: on sale, and the lowest price on the page by far.
+  const metro = await storesOf(page, 'metro-exodus')
+  const playstation = metro.stores.find((row) => row.store === 'playstation-store')!
+  expect(playstation.priceUah).not.toBeNull()
+  expect(playstation.discountPercent).toBeGreaterThan(0)
+  const others = metro.stores.filter((row) => row !== playstation && row.priceUah !== null)
+  expect(others.every((row) => row.priceUah! > playstation.priceUah!)).toBe(true)
+  expect(playstation.cheapest).toBe(true)
+
+  await page.goto('/games/metro-exodus')
+  await waitForHydration(page)
+  const block = page.getByRole('region', { name: copy.game.whereToBuy })
+  const row = block.locator('[data-test="store-row-playstation-store"]').getByRole('link')
+  await expect(row).toHaveAttribute('href', playstation.url)
+  await expect(row.locator('[data-test="store-price-shown"]')).toContainText(
+    new RegExp(hryvnia(playstation.priceUah!)),
+  )
+  await expect(row.locator('[data-test="store-price-shown"]')).toContainText(
+    `−${playstation.discountPercent}%`,
+  )
+  // The product's name, though it is the game's own.
+  await expect(row.locator('[data-test="store-title"]')).toHaveText(playstation.title!)
+  // The lowest price on the page carries the page's one mark.
+  await expect(row.locator('[data-test="cheapest"]')).toHaveText(copy.game.cheapest)
+  await expect(block.locator('[data-test="cheapest"]')).toHaveCount(1)
+  await expectAccessible(page, 'game page with a PlayStation Store price')
+
+  // Stardew Valley: a product title of two hundred characters, on a phone.
+  const stardew = await storesOf(page, 'stardew-valley')
+  const long = stardew.stores.find((store) => store.store === 'playstation-store')!
+  expect(long.title).toHaveLength(200)
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/games/stardew-valley')
+  await waitForHydration(page)
+  const longRow = page
+    .getByRole('region', { name: copy.game.whereToBuy })
+    .locator('[data-test="store-row-playstation-store"]')
+    .getByRole('link')
+  await expect(longRow.locator('[data-test="store-title"]')).toHaveText(long.title!)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBe(0)
+  for (const part of [longRow, longRow.locator('[data-test="store-title"]')]) {
+    const box = (await part.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(375)
+  }
+  await expectAccessible(page, 'game page with a long PlayStation Store title at 375 px')
+})
+
 test('game page → «Де купити» → a store that charges in hryvnia has its price, and no note about an estimate', async ({
   page,
 }) => {

@@ -255,6 +255,7 @@ describe('formatSummary and storeWarnings and the stores’ own ways', () => {
     asked: 1_700,
     gog: 1_204,
     microsoft: 1_162,
+    playstation: 0,
     sweep: null,
   }
   const read: StoreReadReport = {
@@ -281,6 +282,7 @@ describe('formatSummary and storeWarnings and the stores’ own ways', () => {
     gog,
     microsoft,
     rate: null,
+    playstation: null,
   })
 
   it('counts each way the offers that stand were found by, and what the ways did this run', () => {

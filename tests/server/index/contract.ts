@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../shared/catalog'
 import type { GameIndex, GameIndexWriter, IndexQuery } from '../../../server/index/GameIndex'
-import type { IndexMeta, IndexedGame } from '../../../server/index/document'
+import type { IndexMeta, IndexedGame, IndexedStoreRefs } from '../../../server/index/document'
 import { MAX_SLUG_LENGTH, offerWay } from '../../../server/index/document'
 import { FIXTURE_GAMES, FIXTURE_TODAY } from '../../fixtures/index/games'
 
@@ -649,6 +649,18 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
             url: 'https://www.microsoft.com/uk-ua/p/alpha-quest/9nkx70bbcdrn',
             updatedAt: '2026-09-19T12:15:00.000Z',
           },
+          {
+            store: 'playstation-store',
+            title: 'Alpha Quest (PlayStation\u00AE5)',
+            amount: 30_950,
+            regularAmount: 61_900,
+            currency: 'UAH',
+            discountPercent: 50,
+            url: 'https://store.playstation.com/uk-ua/product/EP0001-PPSA00001_00-ALPHAQUEST000001',
+            updatedAt: '2026-09-19T06:15:00.000Z',
+            // When the store says the discount ends: on this store's offers, and only on a sale.
+            saleEndsAt: '2026-09-23T21:59:00.000Z',
+          },
         ]
         const offered = { ...FIXTURE_GAMES[0]!, offers }
         // As every document was before the refresh job read another store: the field is not there.
@@ -1012,6 +1024,51 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         // Beside the app ids, and apart from them: neither mapping answers for the other.
         expect((await adapter.writer.getAppIds([3328])).get(3328)).toBe('292030')
         expect((await adapter.writer.getStoreRefs([4200])).get(4200)).toEqual({})
+      })
+
+      it('stores a PlayStation reference in each of its states, as it was written', async () => {
+        const askedAt = '2026-10-13T06:15:00.000Z'
+        const records: [number, IndexedStoreRefs][] = [
+          // A title Sony has not been asked about yet.
+          [7100, { playstation: { titleId: 'CUSA00419_00' } }],
+          // One it has named a concept for, beside the other stores' references.
+          [
+            7101,
+            {
+              gog: 'cyberpunk_2077',
+              microsoft: null,
+              playstation: { titleId: 'CUSA16596_00', conceptId: 234_567 },
+            },
+          ],
+          // One it has no concept for: `null`, which is not "not answered yet".
+          [7102, { playstation: { titleId: 'CUSA99999_00', conceptId: null, askedAt } }],
+          // One with its concept, and the date Sony was last asked about it.
+          [7103, { playstation: { titleId: 'CUSA06840_00', conceptId: 227_229, askedAt } }],
+          // One asked about and not answered: the date alone.
+          [7106, { playstation: { titleId: 'CUSA11408_00', askedAt } }],
+          // And a game listed there with no title to read.
+          [7104, { playstation: null }],
+        ]
+        await adapter.writer.setStoreRefs(records)
+        await publishGames(adapter, FIXTURE_GAMES.slice(0, 2))
+
+        const refs = await adapter.writer.getStoreRefs(records.map(([id]) => id))
+        expect(refs).toEqual(new Map(records))
+        expect('conceptId' in refs.get(7100)!.playstation!).toBe(false)
+        expect(refs.get(7101)!.playstation!.conceptId).toBe(234_567)
+        expect(refs.get(7102)!.playstation!.conceptId).toBeNull()
+        expect(refs.get(7104)!.playstation).toBeNull()
+        expect('playstation' in refs.get(7104)!).toBe(true)
+      })
+
+      it('reads a record written before the PlayStation Store was known, as it stands', async () => {
+        const older = { gog: 'limbo', microsoft: { id: 'BTQMHK78ZPF9', name: 'limbo' } }
+        await adapter.writer.setStoreRefs([[7105, older]])
+
+        const read = (await adapter.writer.getStoreRefs([7105])).get(7105)!
+        expect(read).toEqual(older)
+        // Nothing said about the store: the game is still to be asked about it.
+        expect('playstation' in read).toBe(false)
       })
 
       it('keeps what the stores’ own ways found beside RAWG’s links, exactly as written', async () => {

@@ -2,14 +2,28 @@ import { describe, expect, it } from 'vitest'
 import { MAX_OFFER_TITLE_LENGTH } from '../../../server/index/document'
 import type { IndexMeta, IndexedGame } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
+import { parsePlaystationConcept, parsePlaystationPrice } from '../../../scripts/index/playstation'
+import { playstationTitleFromUrl } from '../../../scripts/index/storeRefs'
 import {
   DEV_FIXTURE_GAMES,
   DEV_FIXTURE_META_EXTRA,
+  DEV_FIXTURE_PLAYSTATION_LONG_TITLE,
   DEV_FIXTURE_PRICES_UPDATED_AT,
   DEV_FIXTURE_SHELF_GAMES,
   DEV_FIXTURE_UKRAINIAN_GAMES,
 } from '../../fixtures/index/devGames'
 import { safeExternalUrl } from '../../../shared/url'
+import sonyCyberpunkConcepts from '../../fixtures/playstation/concepts-CUSA16596_00.json' with { type: 'json' }
+import sonyMetroConcepts from '../../fixtures/playstation/concepts-CUSA11408_00.json' with { type: 'json' }
+import sonyStardewConcepts from '../../fixtures/playstation/concepts-CUSA06840_00.json' with { type: 'json' }
+import sonyCyberpunkPrice from '../../fixtures/playstation/price-234567.json' with { type: 'json' }
+import sonyMetroPrice from '../../fixtures/playstation/price-231769.json' with { type: 'json' }
+import sonyStardewPrice from '../../fixtures/playstation/price-227229.json' with { type: 'json' }
+import rawgCyberpunk from '../../fixtures/rawg/game-cyberpunk-2077.json' with { type: 'json' }
+import rawgCyberpunkStores from '../../fixtures/rawg/game-cyberpunk-2077-stores.json' with { type: 'json' }
+import rawgMetro from '../../fixtures/rawg/game-metro-exodus.json' with { type: 'json' }
+import rawgMetroStores from '../../fixtures/rawg/game-metro-exodus-stores.json' with { type: 'json' }
+import rawgStardew from '../../fixtures/rawg/game-stardew-valley.json' with { type: 'json' }
 import rawgStardewStores from '../../fixtures/rawg/game-stardew-valley-stores.json' with { type: 'json' }
 import rawgWitcherStores from '../../fixtures/rawg/game-the-witcher-3-wild-hunt-stores.json' with { type: 'json' }
 import bankRate from '../../fixtures/nbu/exchange.json' with { type: 'json' }
@@ -146,12 +160,18 @@ describe('the published index fixture', () => {
   /**
    * What GOG and the Microsoft Store charge, seeded so that a page has every case to render: a
    * dollar offer and a hryvnia one, one stale, a GOG price clearly below Steam's and one that is
-   * not. The cases are measured the way the design measures them.
+   * not. The cases are measured the way the design measures them. What the PlayStation Store
+   * charges is seeded beside them and has cases of its own, below.
    */
   describe('the offers of the other stores', () => {
     const HOUR = 3_600_000
     const runAt = Date.parse(DEV_FIXTURE_PRICES_UPDATED_AT)
-    const offered = fixture.games.filter((game) => game.offers !== undefined)
+    const offered = fixture.games
+      .map((game) => ({
+        ...game,
+        offers: game.offers?.filter((offer) => offer.store !== 'playstation-store'),
+      }))
+      .filter((game) => (game.offers?.length ?? 0) > 0)
     const offerOf = (id: number, store: string) =>
       fixture.games.find((game) => game.id === id)?.offers?.find((offer) => offer.store === store)
     const isFresh = (updatedAt: string) => runAt - Date.parse(updatedAt) <= 36 * HOUR
@@ -274,6 +294,141 @@ describe('the published index fixture', () => {
       // The two offered games a RAWG fixture exists for: the row the offer belongs to is there.
       expect(rawgWitcherStores.results.map((link) => link.store_id)).toContain(5)
       expect(rawgStardewStores.results.map((link) => link.store_id)).toContain(2)
+    })
+  })
+
+  /**
+   * What the PlayStation Store charges, seeded so that the pages that will show it have every
+   * case of its own to render: a sale that is still on, a sale that is over, an offer too old to
+   * be a price — and the product's name where it is the game's own. Each on a game whose page the
+   * fixture build can open, which takes a RAWG recording of the game.
+   */
+  describe('the offers of the PlayStation Store', () => {
+    const HOUR = 3_600_000
+    const runAt = Date.parse(DEV_FIXTURE_PRICES_UPDATED_AT)
+    const METRO = 28201
+    const STARDEW = 654
+    const CYBERPUNK = 41494
+    const gameOf = (id: number) => fixture.games.find((game) => game.id === id)!
+    const offerOf = (id: number) =>
+      gameOf(id).offers!.find((offer) => offer.store === 'playstation-store')!
+    const ageOf = (id: number) => runAt - Date.parse(offerOf(id).updatedAt)
+
+    it('is on three games, in hryvnia, at the product’s page in the Ukrainian store', () => {
+      const seeded = fixture.games.filter((game) =>
+        game.offers?.some((offer) => offer.store === 'playstation-store'),
+      )
+      expect(seeded.map((game) => game.id)).toEqual([STARDEW, METRO, CYBERPUNK])
+      for (const game of seeded) {
+        const offer = offerOf(game.id)
+        // RAWG lists the game on the store: an offer without that is one no page would show.
+        expect(game.stores, game.slug).toContain('playstation-store')
+        expect(offer.currency).toBe('UAH')
+        expect(Number.isInteger(offer.amount) && Number.isInteger(offer.regularAmount)).toBe(true)
+        expect(offer.regularAmount).toBeGreaterThanOrEqual(offer.amount)
+        expect(offer.url).toMatch(
+          /^https:\/\/store\.playstation\.com\/uk-ua\/product\/[A-Z]{2}\d{4}-[A-Z]{4}\d{5}_\d{2}-[A-Z0-9]{16}$/,
+        )
+        expect(safeExternalUrl(offer.url)).toBe(offer.url)
+        // After the game's other offers, in the stores' own order.
+        expect(game.offers!.at(-1)).toBe(offer)
+      }
+      // The store is read a game at a time: the metadata has no stamp for it.
+      expect(fixture.meta.offersReadAt).toEqual(DEV_FIXTURE_META_EXTRA.offersReadAt)
+      expect(Object.keys(fixture.meta.offersReadAt!)).not.toContain('playstation-store')
+    })
+
+    it('holds a fresh offer on sale, whose sale has days to run', () => {
+      const offer = offerOf(METRO)
+
+      expect(ageOf(METRO)).toBeLessThan(36 * HOUR)
+      expect(offer).toMatchObject({ amount: 9_490, regularAmount: 94_900, discountPercent: 90 })
+      expect(Date.parse(offer.saleEndsAt!) - runAt).toBeGreaterThan(8 * 24 * HOUR)
+      // Far below every other price on the game's page: Steam's, and GOG's at the bank's rate.
+      const metro = gameOf(METRO)
+      expect(offer.amount / 100).toBeLessThan(metro.priceUah! * 0.9)
+      expect(metro.offers!.map((entry) => entry.store)).toEqual(['gog', 'playstation-store'])
+    })
+
+    it('holds a fresh offer whose sale is over', () => {
+      const offer = offerOf(STARDEW)
+
+      // Read within the day and a half every store's offer is a price for, let alone this one's
+      // two days.
+      expect(ageOf(STARDEW)).toBeLessThan(36 * HOUR)
+      expect(offer.amount).toBeLessThan(offer.regularAmount)
+      expect(offer.discountPercent).toBe(30)
+      // The sale was on when the offer was read, and has ended since.
+      expect(Date.parse(offer.saleEndsAt!)).toBeGreaterThan(Date.parse(offer.updatedAt))
+      expect(runAt - Date.parse(offer.saleEndsAt!)).toBeGreaterThan(8 * HOUR)
+    })
+
+    it('holds an offer older than forty-eight hours', () => {
+      expect(ageOf(CYBERPUNK)).toBeGreaterThan(48 * HOUR)
+      expect(offerOf(CYBERPUNK)).toMatchObject({ amount: 149_900, regularAmount: 149_900 })
+      expect('saleEndsAt' in offerOf(CYBERPUNK)).toBe(false)
+    })
+
+    it('holds a product whose title is the game’s own name, and one of the most a title may be', () => {
+      for (const id of [METRO, CYBERPUNK]) expect(offerOf(id).title).toBe(gameOf(id).name)
+      // Stardew Valley's is the layout's worst case: two hundred characters, whole.
+      expect(offerOf(STARDEW).title).toBe(DEV_FIXTURE_PLAYSTATION_LONG_TITLE)
+      expect(Array.from(DEV_FIXTURE_PLAYSTATION_LONG_TITLE)).toHaveLength(MAX_OFFER_TITLE_LENGTH)
+    })
+
+    it('is on games the fixture build can open as pages: each has a RAWG recording', () => {
+      const recorded = [
+        [METRO, rawgMetro, rawgMetroStores],
+        [STARDEW, rawgStardew, rawgStardewStores],
+        [CYBERPUNK, rawgCyberpunk, rawgCyberpunkStores],
+      ] as const
+      for (const [id, detail, links] of recorded) {
+        const game = gameOf(id)
+        expect(detail).toMatchObject({ id, slug: game.slug, name: game.name })
+        // The row the offer belongs to is among RAWG's links, with a title the job can read.
+        const link = links.results.find((entry) => entry.store_id === 3)
+        expect(playstationTitleFromUrl(link?.url), game.slug).not.toBeNull()
+      }
+    })
+
+    it('names, for each, a product Sony’s recorded answers hold for the title RAWG links', () => {
+      const titleOf = (links: typeof rawgMetroStores) =>
+        playstationTitleFromUrl(links.results.find((entry) => entry.store_id === 3)!.url)!
+      const productOf = (id: number) => offerOf(id).url.split('/').at(-1)!
+
+      // Metro Exodus: the concept's default product, at the price Sony listed — which it listed
+      // for the buyers of an experiment, so the job's own rule reads the regular price alone.
+      const metro = parsePlaystationConcept(sonyMetroConcepts, titleOf(rawgMetroStores))
+      expect(metro).toBe(231_769)
+      const metroProduct = sonyMetroPrice.data.conceptRetrieve.defaultProduct
+      expect(metroProduct).toMatchObject({ id: productOf(METRO), name: offerOf(METRO).title })
+      const listed = metroProduct.webctas.find((entry) => entry.type === 'ADD_TO_CART')!.price
+      expect(listed).toMatchObject({ discountedValue: 9_490, basePriceValue: 94_900 })
+      expect(listed.qualifications.length).toBeGreaterThan(0)
+      expect(parsePlaystationPrice(sonyMetroPrice, 231_769)).toMatchObject({
+        id: productOf(METRO),
+        price: { amount: 94_900, regularAmount: 94_900, discountPercent: 0, saleEndsAt: null },
+        url: offerOf(METRO).url,
+      })
+
+      // Cyberpunk 2077: the default product and its price, as the job reads them.
+      const cyberpunk = parsePlaystationConcept(sonyCyberpunkConcepts, titleOf(rawgCyberpunkStores))
+      expect(parsePlaystationPrice(sonyCyberpunkPrice, cyberpunk!)).toMatchObject({
+        id: productOf(CYBERPUNK),
+        title: offerOf(CYBERPUNK).title,
+        price: { amount: 149_900, regularAmount: 149_900 },
+        url: offerOf(CYBERPUNK).url,
+      })
+
+      // Stardew Valley: the concept's one product, which Sony does not put first — so a real run
+      // reads no price for it, and the seed's amounts are its own.
+      const stardew = parsePlaystationConcept(sonyStardewConcepts, titleOf(rawgStardewStores))
+      expect(stardew).toBe(227_229)
+      // The product is Sony's; its title in the seed is the made-up long one.
+      expect(sonyStardewPrice.data.conceptRetrieve.products).toEqual([
+        { id: productOf(STARDEW), name: 'Stardew Valley' },
+      ])
+      expect(parsePlaystationPrice(sonyStardewPrice, 227_229)).toBeNull()
     })
   })
 

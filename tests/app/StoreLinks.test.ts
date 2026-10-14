@@ -293,7 +293,7 @@ describe('StoreLinks', () => {
         '−78% $8.99, було $39.99, приблизно 404 ₴',
       )
       expect(heard(row)).toBe(
-        `GOG Найдешевше ${EDITION} −78% $8.99, було $39.99, приблизно 404 ₴ оновлено 6 годин тому`,
+        `GOG Вигідно ${EDITION} −78% $8.99, було $39.99, приблизно 404 ₴ оновлено 6 годин тому`,
       )
     })
 
@@ -465,6 +465,33 @@ describe('StoreLinks', () => {
       expect(wrapper.html()).not.toContain('<img')
     })
 
+    it('is shown on the PlayStation Store’s row whatever it says, the game’s own name included', async () => {
+      const playstation = {
+        store: 'playstation-store',
+        url: 'https://store.playstation.com/uk-ua/product/EP4497-CUSA05571_00-0000000000GOTY11',
+        priceUah: 649,
+        isFree: false,
+        updatedAt: NOW,
+        cheapest: false,
+      }
+      for (const title of [GAME, 'THE WITCHER 3: WILD HUNT', EDITION]) {
+        const wrapper = await mount([steam, { ...playstation, title }])
+        const shown = wrapper.get(
+          '[data-test="store-row-playstation-store"] [data-test="store-title"]',
+        )
+        expect(shown.text()).toBe(title)
+      }
+      // A row with no title has nothing to show, whatever its store.
+      const untitled = await mount([steam, { ...playstation, title: null }])
+      expect(untitled.find('[data-test="store-title"]').exists()).toBe(false)
+      // And the store's row is a hryvnia row like Steam's, under the store's own name.
+      const row = (await mount([steam, { ...playstation, title: GAME }])).get(
+        '[data-test="store-row-playstation-store"]',
+      )
+      expect(row.text()).toContain('PlayStation Store')
+      expect(row.text()).toContain('649')
+    })
+
     it('is allowed to break anywhere, so two hundred characters wrap inside the row', async () => {
       const long = 'W'.repeat(200)
       const wrapper = await mount([steam, { ...gog, title: long }])
@@ -476,12 +503,12 @@ describe('StoreLinks', () => {
     })
   })
 
-  describe('«Найдешевше»', () => {
+  describe('«Вигідно»', () => {
     it('is on the row the answer marks, and on no other', async () => {
       const wrapper = await mount([steam, gog, microsoft])
       const marks = wrapper.findAll('[data-test="cheapest"]')
       expect(marks).toHaveLength(1)
-      expect(marks[0]!.text()).toBe('Найдешевше')
+      expect(marks[0]!.text()).toBe('Вигідно')
       expect(
         wrapper.get('[data-test="store-row-gog"]').find('[data-test="cheapest"]').exists(),
       ).toBe(true)
@@ -533,10 +560,10 @@ describe('StoreLinks', () => {
         'Steam −50% 675 ₴, was 1,349 ₴ updated 3 hours ago',
       )
       expect(heard(wrapper.get('[data-test="store-row-gog"]'))).toBe(
-        `GOG Cheapest ${EDITION} −78% $8.99, was $39.99, approximately 1,348 ₴ updated 6 hours ago`,
+        `GOG Good deal ${EDITION} −78% $8.99, was $39.99, approximately 1,348 ₴ updated 6 hours ago`,
       )
       expect(seen(wrapper.get('[data-test="store-row-gog"]'))).toBe(
-        `GOG Cheapest ${EDITION} −78% $8.99 · ≈ 1,348 ₴ $39.99 updated 6 hours ago`,
+        `GOG Good deal ${EDITION} −78% $8.99 · ≈ 1,348 ₴ $39.99 updated 6 hours ago`,
       )
       expect(wrapper.get('[data-test="estimate-note"]').text()).toBe(
         "GOG charges in US dollars. The hryvnia amount is an estimate at the National Bank of Ukraine's rate of October 9, 2026; your bank may charge a different sum.",

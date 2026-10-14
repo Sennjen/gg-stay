@@ -10,11 +10,19 @@ on:
     # Prices every six hours — one batched Steam call over the published documents. Every other
     # one also reads GOG and the Microsoft Store: whichever run finds a store's last read more
     # than eleven hours old reads it, so those are read twice a day whatever else is scheduled.
+    # And each of the four reads its portion of the PlayStation Store's prices, a game every ten
+    # seconds for forty minutes at the most, each game once a day: that, and not Steam, is what
+    # a prices run now spends its time on, about forty-five minutes at the most. No other kind
+    # of run reads that store's prices. When Sony refuses a request, no run of any kind asks it
+    # anything for a day.
     - cron: '15 */6 * * *'
     # The whole catalog nightly at 02:30 UTC: candidates, Ukrainian studios' games, new app ids,
-    # prices, due languages.
+    # prices, due languages. It is also the one run that asks the PlayStation Store which of
+    # its concepts a title belongs to: two hundred titles a night, ten seconds apart, thirty-five
+    # minutes.
     - cron: '30 2 * * *'
-    # The rest of the language sweep, weekly, Sunday 04:00 UTC.
+    # The rest of the language sweep, weekly, Sunday 04:00 UTC. It asks the PlayStation Store
+    # nothing.
     - cron: '0 4 * * 0'
   # A manual run chooses its mode. `resolve` is manual only — no schedule above selects it, and
   # none should: it spends RAWG requests on games the index does not hold yet, as many as its
@@ -65,7 +73,10 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    # A full run is about an hour; the ceiling is there to end a wedged run, not to pace one.
+    # A full run is just under two hours at the most: an hour, up to twenty minutes of store
+    # links while there are any to find, thirty-five to forty of PlayStation Store titles. A
+    # prices run is forty-five minutes at the most. The ceiling is there to end a wedged run, not
+    # to pace one.
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7

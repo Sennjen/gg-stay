@@ -4,6 +4,11 @@ import { createBankRateFetch, type BankRateFetch } from './bank'
 import type { JobClock } from './deps'
 import { createGogCatalogFetch, type GogCatalogFetch } from './gog'
 import { createMicrosoftFetches, type MicrosoftFetches } from './microsoft'
+import {
+  createPlaystationStore,
+  type PlaystationResponse,
+  type PlaystationStore,
+} from './playstation'
 import type { RequestMeter } from './requestMeter'
 import type { StoreUpstreamRuntime } from './storeUpstream'
 import type { UpstreamCacheEntry } from '../../server/upstream/createUpstreamFetch'
@@ -17,8 +22,8 @@ import { createSteamPriceFetch, type SteamPriceFetch } from '../../server/steam/
  * RAWG and Steam ones in `server/utils/rawg.ts` and `server/utils/steam.ts` from
  * `useRuntimeConfig` and `useStorage`; here the cache is a map that dies with the process and the
  * fixtures are read off disk, but the throttling, timeouts, retries and parsing are the
- * transports' own. The three at the end — GOG, the Microsoft Store and the National Bank — are
- * built nowhere else: only the job talks to them.
+ * transports' own. The four at the end — GOG, the Microsoft Store, the National Bank and the
+ * PlayStation Store — are built nowhere else: only the job talks to them.
  */
 
 const FIXTURE_DIRS = {
@@ -27,6 +32,7 @@ const FIXTURE_DIRS = {
   GOG: new URL('../../tests/fixtures/gog/', import.meta.url),
   MICROSOFT: new URL('../../tests/fixtures/microsoft/', import.meta.url),
   NBU: new URL('../../tests/fixtures/nbu/', import.meta.url),
+  PLAYSTATION: new URL('../../tests/fixtures/playstation/', import.meta.url),
 } as const
 
 function createMemoryCache() {
@@ -149,10 +155,10 @@ export function createJobSteam(options: UpstreamOptions): SteamPriceFetch {
 }
 
 /**
- * Who is asking, on every request to GOG, the Microsoft Store and the National Bank: the project
- * by name, what it is doing, and where its source — and so its owner — can be found. None of the
- * three documents these endpoints for anyone else, and a caller they cannot identify is the first
- * one they would be right to turn away.
+ * Who is asking, on every request to GOG, the Microsoft Store, the PlayStation Store and the
+ * National Bank: the project by name, what it is doing, and where its source — and so its owner —
+ * can be found. None of them documents these endpoints for anyone else, and a caller they cannot
+ * identify is the first one they would be right to turn away.
  */
 export const STORE_USER_AGENT = 'gg-stay-index-refresh/1.0 (+https://github.com/Sennjen/gg-stay)'
 
@@ -236,7 +242,89 @@ export function createJobBank(options: StoreUpstreamOptions): BankRateFetch {
   }
 }
 
+/** A body that is a page for a browser, whatever its `Content-Type` says of it. */
+const HTML_DOCUMENT = /^\s*<(?:!doctype\b|html\b)/i
+
+/**
+ * One GET to Sony, as the PlayStation transport asks for it (`PlaystationRuntime.fetch`): the
+ * job's own name on it, the transport's headers and nothing else — no cookie is kept between two
+ * requests, because nothing here keeps anything — and no redirect followed. A redirect is handed
+ * back as the status it is: followed, it would be a second request to Sony that nobody counted
+ * and nothing paced.
+ *
+ * The body is read as text first, so that a page can be told from an answer: Sony's endpoints
+ * answer in JSON, and what is not JSON is not theirs. A body that does not arrive — the
+ * connection reset, the timeout passed in the middle of it — is thrown like a request that never
+ * came back: it is a failure, and must not be mistaken for an answer that was not data, which is
+ * a refusal.
+ *
+ * Two things the runtime does that this code does not ask for, said here because the wire test
+ * stubs `fetch` and cannot show them. Node's `fetch` adds `accept-language: *`,
+ * `accept-encoding` and `sec-fetch-mode: cors` to every request. And, following the Fetch
+ * standard, it sends a request once more by itself on an HTTP 421: one request the transport
+ * neither counts nor paces. Neither was seen to matter, and closing both would mean leaving
+ * `fetch` for `node:https`.
+ */
+async function fetchPlaystation(
+  url: string,
+  headers: Readonly<Record<string, string>>,
+  signal: AbortSignal,
+): Promise<PlaystationResponse> {
+  const response = await fetch(url, {
+    signal,
+    redirect: 'manual',
+    headers: { ...headers, 'User-Agent': STORE_USER_AGENT, Accept: 'application/json' },
+  })
+  const text = await response.text()
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  } catch {
+    body = undefined
+  }
+  const type = response.headers.get('content-type') ?? ''
+  return {
+    status: response.status,
+    body,
+    html: /^text\/html\b/i.test(type) || HTML_DOCUMENT.test(text),
+  }
+}
+
+/** The transport that reaches Sony, by the clock it was built on: one a clock, and so one a process. */
+const liveStores = new WeakMap<JobClock, PlaystationStore>()
+
+/**
+ * The PlayStation Store, for one run of the job: the object built here holds the run's ration of
+ * requests and of time (`createPlaystationStore`).
+ *
+ * **There is one of them a clock.** A second call with the same clock is handed the transport
+ * the first one built, with its pause and what is left of its ration: a process has one clock
+ * (`systemClock`), so whoever asks for the way to Sony in it, and however often, there is one
+ * line and one pause. That the limits cannot be got round does not rest on this being called
+ * once.
+ *
+ * The pause and the budget are counted on the clock's monotonic reading where it has one.
+ *
+ * In fixture mode it reads the recorded answers (`tests/fixtures/playstation`) and sends
+ * nothing; a transport that sends nothing has no pause to share, and each call builds its own.
+ */
+export function createJobPlaystation(options: StoreUpstreamOptions): PlaystationStore {
+  const build = (): PlaystationStore =>
+    createPlaystationStore({
+      fixtures: options.fixtures,
+      fetch: fetchPlaystation,
+      readFixture: createFixtureReader(FIXTURE_DIRS.PLAYSTATION),
+      now: options.clock.monotonic ?? options.clock.now,
+      sleep: options.clock.sleep,
+    })
+  if (options.fixtures) return build()
+  const built = liveStores.get(options.clock) ?? build()
+  liveStores.set(options.clock, built)
+  return built
+}
+
 export const systemClock: JobClock = {
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  monotonic: () => performance.now(),
 }

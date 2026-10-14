@@ -24,11 +24,18 @@ import { steamAppIdFromUrl } from '../../server/steam/steam'
  * as `''`, which would make the failure permanent — and the next run picks it up. Only a stage
  * failing beyond the run's tolerance ends the run.
  *
- * The same response carries every other store's link to the game, so the game's GOG page and its
- * Microsoft product (`storeRefs.ts`) are read from it here and written beside its app id: a game
- * new to the index costs RAWG one request for all three, not two. The links themselves are kept
- * in that record too (`IndexedStoreRefs.links`), for the stores the job does not read yet. A game
- * RAWG gave no link for, listed on neither store, has nothing written about it.
+ * The same response carries every other store's link to the game, so the game's GOG page, its
+ * Microsoft product and its PlayStation title (`storeRefs.ts`) are read from it here and written
+ * beside its app id: a game new to the index costs RAWG one request for all of them, not two. The
+ * links themselves are kept in that record too (`IndexedStoreRefs.links`), for the stores the job
+ * does not read yet. A game RAWG gave no link for, listed on none of those stores, has nothing
+ * written about it.
+ *
+ * A game can come to this stage with a record already — one the sweep wrote while RAWG did not
+ * list the game on Steam. The record is rewritten from the links like any other, and what the
+ * stores' own ways found for it and what Sony had said about its PlayStation title are carried
+ * over (`storeRecordFromLinks`): that is why the records of the games about to be asked about are
+ * read first, in one request, on a night that has any.
  */
 
 export const APP_ID_BATCH_SIZE = 100
@@ -132,9 +139,12 @@ export async function resolveAppIds(
 
   const pending = candidates.filter((game) => !known.has(game.id))
   // A game resolved now may have a store record already — swept while RAWG did not list it on
-  // Steam — and what the stores' own ways found for it is carried into the one written here.
+  // Steam — and what the stores' own ways found for it, and what Sony said about its title, are
+  // carried into the one written here.
   const recorded =
-    pending.length > 0 ? await deps.writer.getStoreRefs(pending.map((game) => game.id)) : new Map()
+    pending.length > 0
+      ? await deps.writer.getStoreRefs(pending.map((game) => game.id))
+      : new Map<number, IndexedStoreRefs>()
   let batch: [number, string][] = []
   let storeRefs: [number, IndexedStoreRefs][] = []
 
@@ -164,8 +174,8 @@ export async function resolveAppIds(
         batch.push([game.id, appId])
         // Only from an answer that is a list of links: one that is not says nothing about the
         // game's other stores, and the sweep asks about it again rather than remember "no link".
-        // And only a record that says something: a game with no link to keep, on neither store,
-        // needs none.
+        // And only a record that says something: a game with no link to keep, on none of the
+        // stores, needs none.
         const links = storeLinksOf(response)
         const refs = links ? storeRecordFromLinks(links, game.stores, recorded.get(game.id)) : {}
         if (Object.keys(refs).length > 0) storeRefs.push([game.id, refs])

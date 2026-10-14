@@ -1003,7 +1003,8 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
    * the very next run of any kind — and only a full run asks RAWG again. Keeping the offers of a
    * game whose record cannot be read would mean publishing prices for a product nobody can name
    * any more; a day without them is the lesser fault, for one corrupt key at a time. The warning
-   * says so in as many words.
+   * says so in as many words. What Sony had said about the game's PlayStation title goes with the
+   * record, and is asked for again after RAWG has been: one request more.
    */
   async getStoreRefs(ids: number[]): Promise<Map<number, IndexedStoreRefs>> {
     const found = new Map<number, IndexedStoreRefs>()
@@ -1020,8 +1021,8 @@ export class UpstashGameIndex implements GameIndex, GameIndexWriter {
         found.set(id, refs as IndexedStoreRefs)
       } catch {
         console.warn(
-          `[index] the store references of game ${id} are unreadable: its GOG and Microsoft ` +
-            'offers are dropped until a full run has asked RAWG about it again',
+          `[index] the store references of game ${id} are unreadable: its offers from the ` +
+            'other stores are dropped until a full run has asked RAWG about it again',
         )
       }
     })

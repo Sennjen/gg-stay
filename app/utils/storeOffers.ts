@@ -57,6 +57,28 @@ function comparable(text: string): string {
 }
 
 /**
+ * The stores whose title for the product is shown on its row whatever it says: the PlayStation
+ * Store. Its price is for the product Sony puts first for the game's concept, which is a
+ * console's copy and is sometimes another product altogether, so the row always says which
+ * product the price is for — the game's own name included.
+ */
+const ALWAYS_TITLED_STORES: readonly string[] = ['playstation-store']
+
+/**
+ * What a store's row shows under the store's name: the store's title for the product, or `null`
+ * for nothing. For a store in `ALWAYS_TITLED_STORES`, the title whenever there is one; for any
+ * other, only when it names something else than the game (`namesAnotherProduct`).
+ */
+export function shownTitle(
+  store: string,
+  title: string | null | undefined,
+  gameName: string | null | undefined,
+): string | null {
+  if (ALWAYS_TITLED_STORES.includes(store)) return title?.trim() ? title : null
+  return namesAnotherProduct(title, gameName) ? (title ?? null) : null
+}
+
+/**
  * Whether what a store calls a product differs from the game's own name, so that the page should
  * show it: a store's link is sometimes to another edition than the game it is filed under — a
  * "Game of the Year Edition", a complete season — and the price is that edition's.

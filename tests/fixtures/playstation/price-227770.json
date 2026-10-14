@@ -1,0 +1,51 @@
+{
+  "data": {
+    "conceptRetrieve": {
+      "id": "227770",
+      "defaultProduct": {
+        "id": "EP9000-CUSA07412_00-0000000GODOFWARN",
+        "name": "God of War™",
+        "concept": {"id": "227770"},
+        "webctas": [
+          {
+            "type": "UPSELL_PS_PLUS_GAME_CATALOG",
+            "meta": {"upSellService": "PS_PLUS"},
+            "price": {
+              "applicability": "UPSELL",
+              "basePriceValue": 64900,
+              "discountedValue": 0,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": true,
+              "isTiedToSubscription": true,
+              "qualifications": [{"type": "ENTITLEMENT_IN_CART", "value": "SUB001-SUBC00002_00-TJ4KZ94GWFC3NYB0"}],
+              "serviceBranding": ["PS_PLUS"]
+            }
+          },
+          {
+            "type": "ADD_TO_CART",
+            "meta": {"upSellService": "NONE"},
+            "price": {
+              "applicability": "APPLICABLE",
+              "basePriceValue": 64900,
+              "discountedValue": 64900,
+              "currencyCode": "UAH",
+              "endTime": null,
+              "isExclusive": false,
+              "isFree": false,
+              "isTiedToSubscription": false,
+              "qualifications": [],
+              "serviceBranding": ["NONE"]
+            }
+          }
+        ]
+      },
+      "products": [
+        {"id": "EP9000-CUSA07412_00-00000000GODOFWAR", "name": "God of War™ Digital Deluxe Edition"},
+        {"id": "EP9000-CUSA07412_00-0000000GODOFWARN", "name": "God of War™"},
+        {"id": "EP9000-CUSA15918_00-GOWCOMICBOOK0001", "name": "God of War Comic Book 1"}
+      ]
+    }
+  }
+}

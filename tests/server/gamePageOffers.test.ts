@@ -291,6 +291,12 @@ describe('what the other stores charge, on a page RAWG answered', () => {
         isFree: false,
         updatedAt: READ_AT,
       },
+      // RAWG links the game on the PlayStation Store as well: the link it gave, and no price.
+      {
+        ...LINK,
+        store: 'playstation-store',
+        url: 'https://store.playstation.com/en-us/product/UP2456-CUSA06840_00-STARDEWVALLEY000',
+      },
     ])
     // Nothing on the page was estimated, so the page is told of no rate.
     expect(answer.exchangeRate).toBeNull()
@@ -302,7 +308,8 @@ describe('what the other stores charge, on a page RAWG answered', () => {
       { index: await indexHolding([stardew([microsoftOffer()])]) },
       STARDEW,
     )
-    expect(freeOnSteam.stores.map((row) => row.isFree)).toEqual([true, false])
+    // And a link to the PlayStation Store, which has no price to be free or not.
+    expect(freeOnSteam.stores.map((row) => row.isFree)).toEqual([true, false, null])
     expect(cheapestOf(freeOnSteam)).toEqual([])
 
     // 675 ₴ on Steam, free on GOG — which is weighed as nothing, with no rate asked of it.
@@ -678,6 +685,50 @@ describe('what the other stores charge, on a page RAWG answered', () => {
       expect(count(await header(witcher([gogOffer()])))).toBe(without)
     })
   })
+})
+
+describe('an offer whose sale has ended, on both pages', () => {
+  /** The Microsoft Store at half price until `ends`: 192,50 ₴ against 385 ₴. */
+  const halfPrice = (ends: string) =>
+    microsoftOffer({ amount: 19_250, discountPercent: 50, saleEndsAt: ends })
+  const ON_SALE = { priceUah: 193, regularPriceUah: 385, discountPercent: 50 }
+  const OVER = { priceUah: 385, regularPriceUah: null, discountPercent: 0 }
+
+  /** The Microsoft Store's row of Stardew Valley's page, asked for at `now`. */
+  async function xboxRowAt(now: string, context: TestContext): Promise<Row> {
+    const { data, errors } = await runQuery({ now, ...context }, PAGE, { slug: STARDEW })
+    expect(errors).toBeUndefined()
+    // The path is the one the case names: the index's own page is the partial one.
+    expect((data!.game as Page).partial).toBe('rawg' in context)
+    return (data!.game as Page).stores.find((row) => row.store === 'xbox-store')!
+  }
+
+  it.each([
+    ['RAWG answered', {}],
+    ['built from the index', { rawg: rawgWithoutDetail }],
+  ] as const)(
+    'is shown at its sale price until the end and at its regular price after, on the page %s',
+    async (_path, upstream) => {
+      // One document, read by the request's clock a minute before the sale ends and a minute after.
+      const ends = ago(-HOUR)
+      const index = await indexHolding([stardew([halfPrice(ends)])])
+      const minute = 60_000
+
+      const before = await xboxRowAt(new Date(Date.parse(ends) - minute).toISOString(), {
+        index,
+        ...upstream,
+      })
+      const after = await xboxRowAt(new Date(Date.parse(ends) + minute).toISOString(), {
+        index,
+        ...upstream,
+      })
+
+      expect(before).toMatchObject(ON_SALE)
+      expect(after).toMatchObject(OVER)
+      // The same read, under its own date: only the sale is over.
+      expect(after.updatedAt).toBe(before.updatedAt)
+    },
+  )
 })
 
 describe('what the other stores charge, on the page built from the index', () => {

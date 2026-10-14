@@ -1,0 +1,25 @@
+{
+  "id": 28201, "slug": "metro-exodus", "name": "Metro Exodus",
+  "description_raw": "A quarter-century after nuclear war devastated the earth, a few thousand survivors still cling to existence beneath the ruins of Moscow, in the tunnels of the Metro.",
+  "released": "2019-02-13", "tba": false,
+  "background_image": "https://media.rawg.io/media/games/152/152e788b7504aa2753c86dae912fb34c.jpg",
+  "website": "https://www.metrothegame.com",
+  "rating": 4.2, "ratings_count": 2900, "metacritic": 82, "playtime": 18,
+  "platforms": [
+    { "platform": { "id": 4, "slug": "pc", "name": "PC" } },
+    { "platform": { "id": 18, "slug": "playstation4", "name": "PlayStation 4" } },
+    { "platform": { "id": 1, "slug": "xbox-one", "name": "Xbox One" } },
+    { "platform": { "id": 187, "slug": "playstation5", "name": "PlayStation 5" } },
+    { "platform": { "id": 186, "slug": "xbox-series-x", "name": "Xbox Series S/X" } }
+  ],
+  "genres": [{ "id": 4, "slug": "action", "name": "Action" }, { "id": 2, "slug": "shooter", "name": "Shooter" }],
+  "tags": [{ "id": 31, "slug": "singleplayer", "name": "Singleplayer" }],
+  "developers": [{ "id": 3709, "slug": "4a-games", "name": "4A Games" }],
+  "publishers": [{ "id": 3408, "slug": "deep-silver", "name": "Deep Silver" }],
+  "stores": [
+    { "id": 282010, "url": "", "store": { "id": 1, "slug": "steam", "name": "Steam" } },
+    { "id": 282011, "url": "", "store": { "id": 5, "slug": "gog", "name": "GOG" } },
+    { "id": 282012, "url": "", "store": { "id": 3, "slug": "playstation-store", "name": "PlayStation Store" } }
+  ],
+  "esrb_rating": { "id": 4, "slug": "mature", "name": "Mature" }
+}

@@ -648,6 +648,53 @@ describe('withStoreOffers', () => {
     expect(priced.map((row) => row.store)).toEqual(['steam', 'gog', 'playstation-store'])
   })
 
+  it('puts the PlayStation Store’s price on RAWG’s row, at the product’s own page', () => {
+    const playstation: IndexedOffer = {
+      store: 'playstation-store',
+      title: 'Grand Theft Auto Online (PlayStation\u00AE5)',
+      amount: 89_900,
+      regularAmount: 89_900,
+      currency: 'UAH',
+      discountPercent: 0,
+      url: 'https://store.playstation.com/uk-ua/product/EP1004-PPSA01721_00-GTAOSTANDALONE01',
+      updatedAt: gogOffer().updatedAt,
+    }
+    const before = rows()
+    const priced = withStoreOffers(before, holding(gogOffer(), playstation), TERMS)
+
+    expect(priced[2]).toEqual(rowOf(playstation, RATE))
+    expect(priced[2]).toMatchObject({
+      url: playstation.url,
+      title: 'Grand Theft Auto Online (PlayStation\u00AE5)',
+      priceUah: 899,
+    })
+    expect(priced[1]).toEqual(rowOf(gogOffer(), RATE))
+  })
+
+  it('keeps the PlayStation Store’s price for forty-eight hours, where another store’s is gone at thirty-six', () => {
+    const at = (hours: number): IndexedOffer[] => [
+      gogOffer({ updatedAt: new Date(Date.parse(NOW) - hours * 3_600_000).toISOString() }),
+      {
+        store: 'playstation-store',
+        title: 'The Witcher 3',
+        amount: 64_900,
+        regularAmount: 64_900,
+        currency: 'UAH',
+        discountPercent: 0,
+        url: 'https://store.playstation.com/uk-ua/product/EP4497-CUSA05571_00-0000000000GOTY11',
+        updatedAt: new Date(Date.parse(NOW) - hours * 3_600_000).toISOString(),
+      },
+    ]
+    const priced = (hours: number) =>
+      withStoreOffers(rows(), holding(...at(hours)), TERMS).map(
+        (row) => row.priceUah != null || row.foreignPrice != null,
+      )
+
+    expect(priced(30)).toEqual([true, true, true])
+    expect(priced(40)).toEqual([true, false, true])
+    expect(priced(49)).toEqual([true, false, false])
+  })
+
   it('leaves the link RAWG gave when the offer is too old to be a price', () => {
     const before = rows()
     const stale = withStoreOffers(before, holding(gogOffer({ updatedAt: TOO_OLD })), TERMS)
@@ -697,6 +744,57 @@ describe('withCheapest', () => {
 
   it('marks an estimate that is clearly below Steam’s price', () => {
     expect(marked([steam(675), rowOf(gogOffer(), RATE)])).toEqual(['gog'])
+  })
+
+  describe('and the PlayStation Store, which is weighed like any hryvnia row', () => {
+    /** A PlayStation Store row at so many whole hryvnia, read `hoursAgo` before the page. */
+    const playstation = (uah: number, hoursAgo = 6): StoreOffer =>
+      rowOf(
+        {
+          store: 'playstation-store',
+          title: 'Grand Theft Auto Online (PlayStation\u00AE5)',
+          amount: uah * 100,
+          regularAmount: uah * 100,
+          currency: 'UAH',
+          discountPercent: 0,
+          url: 'https://store.playstation.com/uk-ua/product/EP1004-PPSA01721_00-GTAOSTANDALONE01',
+          updatedAt: new Date(Date.parse(NOW) - hoursAgo * 3_600_000).toISOString(),
+        },
+        RATE,
+      )
+
+    it('is marked when it is the lowest price on the page', () => {
+      expect(marked([steam(675), playstation(95)])).toEqual(['playstation-store'])
+      expect(marked([steam(675), rowOf(microsoftOffer(), RATE), playstation(95)])).toEqual([
+        'playstation-store',
+      ])
+    })
+
+    it('is a yardstick for the others: no margin over an exact price, and the estimate’s five percent', () => {
+      expect(marked([steam(675), playstation(386), rowOf(microsoftOffer(), RATE)])).toEqual([
+        'xbox-store',
+      ])
+      expect(marked([steam(675), playstation(385), rowOf(microsoftOffer(), RATE)])).toEqual([])
+      // GOG's ≈ 404 ₴ against 425 ₴ is under five percent below, and marks nothing.
+      expect(marked([steam(675), playstation(425), rowOf(gogOffer(), RATE)])).toEqual([])
+      expect(marked([steam(675), playstation(426), rowOf(gogOffer(), RATE)])).toEqual(['gog'])
+    })
+
+    it('is weighed for forty-eight hours, where another store’s row is not past thirty-six', () => {
+      expect(marked([steam(675), playstation(95, 40)])).toEqual(['playstation-store'])
+      expect(marked([steam(675), playstation(95, 49)])).toEqual([])
+    })
+
+    it('is shown and not weighed when it is free: it neither carries the mark nor blocks it', () => {
+      expect(marked([steam(675), playstation(0)])).toEqual([])
+      // The paid rows are marked exactly as they would be without it.
+      expect(marked([steam(675), rowOf(microsoftOffer(), RATE), playstation(0)])).toEqual([
+        'xbox-store',
+      ])
+      expect(marked([steam(300), rowOf(microsoftOffer(), RATE), playstation(0)])).toEqual(['steam'])
+      // It is still the row's price, «Безкоштовно».
+      expect(playstation(0)).toMatchObject({ isFree: true, priceUah: 0 })
+    })
   })
 
   it('marks Steam when its price is the lowest', () => {

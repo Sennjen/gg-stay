@@ -85,7 +85,7 @@ A table of its own, since nothing of a publication applies: pages read and why t
 ## Not in this change
 
 - **Widening the index.** No game is added to it, no document changes, and the nightly run's 75 pages stay 75. What the index should hold beyond the 3 000, how its checks and its store's free tier take that, and what the site says about its coverage is a design of its own.
-- **Reading the PlayStation Store.** The links are kept for it; nothing parses them yet and no record has a PlayStation field.
+- **Reading the PlayStation Store.** The links are kept for it. _Since then (the PlayStation Store's change, merged with this one on 2026-10-14): records carry a PlayStation reference, written from the links by every lookup, and the nightly sweep completes from them, with no request, a record that kept them and has a PlayStation-store row (`playstationFromLinks`)._
 - **Links for the games already resolved.** Records written before this change have none. They get them when a game is next asked about, which for most of them is never; a store read later will have to ask about those games once.
 - **A schedule.** The mode exists to spend quota that would otherwise lapse. Whether it should ever run by itself depends on what the index becomes.
 - **Answers with no links at all.** A game RAWG lists on a store and answers for with an empty list of links is remembered as it is — the empty app id for a Steam game, a record without links — as the nightly stages remember it, and the summary does not count such answers apart; a RAWG that answered empty lists for a while would leave such games marked for good, and the records without links are how they would be found again.

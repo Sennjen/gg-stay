@@ -188,6 +188,48 @@ describe('createGameIndex', () => {
     })
   })
 
+  it('moves the end of a seeded sale with the read that found it', async () => {
+    // An hour on, as above. What was ahead of the fixture's run is as far ahead of the seed, and
+    // what was behind it is as far behind: a development page sees the sale the fixture recorded.
+    const index = await createGameIndex(sources())
+    const seededAt = Date.parse('2026-09-20T07:00:00.000Z')
+    const HOUR = 3_600_000
+    const playstation = async (id: number) =>
+      (await index.getOne(id))!.offers!.find((offer) => offer.store === 'playstation-store')!
+
+    // Metro Exodus: read by the night's run, on sale for eight days and a few hours more.
+    const running = await playstation(28201)
+    expect(running.updatedAt).toBe('2026-09-20T03:40:00.000Z')
+    expect(running.saleEndsAt).toBe('2026-09-28T22:59:00.000Z')
+    expect(Date.parse(running.saleEndsAt!) - seededAt).toBeGreaterThan(8 * 24 * HOUR)
+
+    // Stardew Valley: read eighteen hours before the run, and its sale over for eight of them.
+    const ended = await playstation(654)
+    expect(ended.updatedAt).toBe('2026-09-19T13:20:00.000Z')
+    expect(ended.saleEndsAt).toBe('2026-09-19T22:59:00.000Z')
+    expect(seededAt - Date.parse(ended.saleEndsAt!)).toBeGreaterThan(8 * HOUR)
+    expect(seededAt - Date.parse(ended.updatedAt)).toBeLessThan(36 * HOUR)
+
+    // Cyberpunk 2077: three days old, and no sale to have an end.
+    const old = await playstation(41494)
+    expect(seededAt - Date.parse(old.updatedAt)).toBeGreaterThan(48 * HOUR)
+    expect('saleEndsAt' in old).toBe(false)
+    // An offer of another store has no such field, before the move or after it.
+    expect('saleEndsAt' in (await index.getOne(3328))!.offers![0]!).toBe(false)
+
+    // And with the stale switch the offer is as old as the Steam prices are, its sale's end
+    // still as far from its read as the fixture recorded: the two never move apart.
+    const NOW = Date.parse('2026-09-20T12:00:00.000Z')
+    const stale = await createGameIndex(sources({ seededAt: staleSeedAt(true, '1', () => NOW) }))
+    const offer = (await stale.getOne(28201))!.offers!.find(
+      (entry) => entry.store === 'playstation-store',
+    )!
+    expect(NOW - Date.parse(offer.updatedAt)).toBeGreaterThan(INDEX_STALE_AFTER_MS)
+    expect(Date.parse(offer.saleEndsAt!) - Date.parse(offer.updatedAt)).toBe(
+      Date.parse(running.saleEndsAt!) - Date.parse(running.updatedAt),
+    )
+  })
+
   it('dates the seeded rate by the day the seed is published on', async () => {
     const index = await createGameIndex(sources({ seededAt: () => '2027-03-01T12:00:00.000Z' }))
 

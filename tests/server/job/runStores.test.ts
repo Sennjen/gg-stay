@@ -342,10 +342,19 @@ describe('runJob when a store is down', () => {
     const report = (error as { report: JobReport }).report
     expect((error as { stage: string }).stage).toBe('prices')
     expect(report.stores).toEqual({
-      references: { games: 9, listed: 2, asked: 2, gog: 1, microsoft: 1, sweep: null },
+      references: {
+        games: 9,
+        listed: 2,
+        asked: 2,
+        gog: 1,
+        microsoft: 1,
+        playstation: 0,
+        sweep: null,
+      },
       gog: null,
       microsoft: null,
       rate: null,
+      playstation: null,
     })
     // A run Steam has already failed asks no other store anything.
     expect(failing.gogPages).toHaveLength(0)
@@ -448,6 +457,7 @@ describe('runJob and its warnings about the other stores', () => {
       asked: 1_700,
       gog: 410,
       microsoft: 380,
+      playstation: 790,
       sweep: null,
     },
     gog: read,
@@ -631,6 +641,7 @@ describe('runJob over what the previous build published', () => {
       asked: 2,
       gog: 1,
       microsoft: 1,
+      playstation: 0,
       sweep: { attempted: 2, failures: 0, remaining: 0, stopped: null },
     })
     expect(nextNight.storeCalls().map((call) => call.path)).toEqual([
@@ -754,7 +765,7 @@ describe('runJob and a store reference record that cannot be read', () => {
     expect(prices.calls).toHaveLength(0)
     expect((await reader.getOne(109))?.offers).toEqual([microsoftOffer(noon)])
     expect(warn).toHaveBeenCalledWith(
-      '[index] the store references of game 101 are unreadable: its GOG and Microsoft offers are dropped until a full run has asked RAWG about it again',
+      '[index] the store references of game 101 are unreadable: its offers from the other stores are dropped until a full run has asked RAWG about it again',
     )
 
     // The next full run asks RAWG about that game alone, rewrites the record, and the offer is
@@ -776,7 +787,7 @@ describe('formatSummary and the other stores', () => {
     const summary = formatSummary(await runJob(harness.deps, FULL))
 
     expect(summary).toContain(
-      '| Store references | 2 of 9 games on GOG or the Xbox store at RAWG, 2 asked; 1 with a GOG page, 1 with a Microsoft Store product; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
+      '| Store references | 2 of 9 games on GOG, the Xbox store or the PlayStation Store at RAWG, 2 asked; 1 with a GOG page, 1 with a Microsoft Store product, 0 with a PlayStation title; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
       '| GOG prices | 1 reference, 1 price read, 0 failed; 1 offer published, 1 request |',
@@ -797,7 +808,7 @@ describe('formatSummary and the other stores', () => {
     )
 
     expect(summary).toContain(
-      '| Store references | 2 of 9 games on GOG or the Xbox store at RAWG, 2 asked; 1 with a GOG page, 1 with a Microsoft Store product (not looked up in this mode) |',
+      '| Store references | 2 of 9 games on GOG, the Xbox store or the PlayStation Store at RAWG, 2 asked; 1 with a GOG page, 1 with a Microsoft Store product, 0 with a PlayStation title (not looked up in this mode) |',
     )
     expect(summary).toContain(
       `| GOG prices | 1 reference, not read: the last full read (${RUN_AT}) is under eleven hours old; 1 offer carried |`,
@@ -851,6 +862,7 @@ describe('formatSummary and the other stores', () => {
     asked: 1_186,
     gog: 410,
     microsoft: 380,
+    playstation: 790,
     sweep: null,
   }
 
@@ -877,7 +889,7 @@ describe('formatSummary and the other stores', () => {
     })
 
     expect(summary).toContain(
-      '| Store references | 1700 of 3400 games on GOG or the Xbox store at RAWG, 1186 asked; 410 with a GOG page, 380 with a Microsoft Store product; RAWG: 1200 lookups this run, 14 failed, 514 left for the next full run (stopped early: too many failed) |',
+      '| Store references | 1700 of 3400 games on GOG, the Xbox store or the PlayStation Store at RAWG, 1186 asked; 410 with a GOG page, 380 with a Microsoft Store product, 790 with a PlayStation title; RAWG: 1200 lookups this run, 14 failed, 514 left for the next full run (stopped early: too many failed) |',
     )
     expect(summary).toContain(
       '| GOG prices | 1093 references, 870 prices read, 0 failed; 870 offers published, 83 requests |',
@@ -907,6 +919,26 @@ describe('formatSummary and the other stores', () => {
 
     expect(summary).toContain(
       'RAWG: 231 lookups this run, 0 failed, 1469 left for the next full run (stopped early: out of its twenty minutes) |',
+    )
+  })
+
+  it('says how many records the sweep completed from the links they keep, when it did', () => {
+    const summary = formatSummary({
+      ...base,
+      mode: 'full',
+      stores: {
+        references: {
+          ...references,
+          sweep: { attempted: 12, failures: 0, remaining: 0, stopped: null, fromLinks: 1 },
+        },
+        gog: null,
+        microsoft: null,
+        rate: null,
+      },
+    })
+
+    expect(summary).toContain(
+      'PlayStation title; 1 record completed from the links they keep, no request; RAWG: 12 lookups this run, 0 failed, 0 left for the next full run |',
     )
   })
 

@@ -1,6 +1,7 @@
 import type { BankRateFetch } from './bank'
 import type { GogCatalogFetch } from './gog'
 import type { MicrosoftCatalogFetch, MicrosoftProductsFetch } from './microsoft'
+import type { PlaystationStore } from './playstation'
 import type { RequestMeter } from './requestMeter'
 import type { GameIndex, GameIndexWriter } from '../../server/index/GameIndex'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
@@ -8,8 +9,8 @@ import type { SteamPriceFetch } from '../../server/steam/steamPriceFetch'
 
 /**
  * What every stage of the refresh job is given, and nothing more: the upstream transports — RAWG,
- * Steam, and the three only the job talks to: GOG, the Microsoft Store and the National Bank —
- * the index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`,
+ * Steam, and the four only the job talks to: GOG, the Microsoft Store, the PlayStation Store and
+ * the National Bank — the index, a clock and a log sink. Nothing in `scripts/index/` reads `process.env`,
  * `Date.now()` or the network directly — only `run.ts` builds these — so a stage runs the same on
  * fixtures, on the in-memory adapter and on a fake clock as it does against the real services and
  * Upstash.
@@ -27,6 +28,14 @@ export interface JobClock {
   /** Epoch milliseconds. */
   now: () => number
   sleep: (ms: number) => Promise<void>
+  /**
+   * Milliseconds on a clock that only goes forward, for measuring how far apart two moments are
+   * where being wrong about it matters: the pause between two requests to the PlayStation Store
+   * (`upstreams.ts`). The wall clock of a runner is corrected now and then, and a correction
+   * forward in the middle of a pause would cut it short. A clock without one is measured by
+   * `now`, which is what a test's clock wants.
+   */
+  monotonic?: () => number
 }
 
 /** Where a stage's progress goes. Never a secret, never a raw upstream payload. */
@@ -78,6 +87,13 @@ export interface JobDeps {
   microsoftCatalog: MicrosoftCatalogFetch
   /** The National Bank's dollar rate for one day. */
   bank: BankRateFetch
+  /**
+   * The PlayStation Store for Ukraine, one question a request and never faster than its own
+   * pause: the one transport that holds a run's ration itself, so it is built for one run. A dry
+   * run's is the one that answers from recordings, whatever its other transports are
+   * (`createJobDeps` in `run.ts`).
+   */
+  playstation: PlaystationStore
   writer: JobIndex
   clock: JobClock
   log: JobLog

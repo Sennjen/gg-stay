@@ -5,18 +5,20 @@ const newReleasesTo = { path: localePath('/games'), query: { sort: 'RELEASED_DES
 
 /**
  * Where the site's data comes from, in the order the sentence names them: RAWG for the games,
- * and the three stores whose prices a game page shows. Each is the slot of `footer.dataBy` it
+ * and the four stores whose prices a game page shows. Each is the slot of `footer.dataBy` it
  * fills and the key of its name, with the address of the source's own front page.
  *
  * The third store is named as a visitor meets it everywhere else on the site — "Xbox Store", in
  * the store filter and on a game page's row (`STORE_OPTIONS`) — and linked where its prices are
- * charged: Microsoft's own address for a product in Ukraine redirects to the Xbox store.
+ * charged: Microsoft's own address for a product in Ukraine redirects to the Xbox store. The
+ * PlayStation Store is linked at its storefront for Ukraine, the one its prices are read from.
  */
 const SOURCES = [
   { slot: 'rawg', href: 'https://rawg.io' },
   { slot: 'steam', href: 'https://store.steampowered.com' },
   { slot: 'gog', href: 'https://www.gog.com' },
   { slot: 'xbox', href: 'https://www.xbox.com' },
+  { slot: 'playstation', href: 'https://store.playstation.com/uk-ua/' },
 ] as const
 </script>
 

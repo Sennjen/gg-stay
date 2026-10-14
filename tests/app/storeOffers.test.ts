@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { formatUah } from '~/utils/format'
-import { formatForeignPrice, isPriceAmount, namesAnotherProduct } from '~/utils/storeOffers'
+import {
+  formatForeignPrice,
+  isPriceAmount,
+  namesAnotherProduct,
+  shownTitle,
+} from '~/utils/storeOffers'
 
 const usd = (amount: number) => ({ amount, currency: 'USD' })
 
@@ -115,4 +120,33 @@ describe('namesAnotherProduct', () => {
     expect(namesAnotherProduct('Stardew Valley', undefined)).toBe(true)
     expect(namesAnotherProduct('Stardew Valley', '')).toBe(true)
   })
+})
+
+describe('shownTitle', () => {
+  const GAME_NAME = 'Metro Exodus'
+
+  it('is the PlayStation Store’s title whatever it says: its product may be another thing', () => {
+    expect(shownTitle('playstation-store', 'Metro Exodus', GAME_NAME)).toBe('Metro Exodus')
+    expect(shownTitle('playstation-store', 'METRO EXODUS', GAME_NAME)).toBe('METRO EXODUS')
+    expect(shownTitle('playstation-store', 'Grand Theft Auto Online', 'Grand Theft Auto V')).toBe(
+      'Grand Theft Auto Online',
+    )
+  })
+
+  it('is another store’s title only when it names something else than the game', () => {
+    for (const store of ['gog', 'xbox-store', 'steam']) {
+      expect(shownTitle(store, 'METRO EXODUS', GAME_NAME), store).toBeNull()
+      expect(shownTitle(store, 'Metro Exodus Gold Edition', GAME_NAME), store).toBe(
+        'Metro Exodus Gold Edition',
+      )
+    }
+  })
+
+  it.each([[null], [undefined], [''], ['   ']])(
+    'is nothing for a title of %j, whatever the store',
+    (title) => {
+      expect(shownTitle('playstation-store', title, GAME_NAME)).toBeNull()
+      expect(shownTitle('gog', title, GAME_NAME)).toBeNull()
+    },
+  )
 })

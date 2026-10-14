@@ -52,7 +52,7 @@ import type { STORE_OPTIONS } from '../../shared/catalog'
  * list, and at a page RAWG fails — after the transport's retry — which ends the reading and not
  * the run: the games of the pages before it are asked about.
  *
- * **What an answer leaves behind.** A store-reference record, always — the two references, the
+ * **What an answer leaves behind.** A store-reference record, always — the three references, the
  * marks of the stores the game is listed on and RAWG's links (`storeRecordFromLinks`) — and the
  * game's Steam app id when a link names one. The empty app id, "this game has no Steam page", is
  * written only for a game RAWG lists on Steam, which is all it has ever meant: written for a game
@@ -89,15 +89,14 @@ export const RESOLVE_BUDGET_MS = 60 * 60_000
 type CatalogStoreSlug = (typeof STORE_OPTIONS)[number]['slug']
 
 /**
- * The stores a game has to be listed on, one of them, to be asked about: the three the job reads
- * — Steam, and the two of `OFFER_STORES` — and the PlayStation Store, which it is about to. The
- * slugs are the catalog's (`STORE_OPTIONS`), which are the ones a document's `stores` carries
+ * The stores a game has to be listed on, one of them, to be asked about: the four the job reads
+ * — Steam, and the three of `OFFER_STORES`, the PlayStation Store's among them. The slugs are
+ * the catalog's (`STORE_OPTIONS`), which are the ones a document's `stores` carries
  * (`toIndexedGame`); the type holds them to it.
  */
 export const RESOLVE_STORES = [
   'steam',
   ...OFFER_STORES,
-  'playstation-store',
 ] as const satisfies readonly CatalogStoreSlug[]
 
 export interface ResolveOptions {

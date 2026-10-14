@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { LANGUAGE_BUDGET } from '../../../scripts/index/languages'
 import {
+  createJobDeps,
   formatSummary,
   parseArgs,
   PROBE_STAGE,
@@ -1104,7 +1105,7 @@ describe('runCli', () => {
     // Microsoft product is not in the recorded answer; the store's own ways are tried for it and
     // find nothing, there being no recorded search for its name.
     expect(summary).toContain(
-      '| Store references | 3 of 5 games on GOG or the Xbox store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
+      '| Store references | 3 of 5 games on GOG, the Xbox store or the PlayStation Store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product, 1 with a PlayStation title; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
       '| GOG prices | 2 references, 2 prices read, 0 failed; 2 offers published, 1 request; found by: link 1, edition 1; 1 searched for this run, 1 found (edition 1), 0 waiting |',
@@ -1112,12 +1113,63 @@ describe('runCli', () => {
     expect(summary).toContain(
       '| Microsoft Store prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request; 1 searched for this run in 2 requests, 0 found, 0 waiting |',
     )
+    // The PlayStation Store, from its own recorded answers (`tests/fixtures/playstation`): RAWG's
+    // fixtures list Stardew Valley there, and the title in its link is one Sony names a concept
+    // for. A full run maps titles and reads no price, so it publishes no offer.
+    expect(summary).toContain(
+      '| PlayStation Store prices | 1 reference, 1 mapped to a concept, 0 with none, 0 waiting to be; 1 title answered about of 1 due, 0 of them with no concept, 0 failed; prices are read by the prices runs: 0 offers carried, no price to date; 1 request; everything due was asked |',
+    )
     // The recorded rate, under today's date in Kyiv whenever the suite runs.
     expect(summary).toMatch(
       /\| Exchange rate \| 44\.9567 UAH per USD, the National Bank's for \d{4}-\d{2}-\d{2} \|/,
     )
     expect(summary).toContain('| Item failures | 0 |')
     vi.restoreAllMocks()
+  })
+
+  /**
+   * A dry run keeps nothing and holds no lock that anybody else sees. On the live network it
+   * would ask Sony about the same titles every time it is started, and be a second caller beside
+   * the scheduled run. So it is never given the way there, whatever its other transports are.
+   */
+  it('never hands a dry run the way to Sony, on the live network or off it', async () => {
+    const network = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', network)
+    let now = 0
+    const clock = { now: () => now, sleep: async (ms: number) => void (now += ms) }
+    const dependencies = (fixtures: boolean, dryRun: boolean) =>
+      createJobDeps({
+        apiKey: 'test-key',
+        fixtures,
+        dryRun,
+        clock,
+        writer: createJobHarness().writer,
+        log: () => {},
+      })
+
+    // A dry run with real RAWG and Steam behind it: Sony's answers are the recorded ones.
+    const dry = dependencies(false, true)
+    expect(await dry.playstation.concept('CUSA00419_00')).toBe(201_930)
+    expect(await dry.playstation.price(201_930)).toMatchObject({ price: { amount: 89_900 } })
+    // A title with no recording is a request that failed, not a request that was sent.
+    await expect(dry.playstation.concept('CUSA00001_00')).rejects.toMatchObject({
+      source: 'PLAYSTATION',
+      kind: 'NOT_FOUND',
+    })
+    expect(network).not.toHaveBeenCalled()
+    expect(await dependencies(true, false).playstation.concept('CUSA00419_00')).toBe(201_930)
+    expect(await dependencies(true, true).playstation.concept('CUSA00419_00')).toBe(201_930)
+    expect(network).not.toHaveBeenCalled()
+
+    // Only a real run, writing to the real index, reaches Sony.
+    await dependencies(false, false)
+      .playstation.concept('CUSA00419_00')
+      .catch(() => {})
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(String((network.mock.calls as unknown as [string][])[0]![0])).toContain(
+      'm.np.playstation.com',
+    )
+    vi.unstubAllGlobals()
   })
 
   it('exits non-zero, and says why, when it cannot even start', async () => {

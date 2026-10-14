@@ -404,7 +404,9 @@ describe('resolveMoreGames: what an answer leaves behind', () => {
     expect((await harness.writer.getStoreRefs([201])).get(201)).toEqual({
       gog: 'game_201',
       microsoft: { id: '9N0000000201', name: 'game-201' },
-      // Every link, the PlayStation Store's among them, which no parser reads yet.
+      // Listed on the PlayStation Store, with a link that names no title the job can read.
+      playstation: null,
+      // Every link, the PlayStation Store's among them.
       links: [
         [1, 'https://store.steampowered.com/app/2010/'],
         [5, 'https://www.gog.com/game/game_201'],
@@ -446,6 +448,7 @@ describe('resolveMoreGames: what an answer leaves behind', () => {
     expect(await harness.writer.getAppIds([201, 202])).toEqual(new Map())
     const records = await harness.writer.getStoreRefs([201, 202])
     expect(records.get(201)).toEqual({
+      playstation: null,
       links: [[3, 'https://store.playstation.com/en-us/product/UP0001-GAME201']],
     })
     expect(records.get(202)).toEqual({
@@ -481,9 +484,9 @@ describe('resolveMoreGames: what an answer leaves behind', () => {
 
     await resolveMoreGames(harness.deps, options(100))
 
-    // Nothing to say of either store and no link to keep: a record all the same, because the
-    // record is what says "asked".
-    expect((await harness.writer.getStoreRefs([201])).get(201)).toEqual({})
+    // Listed on the PlayStation Store with no link to read, and no link to keep: a record all the
+    // same, because the record is what says "asked".
+    expect((await harness.writer.getStoreRefs([201])).get(201)).toEqual({ playstation: null })
     expect(await harness.writer.getAppIds([201, 202])).toEqual(new Map([[202, '']]))
 
     await resolveMoreGames(against(wire, harness.writer).deps, options(100))

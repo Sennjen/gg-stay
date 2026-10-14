@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { RATE_KEPT_MS } from '../../../scripts/index/offers'
+import { PLAYSTATION_PRICE_SHOWN_MS } from '../../../scripts/index/playstationOffers'
 import {
+  OFFER_STORES,
   OFFER_WAYS,
   offerWay,
   type IndexedExchangeRate,
@@ -13,15 +15,21 @@ import {
   CLOCK_AHEAD_ALLOWED_MS,
   EXCHANGE_RATE_KEPT_MS,
   OFFER_FRESH_FOR_MS,
+  offerAt,
+  offerFreshForMs,
+  PLAYSTATION_OFFER_FRESH_FOR_MS,
+  PAGE_OFFER_STORES,
   cheaperAtOf,
   cheapestRow,
   exchangeRateAt,
   freshOffers,
   hryvniaOf,
   isFreshAt,
+  isComparedPrice,
   isFreshOffer,
   listedOffers,
   markedCheapest,
+  pageOffers,
   readableOffers,
   wholeHryvnia,
   type PricedRow,
@@ -62,6 +70,20 @@ const microsoft = (overrides: Partial<IndexedOffer> = {}): IndexedOffer => ({
   ...overrides,
 })
 
+/** What the refresh job publishes for the PlayStation Store: hryvnia, and the end of a sale. */
+const playstation = (overrides: Partial<IndexedOffer> = {}): IndexedOffer => ({
+  store: 'playstation-store',
+  title: 'Terraria \u2013 PlayStation\u00AE4 Edition',
+  amount: 30_950,
+  regularAmount: 61_900,
+  currency: 'UAH',
+  discountPercent: 50,
+  url: 'https://store.playstation.com/uk-ua/product/EP4040-CUSA00737_00-TERRARIA00000001',
+  updatedAt: ago(6 * HOUR),
+  saleEndsAt: '2026-10-21T22:59:00.000Z',
+  ...overrides,
+})
+
 const RATE: IndexedExchangeRate = {
   currency: 'USD',
   uah: 44.9567,
@@ -80,20 +102,22 @@ describe('the thirty-six hours an offer is a price for', () => {
   })
 
   it('counts an offer read thirty-six hours ago to the millisecond, and not one read before that', () => {
-    expect(isFreshOffer({ updatedAt: ago(OFFER_FRESH_FOR_MS) }, NOW)).toBe(true)
-    expect(isFreshOffer({ updatedAt: ago(OFFER_FRESH_FOR_MS + 1) }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(OFFER_FRESH_FOR_MS) }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(OFFER_FRESH_FOR_MS + 1) }, NOW)).toBe(false)
   })
 
   it('counts an offer read a moment ago, and one a clock a little ahead of ours dated', () => {
-    expect(isFreshOffer({ updatedAt: NOW }, NOW)).toBe(true)
-    expect(isFreshOffer({ updatedAt: ago(-5_000) }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: NOW }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(-5_000) }, NOW)).toBe(true)
   })
 
   it('counts an offer dated five minutes ahead of the clock to the millisecond, and none dated beyond that', () => {
-    expect(isFreshOffer({ updatedAt: ago(-CLOCK_AHEAD_ALLOWED_MS) }, NOW)).toBe(true)
-    expect(isFreshOffer({ updatedAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(-CLOCK_AHEAD_ALLOWED_MS) }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) }, NOW)).toBe(
+      false,
+    )
     // A wrong date in the future never ages by itself: next June is not "read just now".
-    expect(isFreshOffer({ updatedAt: '2027-06-01T00:00:00.000Z' }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: '2027-06-01T00:00:00.000Z' }, NOW)).toBe(false)
   })
 
   it('is one definition of fresh for every price: any date is held to the same two edges', () => {
@@ -111,12 +135,47 @@ describe('the thirty-six hours an offer is a price for', () => {
   it.each([['not a date'], [undefined], [1_760_000_000_000]])(
     'does not count an offer dated %j: what cannot be dated is not shown as read just now',
     (updatedAt) => {
-      expect(isFreshOffer({ updatedAt: updatedAt as unknown as string }, NOW)).toBe(false)
+      expect(isFreshOffer({ store: 'gog', updatedAt: updatedAt as unknown as string }, NOW)).toBe(
+        false,
+      )
     },
   )
 
   it('counts nothing against a clock that cannot be read', () => {
-    expect(isFreshOffer({ updatedAt: ago(HOUR) }, 'not a date')).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(HOUR) }, 'not a date')).toBe(false)
+  })
+})
+
+describe('the forty-eight hours a PlayStation Store offer is a price for', () => {
+  const playstation = (updatedAt: string) => ({ store: 'playstation-store' as const, updatedAt })
+
+  it('is forty-eight hours, for that store and no other', () => {
+    expect(PLAYSTATION_OFFER_FRESH_FOR_MS).toBe(48 * HOUR)
+    expect(offerFreshForMs('playstation-store')).toBe(PLAYSTATION_OFFER_FRESH_FOR_MS)
+    for (const store of ['gog', 'xbox-store', 'steam', 'a-store-from-a-newer-job']) {
+      expect(offerFreshForMs(store), store).toBe(OFFER_FRESH_FOR_MS)
+    }
+  })
+
+  it('counts an offer read forty-eight hours ago to the millisecond, and not one read before that', () => {
+    expect(isFreshOffer(playstation(ago(PLAYSTATION_OFFER_FRESH_FOR_MS)), NOW)).toBe(true)
+    expect(isFreshOffer(playstation(ago(PLAYSTATION_OFFER_FRESH_FOR_MS + 1)), NOW)).toBe(false)
+  })
+
+  it('keeps a price the other stores would have dropped: forty hours old', () => {
+    expect(isFreshOffer(playstation(ago(40 * HOUR)), NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(40 * HOUR) }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'xbox-store', updatedAt: ago(40 * HOUR) }, NOW)).toBe(false)
+  })
+
+  it('holds the same edge ahead of the clock as every other price', () => {
+    expect(isFreshOffer(playstation(ago(-CLOCK_AHEAD_ALLOWED_MS)), NOW)).toBe(true)
+    expect(isFreshOffer(playstation(ago(-(CLOCK_AHEAD_ALLOWED_MS + 1))), NOW)).toBe(false)
+    expect(isFreshOffer(playstation('not a date'), NOW)).toBe(false)
+  })
+
+  it('is the number the refresh job warns by, and not a copy of it', () => {
+    expect(PLAYSTATION_PRICE_SHOWN_MS).toBe(PLAYSTATION_OFFER_FRESH_FOR_MS)
   })
 })
 
@@ -250,6 +309,82 @@ describe('the way an offer was found', () => {
   })
 })
 
+/**
+ * The refresh job publishes the PlayStation Store's offers from the change that taught it to
+ * read them; the pages are taught what to do with them in the change after. In between, a
+ * document carries an offer every rule here could read and none of them was written for.
+ */
+describe('the offers a page may use', () => {
+  const everywhere = ['steam', 'gog', 'xbox-store', 'playstation-store']
+
+  it('are those of every store the job publishes, the PlayStation Store’s among them', () => {
+    expect(PAGE_OFFER_STORES).toEqual(['gog', 'xbox-store', 'playstation-store'])
+    expect(OFFER_STORES).toEqual(['gog', 'xbox-store', 'playstation-store'])
+  })
+
+  it('read a PlayStation Store offer as the offer it is, and use it', () => {
+    const offers = [gog(), microsoft(), playstation()]
+    const document = game(offers, everywhere)
+
+    expect(readableOffers(document)).toEqual(offers)
+    expect(pageOffers(document)).toEqual(offers)
+    expect(listedOffers(document)).toEqual(offers)
+    expect(freshOffers(document, NOW)).toEqual(offers)
+    // Listed only where RAWG lists the game on the store, as for any store.
+    expect(listedOffers(game([playstation()], ['steam']))).toEqual([])
+  })
+
+  it('name the PlayStation Store as cheaper than Steam like any store, by its forty-eight hours', () => {
+    const steam = { priceUah: 1_000, priceUpdatedAt: ago(HOUR) }
+    const card = (offers: IndexedOffer[]) =>
+      cheaperAtOf({ ...steam, ...game(offers, everywhere) }, NOW, RATE)
+
+    // 309,50 ₴ against 1 000 ₴.
+    expect(card([playstation()])).toBe('playstation-store')
+    // The lowest of the stores is named, whichever it is.
+    expect(card([microsoft({ amount: 50_000, regularAmount: 50_000 }), playstation()])).toBe(
+      'playstation-store',
+    )
+    expect(card([microsoft({ amount: 20_000, regularAmount: 20_000 }), playstation()])).toBe(
+      'xbox-store',
+    )
+    // Ten percent below Steam's price to the hryvnia, as for every store, and a tie names nobody.
+    const at = (uah: number) =>
+      playstation({ amount: uah * 100, regularAmount: uah * 100, discountPercent: 0 })
+    expect(card([at(900)])).toBe('playstation-store')
+    expect(card([at(901)])).toBeNull()
+    expect(card([microsoft({ amount: 50_000, regularAmount: 50_000 }), at(500)])).toBeNull()
+    // Weighed for forty hours where another store's price is not, and not past forty-eight.
+    expect(card([playstation({ updatedAt: ago(40 * HOUR) })])).toBe('playstation-store')
+    expect(card([playstation({ updatedAt: ago(48 * HOUR + 1) })])).toBeNull()
+  })
+})
+
+describe('a PlayStation Store price of nothing', () => {
+  const everywhere = ['steam', 'gog', 'xbox-store', 'playstation-store']
+  const free = playstation({ amount: 0, regularAmount: 0, discountPercent: 0 })
+  const steam = { priceUah: 1_000, priceUpdatedAt: ago(HOUR) }
+
+  it('is the one price that is not compared', () => {
+    expect(isComparedPrice('playstation-store', 0)).toBe(false)
+    expect(isComparedPrice('playstation-store', 1)).toBe(true)
+    for (const store of ['steam', 'gog', 'xbox-store']) expect(isComparedPrice(store, 0)).toBe(true)
+  })
+
+  it('never has a card name the store, and never keeps a card from naming another', () => {
+    expect(cheaperAtOf({ ...steam, ...game([free], everywhere) }, NOW, RATE)).toBeNull()
+    const cheap = microsoft({ amount: 50_000, regularAmount: 50_000 })
+    expect(cheaperAtOf({ ...steam, ...game([cheap, free], everywhere) }, NOW, RATE)).toBe(
+      'xbox-store',
+    )
+    // A free game elsewhere is still named, as it always was.
+    const freeAtXbox = microsoft({ amount: 0, regularAmount: 0 })
+    expect(cheaperAtOf({ ...steam, ...game([freeAtXbox, free], everywhere) }, NOW, RATE)).toBe(
+      'xbox-store',
+    )
+  })
+})
+
 describe('the offers of a page built from the document alone', () => {
   it('are for the stores RAWG lists the game on, and no other', () => {
     expect(listedOffers(game([gog(), microsoft()], ['steam', 'gog']))).toEqual([gog()])
@@ -266,6 +401,58 @@ describe('the offers of a page built from the document alone', () => {
   it('hold no fresh offer for a store the game is not listed on', () => {
     expect(freshOffers(game([gog(), microsoft()], ['steam', 'xbox-store']), NOW)).toEqual([
       microsoft(),
+    ])
+  })
+})
+
+describe('an offer after the end of its sale', () => {
+  /** The Microsoft Store on sale, 192,50 ₴ against 385 ₴, until `ends`. */
+  const onSale = (ends?: unknown) =>
+    microsoft({
+      amount: 19_250,
+      discountPercent: 50,
+      ...(ends === undefined ? {} : { saleEndsAt: ends as string }),
+    })
+  const REGULAR = { amount: 38_500, regularAmount: 38_500, discountPercent: 0 }
+
+  it('is the offer as written while the sale runs, to the millisecond before its end', () => {
+    expect(offerAt(onSale(ago(-1)), NOW)).toEqual(onSale(ago(-1)))
+    expect(offerAt(onSale('2026-10-21T22:59:00.000Z'), NOW)).toEqual(
+      onSale('2026-10-21T22:59:00.000Z'),
+    )
+  })
+
+  it('is the regular price, with no discount and no end, from the moment the sale ends', () => {
+    for (const ended of [NOW, ago(1), ago(8 * HOUR)]) {
+      const regular = offerAt(onSale(ended), NOW)
+      expect(regular, ended).toMatchObject(REGULAR)
+      expect(regular).not.toHaveProperty('saleEndsAt')
+      // Nothing else of the offer changes: the same product, address, title and date.
+      expect({ ...regular, ...REGULAR }).toEqual({ ...onSale(), ...REGULAR })
+    }
+  })
+
+  it('takes an end it cannot read for an end that has passed', () => {
+    for (const unreadable of ['next week', '', null, 1_792_623_540_000]) {
+      expect(offerAt(onSale(unreadable), NOW), String(unreadable)).toMatchObject(REGULAR)
+    }
+    // And measures nothing against a clock it cannot read either.
+    expect(offerAt(onSale(ago(-HOUR)), 'not a date')).toMatchObject(REGULAR)
+  })
+
+  it('leaves an offer that names no end as it is, sale and all', () => {
+    expect(offerAt(onSale(), NOW)).toEqual(onSale())
+    expect(offerAt(gog(), NOW)).toEqual(gog())
+  })
+
+  it('is what a card weighs: a sale that ended is not cheaper than Steam any more', () => {
+    const steam = { priceUah: 300, priceUpdatedAt: ago(HOUR) }
+    const card = (offer: IndexedOffer) =>
+      cheaperAtOf({ ...steam, ...game([offer], ['steam', 'xbox-store']) }, NOW, RATE)
+    expect(card(onSale(ago(-HOUR)))).toBe('xbox-store')
+    expect(card(onSale(ago(HOUR)))).toBeNull()
+    expect(freshOffers(game([onSale(ago(HOUR))], ['steam', 'xbox-store']), NOW)).toEqual([
+      offerAt(onSale(ago(HOUR)), NOW),
     ])
   })
 })

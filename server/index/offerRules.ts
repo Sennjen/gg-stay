@@ -5,6 +5,7 @@ import {
   type IndexedExchangeRate,
   type IndexedGame,
   type IndexedOffer,
+  type OfferStore,
 } from './document'
 
 /**
@@ -34,6 +35,29 @@ import {
  * their old dates — so this is the only place an old price is told from a current one.
  */
 export const OFFER_FRESH_FOR_MS = 36 * 60 * 60 * 1000
+
+/**
+ * How old a PlayStation Store offer may be and still be a price: forty-eight hours.
+ *
+ * That store is not read twice a day like the others. Sony is asked about one concept every ten
+ * seconds, a few hundred a run, so each game's price is read once a day, by one of the four prices
+ * runs (`scripts/index/playstationOffers.ts`): a healthy offer is under a day old, and the
+ * thirty-six hours of the other stores would blank it after a single missed read. Forty-eight
+ * lets one day's read fail.
+ *
+ * It is also the refresh job's number: the job warns when a price the site still shows is close
+ * to it (`PLAYSTATION_PRICE_SHOWN_MS`), and reads it from here, so that the two cannot drift.
+ */
+export const PLAYSTATION_OFFER_FRESH_FOR_MS = 48 * 60 * 60 * 1000
+
+/**
+ * How old an offer of `store` may be and still be a price: `PLAYSTATION_OFFER_FRESH_FOR_MS` for
+ * the PlayStation Store, `OFFER_FRESH_FOR_MS` for every other. The one place a store's span is
+ * chosen; everything that asks whether an offer is fresh asks through it (`isFreshOffer`).
+ */
+export function offerFreshForMs(store: string): number {
+  return store === 'playstation-store' ? PLAYSTATION_OFFER_FRESH_FOR_MS : OFFER_FRESH_FOR_MS
+}
 
 /**
  * How old the bank's rate may be and still be a rate: seven days from the read it is dated by.
@@ -96,9 +120,10 @@ function isWithin(keptForMs: number, iso: unknown, now: string): boolean {
  * Whether a price dated `iso` is fresh at `now`: read no more than `OFFER_FRESH_FOR_MS` ago, and
  * not dated ahead of the clock (`CLOCK_AHEAD_ALLOWED_MS`).
  *
- * The one definition of a fresh price, for every store and for everything that compares prices.
- * Another store's offer is a price only while it is fresh (`isFreshOffer`). Steam's price is
- * shown at any age, under its own date — but it is weighed against another only while it is
+ * It is Steam's span, and every other store's but the PlayStation Store's (`offerFreshForMs`).
+ * Another store's offer is a price, and is weighed, only while it is fresh by its own store's
+ * span (`isFreshOffer`, `isFreshFor`). Steam's price is shown at any age, under its own date —
+ * but it is weighed against another only while it is
  * fresh by this same clock: on a game page, where a row takes part in the mark by the date the
  * page shows for it (`withCheapest`, `toGraphql.ts`), and on a card (`cheaperAtOf`).
  */
@@ -179,8 +204,29 @@ export function readableOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[
 }
 
 /**
- * The offers a page built from the document alone may show a store for: the readable ones, for a
- * store RAWG lists the game on (`IndexedGame.stores`).
+ * The stores whose offers a page or a card uses: every store the refresh job publishes, today —
+ * GOG, the Microsoft Store and the PlayStation Store.
+ *
+ * It is a list of its own, and not `OFFER_STORES`, on purpose. The job may publish a store's
+ * offers before any page knows that store's rules, and a document is read by builds older and
+ * newer than the job that wrote it. A store joins this list in the same change that teaches the
+ * pages about it, as the PlayStation Store did: a price for forty-eight hours and not thirty-six
+ * (`offerFreshForMs`) and a discount only until its `saleEndsAt` (`offerAt`).
+ */
+export const PAGE_OFFER_STORES: readonly OfferStore[] = ['gog', 'xbox-store', 'playstation-store']
+
+/**
+ * The offers a page or a card may use at all: the readable ones, of a store whose offers the
+ * pages know how to show (`PAGE_OFFER_STORES`). The one door a document's offers go through on
+ * their way to anything a visitor sees — a row's price, the cheapest mark, a card's line.
+ */
+export function pageOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[] {
+  return readableOffers(game).filter((offer) => PAGE_OFFER_STORES.includes(offer.store))
+}
+
+/**
+ * The offers a page built from the document alone may show a store for: the ones a page may use
+ * (`pageOffers`), for a store RAWG lists the game on (`IndexedGame.stores`).
  *
  * The second condition is the one `steamStorePageOf` asks of the Steam link, for the same reason.
  * An offer says what a store charged for the product a permanent mapping names, not that the game
@@ -189,27 +235,66 @@ export function readableOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[
  * answered needs no such check: its rows are RAWG's own links.
  */
 export function listedOffers(game: Pick<IndexedGame, 'stores' | 'offers'>): IndexedOffer[] {
-  return readableOffers(game).filter((offer) => game.stores.includes(offer.store))
+  return pageOffers(game).filter((offer) => game.stores.includes(offer.store))
 }
 
 /**
- * Whether the offer is still a price at `now`: fresh by the date of its read (`isFreshAt`). An
- * offer whose date cannot be read, or lies ahead of the clock, is not fresh — it would otherwise
- * be shown as one read just now, which is the one thing a dated price must never do.
+ * Whether the offer is still a price at `now`: read no longer ago than its store's span
+ * (`offerFreshForMs`), and not dated ahead of the clock (`CLOCK_AHEAD_ALLOWED_MS`). An offer whose
+ * date cannot be read, or lies ahead of the clock, is not fresh — it would otherwise be shown as
+ * one read just now, which is the one thing a dated price must never do.
  */
-export function isFreshOffer(offer: Pick<IndexedOffer, 'updatedAt'>, now: string): boolean {
-  return isFreshAt(offer.updatedAt, now)
+export function isFreshOffer(
+  offer: Pick<IndexedOffer, 'store' | 'updatedAt'>,
+  now: string,
+): boolean {
+  return isFreshFor(offer.store, offer.updatedAt, now)
+}
+
+/**
+ * Whether a price of `store` dated `iso` is fresh at `now`, by that store's span
+ * (`offerFreshForMs`): what a game page's cheapest rule asks of each row it weighs, Steam's
+ * included (`withCheapest`, `toGraphql.ts`), so that a row is weighed exactly while it shows a
+ * price.
+ */
+export function isFreshFor(store: string, iso: unknown, now: string): boolean {
+  return isWithin(offerFreshForMs(store), iso, now)
+}
+
+/**
+ * The offer as it stands at `now`: as the store wrote it while its sale runs, and at its regular
+ * price, with no discount and no end of a sale, once `saleEndsAt` has passed.
+ *
+ * A store that names the end of a discount is read once a day at best (the PlayStation Store), so
+ * an offer read the day before can still be quoting a sale that ended this morning. From the
+ * moment the store named, the price anybody pays is the regular one, and that is what every
+ * reader of the offer is given — a row, the cheapest rule, a card.
+ *
+ * An end that cannot be read is taken as passed: a discount whose end is unknown is not one the
+ * page can stand behind, and the regular price is the one the store charges once any sale is
+ * over. An offer without `saleEndsAt` is returned as it is, whatever its discount — the other
+ * stores do not name an end, and their offers are read twice a day.
+ */
+export function offerAt(offer: IndexedOffer, now: string): IndexedOffer {
+  if (offer.saleEndsAt === undefined) return offer
+  const ends = typeof offer.saleEndsAt === 'string' ? Date.parse(offer.saleEndsAt) : Number.NaN
+  if (ends > Date.parse(now)) return offer
+  const { saleEndsAt: _ended, ...regular } = offer
+  return { ...regular, amount: offer.regularAmount, discountPercent: 0 }
 }
 
 /**
  * The offers that are prices at `now` for anything built from the document alone — a card, the
- * page the index answers by itself: listed (`listedOffers`), and fresh.
+ * page the index answers by itself: listed (`listedOffers`), fresh, and as they stand at `now`
+ * (`offerAt`).
  */
 export function freshOffers(
   game: Pick<IndexedGame, 'stores' | 'offers'>,
   now: string,
 ): IndexedOffer[] {
-  return listedOffers(game).filter((offer) => isFreshOffer(offer, now))
+  return listedOffers(game)
+    .filter((offer) => isFreshOffer(offer, now))
+    .map((offer) => offerAt(offer, now))
 }
 
 /**
@@ -219,6 +304,18 @@ export function freshOffers(
  */
 export function wholeHryvnia(kopecks: number): number {
   return Math.round(kopecks / 100)
+}
+
+/**
+ * Whether a store's price, in whole hryvnia, takes part in a comparison — the mark on a game page
+ * (`withCheapest`, `toGraphql.ts`) and a card's line (`cheaperAtOf`). Every price does, but one:
+ * the PlayStation Store's at nothing. Its price is that of the product Sony puts first for the
+ * game, and a free one is often not the game — Life Is Strange's is its free first episode — so
+ * the row shows «Безкоштовно» as it stands, and neither carries the mark nor keeps it from a
+ * cheaper paid row, and a card never names the store for it.
+ */
+export function isComparedPrice(store: string, uah: number): boolean {
+  return !(store === 'playstation-store' && uah === 0)
 }
 
 /** One store's price as the cheapest rule weighs it. */
@@ -285,7 +382,7 @@ export function cheapestRow<Row extends PricedRow>(rows: readonly Row[]): Row | 
  * The row a game page marks as the cheapest: the cheapest of them (`cheapestRow`), unless it costs
  * nothing — and then no row is marked at all, not the free one and not the lowest that charges.
  *
- * A free row already says the one thing the mark would add. "Cheapest" beside "Free" tells a
+ * A free row already says the one thing the mark would add. «Вигідно» beside «Безкоштовно» tells a
  * visitor nothing the row does not, and on the dearer row under it the mark would be false.
  *
  * `rows` are the page's fresh prices and no others (`isFreshAt`): a price the page shows under an
@@ -308,8 +405,9 @@ export function markedCheapest<Row extends PricedRow>(rows: readonly Row[]): Row
  *
  * - **No Steam price to be cheaper than.** The card's price is the document's Steam price, and a
  *   document without one — or without the date of one — has no price on its card.
- * - **A price that is not fresh** (`isFreshAt`), on either side. Steam's price is held to the
- *   offers' own thirty-six hours here, though a card goes on showing it for as long as the index
+ * - **A price that is not fresh**, on either side: Steam's by `isFreshAt`, an offer by its own
+ *   store's span (`freshOffers`: forty-eight hours for the PlayStation Store, thirty-six for the
+ *   others). Steam's price is held to thirty-six hours here, though a card goes on showing it for as long as the index
  *   is not stale: the index carries a price forward under its old date when Steam stops answering
  *   for a game, and a price from six weeks ago is not the yardstick for "cheaper". An offer that
  *   is not fresh is not weighed at all. A game page holds its mark to the same clock.
@@ -339,7 +437,9 @@ export function cheaperAtOf(
   const steam: PricedRow = { store: 'steam', uah: game.priceUah, approximate: false }
   const others = freshOffers(game, now).flatMap((offer): PricedRow[] => {
     const amount = hryvniaOf(offer, rate)
-    return amount ? [{ store: offer.store, ...amount }] : []
+    return amount && isComparedPrice(offer.store, amount.uah)
+      ? [{ store: offer.store, ...amount }]
+      : []
   })
   const cheapest = cheapestRow([steam, ...others])
   if (!cheapest || cheapest === steam) return null

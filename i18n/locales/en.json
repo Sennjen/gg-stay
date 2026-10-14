@@ -63,11 +63,12 @@
   "footer": {
     "nav": "Footer",
     "github": "GitHub",
-    "dataBy": "Game data provided by {rawg}, {steam}, {gog} and {xbox}.",
+    "dataBy": "Game data provided by {rawg}, {steam}, {gog}, {xbox} and {playstation}.",
     "rawg": "RAWG",
     "steam": "Steam",
     "gog": "GOG",
     "xbox": "Xbox Store",
+    "playstation": "PlayStation Store",
     "rights": "Names and images belong to their respective owners."
   },
   "states": {
@@ -241,7 +242,7 @@
     "gameModes": "Game modes",
     "website": "Official website",
     "whereToBuy": "Where to buy",
-    "cheapest": "Cheapest",
+    "cheapest": "Good deal",
     "estimateNote": "GOG charges in US dollars. The hryvnia amount is an estimate at the National Bank of Ukraine's rate of {date}; your bank may charge a different sum.",
     "about": "About",
     "descriptionSourceSteam": "Description: Steam",

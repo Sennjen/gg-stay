@@ -1,4 +1,9 @@
 import type { JobClock, JobDeps, JobIndex } from '../../../scripts/index/deps'
+import {
+  createPlaystationStore,
+  type PlaystationResponse,
+  type PlaystationStore,
+} from '../../../scripts/index/playstation'
 import { createRequestMeter, type RequestMeter } from '../../../scripts/index/requestMeter'
 import { createJobRawg } from '../../../scripts/index/upstreams'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
@@ -16,6 +21,14 @@ import {
   jobStudioPage,
 } from '../../fixtures/index/jobCatalog'
 import {
+  JOB_PLAYSTATION_LINKS,
+  JOB_SONY_CONCEPTS,
+  JOB_SONY_PRICES,
+  PLAYSTATION_STORE,
+  sonyNoConcept,
+  sonyNotInTheStore,
+} from '../../fixtures/index/jobPlaystation'
+import {
   bankAnswer,
   gogCatalogPage,
   JOB_BANK_RATE,
@@ -31,6 +44,11 @@ import {
  * it — and count every call. Counting is the point — most of the job's rules ("never re-resolve an app
  * id", "at most forty language requests a minute", "resume without repeating a page") are
  * statements about which upstream requests happen, not about the data that comes back.
+ *
+ * The PlayStation Store is the exception to "stand-in": the job is given the real transport
+ * (`createPlaystationStore`), on the fake clock, over a network that is the stand-in
+ * (`createFakeSony`). The rules about that store are rules about when a request leaves, and they
+ * are the transport's own, so a stage tested against anything else would prove nothing of them.
  */
 
 export interface FakeClock extends JobClock {
@@ -77,8 +95,21 @@ export interface FakeRawg {
  * `studios` is what `games?developers=<slug>` lists per slug (`JOB_STUDIO_GAMES` in the studio
  * tests); a slug it does not name has no games, so a test that is not about the studios stage
  * sees the stage find nothing.
+ *
+ * With `playstation`, RAWG also lists three of the catalog's games on the PlayStation Store and
+ * links them there (`JOB_PLAYSTATION_LINKS`); without it, it lists none, as the catalog is
+ * written.
  */
-export function createFakeRawg(studios: Record<string, RawgGameListItem[]> = {}): FakeRawg {
+export function createFakeRawg(
+  studios: Record<string, RawgGameListItem[]> = {},
+  playstation = false,
+): FakeRawg {
+  const extraLinks = playstation ? JOB_PLAYSTATION_LINKS : {}
+  /** A game as RAWG lists it, on the PlayStation Store as well when the test says it is. */
+  const listed = (game: RawgGameListItem): RawgGameListItem =>
+    game.id !== undefined && extraLinks[game.id]
+      ? { ...game, stores: [...(game.stores ?? []), PLAYSTATION_STORE] }
+      : game
   const calls: RawgCall[] = []
   const failures: { match: (call: RawgCall) => boolean; error?: Error }[] = []
   const answers: { match: (call: RawgCall) => boolean; body: unknown }[] = []
@@ -101,13 +132,20 @@ export function createFakeRawg(studios: Record<string, RawgGameListItem[]> = {})
     if (path === 'games' && flat.developers) {
       return jobStudioPage(studios, flat.developers, Number(flat.page ?? '1'))
     }
-    if (path === 'games') return jobGamesPage(Number(flat.page ?? '1'))
+    if (path === 'games') {
+      const page = jobGamesPage(Number(flat.page ?? '1'))
+      return { ...page, results: (page.results ?? []).map(listed) }
+    }
     const storeMatch = /^games\/([a-z0-9-]+)\/stores$/.exec(path)
     if (storeMatch) {
       const game = [...JOB_GAMES, ...Object.values(studios).flat()].find(
         (entry) => entry.slug === storeMatch[1],
       )
-      return (game?.id && JOB_STORE_LINKS[game.id]) ?? { count: 0, next: null, results: [] }
+      const links = (game?.id && JOB_STORE_LINKS[game.id]) || { count: 0, next: null, results: [] }
+      const extra = (game?.id && extraLinks[game.id]) || []
+      if (extra.length === 0) return links
+      const results = [...(links.results ?? []), ...extra]
+      return { ...links, count: results.length, results }
     }
     throw new Error(`Unexpected RAWG path ${path}`)
   }
@@ -355,8 +393,110 @@ export function createFakeStores(): FakeStores {
   }
 }
 
+/** One request the fake Sony was sent. */
+export interface SonyRequest {
+  /** Which of the two endpoints it was for, and the title or the concept it asked about. */
+  kind: 'concept' | 'price'
+  id: string
+  url: string
+  headers: Record<string, string>
+  /** When it left, on the fake clock. */
+  at: number
+}
+
+export interface FakeSony {
+  /** The real transport, on the harness's clock, over the network below. */
+  playstation: PlaystationStore
+  /** What Sony's catalog knows of titles, by title id; a test may edit it. */
+  sonyConcepts: Record<string, unknown>
+  /** What its storefront knows of concepts, by concept id; a test may edit it. */
+  sonyPrices: Record<string, unknown>
+  /** Every request that was sent, in order. */
+  sonyRequests: SonyRequest[]
+  /**
+   * Makes later requests come back as `outcome` instead of the world's answer: a response — any
+   * part of one; the rest is a 200 with no body — or an error for a request that never came back.
+   * The next `times` requests that `match`, one by default; `Infinity` for every one from now on.
+   */
+  sonyAnswersWith: (
+    outcome: Partial<PlaystationResponse> | Error,
+    options?: { times?: number; match?: (request: SonyRequest) => boolean },
+  ) => void
+  /** How long Sony takes over a request, on the fake clock; a test may set it. */
+  sonyState: { latencyMs: number }
+}
+
+/**
+ * Sony's two endpoints as the transport reaches them: answers from a small world a test may edit,
+ * a record of every request with the moment it left, and failures on demand. A title the world
+ * does not hold has no concept, and a concept it does not hold is not in the store — which is
+ * what Sony itself answers for both.
+ */
+export function createFakeSony(clock: FakeClock): FakeSony {
+  const sonyConcepts: Record<string, unknown> = { ...JOB_SONY_CONCEPTS }
+  const sonyPrices: Record<string, unknown> = { ...JOB_SONY_PRICES }
+  const sonyRequests: SonyRequest[] = []
+  const sonyState = { latencyMs: 0 }
+  const scripted: {
+    outcome: Partial<PlaystationResponse> | Error
+    left: number
+    match: (request: SonyRequest) => boolean
+  }[] = []
+
+  const playstation = createPlaystationStore({
+    fixtures: false,
+    fetch: async (url, headers) => {
+      const title = /\/titles\/([^/]+)\/concepts\?/.exec(url)?.[1]
+      const variables = new URL(url).searchParams.get('variables')
+      const concept = variables ? (JSON.parse(variables) as { conceptId: string }).conceptId : ''
+      const request: SonyRequest = {
+        kind: title === undefined ? 'price' : 'concept',
+        id: title ?? concept,
+        url,
+        headers: { ...headers },
+        at: clock.now(),
+      }
+      sonyRequests.push(request)
+      clock.advance(sonyState.latencyMs)
+
+      const script = scripted.find((entry) => entry.left > 0 && entry.match(request))
+      if (script) {
+        script.left -= 1
+        if (script.outcome instanceof Error) throw script.outcome
+        return { status: 200, body: undefined, html: false, ...script.outcome }
+      }
+      const body =
+        request.kind === 'concept'
+          ? (sonyConcepts[request.id] ?? sonyNoConcept(request.id))
+          : (sonyPrices[request.id] ?? sonyNotInTheStore(Number(request.id)))
+      return { status: 200, body, html: false }
+    },
+    readFixture: async () => null,
+    now: clock.now,
+    sleep: clock.sleep,
+  })
+
+  return {
+    playstation,
+    sonyConcepts,
+    sonyPrices,
+    sonyRequests,
+    sonyAnswersWith: (outcome, options = {}) =>
+      void scripted.push({
+        outcome,
+        left: options.times ?? 1,
+        match: options.match ?? (() => true),
+      }),
+    sonyState,
+  }
+}
+
 export interface JobHarness
-  extends FakeRawg, FakeSteam, Omit<FakeStores, 'gog' | 'microsoft' | 'microsoftCatalog' | 'bank'> {
+  extends
+    FakeRawg,
+    FakeSteam,
+    Omit<FakeStores, 'gog' | 'microsoft' | 'microsoftCatalog' | 'bank'>,
+    Omit<FakeSony, 'playstation'> {
   deps: JobDeps
   writer: JobIndex
   clock: FakeClock
@@ -368,12 +508,15 @@ export function createJobHarness(
     start?: string
     writer?: JobIndex
     studios?: Record<string, RawgGameListItem[]>
+    /** Whether RAWG lists three of the catalog's games on the PlayStation Store (`createFakeRawg`). */
+    playstation?: boolean
   } = {},
 ): JobHarness {
   const clock = createFakeClock(options.start)
-  const fakeRawg = createFakeRawg(options.studios)
+  const fakeRawg = createFakeRawg(options.studios, options.playstation)
   const fakeSteam = createFakeSteam(clock)
   const { gog, microsoft, microsoftCatalog, bank, ...fakeStores } = createFakeStores()
+  const { playstation, ...fakeSony } = createFakeSony(clock)
   const writer = options.writer ?? createMemoryGameIndex()
   const logs: string[] = []
 
@@ -381,6 +524,7 @@ export function createJobHarness(
     ...fakeRawg,
     ...fakeSteam,
     ...fakeStores,
+    ...fakeSony,
     clock,
     writer,
     logs,
@@ -391,6 +535,7 @@ export function createJobHarness(
       microsoft,
       microsoftCatalog,
       bank,
+      playstation,
       writer,
       clock,
       log: (message) => void logs.push(message),
