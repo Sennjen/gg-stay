@@ -305,14 +305,22 @@ function usablePlaystationRef(
   value: unknown,
 ): NonNullable<IndexedStoreRefs['playstation']> | undefined {
   if (value === null || typeof value !== 'object') return undefined
-  const { titleId, conceptId, askedAt } = value as Record<string, unknown>
+  const { titleId, conceptId, mappedAt, askedAt } = value as Record<string, unknown>
   if (!isPlaystationTitleId(titleId)) return undefined
   const ref: NonNullable<IndexedStoreRefs['playstation']> = { titleId }
   if (conceptId === null) ref.conceptId = null
   else if (typeof conceptId === 'number' && Number.isSafeInteger(conceptId) && conceptId > 0) {
     ref.conceptId = conceptId
   }
-  if (typeof askedAt === 'string' && JOB_TIMESTAMP.test(askedAt)) ref.askedAt = askedAt
+  const isDate = (at: unknown): at is string => typeof at === 'string' && JOB_TIMESTAMP.test(at)
+  if (isDate(mappedAt)) {
+    ref.mappedAt = mappedAt
+    if (isDate(askedAt)) ref.askedAt = askedAt
+  } else if (isDate(askedAt)) {
+    // Written before the mapping and the price had a date each: its one date was the mapping's,
+    // and the price has never been asked.
+    ref.mappedAt = askedAt
+  }
   return ref
 }
 

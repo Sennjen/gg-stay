@@ -13,6 +13,7 @@ import {
 } from './offers'
 import {
   PLAYSTATION_MAPPINGS_PER_RUN,
+  PLAYSTATION_NIGHT_REQUESTS,
   PLAYSTATION_PRICE_OLD_MS,
   PLAYSTATION_PRICE_READS_A_DAY,
   PLAYSTATION_PRICE_SHOWN_MS,
@@ -65,10 +66,10 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  * One thing keeps a cadence of its own, across all three: what GOG and the Microsoft Store charge
  * is read by whichever run finds the last read more than eleven hours old (`offers.ts`), which
  * is every other prices run, and the National Bank's rate by every run. And one store is read a
- * portion at a time: what the PlayStation Store charges is asked a game a request, ten seconds
- * apart, each game once a day, by the prices runs alone — which is why a prices run that Steam
- * takes a minute and a half over is given up to forty more — and which concept a game's title
- * belongs to is asked by the nightly run, two hundred titles a night (`playstationOffers.ts`).
+ * portion at a time: what the PlayStation Store charges is asked a concept a request, ten
+ * seconds apart, each once a day, and which concept a waiting title belongs to after that, by the
+ * prices runs and the nightly run alike — which is why a prices run that Steam takes a minute and
+ * a half over is given up to forty more (`playstationOffers.ts`).
  *
  * A fourth mode has no cadence at all: `--mode=resolve` is run by hand, inside a number of RAWG
  * requests it is told, to learn the store pages of games further down the popularity order than
@@ -235,15 +236,14 @@ export interface JobReport {
 }
 
 /**
- * What each kind of run asks the PlayStation Store. The prices runs read prices, four times a
- * day; the nightly run asks which concept a title belongs to, right after the sweep that finds
- * the titles; the weekly languages run asks nothing, and nor does a resolve run, which reads no
- * store's prices at all. One kind of question a run, so that neither can take the other's
- * requests (`playstationOffers.ts`).
+ * What each kind of run asks the PlayStation Store. The prices runs and the nightly run read the
+ * prices that are due and then map the titles that are waiting, pricing each one as soon as it is
+ * mapped (`playstationOffers.ts`); the weekly languages run asks nothing, and nor does a resolve
+ * run, which reads no store's prices at all.
  */
 export const PLAYSTATION_ASKS: Record<JobMode, PlaystationAsks> = {
-  prices: 'prices',
-  full: 'mappings',
+  prices: 'both',
+  full: 'both',
   languages: 'nothing',
   resolve: 'nothing',
 }
@@ -664,6 +664,8 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
     const playstation = await stage('PlayStation Store prices', () =>
       refreshPlaystationOffers(deps, games, storeRefs, offers.playstation, {
         asks: PLAYSTATION_ASKS[options.mode],
+        // The night keeps the ration it had when it only mapped, so a day stays at 1 100.
+        ...(options.mode === 'full' ? { limit: PLAYSTATION_NIGHT_REQUESTS } : {}),
         refusal: publicationRefusal({ games, candidateCount }, published),
       }),
     )
@@ -936,9 +938,7 @@ export function playstationWarnings(read: PlaystationReport | null | undefined):
   if (!read) return []
   const name = 'PlayStation Store'
   const stands =
-    read.asks === 'mappings'
-      ? 'every title that was not answered about waits for another night'
-      : 'every offer that was not read stands as it was'
+    'every offer that was not read stands as it was, and every title not asked about waits for another run'
   const warnings: string[] = []
   if (read.status === 'references-lost') {
     warnings.push(
@@ -962,14 +962,12 @@ export function playstationWarnings(read: PlaystationReport | null | undefined):
   if (read.status === 'failed') {
     warnings.push(
       `${name}: ${cell(read.error ?? 'the answers were not believed')} — ` +
-        (read.asks === 'mappings'
-          ? 'the concepts that were named are kept'
-          : 'the prices that were read are published'),
+        'the prices that were read are published and the concepts that were named are kept',
     )
   }
   const oldest = read.oldestShownPriceAgeMs
   if (
-    read.asks === 'prices' &&
+    read.asks === 'both' &&
     (read.status === 'read' || read.status === 'failed') &&
     oldest !== null &&
     oldest > PLAYSTATION_PRICE_OLD_MS
@@ -1131,8 +1129,8 @@ function playstationStopNote(read: PlaystationReport): string {
   switch (read.stopped?.reason) {
     case undefined:
       return read.heldOver
-        ? `the ${PLAYSTATION_MAPPINGS_PER_RUN} titles of one night were asked about, ` +
-            `${read.heldOver} wait for another night`
+        ? `the ${PLAYSTATION_MAPPINGS_PER_RUN} titles of one run were asked about, ` +
+            `${read.heldOver} wait for the next run`
         : 'everything due was asked'
     case 'requests':
       return 'stopped at its requests for one run, the rest waits for the next'
@@ -1207,21 +1205,13 @@ function playstationRow(read: PlaystationReport): [string, string] {
     default:
       break
   }
-  if (read.asks === 'mappings') {
-    return [
-      name,
-      `${mapping}; ${plural(read.mappingsRead, 'title', 'titles')} answered about of ` +
-        `${read.due} due, ${read.noConcept} of them with no concept, ${read.failed} failed; ` +
-        `prices are read by the prices runs: ${offers('carried')}; ${requests}; ` +
-        playstationStopNote(read) +
-        unbelieved +
-        tail,
-    ]
-  }
   return [
     name,
-    `${mapping}; ${plural(read.pricesRead, 'price', 'prices')} read of ${read.due} due, ` +
-      `${read.removed} removed, ${read.failed} failed; ${offers('published')}; ${requests}; ` +
+    `${mapping}; ${plural(read.pricesRead - read.pricedAfterMapping, 'price', 'prices')} read of ${read.due} due, ` +
+      `${read.removed} removed; ${plural(read.mappingsRead, 'title', 'titles')} mapped this run ` +
+      `of ${read.mappingsDue} waiting, ${read.noConcept} with no concept, ` +
+      `${read.pricedAfterMapping} of them priced this run; ${read.failed} failed; ` +
+      `${offers('published')}; ${requests}; ` +
       playstationStopNote(read) +
       unbelieved +
       tail,
