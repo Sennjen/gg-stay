@@ -26,7 +26,7 @@ import {
   systemClock,
 } from './upstreams'
 import { createWriterFromEnv } from './writer'
-import type { IndexedGame } from '../../server/index/document'
+import { OFFER_WAYS, type IndexedGame, type OfferWay } from '../../server/index/document'
 import type { IndexWriteStats } from '../../server/index/GameIndex'
 import { RedisBatchError } from '../../server/index/upstashIndex'
 
@@ -620,23 +620,56 @@ function readWarning(name: string, read: StoreReadReport): string[] {
   }
 }
 
+/** Why a store's own ways to a product ended before every game had its turn, in a sentence. */
+const FALLBACK_STOPS = {
+  refused: 'the store refused a request',
+  failures: 'too many of their requests failed',
+  time: 'they had used their ten minutes',
+} as const
+
 /**
- * The warnings one store is owed: what came of its read, if that is worth one, and — whatever
- * came of the read — that the mapping cost it at least `OFFER_FLOOR_MIN_CARRIED` offers in this
- * run. Under that count the summary's row says how many and no more: a reference is lost one
- * game at a time, and one game is no news.
+ * What is said when a store's own ways to a product (`storeFallbacks.ts`) stopped early in a
+ * run: why, in the store's own words where it gave any, and how many games are left waiting. A
+ * read whose ways ran to their end, found nothing, or had nobody to look for has nothing to say.
+ *
+ * Like a failed read, a stop changes nothing a visitor sees and turns nothing red — the offers
+ * that were read stand, and the games not reached are tried by the next run that finds the store
+ * due — so the annotation is how anyone learns that the store is turning the job away.
+ */
+function fallbackWarning(name: string, read: StoreReadReport): string[] {
+  const ways = read.fallbacks
+  if (!ways?.stopped) return []
+  const reason = ways.error ? ` (${ways.error.replace(/\s+/g, ' ')})` : ''
+  return [
+    `${name}: the store's own ways to a product stopped early in this run, ` +
+      `${FALLBACK_STOPS[ways.stopped]}${reason} — ${plural(ways.waiting, 'game is', 'games are')} ` +
+      'left waiting for the next run that reads the store',
+  ]
+}
+
+/**
+ * The warnings one store is owed: what came of its read, if that is worth one; that its own ways
+ * to a product stopped early, if they did; and — whatever came of the read — that the mapping
+ * cost it at least `OFFER_FLOOR_MIN_CARRIED` offers in this run. Under that count the summary's
+ * row says how many and no more: a reference is lost one game at a time, and one game is no
+ * news.
  */
 function storeWarning(name: string, read: StoreReadReport | null): string[] {
   if (!read) return []
   const dropped = (read.dropped ?? 0) >= OFFER_FLOOR_MIN_CARRIED ? droppedNote(read.dropped) : null
-  return [...readWarning(name, read), ...(dropped ? [`${name}: ${dropped}`] : [])]
+  return [
+    ...readWarning(name, read),
+    ...fallbackWarning(name, read),
+    ...(dropped ? [`${name}: ${dropped}`] : []),
+  ]
 }
 
 /**
  * The warnings a run owes about the stores other than Steam: one for each store whose read
  * failed or was only partial, one for each store whose references look lost, one for each store
- * that lost twenty offers or more because the mapping no longer names their games, and one when
- * the run ends with no exchange rate at all. Nothing for a store that was not due, or a rate kept
+ * whose own ways to a product stopped early, one for each store that lost twenty offers or more
+ * because the mapping no longer names their games, and one when the run ends with no exchange
+ * rate at all. Nothing for a store that was not due, or a rate kept
  * from the published version — those are the design working. Each is one line, written to the
  * log as a GitHub `::warning::` annotation, as the similar-lists warning is.
  *
@@ -664,13 +697,57 @@ function cell(text: string): string {
   return text.replace(/\s+/g, ' ').replaceAll('|', '/')
 }
 
+function sum(counts: Partial<Record<string, number>>): number {
+  return Object.values(counts).reduce<number>((total, count) => total + (count ?? 0), 0)
+}
+
+/** `link 296, relation 12, name 60, edition 27`: the ways that found anything, in their order. */
+function waysList(counts: Partial<Record<OfferWay, number>>): string {
+  return OFFER_WAYS.flatMap((way) => (counts[way] ? [`${way} ${counts[way]}`] : [])).join(', ')
+}
+
+/**
+ * How the offers a store is published with were found, by way (`IndexedOffer.via`), when RAWG's
+ * link did not find them all. Nothing is said while every offer is the link's: the count of
+ * offers beside it says that already.
+ */
+function waysNote(read: StoreReadReport): string | null {
+  const others = sum(read.otherWays ?? {})
+  if (others === 0) return null
+  return `found by: ${waysList({ link: read.offers - others, ...read.otherWays })}`
+}
+
+/**
+ * What a store's own ways to a product did in this run: how many games they were tried for, what
+ * that cost the store, how many they found a product for and by which way, how many are still
+ * waiting for their turn — and why they stopped, if they stopped early.
+ */
+function fallbacksNote(read: StoreReadReport): string | null {
+  const ways = read.fallbacks
+  if (!ways) return null
+  const found = sum(ways.found)
+  return (
+    `${ways.searched} searched for this run` +
+    (ways.requests > 0 ? ` in ${plural(ways.requests, 'request', 'requests')}` : '') +
+    `, ${found} found` +
+    (found > 0 ? ` (${waysList(ways.found)})` : '') +
+    `, ${ways.waiting} waiting` +
+    (ways.stopped
+      ? ` (stopped early: ${FALLBACK_STOPS[ways.stopped]}` +
+        (ways.error ? `: ${cell(ways.error)}` : '') +
+        ')'
+      : '')
+  )
+}
+
 /**
  * One store's row: how many references, how many prices read, how many failed — and why — and,
- * whatever came of the read, how many offers went for want of a reference.
+ * whatever came of the read, how many offers went for want of a reference, by which ways the
+ * offers that stand were found, and what the store's own ways did in this run.
  */
 function storeReadRow(name: string, read: StoreReadReport): [string, string] {
-  const dropped = droppedNote(read.dropped)
-  return [name, storeReadCell(read) + (dropped ? `; ${dropped}` : '')]
+  const notes = [droppedNote(read.dropped), waysNote(read), fallbacksNote(read)]
+  return [name, [storeReadCell(read), ...notes.filter((note) => note !== null)].join('; ')]
 }
 
 function storeReadCell(read: StoreReadReport): string {
