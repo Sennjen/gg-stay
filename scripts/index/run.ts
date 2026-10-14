@@ -1004,6 +1004,12 @@ function resolveRows(resolved: ResolveReport): [string, string][] {
         ? `because ${RESOLVE_STOPPED[resolved.stopped](resolved)}`
         : 'by the failure above, not by itself',
     ],
+    [
+      'Next run',
+      resolved.nextPage === null
+        ? `nothing further to read: RAWG's list ended at page ${resolved.lastPage}`
+        : `begin at page ${resolved.nextPage} (from_page=${resolved.nextPage})`,
+    ],
   ]
 }
 

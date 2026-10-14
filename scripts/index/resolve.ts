@@ -184,6 +184,20 @@ export interface ResolveReport {
   firstUnaskedPage: number | null
   /** `null` only in the report of a run that failed before it stopped by itself. */
   stopped: ResolveStop | null
+  /**
+   * The page a follow-up run should begin at (`from_page`): the page of the first game left
+   * unasked, else the page after the last one read — which is the page RAWG failed, when one
+   * ended the reading. `null` when RAWG's list ended and nobody on it was left: there is nothing
+   * further down to read.
+   */
+  nextPage: number | null
+}
+
+/** Where a follow-up run should begin, by the rule `ResolveReport.nextPage` gives. */
+function nextPageOf(report: ResolveReport): number | null {
+  if (report.firstUnaskedPage !== null) return report.firstUnaskedPage
+  if (report.readingEnded === 'list-end') return null
+  return report.lastPage === null ? report.fromPage : report.lastPage + 1
 }
 
 /**
@@ -296,19 +310,23 @@ export async function resolveMoreGames(
     unasked: 0,
     firstUnaskedPage: null,
     stopped: null,
+    nextPage: null,
   }
 
   /** The games to ask about, most popular first. */
   const waiting: Waiting[] = []
   /** The report as it stands: what the summary of a run that fails here is made of. */
-  const snapshot = (): ResolveReport => ({
-    ...report,
-    skipped: { ...report.skipped },
-    requests: { ...report.requests, total: meter.issued() - issuedBefore },
-    // Asked in order, so whoever was not asked is the tail of the list.
-    unasked: Math.max(0, waiting.length - report.asked),
-    firstUnaskedPage: waiting[report.asked]?.page ?? null,
-  })
+  const snapshot = (): ResolveReport => {
+    const now: ResolveReport = {
+      ...report,
+      skipped: { ...report.skipped },
+      requests: { ...report.requests, total: meter.issued() - issuedBefore },
+      // Asked in order, so whoever was not asked is the tail of the list.
+      unasked: Math.max(0, waiting.length - report.asked),
+      firstUnaskedPage: waiting[report.asked]?.page ?? null,
+    }
+    return { ...now, nextPage: nextPageOf(now) }
+  }
 
   /**
    * Runs one page read or one lookup and files what it sent: its first request under its kind,

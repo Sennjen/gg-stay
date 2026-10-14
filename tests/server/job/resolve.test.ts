@@ -1546,6 +1546,62 @@ describe('the summary of a resolve run', () => {
     )
   })
 
+  it.each([
+    [
+      'the first game left unasked',
+      { 76: run(201, 40), 77: run(241, 40) },
+      [] as number[],
+      { budget: 10 },
+      'begin at page 76 (from_page=76)',
+    ],
+    [
+      'the page RAWG failed',
+      { 76: run(201, 2), 77: run(203, 2), 78: run(205, 2) },
+      [77],
+      { budget: 100 },
+      'begin at page 77 (from_page=77)',
+    ],
+    [
+      'the page after the last one read, when the page cap was reached',
+      { 76: run(201, 2), 77: run(203, 2), 78: run(205, 2) },
+      [],
+      { budget: 100, pages: 2 },
+      'begin at page 78 (from_page=78)',
+    ],
+    [
+      'the page after the last one read, when the budget ran out exactly',
+      { 76: run(201, 2), 77: run(203, 2), 78: run(205, 2) },
+      [],
+      { budget: 6 },
+      'begin at page 78 (from_page=78)',
+    ],
+    [
+      'nothing, when RAWG’s list ended',
+      { 76: run(201, 2), 77: run(203, 2) },
+      [],
+      { budget: 100 },
+      "nothing further to read: RAWG's list ended at page 77",
+    ],
+  ] as [
+    string,
+    Record<number, RawgGameListItem[]>,
+    number[],
+    { budget: number; pages?: number },
+    string,
+  ][])('names where a follow-up run begins: %s', async (_what, pages, failedPages, given, row) => {
+    const wire = rawgWith(pages)
+    for (const page of failedPages) wire.answerNext(pageOf(page), 'timeout', 'timeout')
+
+    const report = await runJob(against(wire).deps, {
+      mode: 'resolve',
+      pages: given.pages ?? 250,
+      forceUnlock: false,
+      budget: given.budget,
+    })
+
+    expect(formatSummary(report)).toContain(`| Next run | ${row} |`)
+  })
+
   it('reports a failure with its stage, what it had spent, and the way out of a held lock', () => {
     const summary = formatSummary({
       mode: 'resolve',
@@ -1579,6 +1635,7 @@ describe('the summary of a resolve run', () => {
         unasked: 0,
         firstUnaskedPage: null,
         stopped: null,
+        nextPage: 106,
       },
     })
 
@@ -1589,6 +1646,7 @@ describe('the summary of a resolve run', () => {
       '| RAWG requests | 31 of a budget of 6000: 30 pages, 0 lookups, 1 retry;',
     )
     expect(summary).toContain('| Stopped | by the failure above, not by itself |')
+    expect(summary).toContain('| Next run | begin at page 106 (from_page=106) |')
     expect(summary).toContain('| Index traffic | 12 requests, 40 commands, 4 KiB |')
     expect(summary).toContain('| Duration | 1m 5s |')
     expect(summary).toContain('re-run the workflow')
