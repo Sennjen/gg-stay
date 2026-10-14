@@ -1001,6 +1001,22 @@ describe('resolveMoreGames: when it stops', () => {
     ])
   })
 
+  it('says the budget stopped it when the last request failed and its retry was refused', async () => {
+    const wire = rawgWith({ 76: run(201, 40) })
+    // Five failures early on, and then the very last request of the budget meets a 502.
+    failing(wire, [201, 202, 203, 204, 205])
+    wire.answerNext(lookupOf(210), BAD_GATEWAY)
+
+    const report = await resolveMoreGames(against(wire).deps, options(11))
+
+    // The page and ten lookups: the tenth's retry would be the twelfth request.
+    expect(wire.requests).toHaveLength(11)
+    expect(asked(wire).at(-1)).toBe('games/game-210/stores')
+    expect(report).toMatchObject({ asked: 10, failed: 6, stopped: 'budget' })
+    // Six failures of ten would be "RAWG is failing" by the sweep's rule; it was the budget.
+    expect(resolveWarnings(report)).toEqual([])
+  })
+
   it('shrugs off five failures, however early they come', async () => {
     const wire = rawgWith({ 76: run(201, 40) })
     failing(wire, [201, 202, 203, 204, 205])

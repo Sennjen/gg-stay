@@ -433,6 +433,7 @@ export async function resolveMoreGames(
           break
         }
         report.asked += 1
+        const refusedBefore = meter.refused()
         try {
           // By slug, as the app-id stage asks, and for the reason it gives.
           const links = storeLinksOf(
@@ -456,6 +457,12 @@ export async function resolveMoreGames(
         } catch {
           report.failed += 1
           deps.log(`resolve: ${oneLine(game.slug)} could not be read, leaving it for another run`)
+          // The lookup's last request failed and its retry was refused at the limit: the budget
+          // ended the run here, and that is what it says — not that RAWG is failing.
+          if (meter.refused() > refusedBefore) {
+            stopped = 'budget'
+            break
+          }
           if (isFailingWholesale(report.failed, report.asked)) {
             stopped = 'failures'
             break
