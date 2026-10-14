@@ -136,8 +136,12 @@ function revealPreview(event: PointerEvent) {
         </component>
         <div
           v-if="year || game.metacritic || game.platformFamilies.length || hasPriceLine"
-          class="@container mt-auto pt-2"
+          data-test="card-meta"
+          class="@container pt-2"
         >
+          <!-- Starts right under the title (which always reserves two lines) rather than being
+               pinned to the bottom: the block's height differs from card to card (the badge, the
+               "cheaper at" line), so pinning it shifted the year and score between neighbours. -->
           <!-- A `<div>`, not a `<p>`: `PlatformIcons` in `responsive` mode renders `<ul>`
                elements, and `<ul>` is block content that HTML forbids inside `<p>` — a browser
                parsing the server's HTML string auto-closes an open `<p>` the moment it reaches
@@ -163,7 +167,7 @@ function revealPreview(event: PointerEvent) {
           <p v-if="game.metacritic" class="mt-1 flex flex-nowrap items-center overflow-hidden">
             <MetacriticBadge :score="game.metacritic" caption />
           </p>
-          <div v-if="hasPriceLine" class="mt-1.5 flex items-center justify-between gap-2">
+          <div v-if="hasPriceLine" class="mt-1.5 flex min-h-6 items-center justify-between gap-2">
             <PriceTag :price="game.price" />
             <LocalisationBadge :localisation="game.localisation" />
           </div>
