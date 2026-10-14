@@ -305,20 +305,20 @@ describe('runJob and the PlayStation Store', () => {
 
   // What the pages do with this store's offers is the next change's to decide (the design,
   // section 4). Until then no page shows them by the other stores' rules.
-  it('publishes them for the pages to show, and for nothing to weigh', async () => {
+  it('publishes them for the pages to show and weigh like any store’s', async () => {
     const { prices, at } = await firstPrices()
     const now = later(at, 5 * MINUTE)
     const rate = exchangeRateAt(await prices.writer.meta(), now)
     const terms = { now, rate }
 
     // RAWG lists the game on the store, the offer is readable and fresh, and it is far below
-    // Steam's price: the page shows it, on its own row, and neither marks it nor names it.
+    // Steam's price: the page shows it on its own row and marks it, and the card names it.
     const amber = (await prices.writer.getOne(106))!
     expect(amber.stores).toContain('playstation-store')
     expect(amber.priceUah).toBeGreaterThan(400 * 1.1)
     expect(pageOffers(amber)).toEqual(psOffers(amber))
     expect(freshOffers(amber, now)).toEqual(psOffers(amber))
-    expect(cheaperAtOf(amber, now, rate)).toBeNull()
+    expect(cheaperAtOf(amber, now, rate)).toBe('playstation-store')
     const page = toGame(amber, terms)
     expect(page.stores.map((row) => row.store)).toEqual(['steam', 'playstation-store'])
     expect(page.stores[1]).toMatchObject({
@@ -327,21 +327,8 @@ describe('runJob and the PlayStation Store', () => {
       regularPriceUah: 799,
       discountPercent: 50,
       url: urlOf(106),
+      cheapest: true,
     })
-    expect(page.stores.some((row) => row.cheapest)).toBe(false)
-
-    // And a game with a GOG offer is weighed exactly as if Sony gave nothing away.
-    const hollow = (await prices.writer.getOne(101))!
-    const without = { ...hollow, offers: hollow.offers!.filter((offer) => offer.store === 'gog') }
-    expect(psOffers(hollow)[0]).toMatchObject({ amount: 0 })
-    const cheapest = (game: IndexedGame) =>
-      toGame(game, terms).stores.flatMap((row) => (row.cheapest ? [row.store] : []))
-    expect(cheapest(hollow)).toEqual(cheapest(without))
-    expect(toGame(hollow, terms).stores.map((row) => row.store)).toEqual([
-      ...toGame(without, terms).stores.map((row) => row.store),
-      'playstation-store',
-    ])
-    expect(cheaperAtOf(hollow, now, rate)).toBe(cheaperAtOf(without, now, rate))
   })
 
   it('does not ask about a game again before twenty hours have passed', async () => {

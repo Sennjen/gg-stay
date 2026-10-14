@@ -120,10 +120,9 @@ function isWithin(keptForMs: number, iso: unknown, now: string): boolean {
  * Whether a price dated `iso` is fresh at `now`: read no more than `OFFER_FRESH_FOR_MS` ago, and
  * not dated ahead of the clock (`CLOCK_AHEAD_ALLOWED_MS`).
  *
- * The definition of a fresh price for everything that compares prices. Another store's offer is
- * a price only while it is fresh by its own store's span (`isFreshOffer`), which for every store
- * a price is compared with is this one: the PlayStation Store's longer span never meets a
- * comparison. Steam's price is
+ * Steam's span, and the other stores' but the PlayStation Store's (`offerFreshForMs`). Another
+ * store's offer is a price, and is weighed, only while it is fresh by its own store's span
+ * (`isFreshOffer`, `isFreshFor`). Steam's price is
  * shown at any age, under its own date — but it is weighed against another only while it is
  * fresh by this same clock: on a game page, where a row takes part in the mark by the date the
  * page shows for it (`withCheapest`, `toGraphql.ts`), and on a card (`cheaperAtOf`).
@@ -212,32 +211,9 @@ export function readableOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[
  * offers before any page knows that store's rules, and a document is read by builds older and
  * newer than the job that wrote it. A store joins this list in the same change that teaches the
  * pages about it, as the PlayStation Store did: a price for forty-eight hours and not thirty-six
- * (`offerFreshForMs`), a discount only until its `saleEndsAt` (`offerAt`), and never compared
- * with another row (`isComparedStore`).
+ * (`offerFreshForMs`) and a discount only until its `saleEndsAt` (`offerAt`).
  */
 export const PAGE_OFFER_STORES: readonly OfferStore[] = ['gog', 'xbox-store', 'playstation-store']
-
-/**
- * The stores whose prices are shown and never compared: the PlayStation Store.
- *
- * It is a console's store, and the product it prices for a game is the one Sony puts first for
- * the game's concept — sometimes another thing than the game altogether (for Grand Theft Auto V,
- * Grand Theft Auto Online), and always a console's copy where the other stores sell a computer's.
- * So its row says what that product costs, under the product's own name, and is never weighed
- * against the rest: it is never marked «Найдешевше», it is not a yardstick for the row that is,
- * and a card never names it as cheaper than Steam, nor fails to name another store because of
- * it (`docs/specs/2026-10-13-playstation-store-prices-design.md`, section 4).
- */
-export const UNCOMPARED_OFFER_STORES: readonly OfferStore[] = ['playstation-store']
-
-/**
- * Whether a store's price takes part in a comparison — the cheapest mark on a game page
- * (`withCheapest`, `toGraphql.ts`) and a card's line (`cheaperAtOf`). Every store does but those
- * in `UNCOMPARED_OFFER_STORES`; Steam, which is not an offer store at all, does.
- */
-export function isComparedStore(store: string): boolean {
-  return !(UNCOMPARED_OFFER_STORES as readonly string[]).includes(store)
-}
 
 /**
  * The offers a page or a card may use at all: the readable ones, of a store whose offers the
@@ -272,7 +248,17 @@ export function isFreshOffer(
   offer: Pick<IndexedOffer, 'store' | 'updatedAt'>,
   now: string,
 ): boolean {
-  return isWithin(offerFreshForMs(offer.store), offer.updatedAt, now)
+  return isFreshFor(offer.store, offer.updatedAt, now)
+}
+
+/**
+ * Whether a price of `store` dated `iso` is fresh at `now`, by that store's span
+ * (`offerFreshForMs`): what a game page's cheapest rule asks of each row it weighs, Steam's
+ * included (`withCheapest`, `toGraphql.ts`), so that a row is weighed exactly while it shows a
+ * price.
+ */
+export function isFreshFor(store: string, iso: unknown, now: string): boolean {
+  return isWithin(offerFreshForMs(store), iso, now)
 }
 
 /**
@@ -384,7 +370,7 @@ export function cheapestRow<Row extends PricedRow>(rows: readonly Row[]): Row | 
  * The row a game page marks as the cheapest: the cheapest of them (`cheapestRow`), unless it costs
  * nothing — and then no row is marked at all, not the free one and not the lowest that charges.
  *
- * A free row already says the one thing the mark would add. "Cheapest" beside "Free" tells a
+ * A free row already says the one thing the mark would add. «Вигідно» beside «Безкоштовно» tells a
  * visitor nothing the row does not, and on the dearer row under it the mark would be false.
  *
  * `rows` are the page's fresh prices and no others (`isFreshAt`): a price the page shows under an
@@ -402,8 +388,7 @@ export function markedCheapest<Row extends PricedRow>(rows: readonly Row[]): Row
  * names none — which is nearly always.
  *
  * It is the store of the game's cheapest price (`cheapestRow`, over Steam's price and the offers
- * of the stores the document lists the game on, the stores that are never compared left out:
- * `isComparedStore`) when that store is not Steam and its amount is
+ * of the stores the document lists the game on) when that store is not Steam and its amount is
  * at least `CHEAPER_MARGIN_PERCENT` below Steam's. So, each of them `null`:
  *
  * - **No Steam price to be cheaper than.** The card's price is the document's Steam price, and a
@@ -438,7 +423,6 @@ export function cheaperAtOf(
   if (game.priceUah === null || !isFreshAt(game.priceUpdatedAt, now)) return null
   const steam: PricedRow = { store: 'steam', uah: game.priceUah, approximate: false }
   const others = freshOffers(game, now).flatMap((offer): PricedRow[] => {
-    if (!isComparedStore(offer.store)) return []
     const amount = hryvniaOf(offer, rate)
     return amount ? [{ store: offer.store, ...amount }] : []
   })

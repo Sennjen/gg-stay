@@ -37,10 +37,10 @@ import {
  * function, with the request's clock and the index's rate, and that a path which withholds a
  * card's price withholds this with it.
  *
- * The index is the development seed, at the moment its run ended: of its games exactly one, The
- * Witcher 3, has another store clearly below Steam — GOG at about 404 ₴ against 675 ₴. Metro
- * Exodus has a GOG price above Steam's, Sherlock Holmes a stale one that would have won, and
- * Stardew Valley is free on Steam.
+ * The index is the development seed, at the moment its run ended: of its games exactly two have
+ * another store clearly below Steam — The Witcher 3, GOG at about 404 ₴ against 675 ₴, and Metro
+ * Exodus, the PlayStation Store at 95 ₴ against 749 ₴ (its GOG price is above Steam's). Sherlock
+ * Holmes has a stale GOG price that would have won, and Stardew Valley is free on Steam.
  */
 
 const NOW = DEV_FIXTURE_UPDATED_AT
@@ -130,22 +130,26 @@ describe('cheaperAt on a catalog page the index answers', () => {
   // A price ceiling is a filter only the index can apply, and every seeded price is under it.
   const EVERY_PRICED_GAME = { priceMaxUah: 100_000 }
 
-  it('names GOG on The Witcher 3’s card, and no store on any other', async () => {
+  it('names GOG on The Witcher 3’s card, the PlayStation Store on Metro Exodus’s, and no store on any other', async () => {
     const page = await catalog(await context(), EVERY_PRICED_GAME)
 
     expect(page.indexedOnly).toBe(true)
     expect(page.items.map((card) => card.slug)).toContain('metro-exodus')
     expect(page.items.map((card) => card.slug)).toContain('sherlock-holmes-chapter-one')
     expect(page.items.map((card) => card.slug)).toContain('stardew-valley')
-    expect(naming(page.items)).toEqual([[WITCHER, 'gog']])
+    expect(naming(page.items)).toEqual([
+      [WITCHER, 'gog'],
+      ['metro-exodus', 'playstation-store'],
+    ])
   })
 
-  it('names nobody without a rate to weigh GOG’s dollars by', async () => {
+  it('names no store that charges in dollars without a rate to weigh them by', async () => {
     const page = await catalog(
       await context(SEED, { ...META, exchangeRate: undefined }),
       EVERY_PRICED_GAME,
     )
-    expect(naming(page.items)).toEqual([])
+    // A hryvnia price needs no rate.
+    expect(naming(page.items)).toEqual([['metro-exodus', 'playstation-store']])
   })
 
   it('names nobody once Steam’s own price is older than an offer may be', async () => {
@@ -190,7 +194,10 @@ describe('cheaperAt on a catalog page the index answers', () => {
     const later = new Date(Date.parse(NOW) + (PAGE_CACHE_TTL_SECONDS - 1) * 1000).toISOString()
     const second = await catalog({ index, cache, now: later, today: TODAY }, EVERY_PRICED_GAME)
 
-    expect(naming(first.items)).toEqual([[WITCHER, 'gog']])
+    expect(naming(first.items)).toEqual([
+      [WITCHER, 'gog'],
+      ['metro-exodus', 'playstation-store'],
+    ])
     expect(second.items).toEqual(first.items)
     expect(index.calls.search).toHaveLength(1)
     expect(cache.writes).toHaveLength(1)
@@ -241,11 +248,11 @@ describe('cheaperAt on a catalog page RAWG answers', () => {
         priceUah: 400,
         regularPriceUah: 400,
         free: false,
-        offers: game.offers!.map((offer): IndexedOffer => ({
-          ...offer,
-          amount: kopecks,
-          regularAmount: kopecks,
-        })),
+        offers: game.offers!.map((offer): IndexedOffer =>
+          offer.store === 'xbox-store'
+            ? { ...offer, amount: kopecks, regularAmount: kopecks }
+            : offer,
+        ),
       }))
 
     const close = await catalog(await context(charging(38_500)))
@@ -323,12 +330,18 @@ describe('cheaperAt on the landing', () => {
     // list. (That list is too short for the year's best, which is left out, as on any landing.)
     const shelves = new Map(answer.shelves.map((shelf) => [shelf.id, shelf.games]))
     expect([...shelves.keys()]).toEqual(['MADE_IN_UKRAINE', 'UKRAINIAN', 'ON_SALE', 'UPCOMING'])
-    for (const id of ['UKRAINIAN', 'ON_SALE', 'UPCOMING']) {
+    for (const id of ['UKRAINIAN', 'UPCOMING']) {
       expect(naming(shelves.get(id)!), id).toEqual([[WITCHER, 'gog']])
     }
-    // Made in Ukraine holds Metro Exodus and Sherlock Holmes, whose GOG prices name nobody.
+    // The sale shelf holds Metro Exodus as well, which names the PlayStation Store.
+    expect(naming(shelves.get('ON_SALE')!)).toEqual([
+      [WITCHER, 'gog'],
+      ['metro-exodus', 'playstation-store'],
+    ])
+    // Made in Ukraine holds Metro Exodus and Sherlock Holmes, whose GOG prices name nobody: Metro
+    // Exodus's card names the PlayStation Store, and Sherlock Holmes's names no store.
     expect(shelves.get('MADE_IN_UKRAINE')!.map((card) => card.slug)).toContain('metro-exodus')
-    expect(naming(shelves.get('MADE_IN_UKRAINE')!)).toEqual([])
+    expect(naming(shelves.get('MADE_IN_UKRAINE')!)).toEqual([['metro-exodus', 'playstation-store']])
   })
 
   it('carries it on the featured game and the ring too: they are cards like any other', async () => {
@@ -387,24 +400,26 @@ describe('cheaperAt on a game page’s similar games', () => {
       'metro-exodus',
       'sherlock-holmes-chapter-one',
     ])
-    expect(naming(cards)).toEqual([[WITCHER, 'gog']])
+    expect(naming(cards)).toEqual([
+      [WITCHER, 'gog'],
+      ['metro-exodus', 'playstation-store'],
+    ])
   })
 
   it('is on the cards of the same-genre list a game without a stored one falls back to', async () => {
-    // The Witcher 3's own page: its neighbours by genre, among them Metro Exodus — given, here, a
-    // GOG price of $9.99, about 449 ₴ against Steam's 749 ₴.
+    // The Witcher 3's own page: its neighbours by genre, among them Metro Exodus, whose PlayStation
+    // Store price is 95 ₴ against Steam's 749 ₴ — and, given here a GOG price of $9.99, about
+    // 449 ₴, it is still the PlayStation Store the card names: the lower of the two.
     const cheaperMetro = seedWith('metro-exodus', (game) => ({
       ...game,
-      offers: game.offers!.map((offer): IndexedOffer => ({
-        ...offer,
-        amount: 999,
-        regularAmount: 999,
-      })),
+      offers: game.offers!.map((offer): IndexedOffer =>
+        offer.store === 'gog' ? { ...offer, amount: 999, regularAmount: 999 } : offer,
+      ),
     }))
     const cards = await similar(await context(cheaperMetro), WITCHER)
 
     expect(cards.length).toBeGreaterThanOrEqual(4)
-    expect(naming(cards)).toEqual([['metro-exodus', 'gog']])
+    expect(naming(cards)).toEqual([['metro-exodus', 'playstation-store']])
   })
 
   it('withholds it with the prices while the index’s prices are stale, by either route', async () => {

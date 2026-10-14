@@ -532,7 +532,7 @@ test('game page → «Де купити» → what GOG charges in dollars, about
   await expectAccessible(page, 'game page with the other stores’ prices at 375 px')
 })
 
-test('game page → «Де купити» → what the PlayStation Store charges, under the product’s name, never marked — and a long name at 375 px', async ({
+test('game page → «Де купити» → what the PlayStation Store charges, under the product’s name, marked when it is the lowest — and a long name at 375 px', async ({
   page,
 }) => {
   // Metro Exodus: on sale, and the lowest price on the page by far.
@@ -542,7 +542,7 @@ test('game page → «Де купити» → what the PlayStation Store charges
   expect(playstation.discountPercent).toBeGreaterThan(0)
   const others = metro.stores.filter((row) => row !== playstation && row.priceUah !== null)
   expect(others.every((row) => row.priceUah! > playstation.priceUah!)).toBe(true)
-  expect(playstation.cheapest).toBe(false)
+  expect(playstation.cheapest).toBe(true)
 
   await page.goto('/games/metro-exodus')
   await waitForHydration(page)
@@ -557,11 +557,9 @@ test('game page → «Де купити» → what the PlayStation Store charges
   )
   // The product's name, though it is the game's own.
   await expect(row.locator('[data-test="store-title"]')).toHaveText(playstation.title!)
-  // Not marked, and the mark that is on the page is where the server put it.
-  await expect(row.locator('[data-test="cheapest"]')).toHaveCount(0)
-  await expect(block.locator('[data-test="cheapest"]')).toHaveCount(
-    metro.stores.filter((store) => store.cheapest).length,
-  )
+  // The lowest price on the page carries the page's one mark.
+  await expect(row.locator('[data-test="cheapest"]')).toHaveText(copy.game.cheapest)
+  await expect(block.locator('[data-test="cheapest"]')).toHaveCount(1)
   await expectAccessible(page, 'game page with a PlayStation Store price')
 
   // Stardew Valley: a product title of two hundred characters, on a phone.

@@ -23,7 +23,7 @@ exists.
 | Week 2     | Page metadata, JSON-LD and sitemaps; Vercel Speed Insights; CI quality gates (bundle budget, Playwright with axe, Lighthouse CI)                        |
 | Week 3     | Natural-language search at `/ask`                                                                                                                       |
 | Week 4     | What GOG and the Xbox Store charge in Ukraine on a game page, and a line on a card when one of them is clearly cheaper than Steam                       |
-| Week 4     | What the PlayStation Store charges in Ukraine on a game page, read slowly and never compared with the other stores                                      |
+| Week 4     | What the PlayStation Store charges in Ukraine on a game page and on a card's line, read slowly                                                          |
 
 ## Architecture
 
@@ -73,7 +73,7 @@ flowchart LR
   localisation badge and a made-in-Ukraine label for the games the index
   holds ([ADR-004](docs/adr/004-price-index.md)); a page the index answers
   says under its result count that it searched only those games. A card
-  also says, in one line, when GOG or the Xbox Store is at least 10 %
+  also says, in one line, when GOG, the Xbox Store or the PlayStation Store is at least 10 %
   cheaper than Steam.
 - A header search with a debounced instant-results dropdown, keyboard
   navigable, that reuses the catalog's own search query.
@@ -86,9 +86,9 @@ flowchart LR
   hryvnia, GOG in US dollars with an estimate in hryvnia at the National
   Bank of Ukraine's rate, and a mark on the cheapest
   ([design](docs/specs/2026-10-12-other-store-prices-design.md)). The
-  PlayStation Store's row always names the product its price is for, and is
-  never compared with the others
+  PlayStation Store's row always names the product its price is for
   ([design](docs/specs/2026-10-13-playstation-store-prices-design.md)).
+  The mark reads «Вигідно» ("Good deal").
 
 Decisions are recorded in [docs/adr](docs/adr); the design of each cycle is in
 [docs/specs](docs/specs).
@@ -314,8 +314,8 @@ server itself; set `QUALITY_REUSE_SERVER=1` to run it against one already listen
 - The `quality` CI job (bundle budget, Playwright, Lighthouse CI) runs on every pull request but is not a required check: only `verify` blocks a merge.
 - Fixture mode ignores filters that RAWG would apply server-side; the index filters work there against a seeded in-memory index.
 - Steam trailer URLs carry a signed query string; how long that signature stays valid is undocumented by Steam, so a cached trailer link could go stale before its own cache entry expires. Not yet observed in practice.
-- Only a game page shows what a store other than Steam charges, and only for GOG, the Xbox Store and the PlayStation Store. A card says no more than that GOG or the Xbox Store is clearly cheaper, without a figure: at least 10 % below Steam's price, both prices read in the last 36 hours. It weighs the index's Steam price where a game page reads Steam's live one, and is kept with a cached page for up to ten minutes, so a card and the page it opens can disagree. The catalog's price — on a card, in the price and discount filters, the price sorts, the sale shelf and the deal of the day — is Steam's hryvnia price, and every other store RAWG links (Epic Games, Nintendo eShop) is a link without a price. The Epic Games Store was probed and is not read: its price endpoint answers the CI runners the refresh job runs on with a 403 and a Cloudflare challenge.
-- The PlayStation Store's price is that of the product Sony puts first for the game, which is a console's copy and sometimes another product altogether (for Grand Theft Auto V, Grand Theft Auto Online). Its row always shows the product's name, and is never marked the cheapest, never weighed against another row and never named on a card — so a game page can show a PlayStation Store price far below the row marked «Найдешевше». It is read once a day, a few hundred games a run, and shown for 48 hours rather than 36; with more concepts than the 900 reads a day allow, some games are read less often, and a price older than that is a plain link again. A sale Sony lists for the buyers of an experiment is shown at its regular price, with no discount, and the row's link leads to the store's own figure. How many indexed games carry a PlayStation Store price has not been measured on production.
+- Only a game page shows what a store other than Steam charges, and only for GOG, the Xbox Store and the PlayStation Store. A card says no more than that one of them is clearly cheaper, without a figure: at least 10 % below Steam's price, both prices read in the last 36 hours. It weighs the index's Steam price where a game page reads Steam's live one, and is kept with a cached page for up to ten minutes, so a card and the page it opens can disagree. The catalog's price — on a card, in the price and discount filters, the price sorts, the sale shelf and the deal of the day — is Steam's hryvnia price, and every other store RAWG links (Epic Games, Nintendo eShop) is a link without a price. The Epic Games Store was probed and is not read: its price endpoint answers the CI runners the refresh job runs on with a 403 and a Cloudflare challenge.
+- The PlayStation Store's price is that of the product Sony puts first for the game, which is a console's copy and sometimes another product altogether (for Grand Theft Auto V, Grand Theft Auto Online). Its row always shows the product's name, and is weighed against the others like any store's: it can carry «Вигідно» and a card can name it, across products that may not be the same thing. It is read once a day, a few hundred games a run, and shown for 48 hours rather than 36; with more concepts than the 900 reads a day allow, some games are read less often, and a price older than that is a plain link again. A sale Sony lists for the buyers of an experiment is shown at its regular price, with no discount, and the row's link leads to the store's own figure. How many indexed games carry a PlayStation Store price has not been measured on production.
 - GOG charges Ukraine in US dollars, so its hryvnia figure is an estimate at the National Bank's official rate, marked "≈" and never used by a filter or a sort; a buyer's bank converts at its own rate. GOG is called the cheapest only when the estimate is at least 5 % below the lowest hryvnia price. Without a rate read in the last seven days there is no estimate: GOG's dollar price is shown alone, and no row on that page is called the cheapest, because the dollar price may be the lowest.
 - GOG's and the Xbox Store's prices are read by the refresh job twice a day, not when a page is opened, and a price older than 36 hours is not shown: its store is a plain link again. Steam's own price is shown at any age, under its date, but a row is called the cheapest only among prices read in the last 36 hours, so a Steam price the index has carried forward for longer is neither marked nor compared against. Few games have one in the Xbox Store — nine of thirty-five products probed in Microsoft's catalog are sold in Ukraine in hryvnia — and how many indexed games carry a GOG or an Xbox Store price has not been measured on production.
 - A store's link at RAWG sometimes leads to another edition than the game it is filed under, and the price is that edition's. The row then shows what the store calls the product, and "cheapest" still compares the prices as they are, across editions.

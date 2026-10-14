@@ -22,8 +22,7 @@ import {
 import {
   cheaperAtOf,
   hryvniaOf,
-  isFreshAt,
-  isComparedStore,
+  isFreshFor,
   isFreshOffer,
   listedOffers,
   markedCheapest,
@@ -243,11 +242,9 @@ export function withStoreOffers(
  * hryvnia price when the store charges in hryvnia, the estimate when it charges in another
  * currency and there is a rate, and an exact zero for a free game, whatever the currency.
  *
- * A row of a store that is never compared (`isComparedStore`: the PlayStation Store) takes no
- * part at all, whatever its price.
- *
- * A row takes part only while its price is fresh by the date the page shows for it (`isFreshAt`,
- * the offers' own thirty-six hours) — Steam's row included. The page shows Steam's price at any
+ * A row takes part only while its price is fresh by the date the page shows for it, by its own
+ * store's span (`isFreshFor`: forty-eight hours for the PlayStation Store, thirty-six for every
+ * other row) — Steam's row included. The page shows Steam's price at any
  * age, under its date, and that is honest; calling it the cheapest, or calling another store the
  * cheapest against it, is a claim about today, and a price from last week does not support one.
  * The index carries a price forward under its old date when Steam stops answering for a game,
@@ -255,7 +252,7 @@ export function withStoreOffers(
  * and is fresh; another store's offer is on its row only while it is.
  */
 function pricedRowOf(row: StoreOffer, now: string): PricedRow | null {
-  if (!isComparedStore(row.store) || !isFreshAt(row.updatedAt, now)) return null
+  if (!isFreshFor(row.store, row.updatedAt, now)) return null
   if (row.priceUah != null) return { store: row.store, uah: row.priceUah, approximate: false }
   if (row.foreignPrice?.amount === 0) return { store: row.store, uah: 0, approximate: false }
   if (row.approxUah != null) return { store: row.store, uah: row.approxUah, approximate: true }
@@ -265,13 +262,16 @@ function pricedRowOf(row: StoreOffer, now: string): PricedRow | null {
 /**
  * Whether the row shows a fresh price that the rule has no amount for: a price in another
  * currency, not free, with no estimate beside it — which is a dollar price while there is no
- * rate. Such a row is not weighed, and it is not out of the way either (`withCheapest`). A row
- * of a store that is never compared is out of the way whatever it shows.
+ * rate. Such a row is not weighed, and it is not out of the way either (`withCheapest`).
  */
 function cannotBeWeighed(row: StoreOffer, now: string): boolean {
-  if (!isComparedStore(row.store)) return false
   const foreign = row.priceUah == null ? row.foreignPrice : null
-  return !!foreign && foreign.amount !== 0 && row.approxUah == null && isFreshAt(row.updatedAt, now)
+  return (
+    !!foreign &&
+    foreign.amount !== 0 &&
+    row.approxUah == null &&
+    isFreshFor(row.store, row.updatedAt, now)
+  )
 }
 
 /**

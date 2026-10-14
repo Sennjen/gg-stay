@@ -18,9 +18,7 @@
  *   is that edition's. For the PlayStation Store always, the game's own name included: its price
  *   is for the product Sony puts first, which may be another thing than the game (`shownTitle`).
  *   It is another company's text and is rendered as text, never as markup.
- * - **Hryvnia** includes the PlayStation Store's row. It is never marked «Найдешевше», whatever
- *   it charges: the server leaves it out of the comparison.
- * - **«Найдешевше»** on the one row the answer marks. Which row that is, and that an estimate has
+ * - **«Вигідно»** on the one row the answer marks. Which row that is, and that an estimate has
  *   to win by a margin, is the server's rule (`server/index/offerRules.ts`); nothing is compared
  *   here.
  *

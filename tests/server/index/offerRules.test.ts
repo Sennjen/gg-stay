@@ -16,7 +16,6 @@ import {
   offerAt,
   offerFreshForMs,
   PLAYSTATION_OFFER_FRESH_FOR_MS,
-  UNCOMPARED_OFFER_STORES,
   PAGE_OFFER_STORES,
   cheaperAtOf,
   cheapestRow,
@@ -24,7 +23,6 @@ import {
   freshOffers,
   hryvniaOf,
   isFreshAt,
-  isComparedStore,
   isFreshOffer,
   listedOffers,
   markedCheapest,
@@ -306,37 +304,32 @@ describe('the offers a page may use', () => {
     expect(listedOffers(game([playstation()], ['steam']))).toEqual([])
   })
 
-  it('never name the PlayStation Store as cheaper than Steam, however far below it is', () => {
+  it('name the PlayStation Store as cheaper than Steam like any store, by its forty-eight hours', () => {
     const steam = { priceUah: 1_000, priceUpdatedAt: ago(HOUR) }
-    const free = playstation({ amount: 0, regularAmount: 0, discountPercent: 0 })
+    const card = (offers: IndexedOffer[]) =>
+      cheaperAtOf({ ...steam, ...game(offers, everywhere) }, NOW, RATE)
 
-    expect(cheaperAtOf({ ...steam, ...game([playstation()], everywhere) }, NOW, RATE)).toBeNull()
-    expect(cheaperAtOf({ ...steam, ...game([free], everywhere) }, NOW, RATE)).toBeNull()
-    // And a store that is clearly cheaper is named exactly as it would be without that offer,
-    // even where the PlayStation Store's price is the lowest of all.
-    const cheap = microsoft({ amount: 50_000, regularAmount: 50_000 })
-    expect(cheaperAtOf({ ...steam, ...game([cheap, free], everywhere) }, NOW, RATE)).toBe(
+    // 309,50 ₴ against 1 000 ₴, and a free game against a paid Steam one.
+    expect(card([playstation()])).toBe('playstation-store')
+    expect(card([playstation({ amount: 0, regularAmount: 0, discountPercent: 0 })])).toBe(
+      'playstation-store',
+    )
+    // The lowest of the stores is named, whichever it is.
+    expect(card([microsoft({ amount: 50_000, regularAmount: 50_000 }), playstation()])).toBe(
+      'playstation-store',
+    )
+    expect(card([microsoft({ amount: 20_000, regularAmount: 20_000 }), playstation()])).toBe(
       'xbox-store',
     )
-    const close = microsoft({ amount: 95_000, regularAmount: 95_000 })
-    expect(cheaperAtOf({ ...steam, ...game([close, playstation()], everywhere) }, NOW, RATE)).toBe(
-      cheaperAtOf({ ...steam, ...game([close], everywhere) }, NOW, RATE),
-    )
-    // A tie with another store's price does not silence the line either.
-    const tie = playstation({ amount: 50_000, regularAmount: 50_000, discountPercent: 0 })
-    expect(cheaperAtOf({ ...steam, ...game([cheap, tie], everywhere) }, NOW, RATE)).toBe(
-      'xbox-store',
-    )
-  })
-})
-
-describe('the stores whose prices are never compared', () => {
-  it('are the PlayStation Store alone', () => {
-    expect(UNCOMPARED_OFFER_STORES).toEqual(['playstation-store'])
-    expect(isComparedStore('playstation-store')).toBe(false)
-    for (const store of ['steam', 'gog', 'xbox-store', 'a-store-from-a-newer-job']) {
-      expect(isComparedStore(store), store).toBe(true)
-    }
+    // Ten percent below Steam's price to the hryvnia, as for every store, and a tie names nobody.
+    const at = (uah: number) =>
+      playstation({ amount: uah * 100, regularAmount: uah * 100, discountPercent: 0 })
+    expect(card([at(900)])).toBe('playstation-store')
+    expect(card([at(901)])).toBeNull()
+    expect(card([microsoft({ amount: 50_000, regularAmount: 50_000 }), at(500)])).toBeNull()
+    // Weighed for forty hours where another store's price is not, and not past forty-eight.
+    expect(card([playstation({ updatedAt: ago(40 * HOUR) })])).toBe('playstation-store')
+    expect(card([playstation({ updatedAt: ago(48 * HOUR + 1) })])).toBeNull()
   })
 })
 

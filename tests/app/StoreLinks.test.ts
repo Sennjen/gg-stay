@@ -293,7 +293,7 @@ describe('StoreLinks', () => {
         '−78% $8.99, було $39.99, приблизно 404 ₴',
       )
       expect(heard(row)).toBe(
-        `GOG Найдешевше ${EDITION} −78% $8.99, було $39.99, приблизно 404 ₴ оновлено 6 годин тому`,
+        `GOG Вигідно ${EDITION} −78% $8.99, було $39.99, приблизно 404 ₴ оновлено 6 годин тому`,
       )
     })
 
@@ -503,12 +503,12 @@ describe('StoreLinks', () => {
     })
   })
 
-  describe('«Найдешевше»', () => {
+  describe('«Вигідно»', () => {
     it('is on the row the answer marks, and on no other', async () => {
       const wrapper = await mount([steam, gog, microsoft])
       const marks = wrapper.findAll('[data-test="cheapest"]')
       expect(marks).toHaveLength(1)
-      expect(marks[0]!.text()).toBe('Найдешевше')
+      expect(marks[0]!.text()).toBe('Вигідно')
       expect(
         wrapper.get('[data-test="store-row-gog"]').find('[data-test="cheapest"]').exists(),
       ).toBe(true)
@@ -560,10 +560,10 @@ describe('StoreLinks', () => {
         'Steam −50% 675 ₴, was 1,349 ₴ updated 3 hours ago',
       )
       expect(heard(wrapper.get('[data-test="store-row-gog"]'))).toBe(
-        `GOG Cheapest ${EDITION} −78% $8.99, was $39.99, approximately 1,348 ₴ updated 6 hours ago`,
+        `GOG Good deal ${EDITION} −78% $8.99, was $39.99, approximately 1,348 ₴ updated 6 hours ago`,
       )
       expect(seen(wrapper.get('[data-test="store-row-gog"]'))).toBe(
-        `GOG Cheapest ${EDITION} −78% $8.99 · ≈ 1,348 ₴ $39.99 updated 6 hours ago`,
+        `GOG Good deal ${EDITION} −78% $8.99 · ≈ 1,348 ₴ $39.99 updated 6 hours ago`,
       )
       expect(wrapper.get('[data-test="estimate-note"]').text()).toBe(
         "GOG charges in US dollars. The hryvnia amount is an estimate at the National Bank of Ukraine's rate of October 9, 2026; your bank may charge a different sum.",

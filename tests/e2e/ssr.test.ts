@@ -574,7 +574,7 @@ describe('server-side rendering', async () => {
     expect(html).toContain('https://store.steampowered.com/app/292030/')
   })
 
-  it('renders the PlayStation Store’s price on its own row, under the product’s title, and never marks it', async () => {
+  it('renders the PlayStation Store’s price on its own row, under the product’s title, and marks it when it is the lowest', async () => {
     // Three games carry that store's offer in the seed, one for each case a page tells apart
     // (`tests/fixtures/index/devGames.ts`). The server moves the seed's dates to its own start, so
     // the ages the seed gives hold here.
@@ -603,10 +603,10 @@ describe('server-side rendering', async () => {
     // The product's title, though it is the game's own name.
     expect(onSale).toContain('data-test="store-title"')
     expect(onSale).toContain('>Metro Exodus<')
-    // The lowest price on the page, and not the one marked: Steam's is, among the compared.
-    expect(onSale).not.toContain('Найдешевше')
+    // The lowest price on the page, and the one marked.
+    expect(onSale).toContain('Вигідно')
     const steamRow = metro.match(/<li[^>]*data-test="store-row-steam"[\s\S]*?<\/li>/)?.[0] ?? ''
-    expect(steamRow).toContain('Найдешевше')
+    expect(steamRow).not.toContain('Вигідно')
 
     // Stardew Valley: the sale ended before the page was asked for, so the regular price and no
     // discount — under a title of two hundred characters.
@@ -684,19 +684,19 @@ describe('server-side rendering', async () => {
     expect(row.includes(`>${asHtmlText(offer.title!)}<`)).toBe(
       namesAnotherProduct(offer.title, witcher.name),
     )
-    expect(row.includes('Найдешевше')).toBe(gogIsCheapest)
+    expect(row.includes('Вигідно')).toBe(gogIsCheapest)
     expect(row).toContain('оновлено')
     // Steam's own row is in the same list, with its hryvnia price.
     const steamRow = html.match(/<li[^>]*data-test="store-row-steam"[\s\S]*?<\/li>/)?.[0] ?? ''
     expect(steamRow).toContain(String(steamUah))
-    expect(steamRow.includes('Найдешевше')).toBe(steamIsCheapest)
+    expect(steamRow.includes('Вигідно')).toBe(steamIsCheapest)
     // The note names a day; which day moves with the clock the server was started on.
     expect(html).toMatch(
       /data-test="estimate-note"[^>]*>\s*GOG продає в доларах США\. Сума в гривні приблизна, за курсом НБУ на \d{1,2} [а-яіїєґ]+ \d{4}; банк може списати іншу\./,
     )
 
     const english = await $fetch<string>('/en/games/the-witcher-3-wild-hunt')
-    expect(english.includes('Cheapest')).toBe(gogIsCheapest || steamIsCheapest)
+    expect(english.includes('Good deal')).toBe(gogIsCheapest || steamIsCheapest)
     expect(english).toContain('approximately')
     expect(english).toMatch(/GOG charges in US dollars\. The hryvnia amount is an estimate/)
   })
@@ -717,7 +717,7 @@ describe('server-side rendering', async () => {
     // not the free one, which says so itself, and not the store that charges.
     expect(stardew.free && stardew.priceUah === 0).toBe(true)
     expect(html).toContain('data-test="store-row-steam"')
-    expect(html).not.toContain('Найдешевше')
+    expect(html).not.toContain('Вигідно')
   })
 
   it('renders the game page’s status region empty: what it says, it says once it is in a browser', async () => {

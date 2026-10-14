@@ -741,9 +741,9 @@ describe('withCheapest', () => {
     expect(marked([steam(675), rowOf(gogOffer(), RATE)])).toEqual(['gog'])
   })
 
-  describe('and the PlayStation Store, which is never compared', () => {
-    /** A PlayStation Store row at so many whole hryvnia, read when the other offers were. */
-    const playstation = (uah: number): StoreOffer =>
+  describe('and the PlayStation Store, which is weighed like any hryvnia row', () => {
+    /** A PlayStation Store row at so many whole hryvnia, read `hoursAgo` before the page. */
+    const playstation = (uah: number, hoursAgo = 6): StoreOffer =>
       rowOf(
         {
           store: 'playstation-store',
@@ -753,36 +753,35 @@ describe('withCheapest', () => {
           currency: 'UAH',
           discountPercent: 0,
           url: 'https://store.playstation.com/uk-ua/product/EP1004-PPSA01721_00-GTAOSTANDALONE01',
-          updatedAt: gogOffer().updatedAt,
+          updatedAt: new Date(Date.parse(NOW) - hoursAgo * 3_600_000).toISOString(),
         },
         RATE,
       )
 
-    it('is never marked, though it is the lowest price on the page by far', () => {
-      expect(marked([steam(675), playstation(95)])).toEqual([])
+    it('is marked when it is the lowest price on the page', () => {
+      expect(marked([steam(675), playstation(95)])).toEqual(['playstation-store'])
       expect(marked([steam(675), rowOf(microsoftOffer(), RATE), playstation(95)])).toEqual([
-        'xbox-store',
+        'playstation-store',
       ])
     })
 
-    it('is no yardstick: the other rows are marked exactly as they would be without it', () => {
-      for (const others of [
-        [steam(400), rowOf(gogOffer(), RATE)],
-        [steam(675), rowOf(gogOffer(), RATE)],
-        [steam(386), rowOf(microsoftOffer(), RATE)],
-        [steam(425), rowOf(gogOffer(), RATE)],
-        [steam(385), rowOf(microsoftOffer(), RATE)],
-      ]) {
-        const without = marked(others)
-        for (const uah of [0, 95, 385, 404, 5_000]) {
-          expect(marked([...others, playstation(uah)]), `${without} and ${uah} ₴`).toEqual(without)
-          expect(marked([playstation(uah), ...others])).toEqual(without)
-        }
-      }
+    it('is a yardstick for the others: no margin over an exact price, and the estimate’s five percent', () => {
+      expect(marked([steam(675), playstation(386), rowOf(microsoftOffer(), RATE)])).toEqual([
+        'xbox-store',
+      ])
+      expect(marked([steam(675), playstation(385), rowOf(microsoftOffer(), RATE)])).toEqual([])
+      // GOG's ≈ 404 ₴ against 425 ₴ is under five percent below, and marks nothing.
+      expect(marked([steam(675), playstation(425), rowOf(gogOffer(), RATE)])).toEqual([])
+      expect(marked([steam(675), playstation(426), rowOf(gogOffer(), RATE)])).toEqual(['gog'])
     })
 
-    it('does not count as a second row: Steam alone beside it is marked nothing', () => {
-      expect(marked([steam(675), playstation(5_000)])).toEqual([])
+    it('is weighed for forty-eight hours, where another store’s row is not past thirty-six', () => {
+      expect(marked([steam(675), playstation(95, 40)])).toEqual(['playstation-store'])
+      expect(marked([steam(675), playstation(95, 49)])).toEqual([])
+    })
+
+    it('marks nothing when it is free, as for any free row', () => {
+      expect(marked([steam(675), playstation(0)])).toEqual([])
     })
   })
 

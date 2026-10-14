@@ -192,9 +192,10 @@ alone says nothing about which one it picks.
   The chip itself (band colour, accessible name) is unchanged.
 - **"Дешевше в GOG" is one line under the price.** When the answer names a
   store that is clearly cheaper than Steam (`GameCard.cheaperAt`), the card
-  says so under its price line: "Дешевше в GOG" / "Cheaper at GOG", and
-  "Дешевше в Xbox Store" / "Cheaper at Xbox Store" — the store under the name
-  the store filter gives it. It is 12px `fg-2` in the interface face, the last
+  says so under its price line: "Дешевше в GOG" / "Cheaper at GOG",
+  "Дешевше в Xbox Store" / "Cheaper at Xbox Store" and "Дешевше в PlayStation
+  Store" / "Cheaper at PlayStation Store" — the store under the name the store
+  filter gives it. It is 12px `fg-2` in the interface face, the last
   thing in the card, 7.59:1 on `surface-1`. It carries no figure and no chip,
   and uses no accent, signal or sale colour: `sale` is the colour of a
   discount, and this is a pointer to another store, whose price — an estimate,
@@ -203,9 +204,10 @@ alone says nothing about which one it picks.
   line. A card the answer names no store for has no line and keeps nothing
   for one, so in a row of cards the one with the line is a line taller in its
   text and the others' meta blocks stay on the row's bottom edge. The line
-  fits on one line in the narrowest card, the two-column grid at 375 px
-  (138 px for "Дешевше в Xbox Store"), and wraps rather than truncates if a
-  longer store name ever comes. It is inside the card's one link, so it ends
+  fits on one line in the narrowest card, the two-column grid at 375 px, for
+  GOG and the Xbox Store (138 px for "Дешевше в Xbox Store"); "Дешевше в
+  PlayStation Store" wraps onto a second line there rather than truncating,
+  and the card is that line taller. It is inside the card's one link, so it ends
   the link's accessible name. Which store is named, by what margin and how
   fresh both prices must be is the server's rule; the card compares nothing.
 
@@ -514,7 +516,7 @@ is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`)
   the moment the answer on the page arrived: the server's clock for a page the server rendered,
   carried in the payload, and the browser's when a page is opened by navigation. No component
   reads a clock of its own.
-- **«Найдешевше»** is a chip beside the store's name on the one row the answer marks: 12 px `fg`
+- **«Вигідно»** is a chip beside the store's name on the one row the answer marks: 12 px `fg`
   at medium weight inside a 1 px `fg-2` border, `rounded-chip`, no fill. It uses no accent, signal
   or sale colour — it is a fact about the prices, not an action, a live state or a discount — and
   the border is 7.59:1 against `surface-1`. Which row is marked is the server's rule; the
@@ -523,9 +525,10 @@ is the chip it always was (`docs/specs/2026-10-12-other-store-prices-design.md`)
   price that cannot be placed: a dollar price with no estimate may be the lowest on the page. And
   a row whose price is older than 36 hours — which only Steam's can be — is shown with its age
   and takes no part: it is not marked, and nothing is marked against it. The PlayStation Store's
-  row is never marked and takes no part either, whatever it charges: it is a console's store, and
-  the mark compares the rest as if it were not there. Its price is shown for 48 hours, and past
-  the end of a sale at the regular price with no chip.
+  row is weighed like any hryvnia row and can carry the mark; its price is shown, and weighed, for
+  48 hours rather than 36, and past the end of a sale at the regular price with no chip. The mark
+  reads «Вигідно» / "Good deal" (it was «Найдешевше» / "Cheapest" until 2026-10-14): it says a
+  price is the best on the page, and the row's title says which product it is for.
 - **The note** is one sentence under the whole block, 12 px `fg-2`, there only while GOG's row
   shows an estimate: `game.estimateNote`, with the day the rate is for written as a full date.
 - **On a phone** a row stacks — the name and the mark, the title, the price, the age — and from
