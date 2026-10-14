@@ -4,6 +4,7 @@ import { collectCandidates } from '../../../scripts/index/candidates'
 import {
   countStoreRefs,
   gogSlugFromUrl,
+  linksToKeep,
   listedOfferStores,
   microsoftProductFromUrl,
   needsStoreLookup,
@@ -11,12 +12,18 @@ import {
   STORE_REF_SWEEP_BUDGET_MS,
   STORE_REF_SWEEP_PER_RUN,
   storeLinksOf,
+  storeRecordFromLinks,
   storeRefsFromLinks,
   sweepStoreRefs,
   usableStoreRefs,
 } from '../../../scripts/index/storeRefs'
-import type { IndexedGame, IndexedStoreRefs } from '../../../server/index/document'
-import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
+import {
+  MAX_STORE_LINK_LENGTH,
+  MAX_STORE_LINKS,
+  type IndexedGame,
+  type IndexedStoreRefs,
+} from '../../../server/index/document'
+import { JOB_PAGE_COUNT, jobKeptLinks } from '../../fixtures/index/jobCatalog'
 import { JOB_MICROSOFT_ID } from '../../fixtures/index/jobStores'
 import { createJobHarness, type JobHarness } from './harness'
 
@@ -206,6 +213,190 @@ describe('storeRefsFromLinks', () => {
   })
 })
 
+describe('linksToKeep', () => {
+  const steam = 'https://store.steampowered.com/app/1091500/'
+  const playstation = 'https://store.playstation.com/en-us/product/UP4497-CUSA00572_00'
+
+  it('keeps every link RAWG gave, with its store id, in RAWG’s order', () => {
+    expect(
+      linksToKeep([
+        { id: 11, store_id: 1, url: steam },
+        { id: 12, store_id: 5, url: 'http://www.gog.com/game/cyberpunk_2077' },
+        { id: 13, store_id: 3, url: playstation },
+        { id: 14, store_id: 11, url: 'https://www.epicgames.com/store/p/cyberpunk-2077' },
+      ]),
+    ).toEqual([
+      [1, steam],
+      [5, 'http://www.gog.com/game/cyberpunk_2077'],
+      [3, playstation],
+      [11, 'https://www.epicgames.com/store/p/cyberpunk-2077'],
+    ])
+  })
+
+  it('keeps none of an answer that has none', () => {
+    expect(linksToKeep([])).toEqual([])
+    expect(linksToKeep(null)).toEqual([])
+    expect(linksToKeep(undefined)).toEqual([])
+  })
+
+  it.each([
+    ['a script', 'javascript:alert(1)'],
+    ['a data URL', 'data:text/html,<p>hello</p>'],
+    ['a file', 'file:///etc/passwd'],
+    ['another scheme', 'ftp://store.playstation.com/product'],
+    ['an address with no scheme', '//store.playstation.com/product'],
+    ['a path', '/en-us/product/UP4497'],
+    ['text that is no address', 'not a link'],
+    ['an empty string', ''],
+    ['no link', null],
+    ['a missing link', undefined],
+    ['a number', 42],
+    ['an object', { href: playstation }],
+  ])('leaves out %s, and keeps the links beside it', (_what, url) => {
+    const links = [
+      { store_id: 3, url },
+      { store_id: 1, url: steam },
+    ] as Parameters<typeof linksToKeep>[0]
+
+    expect(linksToKeep(links)).toEqual([[1, steam]])
+  })
+
+  it.each([
+    ['none', undefined],
+    ['null', null],
+    ['a fraction', 1.5],
+    ['zero', 0],
+    ['a negative number', -3],
+    ['text', '3'],
+    ['a number no id can be', Number.NaN],
+    ['a number too large to be whole', 2 ** 60],
+    ['infinity', Number.POSITIVE_INFINITY],
+  ])('leaves out a link whose store id is %s', (_what, storeId) => {
+    const links = [
+      { store_id: storeId, url: playstation },
+      { store_id: 1, url: steam },
+    ] as Parameters<typeof linksToKeep>[0]
+
+    expect(linksToKeep(links)).toEqual([[1, steam]])
+  })
+
+  it('keeps a link of 300 characters and leaves out one of 301', () => {
+    expect(MAX_STORE_LINK_LENGTH).toBe(300)
+    const ofLength = (length: number) =>
+      playstation + '/' + 'a'.repeat(length - playstation.length - 1)
+    expect(ofLength(300)).toHaveLength(300)
+
+    expect(linksToKeep([{ store_id: 3, url: ofLength(300) }])).toEqual([[3, ofLength(300)]])
+    expect(linksToKeep([{ store_id: 3, url: ofLength(301) }])).toEqual([])
+    // Megabytes of it cost a check and nothing else.
+    expect(linksToKeep([{ store_id: 3, url: ofLength(2_000_000) }])).toEqual([])
+  })
+
+  it('keeps twelve links a game and no more: the first twelve that can be kept', () => {
+    expect(MAX_STORE_LINKS).toBe(12)
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      store_id: index + 1,
+      // Every third one is no link to keep, and takes no place among the twelve.
+      url: index % 3 === 0 ? 'javascript:void(0)' : `https://store.example/product/${index}`,
+    }))
+
+    const kept = linksToKeep(many)
+
+    expect(kept).toHaveLength(12)
+    expect(kept.map(([storeId]) => storeId)).toEqual([2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18])
+  })
+
+  it('keeps a link as `URL` writes it: one line, no credentials, nothing that is not a URL', () => {
+    expect(
+      linksToKeep([
+        { store_id: 3, url: '  HTTPS://Store.PlayStation.com/en-us/product/A B\n' },
+        { store_id: 5, url: 'https://user:secret@www.gog.com/game/limbo' },
+        {
+          store_id: 2,
+          url: 'https://www.microsoft.com/en-us/p/limbo/btqmhk78zpf9\r\n::warning::x',
+        },
+      ]),
+    ).toEqual([
+      [3, 'https://store.playstation.com/en-us/product/A%20B'],
+      [5, 'https://www.gog.com/game/limbo'],
+      [2, 'https://www.microsoft.com/en-us/p/limbo/btqmhk78zpf9::warning::x'],
+    ])
+    // The length is that of what is kept: 298 characters of path grow past 300 once escaped.
+    const spaced = 'https://store.example/' + 'a '.repeat(138)
+    expect(spaced.length).toBeLessThanOrEqual(300)
+    expect(linksToKeep([{ store_id: 3, url: spaced }])).toEqual([])
+  })
+
+  it('keeps what the reference parsers read: a kept link names the product RAWG’s did', () => {
+    const links = [
+      { store_id: 5, url: 'HTTP://WWW.GOG.COM/fr/game/doom_2016?pp=1#reviews' },
+      {
+        store_id: 2,
+        url: 'https://www.microsoft.com/en-US/store/p/Stardew-Valley/c3d891z6tnqm?cid=x',
+      },
+    ]
+    const kept = linksToKeep(links).map(([storeId, url]) => ({ store_id: storeId, url }))
+
+    expect(storeRefsFromLinks(kept)).toEqual(storeRefsFromLinks(links))
+    expect(storeRefsFromLinks(kept)).toEqual({
+      gog: 'doom_2016',
+      microsoft: { id: 'C3D891Z6TNQM', name: 'stardew-valley' },
+    })
+  })
+})
+
+describe('storeRecordFromLinks', () => {
+  const links = [
+    { store_id: 1, url: 'https://store.steampowered.com/app/620/' },
+    { store_id: 3, url: 'https://store.playstation.com/en-us/product/UP0001-PORTAL2' },
+  ]
+  const kept: [number, string][] = [
+    [1, 'https://store.steampowered.com/app/620/'],
+    [3, 'https://store.playstation.com/en-us/product/UP0001-PORTAL2'],
+  ]
+
+  it('is what storeRefsFromLinks reads, and the links themselves beside it', () => {
+    expect(storeRecordFromLinks(links)).toEqual({ links: kept })
+    expect(storeRecordFromLinks(links, ['steam', 'gog'])).toEqual({ gog: null, links: kept })
+    expect(
+      storeRecordFromLinks(
+        [...links, { store_id: 5, url: 'https://www.gog.com/game/portal_2' }],
+        ['gog', 'xbox-store'],
+      ),
+    ).toEqual({
+      gog: 'portal_2',
+      microsoft: null,
+      links: [...kept, [5, 'https://www.gog.com/game/portal_2']],
+    })
+  })
+
+  it('has no list of links when there is none to keep, as a record always was', () => {
+    expect(storeRecordFromLinks([])).toEqual({})
+    expect('links' in storeRecordFromLinks([], ['gog'])).toBe(false)
+    expect(storeRecordFromLinks([{ store_id: 3, url: 'javascript:alert(1)' }], ['gog'])).toEqual({
+      gog: null,
+    })
+  })
+
+  it('changes nothing about who is asked: the links are no mark of any store', () => {
+    const game = (...stores: string[]) => ({ stores })
+    const record = storeRecordFromLinks(
+      [...links, { store_id: 5, url: 'https://www.gog.com/game/portal_2' }],
+      ['steam'],
+    )
+
+    // On neither store: never asked, links or no links.
+    expect(needsStoreLookup(game('steam'), record)).toBe(false)
+    // The record says nothing of the Xbox store, though it holds links: asked when listed there.
+    expect(needsStoreLookup(game('xbox-store'), record)).toBe(true)
+    expect(needsStoreLookup(game('xbox-store'), { links: kept })).toBe(true)
+    expect(needsStoreLookup(game('gog'), { links: kept })).toBe(true)
+    // And the price stages are handed the references alone.
+    expect(usableStoreRefs(record)).toEqual({ gog: 'portal_2' })
+    expect(usableStoreRefs({ links: kept })).toEqual({})
+  })
+})
+
 describe('storeLinksOf', () => {
   it('reads the links of an answer that has a list of them', () => {
     expect(storeLinksOf({ count: 0, results: [] })).toEqual([])
@@ -318,7 +509,12 @@ const SLUGS = [
   'lost-canton',
 ]
 
-const LOST_CANTON = { microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' } }
+/** The records of the catalog's two games on the other stores: the reference, and RAWG's links. */
+const HOLLOW_CRADLE = { gog: 'hollow_cradle', links: jobKeptLinks(101) }
+const LOST_CANTON = {
+  microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' },
+  links: jobKeptLinks(109),
+}
 
 describe('sweepStoreRefs', () => {
   it('asks RAWG about the games it lists on GOG or on the Xbox store, and about no other', async () => {
@@ -330,13 +526,17 @@ describe('sweepStoreRefs', () => {
     // Of nine games, two: 101 is on GOG and 109 on the Xbox store.
     expect(asked(harness)).toEqual(storesOf('hollow-cradle', 'lost-canton'))
     expect(result).toMatchObject({ attempted: 2, failures: 0, remaining: 0, stopped: null })
-    expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    // Each record is the reference and, beside it, every link RAWG gave: the Steam page of 101
+    // and the Nintendo page of 109 among them, for whichever store is read next.
+    expect(result.refs.get(101)).toEqual(HOLLOW_CRADLE)
     expect(result.refs.get(109)).toEqual(LOST_CANTON)
+    expect(HOLLOW_CRADLE.links.map(([storeId]) => storeId)).toEqual([1, 5])
+    expect(LOST_CANTON.links.map(([storeId]) => storeId)).toEqual([6, 2])
     // A game on neither store was not asked, and nothing is remembered about it.
     expect(result.refs.size).toBe(2)
     expect(await harness.writer.getStoreRefs(games.map((game) => game.id))).toEqual(
       new Map<number, IndexedStoreRefs>([
-        [101, { gog: 'hollow_cradle' }],
+        [101, HOLLOW_CRADLE],
         [109, LOST_CANTON],
       ]),
     )
@@ -356,9 +556,10 @@ describe('sweepStoreRefs', () => {
 
     expect(asked(harness)).toEqual(storesOf(...SLUGS))
     expect(result).toMatchObject({ attempted: 9, failures: 0, remaining: 0 })
-    expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
-    // Listed on GOG, and RAWG has no GOG link for it: an answer, kept as one.
-    expect(result.refs.get(102)).toEqual({ gog: null })
+    expect(result.refs.get(101)).toEqual(HOLLOW_CRADLE)
+    // Listed on GOG, and RAWG has no GOG link for it: an answer, kept as one — beside the link
+    // it does have, to Steam. 103 has no link at all, and its record no list of them.
+    expect(result.refs.get(102)).toEqual({ gog: null, links: jobKeptLinks(102) })
     expect(result.refs.get(103)).toEqual({ gog: null })
     expect(result.refs.get(109)).toEqual({ gog: null, ...LOST_CANTON })
     expect(countStoreRefs(games, result.refs)).toEqual({
@@ -376,7 +577,7 @@ describe('sweepStoreRefs', () => {
     // Nothing to sweep, so the cursor is not read: there is no place to start from.
     expect(getCursor).not.toHaveBeenCalled()
     expect(again).toMatchObject({ attempted: 0, failures: 0, remaining: 0 })
-    expect(again.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    expect(again.refs.get(101)).toEqual(HOLLOW_CRADLE)
   })
 
   it('asks about a game when it gains one of the two stores, and not before', async () => {
@@ -398,9 +599,12 @@ describe('sweepStoreRefs', () => {
     const result = await sweepStoreRefs(nextNight.deps, later)
 
     expect(asked(nextNight)).toEqual(storesOf('hollow-cradle', 'neon-district'))
-    expect(result.refs.get(102)).toEqual({ gog: 'neon_district' })
+    expect(result.refs.get(102)).toEqual({
+      gog: 'neon_district',
+      links: [[5, 'https://www.gog.com/game/neon_district']],
+    })
     // The whole of what RAWG links now: the GOG page it had, and no Microsoft product to read.
-    expect(result.refs.get(101)).toEqual({ gog: 'hollow_cradle', microsoft: null })
+    expect(result.refs.get(101)).toEqual({ ...HOLLOW_CRADLE, microsoft: null })
     expect(result).toMatchObject({ attempted: 2, remaining: 0 })
 
     const after = createJobHarness({ writer: harness.writer })
@@ -450,8 +654,8 @@ describe('sweepStoreRefs', () => {
     expect(result.refs.size).toBe(4)
     expect(await harness.writer.getStoreRefs([101, 104, 105])).toEqual(
       new Map<number, IndexedStoreRefs>([
-        [101, { gog: 'hollow_cradle' }],
-        [104, { gog: null }],
+        [101, HOLLOW_CRADLE],
+        [104, { gog: null, links: jobKeptLinks(104) }],
       ]),
     )
     expect(await harness.writer.getCursor(STORE_REF_CURSOR)).toBe('104')
@@ -567,7 +771,7 @@ describe('sweepStoreRefs', () => {
 
     expect(asked(nextNight)).toEqual(storesOf('quiet-orbit'))
     expect(second).toMatchObject({ attempted: 1, failures: 0, remaining: 0 })
-    expect(second.refs.get(105)).toEqual({ gog: null })
+    expect(second.refs.get(105)).toEqual({ gog: null, links: jobKeptLinks(105) })
   })
 
   it('does not remember an answer that is no list of links as "no link to read"', async () => {
@@ -696,9 +900,20 @@ describe('resolveAppIds and the store references', () => {
     // Seven Steam candidates, seven requests — none of them made twice for the other stores.
     expect(harness.storeCalls()).toHaveLength(7)
     const refs = await harness.writer.getStoreRefs(games.map((game) => game.id))
-    // One of the seven is on GOG. The other six are on neither store: nothing is written about
-    // them, so that a game which gains a store later is still asked about it.
-    expect(refs).toEqual(new Map([[101, { gog: 'hollow_cradle' }]]))
+    // One of the seven is on GOG, and its record names the page. The other six are on neither
+    // store: their records hold the links RAWG gave and say nothing of GOG or of the Microsoft
+    // Store, so that a game which gains one of them later is still asked about it.
+    expect(refs).toEqual(
+      new Map<number, IndexedStoreRefs>([
+        [101, HOLLOW_CRADLE],
+        ...[102, 104, 105, 106, 107, 108].map((id): [number, IndexedStoreRefs] => [
+          id,
+          { links: jobKeptLinks(id) },
+        ]),
+      ]),
+    )
+    for (const game of games)
+      expect(needsStoreLookup(game, refs.get(game.id)), game.slug).toBe(game.id === 109)
   })
 
   it('leaves the sweep only the listed games it never asks about', async () => {
@@ -713,7 +928,14 @@ describe('resolveAppIds and the store references', () => {
     // all, is asked about by nobody.
     expect(asked(harness)).toEqual(storesOf('lost-canton'))
     expect(result.refs.get(109)).toEqual(LOST_CANTON)
-    expect(result.refs.size).toBe(2)
+    // Every game that was looked up has a record; only two of them name a product.
+    expect(result.refs.size).toBe(8)
+    expect(countStoreRefs(games, result.refs)).toEqual({
+      listed: 2,
+      asked: 2,
+      gog: 1,
+      microsoft: 1,
+    })
   })
 
   it('records a listed store the response has no link for, and a link the list does not name', async () => {
@@ -733,8 +955,12 @@ describe('resolveAppIds and the store references', () => {
     expect(refs.get(102)).toEqual({
       gog: null,
       microsoft: { id: '9NNEONDISTR1', name: 'neon-district' },
+      links: [
+        [1, 'https://store.steampowered.com/app/412000/'],
+        [2, 'https://www.microsoft.com/en-us/p/neon-district/9nneondistr1'],
+      ],
     })
-    expect(refs.get(104)).toEqual({ gog: null })
+    expect(refs.get(104)).toEqual({ gog: null, links: jobKeptLinks(104) })
   })
 
   it('writes no references for a lookup that failed, and none for a bad answer', async () => {

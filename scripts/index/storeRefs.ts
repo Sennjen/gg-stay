@@ -1,11 +1,14 @@
 import { MAX_ITEM_FAILURE_RATIO, oneLine, type JobDeps } from './deps'
 import {
+  MAX_STORE_LINK_LENGTH,
+  MAX_STORE_LINKS,
   OFFER_STORES,
   type IndexedGame,
   type IndexedStoreRefs,
   type OfferStore,
 } from '../../server/index/document'
 import type { RawgStoreLink } from '../../server/rawg/types'
+import { safeExternalUrl } from '../../shared/url'
 
 /**
  * Which product a game is on GOG and on the Microsoft Store — the two stores, other than Steam,
@@ -31,6 +34,10 @@ import type { RawgStoreLink } from '../../server/rawg/types'
  * has no link to find and costs no request. "Asked" is remembered store by store
  * (`IndexedStoreRefs`): a store the game is listed on with no link the job can read is recorded
  * as such and not asked about again, and a game that gains a store later is asked then.
+ *
+ * Whoever asks keeps the answer whole: beside the two references a record holds every link RAWG
+ * gave (`IndexedStoreRefs.links`), bounded and checked by `linksToKeep`, so that reading another
+ * store one day starts from what is already known. Only a reference parser reads them.
  *
  * A game new to the index gets its references with its app id, from the very same response
  * (`resolveAppIds`), at no request of its own. Everything else — the games resolved before this
@@ -73,6 +80,16 @@ export type SweepStop =
  * night: see `sweepStoreRefs`.
  */
 export const STORE_REF_TOLERATED_FAILURES = 5
+
+/**
+ * Whether a stage RAWG is not allowed to fail has seen enough of it failing: past
+ * `STORE_REF_TOLERATED_FAILURES` failures and past the share of its attempts a stage tolerates
+ * (`MAX_ITEM_FAILURE_RATIO`). Both, so that a handful of timeouts early in a long stage does not
+ * end it, and a RAWG that is refusing everything ends it at the sixth lookup.
+ */
+export function isFailingWholesale(failures: number, attempted: number): boolean {
+  return failures > STORE_REF_TOLERATED_FAILURES && failures > attempted * MAX_ITEM_FAILURE_RATIO
+}
 
 /** The RAWG store ids of GOG and of the Xbox store; `store_id` on a store link row. */
 const GOG_STORE_ID = 5
@@ -224,6 +241,54 @@ export function storeRefsFromLinks(
 }
 
 /**
+ * The links of one RAWG answer as a record keeps them (`IndexedStoreRefs.links`): every link that
+ * is an absolute http(s) URL of at most `MAX_STORE_LINK_LENGTH` characters under a whole-number
+ * store id, in RAWG's order, and the first `MAX_STORE_LINKS` of those.
+ *
+ * A link is kept as `URL` writes it (`safeExternalUrl`): the same address, without credentials,
+ * with nothing in it that is not part of a URL, and it is that text the length is measured on. A
+ * reference parser reads a link through `URL` as well, so it finds in the kept text exactly what
+ * it would have found in RAWG's. A link that fails a check is left out and costs the others
+ * nothing; what is left out can only be asked for again.
+ *
+ * Nothing here says which store a link belongs to beyond RAWG's own id for it: the links are kept
+ * for stores the job cannot read yet, and reading one is its parser's work, by its shape.
+ */
+export function linksToKeep(
+  links: readonly RawgStoreLink[] | null | undefined,
+): NonNullable<IndexedStoreRefs['links']> {
+  const kept: NonNullable<IndexedStoreRefs['links']> = []
+  for (const link of links ?? []) {
+    if (kept.length >= MAX_STORE_LINKS) break
+    const storeId = link?.store_id
+    if (typeof storeId !== 'number' || !Number.isSafeInteger(storeId) || storeId < 1) continue
+    const url = typeof link?.url === 'string' ? safeExternalUrl(link.url) : null
+    if (url === null || url.length > MAX_STORE_LINK_LENGTH) continue
+    kept.push([storeId, url])
+  }
+  return kept
+}
+
+/**
+ * The record one RAWG answer is kept as, whichever stage asked: what `storeRefsFromLinks` reads
+ * from the links — the two references, and the marks of the stores the game is listed on — and
+ * the links themselves beside them (`linksToKeep`).
+ *
+ * The links change nothing about what the record says of GOG and of the Microsoft Store:
+ * `needsStoreLookup` reads the two store fields and nothing else. They are left out when there is
+ * none to keep, so the record of a game RAWG gave no link for is what it always was.
+ */
+export function storeRecordFromLinks(
+  links: readonly RawgStoreLink[] | null | undefined,
+  listed: readonly string[] = [],
+): IndexedStoreRefs {
+  const record = storeRefsFromLinks(links, listed)
+  const kept = linksToKeep(links)
+  if (kept.length > 0) record.links = kept
+  return record
+}
+
+/**
  * A record as the price stages may use it: only the references, and only those that are what
  * this module would have written. The mapping outlives every build that writes it, and what is
  * read back from a store is about to become part of a request to somebody else's server and of a
@@ -292,7 +357,9 @@ export interface StoreRefsResult {
  *
  * A lookup that fails writes nothing — never "no link to read", which would make one timeout
  * permanent — and the game is asked about again on a later run. One that succeeds replaces the
- * game's record whole: the links are the whole of what RAWG knows, for both stores at once.
+ * game's record whole: the links are the whole of what RAWG knows, for both stores at once, and
+ * the record keeps them (`storeRecordFromLinks`), so a store the job reads later needs no request
+ * of its own for this game.
  *
  * **It cannot cost the run.** These references only add prices to a catalog that is complete
  * without them, so the stage does not hold a failing RAWG to the budget the app ids do: past
@@ -358,7 +425,7 @@ export async function sweepStoreRefs(
       try {
         const links = storeLinksOf(await deps.rawg(`games/${game.slug}/stores`))
         if (!links) throw new Error('RAWG answered without a list of store links')
-        const refs = storeRefsFromLinks(links, game.stores)
+        const refs = storeRecordFromLinks(links, game.stores)
         known.set(game.id, refs)
         batch.push([game.id, refs])
       } catch {
@@ -366,10 +433,7 @@ export async function sweepStoreRefs(
         deps.log(
           `store references: ${oneLine(game.slug)} could not be read, leaving it for a later run`,
         )
-        if (
-          failures > STORE_REF_TOLERATED_FAILURES &&
-          failures > attempted * MAX_ITEM_FAILURE_RATIO
-        ) {
+        if (isFailingWholesale(failures, attempted)) {
           stopped = 'failures'
           break
         }

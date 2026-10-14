@@ -24,6 +24,8 @@ export interface RawgGameListItem {
   slug?: string
   name?: string
   released?: string | null
+  /** "To be announced": RAWG's mark of a game with no release date settled yet. */
+  tba?: boolean | null
   background_image?: string | null
   rating?: number | null
   ratings_count?: number | null
