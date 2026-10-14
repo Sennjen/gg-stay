@@ -46,15 +46,16 @@ describe('AppFooter', () => {
   it('names every source of the site’s data, each as a link to the source itself', async () => {
     const wrapper = await mountSuspended(AppFooter, { route: '/games' })
 
-    // RAWG for the games; Steam, GOG and the Xbox Store for what they charge.
+    // RAWG for the games; Steam, GOG, the Xbox Store and the PlayStation Store for what they charge.
     expect(wrapper.get('footer').text()).toContain(
-      'Дані про ігри надають RAWG, Steam, GOG і Xbox Store.',
+      'Дані про ігри надають RAWG, Steam, GOG, Xbox Store і PlayStation Store.',
     )
     for (const [href, name] of [
       ['https://rawg.io', 'RAWG'],
       ['https://store.steampowered.com', 'Steam'],
       ['https://www.gog.com', 'GOG'],
       ['https://www.xbox.com', 'Xbox Store'],
+      ['https://store.playstation.com/uk-ua/', 'PlayStation Store'],
     ]) {
       const link = wrapper.get(`footer a[href="${href}"]`)
       expect(link.text()).toBe(name)
@@ -66,7 +67,7 @@ describe('AppFooter', () => {
   it('names them the same way in English', async () => {
     const wrapper = await mountSuspended(AppFooter, { route: '/en/games' })
     expect(wrapper.get('footer').text()).toContain(
-      'Game data provided by RAWG, Steam, GOG and Xbox Store.',
+      'Game data provided by RAWG, Steam, GOG, Xbox Store and PlayStation Store.',
     )
     expect(wrapper.get('footer a[href="https://www.xbox.com"]').text()).toBe('Xbox Store')
   })
@@ -83,6 +84,7 @@ describe('AppFooter', () => {
       expect(footer.steam).toBe(nameOf('steam'))
       expect(footer.gog).toBe(nameOf('gog'))
       expect(footer.xbox).toBe(nameOf('xbox-store'))
+      expect(footer.playstation).toBe(nameOf('playstation-store'))
       expect(JSON.stringify(footer)).not.toContain('Microsoft')
     }
   })

@@ -190,3 +190,12 @@ Known and left as they are:
 - **The lock keeper knows a renewal that threw, not a lock that was taken.** The adapter returns without a word when the lock is somebody else's. Not reachable while the stage renews every minute.
 - **What Node's `fetch` adds.** `accept-language: *`, `accept-encoding` and `sec-fetch-mode: cors` on every request, and one resend by itself on an HTTP 421, which the transport neither counts nor paces. Closing both means leaving `fetch` for `node:https`.
 - **A run that hears about fewer than twenty games carrying an offer removes what it hears**, unless it priced nothing at all.
+
+## Decided while building the pages (2026-10-14)
+
+- **One span of freshness per store, in one place.** `offerFreshForMs` in `server/index/offerRules.ts` answers forty-eight hours for this store (`PLAYSTATION_OFFER_FRESH_FOR_MS`) and thirty-six for every other. The refresh job's warning before prices stop being shown reads that constant (`PLAYSTATION_PRICE_SHOWN_MS` is it, not a copy). Steam's price and every comparison keep the thirty-six hours: this store's longer span never meets a comparison.
+- **A sale's end is applied wherever an offer is read for a visitor** (`offerAt`): the page RAWG answers, the page built from the index and a card alike, for any store that names an end. An end that cannot be read is taken as passed: a discount whose end is unknown is not one a page can stand behind.
+- **"Never compared" is a list of stores** (`UNCOMPARED_OFFER_STORES`), read by the cheapest rule on a page and by a card's line. A row of such a store is out of the comparison altogether: not marked, not a yardstick, and not a second row that would let a lone Steam row be marked. On a page it can sit far below the row marked «Найдешевше», which is what the rule says.
+- **The title is always shown for this store**, the game's own name included (`shownTitle`, `app/utils/storeOffers.ts`), and nothing else about the row is new: a hryvnia row like the Xbox Store's.
+- **An experiment's discount read at its base price** (section 2) needs nothing on the page: the job writes it as a price with no discount, and the row's link is the product's page, where the store's own figure is.
+- **The development seed** gives Stardew Valley's offer a made-up product title of two hundred characters, the most an offer's title may have, as the row's worst case on a phone.
