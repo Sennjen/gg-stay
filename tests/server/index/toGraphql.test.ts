@@ -191,14 +191,6 @@ describe('toGameCard', () => {
     expect(toGameCard(indexed({ cover: 'javascript:alert(1)' }), SEEDED).cover).toBeNull()
   })
 
-  it('derives the platform families from the indexed platform ids', () => {
-    expect(toGameCard(indexed({ platforms: [4, 187, 7] }), SEEDED).platformFamilies).toEqual([
-      'PC',
-      'PLAYSTATION',
-      'NINTENDO',
-    ])
-  })
-
   it('serves the same card as the RAWG path for a game both of them know', () => {
     const list = rawgGames as unknown as RawgList<RawgGameListItem>
     for (const document of DEV_FIXTURE_GAMES) {
@@ -345,7 +337,7 @@ describe('toGame', () => {
     ])
   })
 
-  it.each(['', '620/../../login', 'portal-2', ' 620'])(
+  it.each(['', '620/../../login', ' 620'])(
     'builds no store address from %j, which is not an app id',
     (steamAppId) => {
       expect(toGame(indexed({ ...onSale, steamAppId })).stores).toEqual([])

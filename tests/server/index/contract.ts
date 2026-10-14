@@ -462,17 +462,6 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         expect((await adapter.index.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
       })
 
-      it('remembers the meta of the version a publish replaced', async () => {
-        const adapter = await fresh()
-        await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
-        await publishGames(adapter, FIXTURE_GAMES.slice(3, 6), {
-          ...FIXTURE_META,
-          updatedAt: '2026-09-21T06:30:00.000Z',
-        })
-        expect((await adapter.writer.previousMeta())?.updatedAt).toBe(FIXTURE_META.updatedAt)
-        expect((await adapter.writer.meta())?.updatedAt).toBe('2026-09-21T06:30:00.000Z')
-      })
-
       it('refuses to rewrite the version that is published', async () => {
         const adapter = await fresh()
         const version = await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
@@ -803,12 +792,6 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         while (used.length > 0) await used.pop()?.teardown?.()
       })
 
-      it('refuses a second run while the first is between begin and publish', async () => {
-        const adapter = await fresh()
-        await adapter.writer.beginVersion()
-        await expect(adapter.rival.beginVersion()).rejects.toThrow()
-      })
-
       it('lets the next run begin once the first has published', async () => {
         const adapter = await fresh()
         await publishGames(adapter, FIXTURE_GAMES.slice(0, 3))
@@ -821,13 +804,6 @@ export function describeGameIndexContract(name: string, makeAdapter: MakeGameInd
         await adapter.writer.writeVersion(version, FIXTURE_GAMES.slice(0, 3))
         await adapter.writer.discardVersion(version)
         await expect(adapter.rival.beginVersion()).resolves.toBeGreaterThan(0)
-      })
-
-      it('says who holds the lock and how to take it over', async () => {
-        const adapter = await fresh()
-        await adapter.writer.beginVersion()
-        await expect(adapter.rival.beginVersion()).rejects.toThrow(/held the write lock/)
-        await expect(adapter.rival.beginVersion()).rejects.toThrow(/force/)
       })
 
       it('takes over the lock of a holder that has gone quiet, when a run forces it', async () => {

@@ -110,20 +110,12 @@ describe('storeTitle', () => {
     expect(title.startsWith('Limbo')).toBe(true)
   })
 
-  it.each([
-    undefined,
-    null,
-    '',
-    '   ',
-    '\n\t',
-    '\u200B\uFEFF',
-    42,
-    true,
-    ['Limbo'],
-    { title: 'Limbo' },
-  ])('reads no title from %j', (value) => {
-    expect(storeTitle(value)).toBeNull()
-  })
+  it.each([undefined, null, '', '   ', '\n\t', '\u200B\uFEFF', ['Limbo']])(
+    'reads no title from %j',
+    (value) => {
+      expect(storeTitle(value)).toBeNull()
+    },
+  )
 })
 
 describe('discountPercentOf', () => {

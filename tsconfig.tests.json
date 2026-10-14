@@ -1,6 +1,6 @@
 {
   // The Vitest suites that run in Node (`tests/server`, `tests/e2e`), the TypeScript fixtures they
-  // share and the Vitest config. No check covered them: `pnpm typecheck` builds the four projects
+  // share and both Vitest configs. No check covered them: `pnpm typecheck` builds the four projects
   // Nuxt generates, whose globs end at `app/`, `server/` and `shared/`, and Vitest strips types
   // without reading them, so a call that had lost a required argument went on passing.
   //
@@ -20,6 +20,7 @@
     "tests/server/**/*.ts",
     "tests/e2e/**/*.ts",
     "tests/fixtures/**/*.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vitest.mutation.config.ts"
   ]
 }

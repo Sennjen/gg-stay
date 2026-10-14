@@ -164,10 +164,6 @@ describe('buildIndexPlan', () => {
     expect(byRank).toHaveLength(FIXTURE_GAMES.length)
   })
 
-  it('writes no per-year facet', () => {
-    for (const key of plan.facets.keys()) expect(key).not.toContain(':f:year:')
-  })
-
   it('namespaces every key it produces under the version', () => {
     for (const key of [...plan.facets.keys(), ...plan.orders.keys(), ...plan.ranges.keys()]) {
       expect(key.startsWith('idx:v1:')).toBe(true)

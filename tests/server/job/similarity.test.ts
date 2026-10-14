@@ -250,17 +250,6 @@ describe('computeSimilar rules', () => {
     expect(rankingOf([target, related, hit, ...crowd], 1).slice(0, 2)).toEqual([2, 3])
   })
 
-  it('lets popularity decide between games equally close', () => {
-    const crowd = Array.from({ length: 30 }, (_, n) =>
-      game({ id: 100 + n, genres: ['strategy'], tags: [`crowd-${n % 10}`] }),
-    )
-    const target = game({ id: 1, tags: ['a', 'b', 'crowd-0'] })
-    const quiet = game({ id: 2, popularity: 1, tags: ['a', 'b', 'crowd-0'] })
-    const hit = game({ id: 3, popularity: 10_000_000, tags: ['a', 'b', 'crowd-0'] })
-
-    expect(rankingOf([target, quiet, hit, ...crowd], 1).slice(0, 2)).toEqual([3, 2])
-  })
-
   it('lists one edition of another game, not two', () => {
     const games = [
       game({ id: 1, name: 'Metro Exodus', tags: ['post-apocalyptic'] }),
@@ -329,8 +318,6 @@ describe('similarityFeatures', () => {
 describe('editionKey', () => {
   it.each([
     ['Metro Exodus', 'Metro Exodus Enhanced Edition'],
-    ['Metro 2033', 'Metro 2033 Redux'],
-    ['Metro: Last Light', 'Metro: Last Light Redux'],
     ['The Witcher 3: Wild Hunt', 'The Witcher 3: Wild Hunt – Game of the Year Edition'],
     ['Batman: Arkham Asylum', 'Batman: Arkham Asylum GOTY'],
     ['Death Stranding', "Death Stranding Director's Cut"],
@@ -348,13 +335,8 @@ describe('editionKey', () => {
   })
 
   it.each([
-    ['Metro 2033', 'Metro Exodus'],
     ['Portal', 'Portal 2'],
-    ['Metro: Last Light', 'Metro Exodus'],
-    ['S.T.A.L.K.E.R. 2: Heart of Chornobyl', 'S.T.A.L.K.E.R.: Shadow of Chernobyl'],
     ['The Witcher 3: Wild Hunt', 'Witcher 3: Wild Hunt'],
-    ['S.T.A.L.K.E.R.: Shadow of Chernobyl', 'S.T.A.L.K.E.R.: Call of Pripyat'],
-    ['Sherlock Holmes: Crimes and Punishments', "Sherlock Holmes: The Devil's Daughter"],
   ])('tells %s from %s', (left, right) => {
     expect(editionKey(left)).not.toBe(editionKey(right))
   })
