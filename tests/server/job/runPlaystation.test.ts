@@ -169,8 +169,10 @@ describe('runJob and the PlayStation Store', () => {
       removed: 0,
       failed: 0,
       requests: 3,
+      concepts: 3,
       offers: 0,
       oldestPriceAgeMs: null,
+      oldestShownPriceAgeMs: null,
       stopped: null,
     })
     expect(await harness.writer.getStoreRefs([101, 103, 106, 108])).toEqual(
@@ -879,8 +881,10 @@ describe('formatSummary and the PlayStation Store', () => {
     removed: 3,
     failed: 2,
     requests: 225,
+    concepts: 610,
     offers: 598,
     oldestPriceAgeMs: 31 * HOUR + 59 * MINUTE,
+    oldestShownPriceAgeMs: 31 * HOUR + 59 * MINUTE,
     stopped: null,
   }
   const MAPPING = '810 references, 640 mapped to a concept, 60 with none, 110 waiting to be'

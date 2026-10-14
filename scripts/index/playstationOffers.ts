@@ -9,6 +9,7 @@ import {
   type ReferenceVerdict,
 } from './offers'
 import {
+  PLAYSTATION_REQUESTS_PER_RUN,
   PlaystationStopped,
   type PlaystationProduct,
   type PlaystationStopReport,
@@ -98,6 +99,26 @@ export const PLAYSTATION_MAPPINGS_PER_RUN = 200
  */
 export const PLAYSTATION_NO_CONCEPT_KEPT_MS = 30 * 86_400_000
 
+/**
+ * How long an offer of this store is a price on the site: forty-eight hours
+ * (`docs/specs/2026-10-13-playstation-store-prices-design.md`, section 4). It is the site's rule,
+ * written down here for the one thing the job does with it — saying when prices are about to
+ * stop being shown — until the site has it in a constant of its own to share.
+ */
+export const PLAYSTATION_PRICE_SHOWN_MS = 48 * 3_600_000
+
+/**
+ * A prices run that ends with a shown price older than this says so in a warning: forty hours,
+ * eight short of the moment the price stops being shown, which is one more prices run.
+ */
+export const PLAYSTATION_PRICE_OLD_MS = 40 * 3_600_000
+
+/**
+ * The most prices read in a day: four prices runs (`.github/workflows/index-refresh.yml`) of the
+ * transport's requests each. With more concepts than this a game is read less than once a day.
+ */
+export const PLAYSTATION_PRICE_READS_A_DAY = 4 * PLAYSTATION_REQUESTS_PER_RUN
+
 /** What a run asks Sony, by its kind: see the module's note. */
 export type PlaystationAsks = 'prices' | 'mappings' | 'nothing'
 
@@ -154,6 +175,8 @@ export interface PlaystationReport {
   failed: number
   /** Requests this run made to Sony, whatever came of them. */
   requests: number
+  /** Concepts those titles belong to — after this run. One concept is one price to read. */
+  concepts: number
   /** Games the run publishes with an offer of this store, read now or carried. */
   offers: number
   /**
@@ -162,6 +185,12 @@ export interface PlaystationReport {
    * this is the number that shows it before an offer is too old for a page to quote.
    */
   oldestPriceAgeMs: number | null
+  /**
+   * The same of the offers the site still shows as prices, those read no more than
+   * `PLAYSTATION_PRICE_SHOWN_MS` ago; `null` when there is none. An offer that has already gone
+   * stale — a game Sony fails for, day after day — says nothing of how near the others are.
+   */
+  oldestShownPriceAgeMs: number | null
   /**
    * Why the stage stopped asking: out of its requests or its time while games were still
    * waiting, or — whatever was still waiting — refused by Sony, or failed three times in a row.
@@ -311,13 +340,33 @@ function toOffer(product: PlaystationProduct, readAt: string): IndexedOffer {
   }
 }
 
-/** How long before `now` the oldest of the store's offers was read, or `null` when none can be dated. */
-function oldestPriceAge(games: readonly IndexedGame[], now: number): number | null {
-  const dates = games.flatMap((game) => {
+/**
+ * How long before `now` the oldest of the store's offers was read, or `null` when none can be
+ * dated; with `within`, of the offers read no longer ago than that.
+ */
+function oldestPriceAge(
+  games: readonly IndexedGame[],
+  now: number,
+  within = Number.POSITIVE_INFINITY,
+): number | null {
+  const ages = games.flatMap((game) => {
     const at = Date.parse(offerOf(game)?.updatedAt ?? '')
-    return Number.isFinite(at) ? [at] : []
+    const age = Math.max(0, now - at)
+    return Number.isFinite(at) && age <= within ? [age] : []
   })
-  return dates.length > 0 ? Math.max(0, now - Math.min(...dates)) : null
+  return ages.length > 0 ? Math.max(...ages) : null
+}
+
+/** What the store's offers look like at this moment: how many, and how old the oldest are. */
+function offersNow(
+  games: readonly IndexedGame[],
+  now: number,
+): Pick<PlaystationReport, 'offers' | 'oldestPriceAgeMs' | 'oldestShownPriceAgeMs'> {
+  return {
+    offers: countOffers(games, STORE),
+    oldestPriceAgeMs: oldestPriceAge(games, now),
+    oldestShownPriceAgeMs: oldestPriceAge(games, now, PLAYSTATION_PRICE_SHOWN_MS),
+  }
 }
 
 /**
@@ -350,6 +399,9 @@ export async function refreshPlaystationOffers(
     mapped: referenced.filter(({ ref }) => typeof ref.conceptId === 'number').length,
     withoutConcept: referenced.filter(({ ref }) => ref.conceptId === null).length,
     unmapped: referenced.filter(({ ref }) => ref.conceptId === undefined).length,
+    concepts: new Set(
+      referenced.flatMap(({ ref }) => (typeof ref.conceptId === 'number' ? [ref.conceptId] : [])),
+    ).size,
     due: 0,
     pricesRead: 0,
     mappingsRead: 0,
@@ -357,8 +409,7 @@ export async function refreshPlaystationOffers(
     removed: 0,
     failed: 0,
     requests: 0,
-    offers: countOffers(games, STORE),
-    oldestPriceAgeMs: oldestPriceAge(games, deps.clock.now()),
+    ...offersNow(games, deps.clock.now()),
     stopped: null,
     ...(verdict.dropped > 0 ? { dropped: verdict.dropped } : {}),
     ...extra,
@@ -511,8 +562,7 @@ export async function refreshPlaystationOffers(
         due: dueGames,
         pricesRead,
         removed,
-        offers: countOffers(games, STORE),
-        oldestPriceAgeMs: oldestPriceAge(games, deps.clock.now()),
+        ...offersNow(games, deps.clock.now()),
         ...(unbelieved ? { error: unbelieved } : {}),
       },
       `${pricesRead} prices read of ${dueGames} due, ${removed} offers removed`,

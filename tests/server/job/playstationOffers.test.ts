@@ -10,6 +10,9 @@ import {
   nothingPriced,
   PLAYSTATION_MAPPINGS_PER_RUN,
   PLAYSTATION_NO_CONCEPT_KEPT_MS,
+  PLAYSTATION_PRICE_OLD_MS,
+  PLAYSTATION_PRICE_READS_A_DAY,
+  PLAYSTATION_PRICE_SHOWN_MS,
   PLAYSTATION_REREAD_AFTER_MS,
   refreshPlaystationOffers,
   removalsNotBelieved,
@@ -832,7 +835,80 @@ describe('a prices run: how it ends', () => {
 
     expect(run.asked('price')).toEqual([4])
     expect(report.oldestPriceAgeMs).toBe(31 * HOUR + 20 * MINUTE)
+    expect(report.oldestShownPriceAgeMs).toBe(31 * HOUR + 20 * MINUTE)
     expect((await world([{ id: 1 }]).run('nothing')).oldestPriceAgeMs).toBeNull()
+  })
+})
+
+describe('a prices run: the warning before prices stop being shown', () => {
+  /** A game asked about two hours ago, in vain: its offer is as old as the test says. */
+  const stuck = (id: number, readAgo: number): Spec => ({ id, askedAgo: 2 * HOUR, readAgo })
+
+  it('warns when a price the site still shows was read more than forty hours ago', async () => {
+    expect(PLAYSTATION_PRICE_OLD_MS).toBe(40 * HOUR)
+    expect(PLAYSTATION_PRICE_SHOWN_MS).toBe(48 * HOUR)
+    expect(PLAYSTATION_PRICE_READS_A_DAY).toBe(900)
+    // Three concepts: two games share one, and the third is not due.
+    const run = world([
+      { id: 1, ...read(30 * HOUR) },
+      { id: 2, ...read(30 * HOUR), conceptOf: 1 },
+      stuck(3, 40 * HOUR + 1),
+      { id: 4, ...read(3 * HOUR) },
+    ])
+
+    const report = await run.run()
+
+    expect(report).toMatchObject({ concepts: 3, oldestShownPriceAgeMs: 40 * HOUR + 1 })
+    expect(playstationWarnings(report)).toEqual([
+      'PlayStation Store: the oldest price still shown was read 40 h ago, and a price is shown for 48 — there are 3 concepts against 900 price reads a day',
+    ])
+  })
+
+  it('says nothing at forty hours exactly, or of a price that is no longer shown', async () => {
+    const onTheHour = await world([stuck(1, 40 * HOUR), { id: 2, ...read(30 * HOUR) }]).run()
+    expect(onTheHour.oldestShownPriceAgeMs).toBe(40 * HOUR)
+    expect(playstationWarnings(onTheHour)).toEqual([])
+
+    // An offer two days old and more is not a price on any page: it is the oldest, and not
+    // the oldest shown.
+    const gone = await world([
+      stuck(1, 48 * HOUR + 1),
+      stuck(2, 48 * HOUR),
+      { id: 3, ...read(30 * HOUR) },
+    ]).run()
+    expect(gone).toMatchObject({
+      oldestPriceAgeMs: 48 * HOUR + 1,
+      oldestShownPriceAgeMs: 48 * HOUR,
+    })
+    expect(playstationWarnings(gone)).toHaveLength(1)
+    const none = await world([stuck(1, 60 * HOUR), { id: 2, ...read(30 * HOUR) }]).run()
+    expect(none).toMatchObject({ oldestPriceAgeMs: 60 * HOUR, oldestShownPriceAgeMs: 0 })
+    expect(playstationWarnings(none)).toEqual([])
+  })
+
+  it('counts the age at the end of the run, with what the run read taken into account', async () => {
+    // 230 concepts, every price forty-one hours old: the run reads 225, and five are left.
+    const run = world(many(230, () => read(41 * HOUR)))
+
+    const report = await run.run()
+
+    expect(report).toMatchObject({ pricesRead: 225, concepts: 230 })
+    const ended = 224 * PLAYSTATION_PAUSE_MS
+    expect(report.oldestShownPriceAgeMs).toBe(41 * HOUR + ended)
+    expect(playstationWarnings(report)).toEqual([
+      'PlayStation Store: the oldest price still shown was read 41 h ago, and a price is shown for 48 — there are 230 concepts against 900 price reads a day',
+    ])
+    // The same games, all read: nothing to warn of.
+    const all = await world(many(200, () => read(41 * HOUR))).run()
+    expect(playstationWarnings(all)).toEqual([])
+  })
+
+  it('is a prices run’s to write: not the night’s, and not a run’s that asked nothing', async () => {
+    const old = (): World => world([stuck(1, 45 * HOUR), { id: 2, mapped: false }])
+    expect(playstationWarnings(await old().run('mappings'))).toEqual([])
+    expect(playstationWarnings(await old().run('nothing'))).toEqual([])
+    expect(playstationWarnings(await old().run('prices', { refusal: 'no games' }))).toEqual([])
+    expect(playstationWarnings(await old().run('prices'))).toHaveLength(1)
   })
 })
 
@@ -1362,8 +1438,10 @@ describe('which kind of run asks Sony what', () => {
       removed: 0,
       failed: 0,
       requests: 0,
+      concepts: 2,
       offers: 2,
       oldestPriceAgeMs: 45 * HOUR,
+      oldestShownPriceAgeMs: 45 * HOUR,
       stopped: null,
       // What the rule about references cost reaches the summary in every kind of run.
       dropped: 3,

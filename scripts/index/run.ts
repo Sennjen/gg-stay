@@ -13,6 +13,9 @@ import {
 } from './offers'
 import {
   PLAYSTATION_MAPPINGS_PER_RUN,
+  PLAYSTATION_PRICE_OLD_MS,
+  PLAYSTATION_PRICE_READS_A_DAY,
+  PLAYSTATION_PRICE_SHOWN_MS,
   refreshPlaystationOffers,
   type PlaystationAsks,
   type PlaystationReport,
@@ -717,6 +720,10 @@ export function storeWarnings(stores: StoresReport): string[] {
  * the games carrying an offer; and a believed mapping that cost the store twenty offers or more,
  * said as it is for the others.
  *
+ * And one that is not about how the stage ended: a prices run that ends with a price the site
+ * still shows read more than forty hours ago says so, with the number of concepts against a
+ * day's price reads. Eight hours on that price stops being shown.
+ *
  * Nothing for a stage that ran out of its requests or its time: that is every ordinary run, the
  * ration being what it is. Nothing for a run of a kind that asks Sony nothing, or for one that
  * is going to be refused publication: that run is red, and says why itself. And nothing here is
@@ -756,8 +763,27 @@ export function playstationWarnings(read: PlaystationReport | null | undefined):
           : 'the prices that were read are published'),
     )
   }
+  const oldest = read.oldestShownPriceAgeMs
+  if (
+    read.asks === 'prices' &&
+    (read.status === 'read' || read.status === 'failed') &&
+    oldest !== null &&
+    oldest > PLAYSTATION_PRICE_OLD_MS
+  ) {
+    warnings.push(
+      `${name}: the oldest price still shown was read ${hoursOf(oldest)} h ago, and a price is ` +
+        `shown for ${hoursOf(PLAYSTATION_PRICE_SHOWN_MS)} — there are ` +
+        `${plural(read.concepts, 'concept', 'concepts')} against ` +
+        `${PLAYSTATION_PRICE_READS_A_DAY} price reads a day`,
+    )
+  }
   const dropped = (read.dropped ?? 0) >= OFFER_FLOOR_MIN_CARRIED ? droppedNote(read.dropped) : null
   return [...warnings, ...(dropped ? [`${name}: ${dropped}`] : [])]
+}
+
+/** A span in whole hours, rounded down: an age is not older than it is. */
+function hoursOf(ms: number): number {
+  return Math.floor(ms / 3_600_000)
 }
 
 /** A value as one cell of the summary's table: on one line, and with no column of its own. */
@@ -875,7 +901,7 @@ function playstationStopNote(read: PlaystationReport): string {
  */
 function oldestPriceNote(read: PlaystationReport): string {
   if (read.oldestPriceAgeMs === null) return 'no price to date'
-  const hours = Math.floor(read.oldestPriceAgeMs / 3_600_000)
+  const hours = hoursOf(read.oldestPriceAgeMs)
   return hours < 1 ? 'the oldest read under an hour ago' : `the oldest read ${hours} h ago`
 }
 
