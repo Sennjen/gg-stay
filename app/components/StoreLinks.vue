@@ -7,7 +7,7 @@
  * was, a chip that is a link, in a row of chips under the list; a game no store has a price for
  * is the row of chips alone, exactly as before.
  *
- * - **Hryvnia** (Steam, the Xbox Store): the discount chip, the price and the struck regular
+ * - **Hryvnia** (Steam, the Xbox Store, the PlayStation Store): the discount chip, the price and the struck regular
  *   price, in the order and the classes of the catalog's `PriceTag`.
  * - **Dollars** (GOG): the price as the store writes it, `$8.99`, and beside it an estimate in
  *   hryvnia at the National Bank's rate — `≈ 404 ₴`, in the secondary colour and weight, because
@@ -15,7 +15,11 @@
  *   there only while an estimate is.
  * - **The store's own title** for the product, under the store's name, when it differs from the
  *   game's name (`namesAnotherProduct`): the link is sometimes to another edition, and the price
- *   is that edition's. It is another company's text and is rendered as text, never as markup.
+ *   is that edition's. For the PlayStation Store always, the game's own name included: its price
+ *   is for the product Sony puts first, which may be another thing than the game (`shownTitle`).
+ *   It is another company's text and is rendered as text, never as markup.
+ * - **Hryvnia** includes the PlayStation Store's row. It is never marked «Найдешевше», whatever
+ *   it charges: the server leaves it out of the comparison.
  * - **«Найдешевше»** on the one row the answer marks. Which row that is, and that an estimate has
  *   to win by a margin, is the server's rule (`server/index/offerRules.ts`); nothing is compared
  *   here.
@@ -38,7 +42,7 @@ import { hoursSince } from '~/utils/format'
 import {
   formatForeignPrice,
   isPriceAmount,
-  namesAnotherProduct,
+  shownTitle,
   type ForeignMoney,
 } from '~/utils/storeOffers'
 
@@ -90,7 +94,7 @@ interface StoreRow {
   store: string
   url: string
   cheapest: boolean
-  /** What the store calls the product, when that is not the game's own name. */
+  /** What the store calls the product, when the row shows it (`shownTitle`). */
   title: string | null
   free: boolean
   price: string
@@ -135,7 +139,7 @@ function storeRow(offer: Offer): StoreRow | null {
     store: offer.store,
     url: offer.url,
     cheapest: offer.cheapest === true,
-    title: namesAnotherProduct(offer.title, props.gameName) ? (offer.title ?? null) : null,
+    title: shownTitle(offer.store, offer.title, props.gameName),
     hours: offer.updatedAt && props.now ? hoursSince(offer.updatedAt, props.now) : null,
   }
   if (priceUah !== null) {

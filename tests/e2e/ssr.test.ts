@@ -574,11 +574,10 @@ describe('server-side rendering', async () => {
     expect(html).toContain('https://store.steampowered.com/app/292030/')
   })
 
-  it('opens the page of each game seeded with a PlayStation Store offer, the store’s row still a link', async () => {
-    // Three games carry that store's offer in the seed, one for each case a page will have to
-    // tell apart (`tests/fixtures/index/devGames.ts`), and each has a RAWG recording so that its
-    // page opens here. The offers are published and no page shows them yet: the row is the link
-    // RAWG gave, with no price on it.
+  it('renders the PlayStation Store’s price on its own row, under the product’s title, and never marks it', async () => {
+    // Three games carry that store's offer in the seed, one for each case a page tells apart
+    // (`tests/fixtures/index/devGames.ts`). The server moves the seed's dates to its own start, so
+    // the ages the seed gives hold here.
     const withOffer = seeded.filter((game) =>
       game.offers?.some((offer) => offer.store === 'playstation-store'),
     )
@@ -587,16 +586,44 @@ describe('server-side rendering', async () => {
       'metro-exodus',
       'cyberpunk-2077',
     ])
-    for (const game of withOffer) {
-      const html = await $fetch<string>(`/games/${game.slug}`)
-      expect(html, game.slug).toMatch(new RegExp(`<h1[^>]*>\\s*${game.name}\\s*</h1>`))
-      // No priced row for the store, and its link among the stores that are links alone.
-      expect(html, game.slug).not.toContain('data-test="store-row-playstation-store"')
-      const links = html.match(/<ul[^>]*data-test="store-links"[\s\S]*?<\/ul>/)?.[0] ?? ''
-      expect(links, game.slug).toContain('href="https://store.playstation.com/en-us/product/')
-      // The address of the offer itself, the product's page for Ukraine, is nowhere on the page.
-      expect(html, game.slug).not.toContain('store.playstation.com/uk-ua/product')
-    }
+    const offerOf = (slug: string) =>
+      withOffer
+        .find((game) => game.slug === slug)!
+        .offers!.find((offer) => offer.store === 'playstation-store')!
+    const rowOf = (html: string) =>
+      html.match(/<li[^>]*data-test="store-row-playstation-store"[\s\S]*?<\/li>/)?.[0] ?? ''
+
+    // Metro Exodus: on sale for eight more days, at a tenth of its price, far below Steam's.
+    const metro = await $fetch<string>('/games/metro-exodus')
+    const onSale = rowOf(metro)
+    expect(onSale).toContain(`href="${offerOf('metro-exodus').url}"`)
+    expect(onSale).toContain('−90%')
+    expect(onSale).toMatch(/>95\s₴</)
+    expect(onSale).toMatch(/<s[^>]*>949\s₴<\/s>/)
+    // The product's title, though it is the game's own name.
+    expect(onSale).toContain('data-test="store-title"')
+    expect(onSale).toContain('>Metro Exodus<')
+    // The lowest price on the page, and not the one marked: Steam's is, among the compared.
+    expect(onSale).not.toContain('Найдешевше')
+    const steamRow = metro.match(/<li[^>]*data-test="store-row-steam"[\s\S]*?<\/li>/)?.[0] ?? ''
+    expect(steamRow).toContain('Найдешевше')
+
+    // Stardew Valley: the sale ended before the page was asked for, so the regular price and no
+    // discount — under a title of two hundred characters.
+    const stardew = await $fetch<string>('/games/stardew-valley')
+    const over = rowOf(stardew)
+    expect(over).toMatch(/>449\s₴</)
+    expect(over).not.toContain('−30%')
+    // No struck price: the regular one is the price.
+    expect(over).not.toMatch(/<s[\s>]/)
+    expect(over).toContain(`>${asHtmlText(offerOf('stardew-valley').title!)}<`)
+
+    // Cyberpunk 2077: read three days before the run, past the store's forty-eight hours: the
+    // link alone, among the stores that are links, and no price anywhere.
+    const cyberpunk = await $fetch<string>('/games/cyberpunk-2077')
+    expect(cyberpunk).not.toContain('data-test="store-row-playstation-store"')
+    const links = cyberpunk.match(/<ul[^>]*data-test="store-links"[\s\S]*?<\/ul>/)?.[0] ?? ''
+    expect(links).toContain('store.playstation.com')
   })
 
   it('renders the hero title and scoreboard row on the detail page', async () => {

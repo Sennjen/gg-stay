@@ -643,8 +643,7 @@ describe('withStoreOffers', () => {
     expect(priced.map((row) => row.store)).toEqual(['steam', 'gog', 'playstation-store'])
   })
 
-  it('leaves the PlayStation Store’s row the link RAWG gave, whatever the document holds for it', () => {
-    // The job publishes that store's offers before any page knows its rules (`PAGE_OFFER_STORES`).
+  it('puts the PlayStation Store’s price on RAWG’s row, at the product’s own page', () => {
     const playstation: IndexedOffer = {
       store: 'playstation-store',
       title: 'Grand Theft Auto Online (PlayStation\u00AE5)',
@@ -658,11 +657,37 @@ describe('withStoreOffers', () => {
     const before = rows()
     const priced = withStoreOffers(before, holding(gogOffer(), playstation), TERMS)
 
-    expect(priced[2]).toBe(before[2])
-    expect(priced[2]).toMatchObject({ url: 'https://store.playstation.com/x' })
-    expect(priced[2]!.priceUah ?? null).toBeNull()
-    // The row it does know is priced as ever.
+    expect(priced[2]).toEqual(rowOf(playstation, RATE))
+    expect(priced[2]).toMatchObject({
+      url: playstation.url,
+      title: 'Grand Theft Auto Online (PlayStation\u00AE5)',
+      priceUah: 899,
+    })
     expect(priced[1]).toEqual(rowOf(gogOffer(), RATE))
+  })
+
+  it('keeps the PlayStation Store’s price for forty-eight hours, where another store’s is gone at thirty-six', () => {
+    const at = (hours: number): IndexedOffer[] => [
+      gogOffer({ updatedAt: new Date(Date.parse(NOW) - hours * 3_600_000).toISOString() }),
+      {
+        store: 'playstation-store',
+        title: 'The Witcher 3',
+        amount: 64_900,
+        regularAmount: 64_900,
+        currency: 'UAH',
+        discountPercent: 0,
+        url: 'https://store.playstation.com/uk-ua/product/EP4497-CUSA05571_00-0000000000GOTY11',
+        updatedAt: new Date(Date.parse(NOW) - hours * 3_600_000).toISOString(),
+      },
+    ]
+    const priced = (hours: number) =>
+      withStoreOffers(rows(), holding(...at(hours)), TERMS).map(
+        (row) => row.priceUah != null || row.foreignPrice != null,
+      )
+
+    expect(priced(30)).toEqual([true, true, true])
+    expect(priced(40)).toEqual([true, false, true])
+    expect(priced(49)).toEqual([true, false, false])
   })
 
   it('leaves the link RAWG gave when the offer is too old to be a price', () => {

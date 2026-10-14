@@ -465,6 +465,33 @@ describe('StoreLinks', () => {
       expect(wrapper.html()).not.toContain('<img')
     })
 
+    it('is shown on the PlayStation Store’s row whatever it says, the game’s own name included', async () => {
+      const playstation = {
+        store: 'playstation-store',
+        url: 'https://store.playstation.com/uk-ua/product/EP4497-CUSA05571_00-0000000000GOTY11',
+        priceUah: 649,
+        isFree: false,
+        updatedAt: NOW,
+        cheapest: false,
+      }
+      for (const title of [GAME, 'THE WITCHER 3: WILD HUNT', EDITION]) {
+        const wrapper = await mount([steam, { ...playstation, title }])
+        const shown = wrapper.get(
+          '[data-test="store-row-playstation-store"] [data-test="store-title"]',
+        )
+        expect(shown.text()).toBe(title)
+      }
+      // A row with no title has nothing to show, whatever its store.
+      const untitled = await mount([steam, { ...playstation, title: null }])
+      expect(untitled.find('[data-test="store-title"]').exists()).toBe(false)
+      // And the store's row is a hryvnia row like Steam's, under the store's own name.
+      const row = (await mount([steam, { ...playstation, title: GAME }])).get(
+        '[data-test="store-row-playstation-store"]',
+      )
+      expect(row.text()).toContain('PlayStation Store')
+      expect(row.text()).toContain('649')
+    })
+
     it('is allowed to break anywhere, so two hundred characters wrap inside the row', async () => {
       const long = 'W'.repeat(200)
       const wrapper = await mount([steam, { ...gog, title: long }])

@@ -289,23 +289,21 @@ describe('the offers a build can show', () => {
 describe('the offers a page may use', () => {
   const everywhere = ['steam', 'gog', 'xbox-store', 'playstation-store']
 
-  it('are those of GOG and the Microsoft Store, which is fewer stores than the job reads', () => {
-    expect(PAGE_OFFER_STORES).toEqual(['gog', 'xbox-store'])
+  it('are those of every store the job publishes, the PlayStation Store’s among them', () => {
+    expect(PAGE_OFFER_STORES).toEqual(['gog', 'xbox-store', 'playstation-store'])
     expect(OFFER_STORES).toEqual(['gog', 'xbox-store', 'playstation-store'])
-    for (const store of PAGE_OFFER_STORES) expect(OFFER_STORES).toContain(store)
   })
 
-  it('read a PlayStation Store offer as the offer it is, and use it for nothing', () => {
+  it('read a PlayStation Store offer as the offer it is, and use it', () => {
     const offers = [gog(), microsoft(), playstation()]
     const document = game(offers, everywhere)
 
-    // Readable: a store the build knows, hryvnia, whole kopecks, an address it would link to.
     expect(readableOffers(document)).toEqual(offers)
-    // And not among what a page shows, lists or weighs.
-    expect(pageOffers(document)).toEqual([gog(), microsoft()])
-    expect(listedOffers(document)).toEqual([gog(), microsoft()])
-    expect(freshOffers(document, NOW)).toEqual([gog(), microsoft()])
-    expect(pageOffers(game([playstation()], everywhere))).toEqual([])
+    expect(pageOffers(document)).toEqual(offers)
+    expect(listedOffers(document)).toEqual(offers)
+    expect(freshOffers(document, NOW)).toEqual(offers)
+    // Listed only where RAWG lists the game on the store, as for any store.
+    expect(listedOffers(game([playstation()], ['steam']))).toEqual([])
   })
 
   it('never name the PlayStation Store as cheaper than Steam, however far below it is', () => {
@@ -314,9 +312,19 @@ describe('the offers a page may use', () => {
 
     expect(cheaperAtOf({ ...steam, ...game([playstation()], everywhere) }, NOW, RATE)).toBeNull()
     expect(cheaperAtOf({ ...steam, ...game([free], everywhere) }, NOW, RATE)).toBeNull()
-    // And a store that is clearly cheaper is named exactly as it would be without that offer.
+    // And a store that is clearly cheaper is named exactly as it would be without that offer,
+    // even where the PlayStation Store's price is the lowest of all.
     const cheap = microsoft({ amount: 50_000, regularAmount: 50_000 })
     expect(cheaperAtOf({ ...steam, ...game([cheap, free], everywhere) }, NOW, RATE)).toBe(
+      'xbox-store',
+    )
+    const close = microsoft({ amount: 95_000, regularAmount: 95_000 })
+    expect(cheaperAtOf({ ...steam, ...game([close, playstation()], everywhere) }, NOW, RATE)).toBe(
+      cheaperAtOf({ ...steam, ...game([close], everywhere) }, NOW, RATE),
+    )
+    // A tie with another store's price does not silence the line either.
+    const tie = playstation({ amount: 50_000, regularAmount: 50_000, discountPercent: 0 })
+    expect(cheaperAtOf({ ...steam, ...game([cheap, tie], everywhere) }, NOW, RATE)).toBe(
       'xbox-store',
     )
   })

@@ -205,20 +205,17 @@ export function readableOffers(game: Pick<IndexedGame, 'offers'>): IndexedOffer[
 }
 
 /**
- * The stores whose offers a page or a card shows, weighs and compares today: GOG and the
- * Microsoft Store.
+ * The stores whose offers a page or a card uses: every store the refresh job publishes, today —
+ * GOG, the Microsoft Store and the PlayStation Store.
  *
- * It is a shorter list than the one the refresh job publishes (`OFFER_STORES`), on purpose. The
- * job reads the PlayStation Store as well, and its offers are on the documents, readable like any
- * other (`readableOffers`); but every rule below was written for the two stores here. A
- * PlayStation Store offer is a price for forty-eight hours and not thirty-six, it stops being a
- * discount at its `saleEndsAt`, and it must never be marked the cheapest or weighed against
- * another row: it is a console's store, and its product may be another thing than the game
- * (`docs/specs/2026-10-13-playstation-store-prices-design.md`, section 4). Until a page knows
- * those rules, it shows that store as it always has — the link RAWG gave, without a price — and
- * a store joins this list in the same change that teaches the pages about it.
+ * It is a list of its own, and not `OFFER_STORES`, on purpose. The job may publish a store's
+ * offers before any page knows that store's rules, and a document is read by builds older and
+ * newer than the job that wrote it. A store joins this list in the same change that teaches the
+ * pages about it, as the PlayStation Store did: a price for forty-eight hours and not thirty-six
+ * (`offerFreshForMs`), a discount only until its `saleEndsAt` (`offerAt`), and never compared
+ * with another row (`isComparedStore`).
  */
-export const PAGE_OFFER_STORES: readonly OfferStore[] = ['gog', 'xbox-store']
+export const PAGE_OFFER_STORES: readonly OfferStore[] = ['gog', 'xbox-store', 'playstation-store']
 
 /**
  * The stores whose prices are shown and never compared: the PlayStation Store.

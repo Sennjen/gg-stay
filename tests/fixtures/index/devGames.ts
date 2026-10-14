@@ -76,9 +76,11 @@ import type {
  * | Cyberpunk 2077        | 1 499,00 ₴, read three days before   | an offer older than forty-eight |
  * | (41494)               | the run                              | hours: not a price              |
  *
- * In all three the product's title is the game's own name, letter for letter, which is the case
- * a page has to show for this store and for no other: the product Sony puts first is not always
- * the game, so its name is shown whether or not it says anything new.
+ * In Metro Exodus and Cyberpunk 2077 the product's title is the game's own name, letter for
+ * letter, which is the case a page has to show for this store and for no other: the product Sony
+ * puts first is not always the game, so its name is shown whether or not it says anything new.
+ * Stardew Valley's is two hundred characters long, the most a title may be
+ * (`DEV_FIXTURE_PLAYSTATION_LONG_TITLE`), and made up: the row's worst case on a phone.
  *
  * What is recorded and what is not. The three products, their titles, and the prices of two of
  * them are Sony's own for Ukraine on 2026-10-13 (`tests/fixtures/playstation`): Metro Exodus at
@@ -124,6 +126,14 @@ export const DEV_FIXTURE_SALE_ENDED_AT = '2026-09-19T21:59:00.000Z'
 
 /** A PlayStation Store read three days before the run: past forty-eight hours, so not a price. */
 export const DEV_FIXTURE_PLAYSTATION_STALE_AT = '2026-09-17T06:20:00.000Z'
+
+/**
+ * A product title of two hundred characters, the most an offer's title may have
+ * (`MAX_OFFER_TITLE_LENGTH`): made up, as the layout's worst case for a row that always shows its
+ * title. A real PlayStation Store title is a game's name with an edition, under eighty.
+ */
+export const DEV_FIXTURE_PLAYSTATION_LONG_TITLE =
+  'Stardew Valley: Complete Farming Collection for PlayStation 4 and PlayStation 5, with every free update from 1.0 to 1.6, the original soundtrack, a digital art book and the cooperative farm mode (PS5)'
 
 /** The National Bank's dollar rate the fixture run read, for the day it ran on. */
 export const DEV_FIXTURE_EXCHANGE_RATE: IndexedExchangeRate = {
@@ -317,12 +327,13 @@ export const DEV_FIXTURE_GAMES: IndexedGame[] = [
     // and the price are the store's own for Ukraine.
     //
     // And the PlayStation Store, read while a sale was on that has since ended: from that moment
-    // the offer's price is its regular one.
+    // the offer's price is its regular one. Under a product title as long as an offer's title may
+    // be (`MAX_OFFER_TITLE_LENGTH`), which the row shows whole.
     offers: [
       microsoftOffer('stardew-valley', 'c3d891z6tnqm', 'Stardew Valley', 38_500, 38_500),
       playstationOffer(
         'EP2319-CUSA26625_00-2010147637670638',
-        'Stardew Valley',
+        DEV_FIXTURE_PLAYSTATION_LONG_TITLE,
         31_430,
         44_900,
         DEV_FIXTURE_PLAYSTATION_EARLIER_READ_AT,

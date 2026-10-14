@@ -7,6 +7,7 @@ import { playstationTitleFromUrl } from '../../../scripts/index/storeRefs'
 import {
   DEV_FIXTURE_GAMES,
   DEV_FIXTURE_META_EXTRA,
+  DEV_FIXTURE_PLAYSTATION_LONG_TITLE,
   DEV_FIXTURE_PRICES_UPDATED_AT,
   DEV_FIXTURE_SHELF_GAMES,
   DEV_FIXTURE_UKRAINIAN_GAMES,
@@ -368,8 +369,11 @@ describe('the published index fixture', () => {
       expect('saleEndsAt' in offerOf(CYBERPUNK)).toBe(false)
     })
 
-    it('holds a product whose title is the game’s own name, on every one of them', () => {
-      for (const id of [METRO, STARDEW, CYBERPUNK]) expect(offerOf(id).title).toBe(gameOf(id).name)
+    it('holds a product whose title is the game’s own name, and one of the most a title may be', () => {
+      for (const id of [METRO, CYBERPUNK]) expect(offerOf(id).title).toBe(gameOf(id).name)
+      // Stardew Valley's is the layout's worst case: two hundred characters, whole.
+      expect(offerOf(STARDEW).title).toBe(DEV_FIXTURE_PLAYSTATION_LONG_TITLE)
+      expect(Array.from(DEV_FIXTURE_PLAYSTATION_LONG_TITLE)).toHaveLength(MAX_OFFER_TITLE_LENGTH)
     })
 
     it('is on games the fixture build can open as pages: each has a RAWG recording', () => {
@@ -420,8 +424,9 @@ describe('the published index fixture', () => {
       // reads no price for it, and the seed's amounts are its own.
       const stardew = parsePlaystationConcept(sonyStardewConcepts, titleOf(rawgStardewStores))
       expect(stardew).toBe(227_229)
+      // The product is Sony's; its title in the seed is the made-up long one.
       expect(sonyStardewPrice.data.conceptRetrieve.products).toEqual([
-        { id: productOf(STARDEW), name: offerOf(STARDEW).title },
+        { id: productOf(STARDEW), name: 'Stardew Valley' },
       ])
       expect(parsePlaystationPrice(sonyStardewPrice, 227_229)).toBeNull()
     })
