@@ -1,6 +1,6 @@
 import type { BankRateFetch } from './bank'
 import type { GogCatalogFetch } from './gog'
-import type { MicrosoftProductsFetch } from './microsoft'
+import type { MicrosoftCatalogFetch, MicrosoftProductsFetch } from './microsoft'
 import type { RequestMeter } from './requestMeter'
 import type { GameIndex, GameIndexWriter } from '../../server/index/GameIndex'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
@@ -71,6 +71,11 @@ export interface JobDeps {
   gog: GogCatalogFetch
   /** The Microsoft Store's answer about a batch of product ids, for Ukraine. */
   microsoft: MicrosoftProductsFetch
+  /**
+   * What the Microsoft Store relates a batch of products to, and what it sells under a name: the
+   * store's own ways to a product, asked only for a game RAWG's link gave no price for.
+   */
+  microsoftCatalog: MicrosoftCatalogFetch
   /** The National Bank's dollar rate for one day. */
   bank: BankRateFetch
   writer: JobIndex

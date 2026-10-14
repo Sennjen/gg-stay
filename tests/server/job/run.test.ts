@@ -1099,16 +1099,18 @@ describe('runCli', () => {
     // about with their app id and the sweep asked about the third, the studio fixture's game,
     // whose links name a GOG edition and a Microsoft product the recordings hold
     // (`tests/fixtures/gog`, `tests/fixtures/microsoft`). The other two links are RAWG's real
-    // ones and find nothing there: The Witcher 3's GOG page is no longer in GOG's catalog, and
-    // Stardew Valley's Microsoft product is not in the recorded answer.
+    // ones and find nothing there. The Witcher 3's GOG page is no longer in GOG's catalog, and
+    // the game is found in it by its name, as the edition GOG sells it as. Stardew Valley's
+    // Microsoft product is not in the recorded answer; the store's own ways are tried for it and
+    // find nothing, there being no recorded search for its name.
     expect(summary).toContain(
       '| Store references | 3 of 5 games on GOG or the Xbox store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
-      '| GOG prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
+      '| GOG prices | 2 references, 2 prices read, 0 failed; 2 offers published, 1 request; found by: link 1, edition 1; 1 searched for this run, 1 found (edition 1), 0 waiting |',
     )
     expect(summary).toContain(
-      '| Microsoft Store prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
+      '| Microsoft Store prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request; 1 searched for this run in 2 requests, 0 found, 0 waiting |',
     )
     // The recorded rate, under today's date in Kyiv whenever the suite runs.
     expect(summary).toMatch(

@@ -121,22 +121,30 @@ describe('parseGogCatalogPage', () => {
         {
           id: '1441199941',
           slug: 'the_witcher_3_redkit',
+          type: 'game',
           title: 'The Witcher 3 REDkit',
+          releasedAt: Date.parse('2024-05-21T00:00:00.000Z'),
           price: { amount: 0, regularAmount: 0, discountPercent: 0 },
           url: 'https://www.gog.com/en/game/the_witcher_3_redkit',
         },
         {
           id: '1640424747',
           slug: 'the_witcher_3_wild_hunt_game_of_the_year_edition',
+          // An edition is a pack, and the day is the edition's: the game is of May 2015.
+          type: 'pack',
           // The slug still says "game of the year edition"; the title is what GOG calls it now.
           title: 'The Witcher 3: Wild Hunt — Remastered',
+          releasedAt: Date.parse('2016-08-30T00:00:00.000Z'),
           price: { amount: 1749, regularAmount: 3499, discountPercent: 50 },
           url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition',
         },
         {
           id: '1179418179',
           slug: 'the_witcher_3_wild_hunt_songs_of_the_past',
+          type: 'pack',
           title: 'The Witcher 3: Wild Hunt — Songs of the Past',
+          // Not out yet: no price, and no day either.
+          releasedAt: null,
           price: null,
           url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_songs_of_the_past',
         },
@@ -180,11 +188,53 @@ describe('parseGogCatalogPage', () => {
       {
         id: 'gog-limbo',
         slug: 'limbo',
+        type: 'game',
         title: 'Limbo',
+        releasedAt: null,
         price: null,
         url: 'https://www.gog.com/en/game/limbo',
       },
     ])
+  })
+
+  it('reads what kind of product it is, and no kind it does not know', () => {
+    const typed = (productType: unknown) =>
+      parseGogCatalogPage(
+        gogCatalogPage([gogProduct('limbo', gogPrice('9.99', '9.99'), { productType })], 1, 100),
+      ).products[0]!
+
+    expect(typed('game').type).toBe('game')
+    expect(typed('pack').type).toBe('pack')
+    // An add-on, an extra, or a word the catalog has not used yet: still a product a slug can
+    // name, with its price — and of no kind a title could be taken for the game by.
+    for (const other of ['dlc', 'extras', 'GAME', '', null, undefined, 7, ['game']]) {
+      expect(typed(other)).toMatchObject({ type: null, price: { amount: 999 } })
+    }
+  })
+
+  it('reads the day GOG says the product was released, and none it cannot read', () => {
+    const released = (releaseDate: unknown) =>
+      parseGogCatalogPage(
+        gogCatalogPage([gogProduct('limbo', gogPrice('9.99', '9.99'), { releaseDate })], 1, 100),
+      ).products[0]!.releasedAt
+
+    expect(released('2016.08.30')).toBe(Date.UTC(2016, 7, 30))
+    expect(released('2010.07.21')).toBe(Date.UTC(2010, 6, 21))
+    for (const unreadable of [
+      null,
+      undefined,
+      '',
+      '2016-08-30',
+      '30.08.2016',
+      '2016.08',
+      '2016.8.30',
+      '2016.02.31',
+      '2016.13.01',
+      ' 2016.08.30',
+      20160830,
+    ]) {
+      expect(released(unreadable)).toBeNull()
+    }
   })
 
   it('reads the title GOG gives the product, as plain text, and none when it gives none', () => {

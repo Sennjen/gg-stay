@@ -1,0 +1,8 @@
+{
+  "Results": [
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9PBC1QFBW563", "Type": "Game", "Title": "Prey"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9NGN8DQGSP29", "Type": "Game", "Title": "Prey\u00ae: Digital Deluxe Edition"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9MSVGC96BBHP", "Type": "Durable", "Title": "Prey\u00ae: Mooncrash (Add-On)"}]}
+  ],
+  "TotalResultCount": 3
+}

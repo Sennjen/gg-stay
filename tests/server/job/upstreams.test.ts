@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { JobClock } from '../../../scripts/index/deps'
 import { parseUsdRate } from '../../../scripts/index/bank'
 import { walkGogCatalog } from '../../../scripts/index/gog'
-import { parseMicrosoftProducts } from '../../../scripts/index/microsoft'
+import {
+  parseMicrosoftProducts,
+  parseMicrosoftRelations,
+  parseMicrosoftSearch,
+} from '../../../scripts/index/microsoft'
 import { createRequestMeter } from '../../../scripts/index/requestMeter'
 import {
   createJobBank,
@@ -300,9 +304,13 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
   it('name the project and its repository on every request', async () => {
     const network = stubNetwork(200, { Products: [] })
 
+    const microsoft = createJobMicrosoft(storeOptions(still))
     await createJobGog(storeOptions(still))(1)
-    await createJobMicrosoft(storeOptions(still))(['BTQMHK78ZPF9'])
+    await microsoft.products(['BTQMHK78ZPF9'])
     await createJobBank(storeOptions(still))('2026-10-12')
+    // The two questions a game without a price is asked about are the job's requests like any.
+    await microsoft.details(['9MTNPF414F65'])
+    await microsoft.search('Resident Evil Village')
 
     expect(STORE_USER_AGENT).toMatch(/^gg-stay-index-refresh\//)
     expect(STORE_USER_AGENT).toContain('https://github.com/Sennjen/gg-stay')
@@ -311,6 +319,8 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
       'catalog.gog.com',
       'displaycatalog.mp.microsoft.com',
       'bank.gov.ua',
+      'displaycatalog.mp.microsoft.com',
+      'displaycatalog.mp.microsoft.com',
     ])
     for (const [, init] of requests) {
       expect(init.headers).toMatchObject({ 'User-Agent': STORE_USER_AGENT })
@@ -325,13 +335,24 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     const waits: number[] = []
     const clock: JobClock = { now: () => now, sleep: async (ms) => void waits.push(ms) }
     const gog = createJobGog(storeOptions(clock))
-    const microsoft = createJobMicrosoft(storeOptions(clock))
+    const microsoft = createJobMicrosoft(storeOptions(clock)).products
     const bank = createJobBank(storeOptions(clock))
 
     await Promise.all([1, 2, 3].map((page) => gog(page)))
     expect(waits.splice(0)).toEqual([1_000, 2_000])
     await Promise.all(['BTQMHK78ZPF9', '9NP1P1WFS0LB', '9PP5G1F0C2B6'].map((id) => microsoft([id])))
     expect(waits.splice(0)).toEqual([1_000, 2_000])
+    // Whatever Microsoft is asked leaves through the one limiter: a price read, a product's
+    // relations and a search are a second apart from each other too.
+    now += 3_600_000
+    const catalog = createJobMicrosoft(storeOptions(clock))
+    await Promise.all([
+      catalog.products(['BTQMHK78ZPF9']),
+      catalog.details(['9MTNPF414F65']),
+      catalog.search('Prey'),
+      catalog.search('Terraria'),
+    ])
+    expect(waits.splice(0)).toEqual([1_000, 2_000, 3_000])
     await Promise.all(['2026-10-10', '2026-10-11', '2026-10-12'].map((day) => bank(day)))
     expect(waits.splice(0)).toEqual([1_000, 2_000])
 
@@ -353,7 +374,9 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
       kind: 'ERROR',
       status: 503,
     })
-    await expect(createJobMicrosoft(storeOptions(clock))(['BTQMHK78ZPF9'])).rejects.toMatchObject({
+    await expect(
+      createJobMicrosoft(storeOptions(clock)).products(['BTQMHK78ZPF9']),
+    ).rejects.toMatchObject({
       source: 'MICROSOFT',
     })
     await expect(createJobBank(storeOptions(clock))('2026-10-12')).rejects.toMatchObject({
@@ -372,7 +395,7 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     const options = storeOptions(still, true)
 
     const walk = await walkGogCatalog(createJobGog(options))
-    const products = await createJobMicrosoft(options)(['BTQMHK78ZPF9'])
+    const products = await createJobMicrosoft(options).products(['BTQMHK78ZPF9'])
 
     expect([...walk.products.keys()]).toEqual([
       'the_witcher_3_redkit',
@@ -384,8 +407,41 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     ).toEqual({
       price: { amount: 25_000, regularAmount: 25_000, discountPercent: 0 },
       title: 'LIMBO',
+      kind: 'Game',
+      // That recording was cut before the job read either.
+      group: null,
+      releasedAt: null,
     })
     expect(network).not.toHaveBeenCalled()
+  })
+
+  it('serve the recorded relations and searches in fixture mode, and nothing for a name with no recording', async () => {
+    const network = stubNetwork(200, null)
+    const microsoft = createJobMicrosoft(storeOptions(still, true))
+
+    const relations = parseMicrosoftRelations(await microsoft.details(['9MTNPF414F65']), [
+      '9MTNPF414F65',
+    ])
+    expect(relations.get('9MTNPF414F65')?.parents).toHaveLength(4)
+    expect(parseMicrosoftSearch(await microsoft.search('Prey'))[0]).toEqual({
+      id: '9PBC1QFBW563',
+      title: 'Prey',
+    })
+    // A dry run searches for whatever its fixtures leave without a price. A name nobody recorded
+    // a search for is a name the store sells nothing under, never a failed request.
+    expect(await microsoft.search('Stardew Valley')).toEqual({ Results: [], TotalResultCount: 0 })
+    expect(parseMicrosoftSearch(await microsoft.search('Stardew Valley'))).toEqual([])
+    expect(network).not.toHaveBeenCalled()
+  })
+
+  it('pass on a search the store refused: only a missing recording is "nothing found"', async () => {
+    stubNetwork(429, null)
+
+    await expect(createJobMicrosoft(storeOptions(still)).search('Prey')).rejects.toMatchObject({
+      source: 'MICROSOFT',
+      kind: 'RATE_LIMITED',
+      status: 429,
+    })
   })
 
   it('serve the recorded rate under whatever day is asked for, so a dry run always has one', async () => {

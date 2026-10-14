@@ -131,6 +131,10 @@ export async function resolveAppIds(
   const known = await deps.writer.getAppIds(candidates.map((game) => game.id))
 
   const pending = candidates.filter((game) => !known.has(game.id))
+  // A game resolved now may have a store record already — swept while RAWG did not list it on
+  // Steam — and what the stores' own ways found for it is carried into the one written here.
+  const recorded =
+    pending.length > 0 ? await deps.writer.getStoreRefs(pending.map((game) => game.id)) : new Map()
   let batch: [number, string][] = []
   let storeRefs: [number, IndexedStoreRefs][] = []
 
@@ -163,7 +167,7 @@ export async function resolveAppIds(
         // And only a record that says something: a game with no link to keep, on neither store,
         // needs none.
         const links = storeLinksOf(response)
-        const refs = links ? storeRecordFromLinks(links, game.stores) : {}
+        const refs = links ? storeRecordFromLinks(links, game.stores, recorded.get(game.id)) : {}
         if (Object.keys(refs).length > 0) storeRefs.push([game.id, refs])
         if (batch.length >= batchSize) await flush()
       } catch {

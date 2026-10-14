@@ -241,6 +241,31 @@ export function storeRefsFromLinks(
 }
 
 /**
+ * A record RAWG's answer has just made (`storeRecordFromLinks`), with what the stores' own ways
+ * had found for the game carried over from the record it replaces (`IndexedStoreRefs.fallbacks`),
+ * for each store the new record still answers about. A rewrite is RAWG speaking again about its
+ * links, not about what the job found by other means; dropped with the old record, a find would
+ * take its offer with it, and the Microsoft Store's would wait thirty days to be found again.
+ *
+ * A store the new record says nothing about takes nothing with it. Everything else is the new
+ * record's own, fields this module does not know included: whatever a newer builder puts in it
+ * stays.
+ */
+export function carryFallbacks(
+  previous: IndexedStoreRefs | undefined,
+  next: IndexedStoreRefs,
+): IndexedStoreRefs {
+  const before = previous?.fallbacks
+  if (!before || typeof before !== 'object') return next
+  const carried: NonNullable<IndexedStoreRefs['fallbacks']> = {}
+  if ('gog' in next && before.gog) carried.gog = before.gog
+  if ('microsoft' in next && before.microsoft) carried.microsoft = before.microsoft
+  return Object.keys(carried).length > 0
+    ? { ...next, fallbacks: { ...next.fallbacks, ...carried } }
+    : next
+}
+
+/**
  * The links of one RAWG answer as a record keeps them (`IndexedStoreRefs.links`): every link that
  * is an absolute http(s) URL of at most `MAX_STORE_LINK_LENGTH` characters under a whole-number
  * store id, in RAWG's order, and the first `MAX_STORE_LINKS` of those.
@@ -277,15 +302,20 @@ export function linksToKeep(
  * The links change nothing about what the record says of GOG and of the Microsoft Store:
  * `needsStoreLookup` reads the two store fields and nothing else. They are left out when there is
  * none to keep, so the record of a game RAWG gave no link for is what it always was.
+ *
+ * `previous` is the record this one replaces, when the game had one: what the stores' own ways
+ * had found for it is carried over (`carryFallbacks`). Every stage that writes a record from
+ * RAWG's links goes through here, so none of them can drop a find.
  */
 export function storeRecordFromLinks(
   links: readonly RawgStoreLink[] | null | undefined,
   listed: readonly string[] = [],
+  previous?: IndexedStoreRefs,
 ): IndexedStoreRefs {
   const record = storeRefsFromLinks(links, listed)
   const kept = linksToKeep(links)
   if (kept.length > 0) record.links = kept
-  return record
+  return carryFallbacks(previous, record)
 }
 
 /**
@@ -425,7 +455,7 @@ export async function sweepStoreRefs(
       try {
         const links = storeLinksOf(await deps.rawg(`games/${game.slug}/stores`))
         if (!links) throw new Error('RAWG answered without a list of store links')
-        const refs = storeRecordFromLinks(links, game.stores)
+        const refs = storeRecordFromLinks(links, game.stores, known.get(game.id))
         known.set(game.id, refs)
         batch.push([game.id, refs])
       } catch {

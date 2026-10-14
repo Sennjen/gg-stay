@@ -98,12 +98,28 @@ export interface GogPrice {
   discountPercent: number
 }
 
+/** The kinds of product a walk asks for (`productType=in:game,pack`): a game, and an edition. */
+export type GogProductType = 'game' | 'pack'
+
 /** One product of the catalog, as far as the job reads it. */
 export interface GogProduct {
   id: string
   slug: string
+  /**
+   * What kind of product it is (`productType`): a `game`, or a `pack` — which is how GOG sells an
+   * edition, a game with what was added to it. `null` for anything else the catalog may say: a
+   * product a slug names is priced whatever its kind, and one looked for by its title is taken
+   * only when its kind is known (`storeFallbacks.ts`).
+   */
+  type: GogProductType | null
   /** What GOG calls the product (`title`), as plain text; `null` when it sent none. */
   title: string | null
+  /**
+   * When GOG says the product was released (`releaseDate`, written `2016.08.30`), as epoch
+   * milliseconds at the start of that day in UTC; `null` when it gives no date, or one that is
+   * not a day.
+   */
+  releasedAt: number | null
   /** `null` when GOG states no price — a game not yet released — or one that cannot be read. */
   price: GogPrice | null
   /** GOG's own address for the product, or `null` when what it sent is not that. */
@@ -154,6 +170,25 @@ export function parseGogPrice(value: unknown): GogPrice | null {
   return { amount, regularAmount, discountPercent: discountPercentOf(amount, regularAmount) }
 }
 
+/** A product's kind, when it is one of the two a walk asks for. */
+function productTypeOf(value: unknown): GogProductType | null {
+  return value === 'game' || value === 'pack' ? value : null
+}
+
+/** A day as the catalog writes one: `2016.08.30`. */
+const CATALOG_DAY = /^(\d{4})\.(\d{2})\.(\d{2})$/
+
+/** The catalog's `releaseDate` as epoch milliseconds, or `null` unless it is a day that exists. */
+function releasedAtOf(value: unknown): number | null {
+  const day = typeof value === 'string' ? CATALOG_DAY.exec(value) : null
+  if (!day) return null
+  const iso = `${day[1]}-${day[2]}-${day[3]}`
+  const at = Date.parse(`${iso}T00:00:00.000Z`)
+  // `Date.parse` turns the thirty-first of February into a day in March; a day that does not
+  // read back as itself is not one the catalog can have meant.
+  return Number.isFinite(at) && new Date(at).toISOString().startsWith(iso) ? at : null
+}
+
 /** GOG's `storeLink`, when it is a safe link to the game page of this very slug; else `null`. */
 function storeLinkOf(value: unknown, slug: string): string | null {
   const url = safeExternalUrl(typeof value === 'string' ? value : null)
@@ -170,8 +205,8 @@ function isCount(value: unknown): value is number {
  * slug: a page that is anything less cannot be counted, and a walk that cannot be counted cannot
  * tell a product GOG does not sell from one it failed to read.
  *
- * A product's price, link and title are read leniently in the other direction: one that cannot
- * be read is a product without it, never a page that failed.
+ * A product's price, link, title, kind and date are read leniently in the other direction: one
+ * that cannot be read is a product without it, never a page that failed.
  *
  * **A slug is kept only if it is one** (`isGogSlug`: lower-case letters, digits, underscores).
  * Every slug of the catalog that was ever seen is, and a reference can hold no other, so a
@@ -213,7 +248,9 @@ export function parseGogCatalogPage(body: unknown): GogCatalogPage {
     named.push({
       id,
       slug,
+      type: productTypeOf(product!.productType),
       title: storeTitle(product!.title),
+      releasedAt: releasedAtOf(product!.releaseDate),
       price: parseGogPrice(product!.price),
       url: storeLinkOf(product!.storeLink, slug),
     })

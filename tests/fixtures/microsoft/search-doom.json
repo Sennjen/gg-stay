@@ -1,0 +1,15 @@
+{
+  "Results": [
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9N8TRM7F6KGC", "Type": "Game", "Title": "DOOM Eternal Deluxe Edition (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9PK09BL31FK1", "Type": "Game", "Title": "DOOM Eternal Standard Edition (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9PLHDCMXH1TL", "Type": "Game", "Title": "DOOM Eternal: The Ancient Gods - Part One (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9N099DG3GHGW", "Type": "Game", "Title": "DOOM Eternal: The Ancients Gods Expansion Pack (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9NCX176WZP0G", "Type": "Durable", "Title": "DOOM Eternal - Rip and Tear Pack (PC)"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9PH9X0760B0T", "Type": "Game", "Title": "DOOM: The Dark Ages"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9NP0PC87KBTD", "Type": "Game", "Title": "DOOM: The Dark Ages Premium Edition"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9P46M5JQ2PTF", "Type": "Game", "Title": "DOOM + DOOM II"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9NSL68D814GC", "Type": "Game", "Title": "DOOM 3"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9MXND4PQLK3W", "Type": "Game", "Title": "DOOM 64"}]}
+  ],
+  "TotalResultCount": 10
+}

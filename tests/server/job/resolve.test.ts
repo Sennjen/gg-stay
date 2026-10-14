@@ -2013,3 +2013,40 @@ describe('errorLine', () => {
     expect(errorLine('plain text')).toBe('plain text')
   })
 })
+
+describe('resolveMoreGames and what the stores’ own ways found', () => {
+  it('rewrites no record that holds a find: a game with a record is known, and its record stays whole', async () => {
+    const wire = rawgWith({ 76: [listed(201, { on: ['steam', 'gog', 'xbox'] }), listed(202)] })
+    const harness = against(wire)
+    // Found by the stores' own ways on a night the game was in the index, beside RAWG's links.
+    const record: IndexedStoreRefs = {
+      gog: null,
+      microsoft: null,
+      links: [[STORE.steam, LINK[STORE.steam]!(201)]],
+      fallbacks: {
+        gog: { slug: 'game_201_complete', via: 'edition', foundAt: '2026-10-12T03:00:00.000Z' },
+        microsoft: {
+          searchedAt: '2026-10-12T03:00:00.000Z',
+          found: {
+            id: '9N0000000201',
+            name: 'game-201',
+            via: 'name',
+            foundAt: '2026-10-12T03:00:00.000Z',
+          },
+        },
+      },
+    }
+    await harness.writer.setStoreRefs([[201, record]])
+
+    const report = await resolveMoreGames(harness.deps, options(100))
+
+    expect(asked(wire)).toEqual(storesOf(202))
+    expect(report.skipped.known).toBe(1)
+    expect((await harness.writer.getStoreRefs([201])).get(201)).toEqual(record)
+    // The record it writes is built by the one builder every stage uses: RAWG's links beside the
+    // references, and no find, there being no record before it to carry one from.
+    expect((await harness.writer.getStoreRefs([202])).get(202)).toEqual({
+      links: [[STORE.steam, LINK[STORE.steam]!(202)]],
+    })
+  })
+})

@@ -460,6 +460,19 @@ describe('toStoreOffer', () => {
     expect(row?.url).toBe('https://www.gog.com/en/game/x')
   })
 
+  it('makes the same row of an offer whatever way the job found it by', () => {
+    // How the job came to a product is the job's to count; a page is told the price and the
+    // store's own title for it, and nothing of the way — a way this build never heard of included.
+    for (const via of ['link', 'relation', 'name', 'edition', 'catalogue-number']) {
+      const found = { via: via as IndexedOffer['via'] }
+      expect(toStoreOffer(gogOffer(found), RATE)).toEqual(toStoreOffer(gogOffer(), RATE))
+      expect(toStoreOffer(microsoftOffer(found), RATE)).toEqual(
+        toStoreOffer(microsoftOffer(), RATE),
+      )
+    }
+    expect(rowOf(gogOffer({ via: 'edition' }), RATE)).not.toHaveProperty('via')
+  })
+
   it('puts a dollar price in the foreign fields, with an estimate, and never in the hryvnia ones', () => {
     expect(rowOf(gogOffer(), RATE)).toEqual({
       store: 'gog',
