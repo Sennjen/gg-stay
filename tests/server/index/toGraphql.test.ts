@@ -785,8 +785,15 @@ describe('withCheapest', () => {
       expect(marked([steam(675), playstation(95, 49)])).toEqual([])
     })
 
-    it('marks nothing when it is free, as for any free row', () => {
+    it('is shown and not weighed when it is free: it neither carries the mark nor blocks it', () => {
       expect(marked([steam(675), playstation(0)])).toEqual([])
+      // The paid rows are marked exactly as they would be without it.
+      expect(marked([steam(675), rowOf(microsoftOffer(), RATE), playstation(0)])).toEqual([
+        'xbox-store',
+      ])
+      expect(marked([steam(300), rowOf(microsoftOffer(), RATE), playstation(0)])).toEqual(['steam'])
+      // It is still the row's price, «Безкоштовно».
+      expect(playstation(0)).toMatchObject({ isFree: true, priceUah: 0 })
     })
   })
 

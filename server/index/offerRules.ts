@@ -306,6 +306,18 @@ export function wholeHryvnia(kopecks: number): number {
   return Math.round(kopecks / 100)
 }
 
+/**
+ * Whether a store's price, in whole hryvnia, takes part in a comparison — the mark on a game page
+ * (`withCheapest`, `toGraphql.ts`) and a card's line (`cheaperAtOf`). Every price does, but one:
+ * the PlayStation Store's at nothing. Its price is that of the product Sony puts first for the
+ * game, and a free one is often not the game — Life Is Strange's is its free first episode — so
+ * the row shows «Безкоштовно» as it stands, and neither carries the mark nor keeps it from a
+ * cheaper paid row, and a card never names the store for it.
+ */
+export function isComparedPrice(store: string, uah: number): boolean {
+  return !(store === 'playstation-store' && uah === 0)
+}
+
 /** One store's price as the cheapest rule weighs it. */
 export interface PricedRow {
   store: string
@@ -424,7 +436,9 @@ export function cheaperAtOf(
   const steam: PricedRow = { store: 'steam', uah: game.priceUah, approximate: false }
   const others = freshOffers(game, now).flatMap((offer): PricedRow[] => {
     const amount = hryvniaOf(offer, rate)
-    return amount ? [{ store: offer.store, ...amount }] : []
+    return amount && isComparedPrice(offer.store, amount.uah)
+      ? [{ store: offer.store, ...amount }]
+      : []
   })
   const cheapest = cheapestRow([steam, ...others])
   if (!cheapest || cheapest === steam) return null

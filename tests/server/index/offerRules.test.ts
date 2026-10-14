@@ -25,6 +25,7 @@ import {
   freshOffers,
   hryvniaOf,
   isFreshAt,
+  isComparedPrice,
   isFreshOffer,
   listedOffers,
   markedCheapest,
@@ -338,11 +339,8 @@ describe('the offers a page may use', () => {
     const card = (offers: IndexedOffer[]) =>
       cheaperAtOf({ ...steam, ...game(offers, everywhere) }, NOW, RATE)
 
-    // 309,50 ₴ against 1 000 ₴, and a free game against a paid Steam one.
+    // 309,50 ₴ against 1 000 ₴.
     expect(card([playstation()])).toBe('playstation-store')
-    expect(card([playstation({ amount: 0, regularAmount: 0, discountPercent: 0 })])).toBe(
-      'playstation-store',
-    )
     // The lowest of the stores is named, whichever it is.
     expect(card([microsoft({ amount: 50_000, regularAmount: 50_000 }), playstation()])).toBe(
       'playstation-store',
@@ -359,6 +357,31 @@ describe('the offers a page may use', () => {
     // Weighed for forty hours where another store's price is not, and not past forty-eight.
     expect(card([playstation({ updatedAt: ago(40 * HOUR) })])).toBe('playstation-store')
     expect(card([playstation({ updatedAt: ago(48 * HOUR + 1) })])).toBeNull()
+  })
+})
+
+describe('a PlayStation Store price of nothing', () => {
+  const everywhere = ['steam', 'gog', 'xbox-store', 'playstation-store']
+  const free = playstation({ amount: 0, regularAmount: 0, discountPercent: 0 })
+  const steam = { priceUah: 1_000, priceUpdatedAt: ago(HOUR) }
+
+  it('is the one price that is not compared', () => {
+    expect(isComparedPrice('playstation-store', 0)).toBe(false)
+    expect(isComparedPrice('playstation-store', 1)).toBe(true)
+    for (const store of ['steam', 'gog', 'xbox-store']) expect(isComparedPrice(store, 0)).toBe(true)
+  })
+
+  it('never has a card name the store, and never keeps a card from naming another', () => {
+    expect(cheaperAtOf({ ...steam, ...game([free], everywhere) }, NOW, RATE)).toBeNull()
+    const cheap = microsoft({ amount: 50_000, regularAmount: 50_000 })
+    expect(cheaperAtOf({ ...steam, ...game([cheap, free], everywhere) }, NOW, RATE)).toBe(
+      'xbox-store',
+    )
+    // A free game elsewhere is still named, as it always was.
+    const freeAtXbox = microsoft({ amount: 0, regularAmount: 0 })
+    expect(cheaperAtOf({ ...steam, ...game([freeAtXbox, free], everywhere) }, NOW, RATE)).toBe(
+      'xbox-store',
+    )
   })
 })
 

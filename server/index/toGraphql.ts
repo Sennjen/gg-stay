@@ -22,6 +22,7 @@ import {
 import {
   cheaperAtOf,
   hryvniaOf,
+  isComparedPrice,
   isFreshFor,
   isFreshOffer,
   listedOffers,
@@ -253,7 +254,11 @@ export function withStoreOffers(
  */
 function pricedRowOf(row: StoreOffer, now: string): PricedRow | null {
   if (!isFreshFor(row.store, row.updatedAt, now)) return null
-  if (row.priceUah != null) return { store: row.store, uah: row.priceUah, approximate: false }
+  if (row.priceUah != null) {
+    // A PlayStation Store price of nothing is shown and not weighed (`isComparedPrice`).
+    if (!isComparedPrice(row.store, row.priceUah)) return null
+    return { store: row.store, uah: row.priceUah, approximate: false }
+  }
   if (row.foreignPrice?.amount === 0) return { store: row.store, uah: 0, approximate: false }
   if (row.approxUah != null) return { store: row.store, uah: row.approxUah, approximate: true }
   return null
