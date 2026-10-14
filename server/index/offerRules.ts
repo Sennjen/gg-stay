@@ -37,6 +37,29 @@ import {
 export const OFFER_FRESH_FOR_MS = 36 * 60 * 60 * 1000
 
 /**
+ * How old a PlayStation Store offer may be and still be a price: forty-eight hours.
+ *
+ * That store is not read twice a day like the others. Sony is asked about one concept every ten
+ * seconds, a few hundred a run, so each game's price is read once a day, by one of the four prices
+ * runs (`scripts/index/playstationOffers.ts`): a healthy offer is under a day old, and the
+ * thirty-six hours of the other stores would blank it after a single missed read. Forty-eight
+ * lets one day's read fail.
+ *
+ * It is also the refresh job's number: the job warns when a price the site still shows is close
+ * to it (`PLAYSTATION_PRICE_SHOWN_MS`), and reads it from here, so that the two cannot drift.
+ */
+export const PLAYSTATION_OFFER_FRESH_FOR_MS = 48 * 60 * 60 * 1000
+
+/**
+ * How old an offer of `store` may be and still be a price: `PLAYSTATION_OFFER_FRESH_FOR_MS` for
+ * the PlayStation Store, `OFFER_FRESH_FOR_MS` for every other. The one place a store's span is
+ * chosen; everything that asks whether an offer is fresh asks through it (`isFreshOffer`).
+ */
+export function offerFreshForMs(store: string): number {
+  return store === 'playstation-store' ? PLAYSTATION_OFFER_FRESH_FOR_MS : OFFER_FRESH_FOR_MS
+}
+
+/**
  * How old the bank's rate may be and still be a rate: seven days from the read it is dated by.
  *
  * It is the refresh job's own rule (`RATE_KEPT_MS`, `scripts/index/offers.ts`), applied here a
@@ -97,8 +120,10 @@ function isWithin(keptForMs: number, iso: unknown, now: string): boolean {
  * Whether a price dated `iso` is fresh at `now`: read no more than `OFFER_FRESH_FOR_MS` ago, and
  * not dated ahead of the clock (`CLOCK_AHEAD_ALLOWED_MS`).
  *
- * The one definition of a fresh price, for every store and for everything that compares prices.
- * Another store's offer is a price only while it is fresh (`isFreshOffer`). Steam's price is
+ * The definition of a fresh price for everything that compares prices. Another store's offer is
+ * a price only while it is fresh by its own store's span (`isFreshOffer`), which for every store
+ * a price is compared with is this one: the PlayStation Store's longer span never meets a
+ * comparison. Steam's price is
  * shown at any age, under its own date — but it is weighed against another only while it is
  * fresh by this same clock: on a game page, where a row takes part in the mark by the date the
  * page shows for it (`withCheapest`, `toGraphql.ts`), and on a card (`cheaperAtOf`).
@@ -219,12 +244,16 @@ export function listedOffers(game: Pick<IndexedGame, 'stores' | 'offers'>): Inde
 }
 
 /**
- * Whether the offer is still a price at `now`: fresh by the date of its read (`isFreshAt`). An
- * offer whose date cannot be read, or lies ahead of the clock, is not fresh — it would otherwise
- * be shown as one read just now, which is the one thing a dated price must never do.
+ * Whether the offer is still a price at `now`: read no longer ago than its store's span
+ * (`offerFreshForMs`), and not dated ahead of the clock (`CLOCK_AHEAD_ALLOWED_MS`). An offer whose
+ * date cannot be read, or lies ahead of the clock, is not fresh — it would otherwise be shown as
+ * one read just now, which is the one thing a dated price must never do.
  */
-export function isFreshOffer(offer: Pick<IndexedOffer, 'updatedAt'>, now: string): boolean {
-  return isFreshAt(offer.updatedAt, now)
+export function isFreshOffer(
+  offer: Pick<IndexedOffer, 'store' | 'updatedAt'>,
+  now: string,
+): boolean {
+  return isWithin(offerFreshForMs(offer.store), offer.updatedAt, now)
 }
 
 /**

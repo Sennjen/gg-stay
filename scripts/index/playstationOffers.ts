@@ -17,6 +17,7 @@ import {
 import { JOB_TIMESTAMP, usableStoreRefs, type StoreRefMap } from './storeRefs'
 import { reasonOf } from './storeUpstream'
 import type { IndexedGame, IndexedOffer, IndexedStoreRefs } from '../../server/index/document'
+import { PLAYSTATION_OFFER_FRESH_FOR_MS } from '../../server/index/offerRules'
 
 /**
  * The stage that reads what the PlayStation Store charges in Ukraine and puts it on the documents
@@ -117,12 +118,11 @@ export const PLAYSTATION_SILENCE_MS = 24 * 3_600_000
 export const PLAYSTATION_REFUSED_CURSOR = 'playstation-refused'
 
 /**
- * How long an offer of this store is a price on the site: forty-eight hours
- * (`docs/specs/2026-10-13-playstation-store-prices-design.md`, section 4). It is the site's rule,
- * written down here for the one thing the job does with it — saying when prices are about to
- * stop being shown — until the site has it in a constant of its own to share.
+ * How long an offer of this store is a price on the site: forty-eight hours. It is the site's own
+ * rule (`PLAYSTATION_OFFER_FRESH_FOR_MS`, `server/index/offerRules.ts`) and not a copy of it, for
+ * the one thing the job does with it: saying when prices are about to stop being shown.
  */
-export const PLAYSTATION_PRICE_SHOWN_MS = 48 * 3_600_000
+export const PLAYSTATION_PRICE_SHOWN_MS = PLAYSTATION_OFFER_FRESH_FOR_MS
 
 /**
  * A prices run that ends with a shown price older than this says so in a warning: forty hours,

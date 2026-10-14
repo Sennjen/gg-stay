@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RATE_KEPT_MS } from '../../../scripts/index/offers'
+import { PLAYSTATION_PRICE_SHOWN_MS } from '../../../scripts/index/playstationOffers'
 import {
   OFFER_STORES,
   type IndexedExchangeRate,
@@ -12,6 +13,8 @@ import {
   CLOCK_AHEAD_ALLOWED_MS,
   EXCHANGE_RATE_KEPT_MS,
   OFFER_FRESH_FOR_MS,
+  offerFreshForMs,
+  PLAYSTATION_OFFER_FRESH_FOR_MS,
   PAGE_OFFER_STORES,
   cheaperAtOf,
   cheapestRow,
@@ -95,20 +98,22 @@ describe('the thirty-six hours an offer is a price for', () => {
   })
 
   it('counts an offer read thirty-six hours ago to the millisecond, and not one read before that', () => {
-    expect(isFreshOffer({ updatedAt: ago(OFFER_FRESH_FOR_MS) }, NOW)).toBe(true)
-    expect(isFreshOffer({ updatedAt: ago(OFFER_FRESH_FOR_MS + 1) }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(OFFER_FRESH_FOR_MS) }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(OFFER_FRESH_FOR_MS + 1) }, NOW)).toBe(false)
   })
 
   it('counts an offer read a moment ago, and one a clock a little ahead of ours dated', () => {
-    expect(isFreshOffer({ updatedAt: NOW }, NOW)).toBe(true)
-    expect(isFreshOffer({ updatedAt: ago(-5_000) }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: NOW }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(-5_000) }, NOW)).toBe(true)
   })
 
   it('counts an offer dated five minutes ahead of the clock to the millisecond, and none dated beyond that', () => {
-    expect(isFreshOffer({ updatedAt: ago(-CLOCK_AHEAD_ALLOWED_MS) }, NOW)).toBe(true)
-    expect(isFreshOffer({ updatedAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(-CLOCK_AHEAD_ALLOWED_MS) }, NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(-(CLOCK_AHEAD_ALLOWED_MS + 1)) }, NOW)).toBe(
+      false,
+    )
     // A wrong date in the future never ages by itself: next June is not "read just now".
-    expect(isFreshOffer({ updatedAt: '2027-06-01T00:00:00.000Z' }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: '2027-06-01T00:00:00.000Z' }, NOW)).toBe(false)
   })
 
   it('is one definition of fresh for every price: any date is held to the same two edges', () => {
@@ -126,12 +131,47 @@ describe('the thirty-six hours an offer is a price for', () => {
   it.each([['not a date'], [''], [undefined], [null], [1_760_000_000_000]])(
     'does not count an offer dated %j: what cannot be dated is not shown as read just now',
     (updatedAt) => {
-      expect(isFreshOffer({ updatedAt: updatedAt as unknown as string }, NOW)).toBe(false)
+      expect(isFreshOffer({ store: 'gog', updatedAt: updatedAt as unknown as string }, NOW)).toBe(
+        false,
+      )
     },
   )
 
   it('counts nothing against a clock that cannot be read', () => {
-    expect(isFreshOffer({ updatedAt: ago(HOUR) }, 'not a date')).toBe(false)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(HOUR) }, 'not a date')).toBe(false)
+  })
+})
+
+describe('the forty-eight hours a PlayStation Store offer is a price for', () => {
+  const playstation = (updatedAt: string) => ({ store: 'playstation-store' as const, updatedAt })
+
+  it('is forty-eight hours, for that store and no other', () => {
+    expect(PLAYSTATION_OFFER_FRESH_FOR_MS).toBe(48 * HOUR)
+    expect(offerFreshForMs('playstation-store')).toBe(PLAYSTATION_OFFER_FRESH_FOR_MS)
+    for (const store of ['gog', 'xbox-store', 'steam', 'a-store-from-a-newer-job']) {
+      expect(offerFreshForMs(store), store).toBe(OFFER_FRESH_FOR_MS)
+    }
+  })
+
+  it('counts an offer read forty-eight hours ago to the millisecond, and not one read before that', () => {
+    expect(isFreshOffer(playstation(ago(PLAYSTATION_OFFER_FRESH_FOR_MS)), NOW)).toBe(true)
+    expect(isFreshOffer(playstation(ago(PLAYSTATION_OFFER_FRESH_FOR_MS + 1)), NOW)).toBe(false)
+  })
+
+  it('keeps a price the other stores would have dropped: forty hours old', () => {
+    expect(isFreshOffer(playstation(ago(40 * HOUR)), NOW)).toBe(true)
+    expect(isFreshOffer({ store: 'gog', updatedAt: ago(40 * HOUR) }, NOW)).toBe(false)
+    expect(isFreshOffer({ store: 'xbox-store', updatedAt: ago(40 * HOUR) }, NOW)).toBe(false)
+  })
+
+  it('holds the same edge ahead of the clock as every other price', () => {
+    expect(isFreshOffer(playstation(ago(-CLOCK_AHEAD_ALLOWED_MS)), NOW)).toBe(true)
+    expect(isFreshOffer(playstation(ago(-(CLOCK_AHEAD_ALLOWED_MS + 1))), NOW)).toBe(false)
+    expect(isFreshOffer(playstation('not a date'), NOW)).toBe(false)
+  })
+
+  it('is the number the refresh job warns by, and not a copy of it', () => {
+    expect(PLAYSTATION_PRICE_SHOWN_MS).toBe(PLAYSTATION_OFFER_FRESH_FOR_MS)
   })
 })
 
