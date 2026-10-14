@@ -98,7 +98,7 @@ const run = (first: number, count: number) =>
 /** A RAWG with these pages of the order, and for every game on them the links of its stores. */
 function rawgWith(pages: Record<number, RawgGameListItem[]>): RawgWire {
   const links: Record<string, RawgStoreLink[]> = {}
-  for (const game of Object.values(pages).flat()) links[game.slug!] = linksOf(game)
+  for (const game of Object.values(pages).flat()) if (game) links[game.slug!] = linksOf(game)
   return createRawgWire(pages, links)
 }
 
@@ -355,7 +355,41 @@ describe('resolveMoreGames: who is asked', () => {
     const report = await resolveMoreGames(against(wire).deps, options(100))
 
     expect(asked(wire)).toEqual(storesOf(201))
-    expect(report.seen).toBe(1)
+    expect(report).toMatchObject({ seen: 1, unreadable: 2 })
+  })
+
+  it('skips and counts an entry the card mapping cannot take, and goes on with the others', async () => {
+    const wire = rawgWith({
+      76: [
+        listed(201),
+        // A `null` among the tags, an entry that is no object, a `null` in the platform list.
+        { ...listed(202), tags: [null as never] },
+        null as never,
+        { ...listed(203), platforms: [null as never] },
+        listed(204),
+      ],
+      77: [listed(205)],
+    })
+    const harness = against(wire)
+
+    const report = await resolveMoreGames(harness.deps, options(100))
+
+    // Both pages were read and paid for; the good games on them were asked about.
+    expect(pagesRead(wire)).toEqual([76, 77])
+    expect(asked(wire)).toEqual(storesOf(201, 204, 205))
+    expect(report).toMatchObject({ seen: 3, unreadable: 3, asked: 3, stopped: 'done' })
+    expect(
+      formatSummary(
+        await runJob(against(rawgWith({ 76: [null as never, listed(301)] })).deps, {
+          mode: 'resolve',
+          pages: 250,
+          forceUnlock: false,
+          budget: 10,
+        }),
+      ),
+    ).toContain(
+      '| Skipped | 0 not released, 0 on none of the four stores, 0 already known; 1 entry of a page could not be read as a game |',
+    )
   })
 })
 
@@ -1541,6 +1575,7 @@ describe('the summary of a resolve run', () => {
         microsoft: 0,
         failed: 0,
         requests: { pages: 30, lookups: 0, retries: 1, total: 31 },
+        unreadable: 0,
         unasked: 0,
         firstUnaskedPage: null,
         stopped: null,

@@ -974,7 +974,10 @@ function resolveRows(resolved: ResolveReport): [string, string][] {
     [
       'Skipped',
       `${skipped.notReleased} not released, ${skipped.noStore} on none of the four stores, ` +
-        `${skipped.known} already known`,
+        `${skipped.known} already known` +
+        (resolved.unreadable > 0
+          ? `; ${plural(resolved.unreadable, 'entry', 'entries')} of a page could not be read as a game`
+          : ''),
     ],
     ['Asked', `${resolved.asked}, ${resolved.failed} failed`],
     ['With a Steam page', String(resolved.steam)],

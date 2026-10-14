@@ -154,6 +154,11 @@ export interface ResolveReport {
   seen: number
   /** Games not asked about, each under the first rule that left it out, in this order. */
   skipped: { notReleased: number; noStore: number; known: number }
+  /**
+   * Entries of a page that could not be read as a game — no id, no slug, or a shape the card
+   * mapping cannot take. Skipped and counted: one bad entry costs that entry, not the run.
+   */
+  unreadable: number
   /** Games asked about: lookups begun, whatever came of them. */
   asked: number
   /** Of the games RAWG answered for: those with a Steam app id, a GOG page, a Microsoft product. */
@@ -281,6 +286,7 @@ export async function resolveMoreGames(
     readingEnded: null,
     seen: 0,
     skipped: { notReleased: 0, noStore: 0, known: 0 },
+    unreadable: 0,
     asked: 0,
     steam: 0,
     gog: 0,
@@ -384,9 +390,21 @@ export async function resolveMoreGames(
       report.lastPage = page
 
       for (const raw of response.results) {
-        const game = toIndexedGame(raw)
+        // The pages are paid for by now, and these are games no run has mapped before: an entry
+        // the card mapping chokes on — a `null` among its tags — is skipped and counted, and the
+        // run goes on with the others.
+        let game: ReturnType<typeof toIndexedGame>
+        try {
+          game = toIndexedGame(raw)
+        } catch {
+          game = null
+        }
+        if (!game) {
+          report.unreadable += 1
+          continue
+        }
         // RAWG's pages shift under a run, so the same game can arrive twice.
-        if (!game || seen.has(game.id)) continue
+        if (seen.has(game.id)) continue
         seen.add(game.id)
         report.seen += 1
         if (!isReleased(raw, today)) report.skipped.notReleased += 1
