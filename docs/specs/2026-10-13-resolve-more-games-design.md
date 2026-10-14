@@ -20,6 +20,8 @@ So this change adds no game to the index and no price to a page. It adds a way t
 - `from_page` — the first page of the most-added order to read. 76 when blank: pages 1 to 75 are the nightly run's.
 - `pages` — the most pages to read from there. 250 when blank.
 
+The first two are a resolve run's alone, and the job fails closed on them: any other mode given a budget or a first page refuses to start, so a mode chosen by mistake in the form spends nothing. Scheduled runs pass every input empty.
+
 ### 2. Who is asked
 
 The run reads the order page by page with the query the nightly run's candidates use — the same ordering and the same page size, by the same function — and asks about a game when all of this holds:
@@ -68,7 +70,7 @@ Whichever comes first:
 
 The reading has ends of its own: the last page it was given, the end of RAWG's list, and a page RAWG fails after the transport's retry. A failed page ends the reading there — the run does not skip it, because the order would have a hole in it — and the run goes on to ask about the games of the pages before it.
 
-RAWG cannot fail the run. Whatever it had learned when it stopped is written, because it is quota already spent. Only the index failing a read or a write, or a lock another run holds, ends it red.
+RAWG cannot fail the run. Whatever it had learned when it stopped is written, because it is quota already spent. An entry of a list page that cannot be read as a game is skipped and counted, not a reason to stop. A lookup whose last attempt failed and whose retry the budget refused ends the run as the budget's doing, not as RAWG's. Only the index failing a read or a write, or a lock another run holds, ends it red.
 
 ### 7. It publishes nothing
 
@@ -78,7 +80,7 @@ A run with no usable budget is refused before the lock is asked for.
 
 ### 8. The summary
 
-A table of its own, since nothing of a publication applies: pages read and why the reading ended; games seen; skipped, by reason; asked and failed; how many have a Steam page, a GOG page, a Microsoft Store product; RAWG requests sent against the budget, split into pages, lookups and retries; how many games were left unasked and the page the first of them is on, which is where a later run can begin; and why it stopped. A warning annotation when it stopped because RAWG was failing, and when a page RAWG failed cut the reading short: the run is green either way, and the annotation is on the run's page for whoever does not open the summary.
+A table of its own, since nothing of a publication applies: pages read and why the reading ended; games seen; skipped, by reason; asked and failed; how many have a Steam page, a GOG page, a Microsoft Store product; RAWG requests sent against the budget, split into pages, lookups and retries; how many games were left unasked and the page the first of them is on; why it stopped; and where a follow-up run should begin — the page of the first game left unasked, else the page after the last one read — or that RAWG's list has ended. A warning annotation when it stopped because RAWG was failing, and when a page RAWG failed cut the reading short: the run is green either way, and the annotation is on the run's page for whoever does not open the summary.
 
 ## Not in this change
 
@@ -86,13 +88,16 @@ A table of its own, since nothing of a publication applies: pages read and why t
 - **Reading the PlayStation Store.** The links are kept for it; nothing parses them yet and no record has a PlayStation field.
 - **Links for the games already resolved.** Records written before this change have none. They get them when a game is next asked about, which for most of them is never; a store read later will have to ask about those games once.
 - **A schedule.** The mode exists to spend quota that would otherwise lapse. Whether it should ever run by itself depends on what the index becomes.
+- **Answers with no links at all.** A game RAWG lists on a store and answers for with an empty list of links is remembered as it is — the empty app id for a Steam game, a record without links — as the nightly stages remember it, and the summary does not count such answers apart; a RAWG that answered empty lists for a while would leave such games marked for good, and the records without links are how they would be found again.
+- **A cancelled run.** A run cancelled or killed loses the batch it had not written (up to a hundred answers) and holds the lock until it lapses, half an hour later, as a run of any mode does; there is no handler that writes on a signal.
+- **A ledger across runs.** The budget belongs to one run. A second dispatch, or "Re-run jobs" on a finished run, spends a budget of its own; nothing counts what earlier runs spent.
 
 ## Constraints
 
 - The job's transport to RAWG is unchanged for the three scheduled modes: no limit is set, so nothing is refused and redirects are followed as before. The meter counts in every mode and only `resolve` reads it.
 - In fixture mode there is no network to count at, so a recorded answer counts as the request it stands for: a dry run spends a budget the way a live one does.
 - Nothing the site reads is written. `appid:` and `storeref:` are read by the job alone.
-- English only, no secret and no raw upstream text in the log; the numbers from the workflow's form are never written into a command line.
+- English only, no secret and no raw upstream text in the log; the numbers from the workflow's form are never written into a command line. An error from the index's client that quotes the request it failed on is cut there before it is printed, so no batch of records — links and all — reaches the log or the summary.
 
 ## After the merge
 
