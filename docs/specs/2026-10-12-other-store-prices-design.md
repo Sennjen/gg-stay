@@ -255,7 +255,7 @@ A game RAWG lists on the Xbox store without a link the job can read (`microsoft:
 **GOG.**
 
 1. RAWG's slug, as before. A slug in the catalog settles the game, priced or not.
-2. **The catalog, by the game's name** (`name`, then `edition`), when RAWG's slug is not in the catalog the job has just walked, or RAWG lists the game on GOG without a readable link. A `game` under the name, or, when none is, a `game` or a `pack` (GOG sells editions as packs) under the name and edition words; released no more than a year before the game when the catalog gives a date. The cheapest of those that qualify. No request is added: the walked catalog is in memory, so every walk looks again, and the offer is always for what the last walk found.
+2. **The catalog, by the game's name** (`name`, then `edition`), when RAWG's slug is not in the catalog the job has just walked, or RAWG lists the game on GOG without a readable link. A `game` under the name, or, when none is, a `game` or a `pack` (GOG sells editions as packs) under the name and edition words; held to the title ways' guards ("Decided in review" below). The cheapest of those that qualify. No request is added: the catalog is in memory. What a walk found stands while its own product is sold and passes the guards; the catalog is looked through again only when it does not.
 
 Not extended to games RAWG does not list on the store at all: the owner has not ruled on that.
 
@@ -270,7 +270,7 @@ Decided while building it, each only ever towards finding nothing:
 - **A console's letter counts only after the word that makes it one**: `one` after `xbox`; `x`, `s` and `x|s` after `series` (and `s` after `x`). Alone, `X` is a sequel's numeral: "Mortal Kombat X" is not an edition of "Mortal Kombat".
 - **At least one word of the list has to name something**: joiners or punctuation alone ("Prey: The", "Prey!") are not an edition.
 - **A game the index has no release date for is found under no title**, at either store: there is nothing to hold a product's date against.
-- **At the Microsoft Store a product with no date the job can read is not taken.** Every listing seen has one (`9998-12-30` where the catalog has none, which is read as that date). At GOG a product without a date is not held to one, as ruled.
+- **A product with no date the job can read is not taken**, at either store (ruled in review, below). The Microsoft catalog writes `9998-12-30` where it has none; any year from 9000 on is read as no date.
 
 ### What is remembered
 
@@ -278,7 +278,7 @@ Decided while building it, each only ever towards finding nothing:
 - What a way found is remembered on the store reference record, beside RAWG's link, which is never overwritten (`IndexedStoreRefs.fallbacks`): at GOG the slug, the way and when; at the Microsoft Store when the ways were last tried (`searchedAt`) and the product they settled on (`id`, a page name made from the store's title for it, the way, when). The record is written before any document: an offer needs a reference, and in the runs between two reads the found product is it.
 - A found Microsoft product is priced directly in the normal batched read from then on, beside RAWG's: the link's price whenever it has one, the found product's otherwise. A game every way found nothing for is searched again after thirty days and not before; a later search that finds nothing keeps the product an earlier one found, which is asked about in every read.
 - **An offer found by a way is removed only when a read in full finds its own product without a price** (at GOG: when a walk in full finds no product for the game). A read with a failed request removes nothing, as before; when the request about either of a game's two products failed and nothing ahead of it was priced, the game keeps its offer.
-- A record RAWG's answer rewrites (the sweep, a game newly resolved) loses what was found: the game is then waiting again and is searched in the next run that finds the store due. Whoever rewrites a record wholesale should carry `fallbacks` over (`withGogFound`, `withMicrosoftFallback` keep everything else a record holds).
+- A record RAWG's answer rewrites (the sweep, a game newly resolved) takes over the old record's finds for each store it still answers about (`carryFallbacks`), and keeps everything else it holds. Whoever writes a record from RAWG's links should do the same.
 
 The found product's page is addressed as every Xbox Store row is, `https://www.microsoft.com/uk-ua/p/{name}/{id}`, which redirects to `https://www.xbox.com/uk-UA/games/store/{name}/{id}` (section 5); the name is made from the store's title ("grand-theft-auto-v-enhanced-pc"). The product is found by its id; that the redirect accepts a name RAWG never had has not been opened by hand.
 
@@ -302,3 +302,18 @@ With 23 requests to `displaycatalog.mp.microsoft.com`, one a second, under the j
 - **The search** answers `{ "Results": [{ "ProductFamilyName": "Games", "Products": [{ "ProductId", "Type", "Title", … }] }, …], "TotalResultCount" }`, one product a result set, ten at most; a search that finds nothing is `{"Results":[],"TotalResultCount":0}`. Titles come in the listing's language (a Grand Theft Auto V bundle answers in Ukrainian). `Type` is `Game` for an upgrade and a soundtrack as well, and `Durable` for an add-on. A colon in the query works ("DOOM: The Dark Ages" found itself); "The Witcher 3: Wild Hunt" found nothing, the game not being sold in Ukraine.
 - **What the searches found**: Terraria (`9NBLGGH186XZ`, 127,50 ₴, no product group), Dishonored 2 (1 000 ₴), Prey (610 ₴; the Digital Deluxe Edition beside it is not taken), Resident Evil Village (two products of that title, one sold), DOOM → only DOOM Eternal, DOOM: The Dark Ages and others, none of them DOOM; DOOM Eternal → "DOOM Eternal Standard Edition (PC)" 895 ₴ and the Deluxe Edition 1 490 ₴; Grand Theft Auto V → two "Grand Theft Auto V Enhanced (PC)" products (one sold, 674,50 ₴ against 1 349 ₴), "Legacy (PC)" and a bundle with a payment card; Stardew Valley → two products of that title; Assassin's Creed Odyssey → only its Ultimate, Gold and Deluxe Editions.
 - Fixtures cut to the fields read: `tests/fixtures/microsoft/details.json`, `products-found.json` and `search-*.json`.
+
+### Decided in review (2026-10-14)
+
+Ruled by the owner after the first review of this section.
+
+- **A remake does not lend its product to the game whose name it took.** A name or edition match is refused when the run holds a later indexed game under the same name (compared as titles are), or when the store's product is listed more than twelve years after the game (`RELEASE_LATER_LIMIT_MS`). The longest true re-listing recorded is Grand Theft Auto V Enhanced (PC), eleven and a half years after the game; the remakes that took a name — Dead Space, Resident Evil 4, System Shock, Saints Row, the 2017 Prey for the 2006 one, the 2013 Tomb Raider's Definitive Edition for the 1996 game — are fourteen to twenty-eight years later. A product with no date is refused by these ways at both stores. Both rules are applied again whenever a remembered find is read, at either store, so a find made before them cannot outlive them; a Microsoft find they refuse loses its offer in the next read in full. What costs: a true re-release more than twelve years on has no price by title (Age of Empires: Definitive Edition). What can still slip: a remake within twelve years, when only one of the two games is in the index.
+- **The relation way keeps its own rules** and takes a product the catalog calls a `Game`, never an add-on of the group.
+- **A GOG find stays until its own product, read in a whole walk, has no price** (or fails the guards). A walk that would pick another product does not remove it.
+- **A record rewritten from RAWG's links carries the old record's finds over**, at the sweep and at the app-id stage, for each store the new record still answers about.
+- **An index that will not take what the ways found fails nothing.** At the Microsoft Store nothing they found is published or remembered, the read stands, the games stay waiting, and the run warns; at GOG the walk is reported as failed and every offer and the stamp stay as they were.
+- **A searched name is written on one line** where the transport logs the request (`oneLine`).
+- Left as they are, each for its reason:
+  - _The thirty-day cliff._ Games found nowhere in the first pass come due together thirty days later: four due runs at the cap, the load of the first pass and no more.
+  - _Found-product addresses._ `microsoft.com/uk-ua/p/{name}/{id}` with a name made from the store's title follows the pattern every Xbox row uses; that the redirect accepts a name RAWG never had is to be opened by hand once.
+  - _Odd edition titles._ The list admits a few titles no store uses ("Halo: Gold & Standard"); harmless, since a product still has to be sold under them.
