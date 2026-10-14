@@ -906,6 +906,29 @@ describe('createMicrosoftFetches', () => {
     expect(new URL(urls[1]!).searchParams.get('query')).toBe("Assassin's Creed: Odyssey & more?#")
   })
 
+  it('names a search by the name on one line wherever the transport writes it', async () => {
+    const lines: string[] = []
+    const microsoft = createMicrosoftFetches({
+      fixtures: false,
+      fetchJson: async () => ({ status: 503, body: null }),
+      readFixture: async () => null,
+      now: () => 0,
+      sleep: async () => {},
+      log: (line) => void lines.push(line),
+    })
+
+    // A name is RAWG's text; a line break and "::" after it would be a command to the runner.
+    await expect(
+      microsoft.search('Prey\n::add-mask::secret\r\n##[stop-commands]x'),
+    ).rejects.toMatchObject({
+      status: 503,
+    })
+
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).not.toMatch(/[\r\n]/)
+    expect(lines[0]).not.toContain('##[')
+  })
+
   it('sends no more of a name than a name is long', async () => {
     const { microsoft, urls } = transport()
 

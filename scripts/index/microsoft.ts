@@ -1,3 +1,4 @@
+import { oneLine } from './deps'
 import {
   asRecord,
   discountPercentOf,
@@ -167,7 +168,7 @@ export function createMicrosoftFetches(runtime: StoreUpstreamRuntime): Microsoft
             : productsUrl(request.ids),
       cacheKey: (request) =>
         request.kind === 'search'
-          ? `search/${request.name}`
+          ? `search/${oneLine(request.name)}`
           : `${request.kind}/${request.ids.join(',')}`,
       fixtureName: (request) =>
         request.kind === 'search' ? `search-${fixtureSlug(request.name)}` : request.kind,
