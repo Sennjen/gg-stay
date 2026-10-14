@@ -11,6 +11,7 @@ import {
   findGogProduct,
   findMicrosoftProducts,
   gogSellables,
+  isInTimeForTitle,
   isMicrosoftSearchDue,
   MICROSOFT_SEARCHES_PER_RUN,
   usableFallbacks,
@@ -26,6 +27,7 @@ import {
 } from './storeFallbacks'
 import { usableStoreRefs, type StoreRefMap } from './storeRefs'
 import { reasonOf } from './storeUpstream'
+import { gamesWithLaterNamesakes } from './titleMatch'
 import {
   OFFER_STORES,
   offerWay,
@@ -434,6 +436,7 @@ async function readGog(
   entries: GogEntry[],
   refs: StoreRefMap,
   lastReadAt: string | undefined,
+  laterNamesakes: ReadonlySet<number>,
 ): Promise<StoreReadReport> {
   const referenced = entries.filter((entry) => entry.slug !== null || entry.found !== null)
   const report = (extra: Partial<StoreReadReport>): StoreReadReport => ({
@@ -478,9 +481,18 @@ async function readGog(
   const read = entries.map((entry) => {
     const { game, slug } = entry
     const linked = slug === null ? undefined : walk.products.get(slug)
-    const match = !linked && entry.byName ? findGogProduct(sellable, game) : null
-    const product = linked ?? match?.product
-    const via: OfferWay = match?.via ?? 'link'
+    // What an earlier walk found stands while its own product is sold and still passes the title
+    // ways' guards; only then is the catalog looked through again.
+    const remembered = entry.found ? walk.products.get(entry.found.slug) : undefined
+    const kept =
+      !linked &&
+      entry.found !== null &&
+      Boolean(remembered?.price && remembered.url) &&
+      isInTimeForTitle(game, remembered?.releasedAt ?? null, laterNamesakes)
+    const match =
+      !linked && !kept && entry.byName ? findGogProduct(sellable, game, laterNamesakes) : null
+    const product = linked ?? (kept ? remembered : match?.product)
+    const via: OfferWay = (kept ? entry.found?.via : match?.via) ?? 'link'
     const offer: IndexedOffer | null =
       product?.price && product.url
         ? {
@@ -493,7 +505,7 @@ async function readGog(
             updatedAt: readAt,
           }
         : null
-    return { entry, offer, byName: !linked && entry.byName, match }
+    return { entry, offer, byName: !linked && (kept || entry.byName), kept, linked, match, via }
   })
   const pricesRead = read.filter((result) => result.offer !== null).length
 
@@ -511,7 +523,9 @@ async function readGog(
   // The mapping first, the documents after: a record says what this walk settled on by name, and
   // is rewritten only for a game whose answer changed.
   const rewritten: [number, IndexedStoreRefs][] = []
-  for (const { entry, match } of read) {
+  for (const { entry, match, kept, linked } of read) {
+    // RAWG's slug priced it, or the earlier find stands: the record says what it said.
+    if (linked || kept) continue
     const before = entry.found
     const same = match
       ? before !== null && before.slug === match.product.slug && before.via === match.via
@@ -529,7 +543,9 @@ async function readGog(
   for (const { entry, offer } of read) setOffer(entry.game, 'gog', offer)
 
   const lookedFor = read.filter((result) => result.byName)
-  const byName = lookedFor.flatMap((result) => (result.match ? [result.match.via] : []))
+  const byName = lookedFor.flatMap((result) =>
+    result.offer !== null && result.via !== 'link' ? [result.via as FallbackWay] : [],
+  )
   deps.log(
     `gog: ${referenced.length} references, ${pricesRead} prices read in ${requests} requests` +
       (lookedFor.length > 0
@@ -638,6 +654,7 @@ async function readMicrosoft(
   entries: MicrosoftEntry[],
   refs: StoreRefMap,
   lastReadAt: string | undefined,
+  laterNamesakes: ReadonlySet<number>,
 ): Promise<StoreReadReport> {
   const referenced = entries.filter((entry) => entry.link !== null || entry.found !== null)
   const report = (extra: Partial<StoreReadReport>): StoreReadReport => ({
@@ -699,12 +716,33 @@ async function readMicrosoft(
       if (!product) continue
       if (unanswered.has(product.id)) return { state: 'unanswered' }
       const answer = answers.get(product.id)
-      const offer = answer?.sold ? microsoftOffer(product, answer.sold, via, answer.readAt) : null
+      // A product found by a title is held to the title ways' guards each time it is read, so
+      // that a find made before a guard was added cannot outlive it.
+      const judged =
+        via === 'name' || via === 'edition'
+          ? answer?.sold && isInTimeForTitle(entry.game, answer.sold.releasedAt, laterNamesakes)
+          : true
+      const offer =
+        answer?.sold && judged ? microsoftOffer(product, answer.sold, via, answer.readAt) : null
       if (offer) return { state: 'priced', offer }
     }
     return { state: 'unpriced' }
   }
   const verdicts = referenced.map((entry) => ({ entry, verdict: verdictOn(entry) }))
+  // A product an earlier run found by a title, which the title ways' guards now refuse, is no
+  // longer the game's: it is not carried into the next look either.
+  for (const { entry } of verdicts) {
+    const { found: earlier } = entry
+    const sold = earlier ? answers.get(earlier.id)?.sold : null
+    if (
+      earlier &&
+      sold &&
+      (earlier.via === 'name' || earlier.via === 'edition') &&
+      !isInTimeForTitle(entry.game, sold.releasedAt, laterNamesakes)
+    ) {
+      entry.found = null
+    }
+  }
   const priced = verdicts.flatMap(({ entry, verdict }) =>
     verdict.state === 'priced' ? [{ game: entry.game, offer: verdict.offer }] : [],
   )
@@ -751,7 +789,9 @@ async function readMicrosoft(
     )
     .sort(byPopularity)
   const fallbacks =
-    waiting.length > 0 ? await tryMicrosoftWays(deps, waiting, refs, lock) : undefined
+    waiting.length > 0
+      ? await tryMicrosoftWays(deps, waiting, refs, lock, laterNamesakes)
+      : undefined
 
   return report({
     pricesRead: priced.length,
@@ -782,11 +822,12 @@ async function tryMicrosoftWays(
   waiting: MicrosoftEntry[],
   refs: StoreRefMap,
   lock: ReturnType<typeof createLockKeeper>,
+  laterNamesakes: ReadonlySet<number>,
 ): Promise<StoreFallbackReport> {
   const turn = waiting.slice(0, MICROSOFT_SEARCHES_PER_RUN)
   let result: MicrosoftFallbackResult
   try {
-    result = await findMicrosoftProducts(deps, turn, lock.renew)
+    result = await findMicrosoftProducts(deps, turn, lock.renew, laterNamesakes)
   } catch (cause) {
     // It is written to throw nothing; should it ever, that costs this run its finds and no more.
     result = { settled: new Map(), requests: 0, stopped: 'failures', error: reasonOf(cause) }
@@ -936,11 +977,13 @@ export async function refreshOffers(
   }
 
   const previous = published?.offersReadAt ?? {}
+  // The games a later game of the run shares a name with: no title is theirs.
+  const laterNamesakes = gamesWithLaterNamesakes(games)
   const referencedAt = (store: OfferStore) =>
     arrived.filter((entry) => hasReference(entry.references, store)).length
   const gog = lost.gog
     ? notRead(deps, 'gog', referencedAt('gog'), previous.gog, lost.gog)
-    : await readGog(deps, gogGames, refs, previous.gog)
+    : await readGog(deps, gogGames, refs, previous.gog, laterNamesakes)
   const microsoft = lost['xbox-store']
     ? notRead(
         deps,
@@ -949,7 +992,7 @@ export async function refreshOffers(
         previous['xbox-store'],
         lost['xbox-store'],
       )
-    : await readMicrosoft(deps, microsoftGames, refs, previous['xbox-store'])
+    : await readMicrosoft(deps, microsoftGames, refs, previous['xbox-store'], laterNamesakes)
   const rate = await readRate(deps, published)
 
   for (const [store, read] of [

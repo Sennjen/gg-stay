@@ -8,6 +8,8 @@ import {
   isSameTitle,
   matchComparableTitle,
   matchTitle,
+  gamesWithLaterNamesakes,
+  RELEASE_LATER_LIMIT_MS,
   RELEASE_TOLERANCE_MS,
 } from '../../../scripts/index/titleMatch'
 
@@ -22,32 +24,43 @@ import {
 
 describe('comparableTitle', () => {
   it('drops the trademark signs, and does not turn one into letters', () => {
-    expect(comparableTitle('Batman™: Arkham Knight')).toBe('batman: arkham knight')
-    expect(comparableTitle('Prey®: Digital Deluxe Edition')).toBe('prey: digital deluxe edition')
-    expect(comparableTitle('© LIMBO')).toBe('limbo')
+    expect(comparableTitle('Batman\u2122: Arkham Knight')).toBe('batman: arkham knight')
+    expect(comparableTitle('Prey\u00AE: Digital Deluxe Edition')).toBe(
+      'prey: digital deluxe edition',
+    )
+    expect(comparableTitle('\u00A9 LIMBO')).toBe('limbo')
     // NFKC alone would spell the sign out: "batmantm".
-    expect('Batman™'.normalize('NFKC')).toBe('BatmanTM')
-    expect(comparableTitle('Batman™')).toBe('batman')
+    expect('Batman\u2122'.normalize('NFKC')).toBe('BatmanTM')
+    expect(comparableTitle('Batman\u2122')).toBe('batman')
   })
 
   it('folds the forms Unicode calls compatible', () => {
     // A no-break space, a fullwidth letter and digit, a Roman numeral in one character.
-    expect(comparableTitle('Halo Infinite')).toBe('halo infinite')
-    expect(comparableTitle('ＤＯＯＭ ３')).toBe('doom 3')
-    expect(comparableTitle('Final Fantasy Ⅶ')).toBe('final fantasy vii')
+    expect(comparableTitle('Halo\u00A0Infinite')).toBe('halo infinite')
+    expect(comparableTitle('\uFF24\uFF2F\uFF2F\uFF2D \uFF13')).toBe('doom 3')
+    expect(comparableTitle('Final Fantasy \u2166')).toBe('final fantasy vii')
   })
 
   it('reads every dash as a hyphen', () => {
-    for (const dash of ['‐', '‑', '‒', '–', '—', '―', '−']) {
+    for (const dash of ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']) {
       expect(comparableTitle(`Spider${dash}Man`)).toBe('spider-man')
     }
   })
 
   it('reads every apostrophe as the plain one', () => {
-    for (const mark of ['‘', '’', '‛', 'ʹ', 'ʼ', '′', '`', '´']) {
+    for (const mark of [
+      '\u2018',
+      '\u2019',
+      '\u201B',
+      '\u02B9',
+      '\u02BC',
+      '\u2032',
+      '`',
+      '\u00B4',
+    ]) {
       expect(comparableTitle(`Assassin${mark}s Creed`)).toBe("assassin's creed")
     }
-    expect(comparableTitle('Assassin＇s Creed')).toBe("assassin's creed")
+    expect(comparableTitle('Assassin\uFF07s Creed')).toBe("assassin's creed")
   })
 
   it('drops case, collapses whitespace and trims', () => {
@@ -60,7 +73,7 @@ describe('comparableTitle', () => {
     expect(comparableTitle('Batman: Arkham Knight')).not.toBe(
       comparableTitle('Batman - Arkham Knight'),
     )
-    expect(comparableTitle('Pokémon')).not.toBe(comparableTitle('Pokemon'))
+    expect(comparableTitle('Pok\u00E9mon')).not.toBe(comparableTitle('Pokemon'))
     expect(comparableTitle('DOOM Eternal Standard Edition (PC)')).toBe(
       'doom eternal standard edition (pc)',
     )
@@ -72,11 +85,11 @@ describe('matchTitle: the same title', () => {
     ['Resident Evil Village', 'Resident Evil Village'],
     ['Terraria', 'Terraria'],
     ['Limbo', 'LIMBO'],
-    ['Batman: Arkham Knight', 'Batman™: Arkham Knight'],
-    ['Prey', 'Prey®'],
-    ["Assassin's Creed Odyssey", 'Assassin’s Creed® Odyssey'],
-    ['Spider-Man', 'Spider–Man'],
-    ['Halo Infinite', ' Halo  Infinite '],
+    ['Batman: Arkham Knight', 'Batman\u2122: Arkham Knight'],
+    ['Prey', 'Prey\u00AE'],
+    ["Assassin's Creed Odyssey", 'Assassin\u2019s Creed\u00AE Odyssey'],
+    ['Spider-Man', 'Spider\u2013Man'],
+    ['Halo Infinite', ' Halo\u00A0 Infinite '],
   ])('%j is %j', (name, title) => {
     expect(matchTitle(name, title)).toBe('name')
     expect(isSameTitle(name, title)).toBe(true)
@@ -91,7 +104,7 @@ describe('matchTitle: the same title', () => {
     ['Batman: Arkham Knight', 'Batman - Arkham Knight'],
     ['Resident Evil Village', 'Resident Evil Village Gold Edition'],
     ['Microsoft Flight Simulator: Standard Edition', 'Microsoft Flight Simulator (2020)'],
-    ['Pokémon', 'Pokemon'],
+    ['Pok\u00E9mon', 'Pokemon'],
     ['Prey', 'Pray'],
   ])('%j is not %j', (name, title) => {
     expect(isSameTitle(name, title)).toBe(false)
@@ -100,7 +113,7 @@ describe('matchTitle: the same title', () => {
 
   it('finds nothing in a name or a title that is not there', () => {
     expect(matchTitle('', '')).toBeNull()
-    expect(matchTitle('™', '®')).toBeNull()
+    expect(matchTitle('\u2122', '\u00AE')).toBeNull()
     expect(matchTitle('  ', 'Prey')).toBeNull()
     expect(matchTitle('Prey', null)).toBeNull()
     expect(matchTitle(undefined, 'Prey')).toBeNull()
@@ -115,8 +128,8 @@ describe('matchTitle: the same game under an edition’s name', () => {
     ['Grand Theft Auto V', 'Grand Theft Auto V Enhanced (PC)'],
     ['The Witcher 3: Wild Hunt', 'The Witcher 3: Wild Hunt - Complete Edition'],
     // As GOG's catalog and the Microsoft Store wrote others on 2026-10-13.
-    ['The Witcher 3: Wild Hunt', 'The Witcher 3: Wild Hunt — Remastered'],
-    ['The Witcher 3: Wild Hunt', 'The Witcher 3: Wild Hunt — Game of the Year Edition'],
+    ['The Witcher 3: Wild Hunt', 'The Witcher 3: Wild Hunt \u2014 Remastered'],
+    ['The Witcher 3: Wild Hunt', 'The Witcher 3: Wild Hunt \u2014 Game of the Year Edition'],
     ['Resident Evil Village', 'Resident Evil Village Gold Edition'],
     ["Assassin's Creed Odyssey", "Assassin's Creed Odyssey - Ultimate Edition"],
     ["Assassin's Creed Odyssey", "Assassin's Creed Odyssey - Gold Edition"],
@@ -125,7 +138,7 @@ describe('matchTitle: the same game under an edition’s name', () => {
     ['Dishonored', 'Dishonored: Definitive Edition'],
     ['Borderlands 2', 'Borderlands 2 GOTY'],
     ['Fable', 'Fable Anniversary'],
-    ['Deadly Premonition', 'Deadly Premonition: Director’s Cut'],
+    ['Deadly Premonition', 'Deadly Premonition: Director\u2019s Cut'],
     ['Gears of War', 'Gears of War: Ultimate Edition for Windows 10'],
     ['Forza Horizon 4', 'Forza Horizon 4 for Windows'],
     ['Grand Theft Auto V', 'Grand Theft Auto V (Xbox Series X|S)'],
@@ -146,7 +159,7 @@ describe('matchTitle: the same game under an edition’s name', () => {
     ['Prey', 'Prey: Mooncrash'],
     // The words left off the list on purpose: the game with, or for, something else.
     ['DOOM Eternal', 'DOOM Eternal Deluxe Edition (PC)'],
-    ['Prey', 'Prey®: Digital Deluxe Edition'],
+    ['Prey', 'Prey\u00AE: Digital Deluxe Edition'],
     ['DOOM: The Dark Ages', 'DOOM: The Dark Ages Premium Edition'],
     ['DOOM: The Dark Ages', 'DOOM: The Dark Ages Premium Upgrade'],
     ['Cyberpunk 2077', 'Cyberpunk 2077 & Phantom Liberty Bundle'],
@@ -157,7 +170,10 @@ describe('matchTitle: the same game under an edition’s name', () => {
     ['DOOM', 'DOOM + DOOM II'],
     ['DOOM', 'DOOM 64'],
     ['Grand Theft Auto V', 'Grand Theft Auto V Legacy (PC)'],
-    ['Grand Theft Auto V', 'Grand Theft Auto V Enhanced (ПК) і комплект'],
+    [
+      'Grand Theft Auto V',
+      'Grand Theft Auto V Enhanced (\u041F\u041A) \u0456 \u043A\u043E\u043C\u043F\u043B\u0435\u043A\u0442',
+    ],
     ['Mass Effect', 'Mass Effect Legendary Edition'],
     ['Metro 2033', 'Metro 2033 Redux'],
     ['Halo', 'Halo: The Master Chief Collection'],
@@ -271,11 +287,35 @@ describe('isReleasedInTime', () => {
     expect(isReleasedInTime('2017-05-05', at('2006-07-11'))).toBe(false)
   })
 
-  it('asks nothing of a later date: a store re-lists a game', () => {
+  it('believes a later date up to twelve years: a store re-lists a game', () => {
+    expect(RELEASE_LATER_LIMIT_MS).toBe(12 * 365.25 * 86_400_000)
     // The Resident Evil Village the Microsoft Store sells is dated 2026; the game is of 2021.
     expect(isReleasedInTime('2021-05-07', at('2026-01-20'))).toBe(true)
-    // What the catalog writes when it has no date at all.
-    expect(isReleasedInTime('2021-05-07', at('9998-12-30'))).toBe(true)
+    // Grand Theft Auto V Enhanced (PC), listed eleven and a half years after the game: the
+    // longest gap among the finds recorded on 2026-10-13.
+    expect(isReleasedInTime('2013-09-17', Date.parse('2025-04-15T15:00:00.000Z'))).toBe(true)
+    // Twelve years to the day, and a day past them.
+    expect(isReleasedInTime('2013-09-17', at('2025-09-17'))).toBe(true)
+    expect(isReleasedInTime('2013-09-17', at('2025-09-18'))).toBe(false)
+  })
+
+  it.each([
+    ['Dead Space', '2008-10-14', '2023-01-27'],
+    ['Resident Evil 4', '2005-01-11', '2023-03-24'],
+    ['System Shock', '1994-09-23', '2023-05-30'],
+    ['Saints Row', '2006-08-29', '2022-08-23'],
+    ['Prey', '2006-07-11', '2023-02-28'],
+    ['Tomb Raider (Definitive Edition, for the 1996 game)', '1996-10-25', '2014-01-28'],
+    ['Fable', '2004-09-14', '2026-02-01'],
+  ])(
+    'refuses %s: the remake that took the name came more than twelve years later',
+    (_game, game, remake) => {
+      expect(isReleasedInTime(game, at(remake))).toBe(false)
+    },
+  )
+
+  it('refuses the date the catalog writes when it has none', () => {
+    expect(isReleasedInTime('2021-05-07', at('9998-12-30'))).toBe(false)
   })
 
   it('finds nothing for a game the index has no release date for', () => {
@@ -289,5 +329,47 @@ describe('isReleasedInTime', () => {
     expect(gameReleasedAt('2021-05-07')).toBe(Date.UTC(2021, 4, 7))
     expect(gameReleasedAt('2021-05-07T12:00:00Z')).toBeNull()
     expect(gameReleasedAt(null)).toBeNull()
+  })
+})
+
+describe('gamesWithLaterNamesakes', () => {
+  const game = (id: number, name: string, released: string | null) => ({ id, name, released })
+
+  it('names every game a later game of the run shares its name with, typography aside', () => {
+    expect(
+      gamesWithLaterNamesakes([
+        game(1, 'Dead Space', '2008-10-14'),
+        game(2, 'DEAD SPACE\u2122', '2023-01-27'),
+        game(3, 'Resident Evil 4', '2005-01-11'),
+        game(4, 'Resident Evil 4', '2023-03-24'),
+        game(5, 'System Shock', '1994-09-23'),
+        game(6, 'System Shock', '2023-05-30'),
+        game(7, 'Prey', '2017-05-05'),
+      ]),
+    ).toEqual(new Set([1, 3, 5]))
+  })
+
+  it('leaves the latest of the name alone, and a name nobody else has', () => {
+    const shadowed = gamesWithLaterNamesakes([
+      game(1, 'Saints Row', '2006-08-29'),
+      game(2, 'Saints Row', '2022-08-23'),
+      game(3, 'Saints Row 2', '2008-10-14'),
+    ])
+    expect(shadowed).toEqual(new Set([1]))
+  })
+
+  it('takes nothing from a game without a date: it is no later one, and is found by no title anyway', () => {
+    expect(
+      gamesWithLaterNamesakes([game(1, 'Fable', '2004-09-14'), game(2, 'Fable', null)]),
+    ).toEqual(new Set())
+    expect(
+      gamesWithLaterNamesakes([game(1, 'Fable', null), game(2, 'Fable', '2004-09-14')]),
+    ).toEqual(new Set())
+  })
+
+  it('names neither of two games of one name released the same day', () => {
+    expect(
+      gamesWithLaterNamesakes([game(1, 'Twin', '2020-01-01'), game(2, 'Twin', '2020-01-01')]),
+    ).toEqual(new Set())
   })
 })

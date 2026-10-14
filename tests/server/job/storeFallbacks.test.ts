@@ -91,8 +91,8 @@ describe('what a record remembers of the stores’ own ways', () => {
     ['a slug that is not a slug', { ...gog, slug: 'hollow_cradle&countryCode=US' }],
     ['a slug in capitals', { ...gog, slug: 'Hollow_Cradle' }],
     ['no slug', { via: 'edition', foundAt: FOUND_AT }],
-    ['a way that is not a way of GOG’s', { ...gog, via: 'relation' }],
-    ['RAWG’s link for a way', { ...gog, via: 'link' }],
+    ['a way that is not a way of GOG\u2019s', { ...gog, via: 'relation' }],
+    ['RAWG\u2019s link for a way', { ...gog, via: 'link' }],
     ['a date that is not one', { ...gog, foundAt: 'yesterday' }],
     ['no date', { slug: gog.slug, via: gog.via }],
     ['text', 'hollow_cradle_gold'],
@@ -109,7 +109,7 @@ describe('what a record remembers of the stores’ own ways', () => {
     ['a name that is a path', { ...product, name: 'village/../x' }],
     ['no name', { id: product.id, via: product.via, foundAt: FOUND_AT }],
     ['a way that is not one', { ...product, via: 'guess' }],
-    ['RAWG’s link for a way', { ...product, via: 'link' }],
+    ['RAWG\u2019s link for a way', { ...product, via: 'link' }],
     ['a date that is not one', { ...product, foundAt: 7 }],
     ['text', '9N2S04LGXXH4'],
   ])('takes nothing of Microsoft’s on trust: %s is no product', (_what, found) => {
@@ -220,8 +220,8 @@ describe('findGogProduct', () => {
   const catalogOf = (...products: unknown[]) =>
     gogSellables(parseGogCatalogPage(gogCatalogPage(products, 1, 100)).products)
 
-  const WITCHER = { name: 'The Witcher 3: Wild Hunt', released: '2015-05-18' }
-  const CRADLE = { name: 'Hollow Cradle', released: '2021-03-11' }
+  const WITCHER = { id: 3328, name: 'The Witcher 3: Wild Hunt', released: '2015-05-18' }
+  const CRADLE = { id: 101, name: 'Hollow Cradle', released: '2021-03-11' }
 
   /** A product under `title`; a game released with Hollow Cradle unless told otherwise. */
   const titled = (
@@ -240,7 +240,7 @@ describe('findGogProduct', () => {
       product: {
         slug: 'the_witcher_3_wild_hunt_game_of_the_year_edition',
         type: 'pack',
-        title: 'The Witcher 3: Wild Hunt — Remastered',
+        title: 'The Witcher 3: Wild Hunt \u2014 Remastered',
         price: { amount: 1749, regularAmount: 3499, discountPercent: 50 },
         url: 'https://www.gog.com/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition',
       },
@@ -255,7 +255,7 @@ describe('findGogProduct', () => {
   it('finds a game under its own name', () => {
     const catalog = catalogOf(
       titled('amber_archive', 'Amber Archive', '4.99'),
-      titled('hollow_cradle_2021', 'HOLLOW CRADLE™', '9.99'),
+      titled('hollow_cradle_2021', 'HOLLOW CRADLE\u2122', '9.99'),
     )
 
     expect(findGogProduct(catalog, CRADLE)).toMatchObject({
@@ -331,6 +331,7 @@ describe('findGogProduct', () => {
     const catalog = catalogOf(
       gogProduct('hollow_cradle_gold', gogPrice('9.99', '39.99'), {
         title: 'Hollow Cradle - Gold Edition',
+        releaseDate: '2022.06.01',
       }),
       titled('hollow_cradle_enhanced', 'Hollow Cradle - Enhanced Edition', '14.99'),
     )
@@ -350,7 +351,13 @@ describe('findGogProduct', () => {
 
   it('finds nothing in a product GOG is not selling, or that is of no kind it knows', () => {
     const named = (overrides: Record<string, unknown>, price = gogPrice('9.99', '9.99')) =>
-      catalogOf(gogProduct('hollow_cradle_2021', price, { title: 'Hollow Cradle', ...overrides }))
+      catalogOf(
+        gogProduct('hollow_cradle_2021', price, {
+          title: 'Hollow Cradle',
+          releaseDate: '2021.03.11',
+          ...overrides,
+        }),
+      )
 
     expect(findGogProduct(named({}), CRADLE)).not.toBeNull()
     expect(findGogProduct(named({}, null as never), CRADLE)).toBeNull()
@@ -370,19 +377,24 @@ describe('findGogProduct', () => {
 
     expect(released('2005.06.01')).toBeNull()
     expect(released('2020.03.10')).toBeNull()
-    // A year before the game to the day, the game's own day, and any day after it.
+    // A year before the game to the day, the game's own day, and up to twelve years after it.
     expect(released('2020.03.11')).not.toBeNull()
     expect(released('2021.03.11')).not.toBeNull()
     expect(released('2026.01.20')).not.toBeNull()
-    // The catalog gave no date: the product is not held to one.
-    expect(released(null)).not.toBeNull()
+    expect(released('2033.03.10')).not.toBeNull()
+    // Further on, the product under the name is a remake that took it.
+    expect(released('2033.03.12')).toBeNull()
+    // The catalog gave no date: the product cannot be placed beside the game.
+    expect(released(null)).toBeNull()
   })
 
   it('finds nothing for a game the index has no release date for, or no name', () => {
     const catalog = catalogOf(titled('hollow_cradle_2021', 'Hollow Cradle', '9.99'))
 
-    expect(findGogProduct(catalog, { name: 'Hollow Cradle', released: null })).toBeNull()
-    expect(findGogProduct(catalog, { name: ' ™ ', released: '2021-03-11' })).toBeNull()
+    expect(findGogProduct(catalog, { id: 101, name: 'Hollow Cradle', released: null })).toBeNull()
+    expect(
+      findGogProduct(catalog, { id: 101, name: ' \u2122 ', released: '2021-03-11' }),
+    ).toBeNull()
     expect(findGogProduct([], CRADLE)).toBeNull()
   })
 })
@@ -440,6 +452,7 @@ describe('findMicrosoftProducts: the store’s own relations', () => {
             product: {
               price: { amount: 119_900, regularAmount: 119_900, discountPercent: 0 },
               title: 'Resident Evil Village',
+              kind: 'Game',
               group: 'db97de36-8e9e-4a95-a5fd-d88bfbdd220b',
               releasedAt: Date.parse('2026-01-20T00:00:00.000Z'),
             },
@@ -511,7 +524,7 @@ describe('findMicrosoftProducts: the store’s own relations', () => {
   })
 
   it('is judged by the linked product’s title, whatever the game is called at RAWG', async () => {
-    const harness = chain([sibling(11, 899, 'Hollow Cradle — Standard Edition')], {
+    const harness = chain([sibling(11, 899, 'Hollow Cradle \u2014 Standard Edition')], {
       link: microsoftDetail(pid(1), 'Hollow Cradle - Standard Edition', {
         group: 'cradle',
         parents: [pid(2)],
@@ -861,12 +874,15 @@ describe('findMicrosoftProducts: the store’s search', () => {
     const harness = searching([
       // The search said "Hollow Cradle"; the product's own listing says otherwise.
       { id: pid(11), title: 'Hollow Cradle', sold: sold(11, 499, 'Hollow Cradle: Aftermath').sold },
-      { id: pid(12), title: 'Hollow Cradle', sold: sold(12, 899, 'HOLLOW CRADLE™').sold },
+      { id: pid(12), title: 'Hollow Cradle', sold: sold(12, 899, 'HOLLOW CRADLE\u2122').sold },
     ])
 
     const { settled } = await findMicrosoftProducts(harness.deps, [CRADLE])
 
-    expect(settled.get(101)).toMatchObject({ id: pid(12), product: { title: 'HOLLOW CRADLE™' } })
+    expect(settled.get(101)).toMatchObject({
+      id: pid(12),
+      product: { title: 'HOLLOW CRADLE\u2122' },
+    })
   })
 
   it.each([
@@ -874,7 +890,8 @@ describe('findMicrosoftProducts: the store’s search', () => {
     ['listed a year and a day before it', '2020-03-10T00:00:00.0000000Z', null],
     ['listed a year before it to the day', '2020-03-11T00:00:00.0000000Z', pid(11)],
     ['listed five years after it', '2026-01-20T00:00:00.0000000Z', pid(11)],
-    ['that the catalog has no date for', '9998-12-30T00:00:00.0000000Z', pid(11)],
+    ['listed twelve years after it, and a day', '2033-03-12T00:00:00.0000000Z', null],
+    ['that the catalog has no date for', '9998-12-30T00:00:00.0000000Z', null],
   ])(
     'holds a product %s to the year a listing may precede its game by',
     async (_what, released, id) => {
@@ -900,7 +917,7 @@ describe('findMicrosoftProducts: the store’s search', () => {
 
     const result = await findMicrosoftProducts(harness.deps, [
       target(101, 'Hollow Cradle', null, null),
-      target(102, ' ™ ', null),
+      target(102, ' \u2122 ', null),
     ])
 
     expect(result).toEqual({
@@ -1092,5 +1109,144 @@ describe('findMicrosoftProducts: a store that will not answer', () => {
     expect(harness.calls).toEqual([])
     expect(harness.priceBatches).toEqual([])
     expect(harness.gogPages).toEqual([])
+  })
+})
+
+describe('the title ways and a remake that took the name', () => {
+  /** The store sells the remake under `title`, listed on `listed`; the game is the original. */
+  async function search(name: string, released: string, title: string, listed: string) {
+    const harness = createJobHarness({ start: RECORDED_AT })
+    harness.microsoftSearches[name] = microsoftSearchAnswer([{ id: pid(11), title }])
+    harness.microsoftProducts[pid(11)] = microsoftProduct(pid(11), 999, 999, title, {
+      group: 'remake',
+      released: listed,
+    })
+    const { settled } = await findMicrosoftProducts(harness.deps, [target(1, name, null, released)])
+    return settled.get(1)
+  }
+
+  it.each([
+    ['Dead Space', '2008-10-14', 'Dead Space', '2023-01-27T00:00:00.0000000Z'],
+    ['Resident Evil 4', '2005-01-11', 'Resident Evil 4', '2023-03-24T00:00:00.0000000Z'],
+    ['System Shock', '1994-09-23', 'System Shock', '2023-05-30T00:00:00.0000000Z'],
+    ['Saints Row', '2006-08-29', 'Saints Row Gold Edition', '2022-08-23T00:00:00.0000000Z'],
+    [
+      'Tomb Raider',
+      '1996-10-25',
+      'Tomb Raider: Definitive Edition',
+      '2014-01-28T00:00:00.0000000Z',
+    ],
+  ])(
+    'finds no product for the original %s at the Microsoft Store',
+    async (name, released, title, listed) => {
+      expect(await search(name, released, title, listed)).toBeNull()
+    },
+  )
+
+  it('finds no product for the Prey of 2006 in the recorded search: the one sold is of 2017', async () => {
+    const harness = recordedWorld()
+
+    const { settled } = await findMicrosoftProducts(harness.deps, [
+      target(1, 'Prey', null, '2006-07-11'),
+      target(2, 'Prey', null, '2017-05-05'),
+    ])
+
+    expect(settled.get(1)).toBeNull()
+    expect(settled.get(2)).toMatchObject({ id: '9PBC1QFBW563', via: 'name' })
+  })
+
+  it('still finds the re-listings recorded on 2026-10-13, Grand Theft Auto V at eleven and a half years', async () => {
+    const harness = recordedWorld()
+
+    const { settled } = await findMicrosoftProducts(harness.deps, [
+      target(1, 'Grand Theft Auto V', null, '2013-09-17'),
+      target(2, 'Resident Evil Village', null, '2021-05-07'),
+      target(3, 'DOOM Eternal', null, '2020-03-20'),
+    ])
+
+    expect([...settled.values()].map((find) => find?.id)).toEqual([
+      '9NXFX68ZNKK0',
+      '9N2S04LGXXH4',
+      '9PK09BL31FK1',
+    ])
+  })
+
+  it.each([
+    ['System Shock', '1994-09-23', 'System Shock', '2023.05.30'],
+    ['Tomb Raider', '1996-10-25', 'Tomb Raider: Definitive Edition', '2014.01.28'],
+    ['Dead Space', '2008-10-14', 'Dead Space', '2023.01.27'],
+  ])('finds no product for the original %s in GOG’s catalog', (name, released, title, listed) => {
+    const catalog = gogSellables(
+      parseGogCatalogPage(
+        gogCatalogPage(
+          [gogProduct('remake', gogPrice('9.99', '9.99'), { title, releaseDate: listed })],
+          1,
+          100,
+        ),
+      ).products,
+    )
+
+    expect(findGogProduct(catalog, { id: 1, name, released })).toBeNull()
+  })
+
+  it('finds no product for a game a later game of the run shares its name with, at either store', async () => {
+    const catalog = gogSellables(
+      parseGogCatalogPage(
+        gogCatalogPage(
+          [
+            gogProduct('hollow_cradle', gogPrice('9.99', '9.99'), {
+              title: 'Hollow Cradle',
+              releaseDate: '2021.03.11',
+            }),
+          ],
+          1,
+          100,
+        ),
+      ).products,
+    )
+    const game = { id: 101, name: 'Hollow Cradle', released: '2021-03-11' }
+    expect(findGogProduct(catalog, game)).not.toBeNull()
+    expect(findGogProduct(catalog, game, new Set([101]))).toBeNull()
+
+    const harness = createJobHarness({ start: RECORDED_AT })
+    harness.microsoftSearches['Hollow Cradle'] = microsoftSearchAnswer([
+      { id: pid(11), title: 'Hollow Cradle' },
+    ])
+    const result = await findMicrosoftProducts(
+      harness.deps,
+      [target(101, 'Hollow Cradle', null)],
+      async () => {},
+      new Set([101]),
+    )
+    // Settled as nothing, and not searched for: no title can be the game's.
+    expect(result).toEqual({ settled: new Map([[101, null]]), requests: 0, stopped: null })
+    expect(harness.microsoftSearchNames).toEqual([])
+  })
+})
+
+describe('the relation way and an add-on', () => {
+  it('takes no add-on, though it is in the group and under the linked product’s title', async () => {
+    const harness = createJobHarness({ start: RECORDED_AT })
+    harness.microsoftDetails[pid(1)] = microsoftDetail(pid(1), 'Hollow Cradle', {
+      group: 'cradle',
+      parents: [pid(2)],
+    })
+    harness.microsoftDetails[pid(2)] = microsoftDetail(pid(2), 'Hollow Cradle', {
+      group: 'cradle',
+      bundles: [pid(11), pid(12)],
+    })
+    harness.microsoftProducts[pid(11)] = microsoftProduct(pid(11), 99, 99, 'Hollow Cradle', {
+      group: 'cradle',
+      kind: 'Durable',
+    })
+    harness.microsoftProducts[pid(12)] = microsoftProduct(pid(12), 899, 899, 'Hollow Cradle', {
+      group: 'cradle',
+    })
+
+    const { settled } = await findMicrosoftProducts(harness.deps, [
+      target(101, 'Hollow Cradle', pid(1)),
+    ])
+
+    expect(settled.get(101)).toMatchObject({ id: pid(12), via: 'relation' })
   })
 })

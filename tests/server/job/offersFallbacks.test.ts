@@ -150,7 +150,10 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     const { harness, games, refs, byId } = await runAt(RUN_AT)
     harness.gogCatalog.products = [
       GOLD,
-      gogProduct('hollow_cradle_2021', gogPrice('19.99', '19.99'), { title: 'Hollow Cradle' }),
+      gogProduct('hollow_cradle_2021', gogPrice('19.99', '19.99'), {
+        title: 'Hollow Cradle',
+        releaseDate: '2021.03.11',
+      }),
     ]
 
     const result = await refreshOffers(harness.deps, games, refs, null)
@@ -199,7 +202,10 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     // RAWG's slug names a product GOG has not released yet; another product has the name.
     harness.gogCatalog.products = [
       gogProduct('hollow_cradle', null),
-      gogProduct('hollow_cradle_2021', gogPrice('19.99', '19.99'), { title: 'Hollow Cradle' }),
+      gogProduct('hollow_cradle_2021', gogPrice('19.99', '19.99'), {
+        title: 'Hollow Cradle',
+        releaseDate: '2021.03.11',
+      }),
     ]
 
     const result = await refreshOffers(harness.deps, games, refs, null)
@@ -209,20 +215,42 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
   })
 
-  it('is looked for again in every walk, and its offer is for what this walk found', async () => {
+  const COMPLETE = gogProduct('hollow_cradle_complete', gogPrice('9.99', '39.99'), {
+    productType: 'pack',
+    title: 'Hollow Cradle: Complete Edition',
+    releaseDate: '2023.01.01',
+  })
+
+  it('keeps what an earlier walk found while it is sold, though a cheaper edition qualifies now', async () => {
     const night = await runAt(RUN_AT)
     night.harness.gogCatalog.products = [GOLD]
     await refreshOffers(night.harness.deps, night.games, night.refs, null)
 
-    // Twelve hours on a second edition qualifies, and costs less.
+    const noon = later(RUN_AT, 12 * HOUR)
+    const next = await nextRun(night, noon)
+    next.harness.gogCatalog.products = [GOLD, COMPLETE]
+    const written = vi.spyOn(next.harness.writer, 'setStoreRefs')
+
+    await refreshOffers(next.harness.deps, next.games, next.refs, publishedAt(RUN_AT))
+
+    // A find goes when its own product has no price, and not because another would be picked.
+    expect(next.byId(101).offers).toEqual([GOLD_OFFER(noon)])
+    expect(written).not.toHaveBeenCalled()
+  })
+
+  it('looks through the catalog again once the product an earlier walk found has no price', async () => {
+    const night = await runAt(RUN_AT)
+    night.harness.gogCatalog.products = [GOLD]
+    await refreshOffers(night.harness.deps, night.games, night.refs, null)
+
     const noon = later(RUN_AT, 12 * HOUR)
     const next = await nextRun(night, noon)
     next.harness.gogCatalog.products = [
-      GOLD,
-      gogProduct('hollow_cradle_complete', gogPrice('9.99', '39.99'), {
+      gogProduct('hollow_cradle_gold_edition', null, {
         productType: 'pack',
-        title: 'Hollow Cradle: Complete Edition',
+        title: 'Hollow Cradle - Gold Edition',
       }),
+      COMPLETE,
     ]
 
     await refreshOffers(next.harness.deps, next.games, next.refs, publishedAt(RUN_AT))
@@ -280,7 +308,7 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     })
   })
 
-  it('goes back to RAWG’s slug the day that is in the catalog again, and the record forgets', async () => {
+  it('goes back to RAWG’s slug the day that is in the catalog again, and remembers the find', async () => {
     const night = await runAt(RUN_AT)
     night.harness.gogCatalog.products = [GOLD]
     await refreshOffers(night.harness.deps, night.games, night.refs, null)
@@ -305,7 +333,9 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
     expect('via' in offer!).toBe(false)
     expect(result.gog).not.toHaveProperty('otherWays')
     expect(result.gog).not.toHaveProperty('fallbacks')
-    expect(next.refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+    // RAWG's link comes first while it has a price; the find is the game's again the day it has
+    // none, and is not forgotten meanwhile.
+    expect(next.refs.get(101)?.fallbacks?.gog?.slug).toBe('hollow_cradle_gold_edition')
   })
 
   it('keeps the offer and the record through a walk that fails', async () => {
@@ -351,6 +381,7 @@ describe('GOG: a game whose slug is not in the catalog any more', () => {
 describe('GOG: a game RAWG lists there and gives no link for', () => {
   const NAMED = gogProduct('hollow_cradle_2021', gogPrice('19.99', '19.99'), {
     title: 'Hollow Cradle',
+    releaseDate: '2021.03.11',
   })
   const NAMED_OFFER = (updatedAt: string): IndexedOffer => ({
     store: 'gog',
@@ -460,7 +491,10 @@ describe('GOG: the floor and what was found by name', () => {
       // Every slug RAWG has is gone from the catalog; every game is there under its name.
       refs.set(game.id, { gog: `game_${index}` })
       products.push(
-        gogProduct(`game_${index}_2021`, gogPrice('7.99', '7.99'), { title: `Game ${index}` }),
+        gogProduct(`game_${index}_2021`, gogPrice('7.99', '7.99'), {
+          title: `Game ${index}`,
+          releaseDate: '2021.03.11',
+        }),
       )
     }
     harness.gogCatalog.products = products
@@ -929,7 +963,9 @@ describe('the Microsoft Store: a game RAWG lists there and gives no link for', (
 
     const noon = later(RUN_AT, 12 * HOUR)
     const next = await nextRun(night, noon)
-    next.harness.microsoftProducts[pid(8)] = microsoftProduct(pid(8), 610, 610, 'Lost Canton')
+    next.harness.microsoftProducts[pid(8)] = microsoftProduct(pid(8), 610, 610, 'Lost Canton', {
+      released: '2018-02-01T00:00:00.0000000Z',
+    })
     const read = await refreshOffers(next.harness.deps, next.games, next.refs, publishedAt(RUN_AT))
 
     expect(next.harness.microsoftBatches).toEqual([[pid(8)]])
@@ -1068,7 +1104,7 @@ describe('the Microsoft Store: how much is asked of it in one run', () => {
     expect(refs.get(3036)).not.toHaveProperty('fallbacks')
     expect(refs.get(3000)).not.toHaveProperty('fallbacks')
     expect(harness.logs.at(-2)).toBe(
-      "microsoft: the store's own ways were tried for 3 games in 7 requests, 1 found, 37 waiting — stopped early, the store refused a request",
+      "microsoft: the store's own ways were tried for 3 games in 7 requests, 1 found, 37 waiting \u2014 stopped early, the store refused a request",
     )
   })
 })
@@ -1315,5 +1351,142 @@ describe('the mapping guard and what the stores’ own ways found', () => {
       otherWays: { name: 20 },
     })
     expect(result.microsoft).not.toHaveProperty('dropped')
+  })
+})
+
+describe('a remake that took the game’s name', () => {
+  /** A later game of the run under Hollow Cradle's name, and under Lost Canton's. */
+  function remade(run: Run): IndexedGame[] {
+    const remakes = [
+      {
+        ...structuredClone(run.byId(101)),
+        id: 9101,
+        slug: 'hollow-cradle-2025',
+        released: '2025-06-01',
+      },
+      {
+        ...structuredClone(run.byId(109)),
+        id: 9109,
+        slug: 'lost-canton-2024',
+        released: '2024-02-01',
+      },
+    ]
+    for (const remake of remakes) delete remake.offers
+    return [...run.games, ...remakes]
+  }
+
+  it('is no product for the older game at either store when the run holds the remake too', async () => {
+    const run = await unsold()
+    const { harness, refs, byId } = run
+    harness.gogCatalog.products = [
+      gogProduct('hollow_cradle_2025', gogPrice('29.99', '29.99'), {
+        title: 'Hollow Cradle',
+        releaseDate: '2025.06.01',
+      }),
+    ]
+    harness.microsoftSearches['Lost Canton'] = microsoftSearchAnswer([
+      { id: pid(8), title: 'Lost Canton' },
+    ])
+    harness.microsoftProducts[pid(8)] = microsoftProduct(pid(8), 1499, 1499, 'Lost Canton', {
+      released: '2024-02-01T00:00:00.0000000Z',
+    })
+
+    const result = await refreshOffers(harness.deps, remade(run), refs, null)
+
+    // Both products are well inside twelve years of the old games; the remakes in the run are
+    // what refuses them. The old games' searches are not even sent.
+    expect('offers' in byId(101)).toBe(false)
+    expect('offers' in byId(109)).toBe(false)
+    expect(harness.microsoftSearchNames).toEqual([])
+    expect(result.gog).toMatchObject({ pricesRead: 0, fallbacks: { searched: 1, found: {} } })
+    expect(result.microsoft).toMatchObject({ fallbacks: { searched: 1, found: {}, requests: 1 } })
+    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
+  })
+
+  it('takes nothing from the older game’s relations: that way keeps its own rules', async () => {
+    const run = await unsold()
+    relate(run.harness)
+
+    await refreshOffers(run.harness.deps, remade(run), run.refs, null)
+
+    expect(run.byId(109).offers).toEqual([RELATED_OFFER(RUN_AT)])
+  })
+
+  it('takes a find away from the older game when it is read again under the guards', async () => {
+    const run = await unsold(later(RUN_AT, 12 * HOUR))
+    const { harness, refs, byId } = run
+    // An earlier run found it by name, before the guards: a product listed eighteen years later.
+    refs.set(109, {
+      microsoft: LINK,
+      fallbacks: {
+        microsoft: {
+          searchedAt: RUN_AT,
+          found: { id: pid(8), name: 'lost-canton', via: 'name', foundAt: RUN_AT },
+        },
+      },
+    })
+    byId(109).offers = [{ ...RELATED_OFFER(RUN_AT), via: 'name' }]
+    harness.microsoftProducts[pid(8)] = microsoftProduct(pid(8), 1499, 1499, 'Lost Canton', {
+      released: '2035-11-10T00:00:00.0000000Z',
+    })
+
+    const result = await refreshOffers(harness.deps, run.games, refs, publishedAt(RUN_AT))
+
+    expect('offers' in byId(109)).toBe(false)
+    expect(result.microsoft).toMatchObject({ status: 'read', pricesRead: 0, offers: 0 })
+  })
+
+  it('takes a find away when a later namesake has come into the run since', async () => {
+    const run = await unsold(later(RUN_AT, 12 * HOUR))
+    const { harness, refs, byId } = run
+    refs.set(109, {
+      microsoft: LINK,
+      fallbacks: {
+        microsoft: {
+          searchedAt: RUN_AT,
+          found: { id: pid(8), name: 'lost-canton', via: 'name', foundAt: RUN_AT },
+        },
+      },
+    })
+    byId(109).offers = [{ ...RELATED_OFFER(RUN_AT), via: 'name' }]
+    harness.microsoftProducts[pid(8)] = microsoftProduct(pid(8), 1499, 1499, 'Lost Canton', {
+      released: '2024-02-01T00:00:00.0000000Z',
+    })
+
+    await refreshOffers(harness.deps, remade(run), refs, publishedAt(RUN_AT))
+
+    expect('offers' in byId(109)).toBe(false)
+  })
+
+  it('looks through GOG’s catalog again when an earlier find fails the guards, and forgets it', async () => {
+    const run = await runAt(later(RUN_AT, 12 * HOUR))
+    const { harness, refs, byId } = run
+    refs.set(101, {
+      gog: 'hollow_cradle',
+      fallbacks: { gog: { slug: 'hollow_cradle_2040', via: 'name', foundAt: RUN_AT } },
+    })
+    byId(101).offers = [
+      {
+        store: 'gog',
+        via: 'name',
+        amount: 999,
+        regularAmount: 999,
+        currency: 'USD',
+        discountPercent: 0,
+        url: 'https://www.gog.com/en/game/hollow_cradle_2040',
+        updatedAt: RUN_AT,
+      },
+    ]
+    harness.gogCatalog.products = [
+      gogProduct('hollow_cradle_2040', gogPrice('9.99', '9.99'), {
+        title: 'Hollow Cradle',
+        releaseDate: '2040.01.01',
+      }),
+    ]
+
+    await refreshOffers(harness.deps, run.games, refs, publishedAt(RUN_AT))
+
+    expect('offers' in byId(101)).toBe(false)
+    expect(refs.get(101)).toEqual({ gog: 'hollow_cradle' })
   })
 })

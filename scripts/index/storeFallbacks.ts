@@ -229,6 +229,32 @@ export function isMicrosoftSearchDue(searchedAt: string | null, now: number): bo
   return !Number.isFinite(at) || at > now || now - at > MICROSOFT_SEARCH_AGAIN_MS
 }
 
+/**
+ * The guards every product found by a title is held to, when it is found and every time it is
+ * read again — so that a find made before a guard cannot outlive it:
+ *
+ * - the product is dated: a listing whose date the store does not give, or gives as the year
+ *   9998, cannot be placed beside the game, and is not taken;
+ * - its date is no more than a year before the game's and no more than twelve years after it
+ *   (`isReleasedInTime`): older is another game of the name, much younger a remake that took it;
+ * - no later game of the run shares the game's name (`gamesWithLaterNamesakes`): the product under
+ *   that name is the later game's.
+ *
+ * The relation way is not held to them. It follows the catalog's own record from the very
+ * product RAWG linked, and asks for that product's exact title within its own group.
+ */
+export function isInTimeForTitle(
+  game: Pick<IndexedGame, 'id' | 'released'>,
+  productReleasedAt: number | null,
+  laterNamesakes: ReadonlySet<number>,
+): boolean {
+  return (
+    !laterNamesakes.has(game.id) &&
+    productReleasedAt !== null &&
+    isReleasedInTime(game.released, productReleasedAt)
+  )
+}
+
 /** A catalog product GOG sells, as it may become an offer: priced, linked, titled and of a kind. */
 export interface GogSellable {
   product: GogProduct & { price: GogPrice; url: string; title: string }
@@ -276,26 +302,27 @@ function cheapest<T>(
  *   `pack` — an edition is a pack at GOG — whose title is the name and an edition's words after
  *   it ("The Witcher 3: Wild Hunt - Complete Edition", for a game whose own slug GOG retired).
  *
- * Either way the product has to be one GOG is selling (`gogSellables`), and released no more than
- * a year before the game — when the catalog gives it a date; a product without one is not held
- * to it. A game whose own release date the index does not hold is found under no title.
+ * Either way the product has to be one GOG is selling (`gogSellables`) and has to pass the
+ * title ways' guards (`isInTimeForTitle`): dated, no more than a year before the game and no
+ * more than twelve years after it, for a game no later game of the run shares a name with.
  *
  * Of several that qualify, the cheapest: the same game at two prices is worth the lower one, and
  * the title an offer carries says which product that is.
  */
 export function findGogProduct(
   catalog: readonly GogSellable[],
-  game: Pick<IndexedGame, 'name' | 'released'>,
+  game: Pick<IndexedGame, 'id' | 'name' | 'released'>,
+  laterNamesakes: ReadonlySet<number> = new Set(),
 ): { product: GogSellable['product']; via: TitleMatch } | null {
   const name = comparableTitle(game.name)
-  if (name === '' || gameReleasedAt(game.released) === null) return null
+  if (name === '' || gameReleasedAt(game.released) === null || laterNamesakes.has(game.id)) {
+    return null
+  }
 
   const matches = catalog.flatMap(({ product, title }) => {
     const via = matchComparableTitle(name, title)
     if (via === null || (via === 'name' && product.type !== 'game')) return []
-    const inTime =
-      product.releasedAt === null || isReleasedInTime(game.released, product.releasedAt)
-    return inTime ? [{ product, via }] : []
+    return isInTimeForTitle(game, product.releasedAt, laterNamesakes) ? [{ product, via }] : []
   })
   const named = matches.filter((match) => match.via === 'name')
   return cheapest(
@@ -380,11 +407,14 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * never been tried for it.
  *
  * `onRequest` is called after each request, for a caller that has a lock to keep alive.
+ * `laterNamesakes` are the games of the run a later game shares a name with
+ * (`gamesWithLaterNamesakes`): the search is not tried for them.
  */
 export async function findMicrosoftProducts(
   deps: JobDeps,
   targets: readonly MicrosoftTarget[],
   onRequest: () => Promise<void> = async () => {},
+  laterNamesakes: ReadonlySet<number> = new Set(),
 ): Promise<MicrosoftFallbackResult> {
   const startedAt = deps.clock.now()
   const settled = new Map<number, MicrosoftFind | null>()
@@ -531,7 +561,9 @@ export async function findMicrosoftProducts(
       const sold = related.answers.get(id)
       // In the linked product's group, and under its very title: the game, and not an edition
       // of it the visitor did not ask about.
+      // And a game: an add-on in the game's group is no price for the game, whatever it is called.
       return sold &&
+        sold.product.kind === 'Game' &&
         sold.product.group === lead.group &&
         isSameTitle(sold.product.title, lead.title)
         ? [{ id, ...sold }]
@@ -566,9 +598,7 @@ export async function findMicrosoftProducts(
       const answer = sold.get(id)
       const via = answer ? matchTitle(game.name, answer.product.title) : null
       if (!answer || via === null) return []
-      // The catalog dates every listing; one it does not date is one this job cannot place.
-      const { releasedAt } = answer.product
-      if (releasedAt === null || !isReleasedInTime(game.released, releasedAt)) return []
+      if (!isInTimeForTitle(game, answer.product.releasedAt, laterNamesakes)) return []
       return [{ candidate: { id, ...answer }, via }]
     })
     const named = matches.filter((match) => match.via === 'name')
@@ -581,9 +611,13 @@ export async function findMicrosoftProducts(
     const { game } = target
     if (stopped) break
     if (settled.has(game.id) || unsettled.has(game.id)) continue
-    // A game with no release date is found under no title, and one with no name has none to
-    // search for: either is settled without a request.
-    if (comparableTitle(game.name) === '' || gameReleasedAt(game.released) === null) {
+    // A game with no release date, or with a later namesake in the run, is found under no title,
+    // and one with no name has none to search for: each is settled without a request.
+    if (
+      comparableTitle(game.name) === '' ||
+      gameReleasedAt(game.released) === null ||
+      laterNamesakes.has(game.id)
+    ) {
       settled.set(game.id, null)
       continue
     }

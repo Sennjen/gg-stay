@@ -223,7 +223,7 @@ describe('runJob and the stores’ own ways', () => {
       '| Microsoft Store prices | 1 reference, 0 prices read, 0 failed; 0 offers published, 1 request; 0 searched for this run in 1 request, 0 found, 1 waiting (stopped early: the store refused a request: MICROSOFT upstream failure: RATE_LIMITED (429)) |',
     )
     expect(harness.logs).toContain(
-      "::warning::Microsoft Store: the store's own ways to a product stopped early in this run, the store refused a request (MICROSOFT upstream failure: RATE_LIMITED (429)) — 1 game is left waiting for the next run that reads the store",
+      "::warning::Microsoft Store: the store's own ways to a product stopped early in this run, the store refused a request (MICROSOFT upstream failure: RATE_LIMITED (429)) \u2014 1 game is left waiting for the next run that reads the store",
     )
   })
 })
@@ -330,7 +330,7 @@ describe('formatSummary and storeWarnings and the stores’ own ways', () => {
     }
 
     expect(storeWarnings(stores(report))).toEqual([
-      `Microsoft Store: the store's own ways to a product stopped early in this run, ${why} (a | b) — 717 games are left waiting for the next run that reads the store`,
+      `Microsoft Store: the store's own ways to a product stopped early in this run, ${why} (a | b) \u2014 717 games are left waiting for the next run that reads the store`,
     ])
     // The table keeps its columns whatever the store said.
     expect(formatSummary({ ...base, stores: stores(report) })).toContain(

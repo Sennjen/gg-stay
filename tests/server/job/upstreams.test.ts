@@ -231,6 +231,7 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     ).toEqual({
       price: { amount: 25_000, regularAmount: 25_000, discountPercent: 0 },
       title: 'LIMBO',
+      kind: 'Game',
       // That recording was cut before the job read either.
       group: null,
       releasedAt: null,

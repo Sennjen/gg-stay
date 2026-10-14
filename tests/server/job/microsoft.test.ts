@@ -56,10 +56,11 @@ const price = (amount: number, regularAmount: number, discountPercent: number) =
 })
 
 /**
- * What that recording says of a product's group and of the date of its listing: nothing. It was
- * cut to the fields the job read on the day it was made, and those two were not among them.
+ * What that recording says of a product beside its price and title: that it is a game, and of
+ * its group and the date of its listing nothing. It was cut to the fields the job read on the day
+ * it was made, and those two were not among them.
  */
-const UNLISTED = { group: null, releasedAt: null }
+const UNLISTED = { kind: 'Game', group: null, releasedAt: null }
 
 describe('microsoftPurchasePrice on the recorded answer', () => {
   it('reads a sale: what is charged now, the regular price, and the discount between them', () => {
@@ -107,7 +108,7 @@ describe('microsoftPurchasePrice', () => {
     ).toEqual(price(38_500, 38_500, 0))
   })
 
-  it('reads no price — and no free game — from a product only subscribers get', () => {
+  it('reads no price \u2014 and no free game \u2014 from a product only subscribers get', () => {
     expect(priceOf(one(microsoftSubscriberAvailability()))).toBeNull()
     // A member's discount would look the same: a real sum, behind a remediation.
     expect(
@@ -256,7 +257,7 @@ describe('microsoftPurchasePrice', () => {
     ['missing', undefined, 385],
     ['a regular price that is text', 385, '385'],
     ['a regular price that is missing', 385, undefined],
-  ])('reads no price when a sum is %s — and never zero', (_what, list, msrp) => {
+  ])('reads no price when a sum is %s \u2014 and never zero', (_what, list, msrp) => {
     expect(priceOf(one(microsoftAvailability(list as number, msrp as number)))).toBeNull()
   })
 
@@ -393,6 +394,7 @@ describe('parseMicrosoftProducts on the products the store’s own ways lead to'
     expect(found.get('9N2S04LGXXH4')).toEqual({
       price: price(119_900, 119_900, 0),
       title: 'Resident Evil Village',
+      kind: 'Game',
       group: 'db97de36-8e9e-4a95-a5fd-d88bfbdd220b',
       // The listing's date, not the game's: Resident Evil Village is a game of 2021.
       releasedAt: Date.parse('2026-01-20T00:00:00.000Z'),
@@ -400,6 +402,7 @@ describe('parseMicrosoftProducts on the products the store’s own ways lead to'
     expect(found.get('9NXFX68ZNKK0')).toEqual({
       price: price(67_450, 134_900, 50),
       title: 'Grand Theft Auto V Enhanced (PC)',
+      kind: 'Game',
       group: '29d3673e-f21c-43ed-8ca6-e703000663a0',
       releasedAt: Date.parse('2025-04-15T15:00:00.000Z'),
     })
@@ -459,10 +462,27 @@ describe('parseMicrosoftProducts and what a listing says beside its price', () =
     })
   })
 
-  it('reads the date the catalog gives a listing it has none for as that date', () => {
-    const product = microsoftProduct('BTQMHK78ZPF9', 250, 250, 'LIMBO', { group: 'limbo-group' })
+  it('reads the date the catalog gives a listing it has none for as no date', () => {
+    const dated = (released: string) =>
+      read(microsoftProduct('BTQMHK78ZPF9', 250, 250, 'LIMBO', { group: 'limbo', released }))
 
-    expect(read(product)?.releasedAt).toBe(Date.parse('9998-12-30T00:00:00.000Z'))
+    // `9998-12-30` is how the catalog says it has no date; any year from 9000 on is read so.
+    expect(dated('9998-12-30T00:00:00.0000000Z')?.releasedAt).toBeNull()
+    expect(dated('9000-01-01T00:00:00.0000000Z')?.releasedAt).toBeNull()
+    expect(dated('8999-12-31T23:59:59.0000000Z')?.releasedAt).toBe(
+      Date.parse('8999-12-31T23:59:59.000Z'),
+    )
+    // The product is a product all the same, with its price.
+    expect(dated('9998-12-30T00:00:00.0000000Z')?.price.amount).toBe(25_000)
+  })
+
+  it('reads what kind of product it is, and none when it states none', () => {
+    expect(read(microsoftProduct('BTQMHK78ZPF9', 250))?.kind).toBe('Game')
+    expect(read(microsoftProduct('BTQMHK78ZPF9', 250, 250, 'x', { kind: 'Durable' }))?.kind).toBe(
+      'Durable',
+    )
+    const { ProductKind: _kind, ...unkinded } = microsoftProduct('BTQMHK78ZPF9', 250)
+    expect(read(unkinded)?.kind).toBeNull()
   })
 
   it.each([
@@ -742,19 +762,26 @@ describe('microsoftProductTitle', () => {
       microsoftProductTitle(listing(inLanguage('en-us', 'Hollow Knight: Voidheart Edition'))),
     ).toBe('Hollow Knight: Voidheart Edition')
     expect(microsoftProductTitle(listing(inLanguage('uk', 'Destiny 2')))).toBe('Destiny 2')
-    expect(microsoftProductTitle(listing(inLanguage('pl-pl', 'Wiedźmin 3')))).toBe('Wiedźmin 3')
+    expect(microsoftProductTitle(listing(inLanguage('pl-pl', 'Wied\u017Amin 3')))).toBe(
+      'Wied\u017Amin 3',
+    )
     expect(microsoftProductTitle(listing({ ProductTitle: 'LIMBO' }))).toBe('LIMBO')
   })
 
   it('prefers the Ukrainian listing, then an English one, should an answer carry several', () => {
     const english = inLanguage('en-US', 'The Witcher 3: Wild Hunt')
-    const ukrainian = inLanguage('uk-UA', 'Відьмак 3: Дикий Гін')
-    const polish = inLanguage('pl-PL', 'Wiedźmin 3: Dziki Gon')
+    const ukrainian = inLanguage(
+      'uk-UA',
+      '\u0412\u0456\u0434\u044C\u043C\u0430\u043A 3: \u0414\u0438\u043A\u0438\u0439 \u0413\u0456\u043D',
+    )
+    const polish = inLanguage('pl-PL', 'Wied\u017Amin 3: Dziki Gon')
 
     // The order the job asks for the languages in, and the page its offer links to.
-    expect(microsoftProductTitle(listing(polish, english, ukrainian))).toBe('Відьмак 3: Дикий Гін')
+    expect(microsoftProductTitle(listing(polish, english, ukrainian))).toBe(
+      '\u0412\u0456\u0434\u044C\u043C\u0430\u043A 3: \u0414\u0438\u043A\u0438\u0439 \u0413\u0456\u043D',
+    )
     expect(microsoftProductTitle(listing(polish, english))).toBe('The Witcher 3: Wild Hunt')
-    expect(microsoftProductTitle(listing(polish))).toBe('Wiedźmin 3: Dziki Gon')
+    expect(microsoftProductTitle(listing(polish))).toBe('Wied\u017Amin 3: Dziki Gon')
     // A listing without a title does not count, whatever its language.
     expect(microsoftProductTitle(listing(inLanguage('uk-UA', '  '), english))).toBe(
       'The Witcher 3: Wild Hunt',

@@ -131,6 +131,8 @@ export interface MicrosoftListing {
   group?: string
   /** `OriginalReleaseDate`, as the catalog writes it: the date of the listing. */
   released?: string
+  /** `ProductKind`: `Game` unless told otherwise. */
+  kind?: string
 }
 
 /** The date the catalog gives a listing it has no date for. */
@@ -164,6 +166,8 @@ export function microsoftProduct(
 ) {
   return {
     ProductId: id,
+    // What every product of a real answer says it is; an add-on says `Durable`.
+    ProductKind: listing?.kind ?? 'Game',
     ...(title === undefined
       ? {}
       : { LocalizedProperties: [{ ProductTitle: title, Language: 'en-us' }] }),

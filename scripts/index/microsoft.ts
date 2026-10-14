@@ -345,6 +345,9 @@ export function microsoftProductTitle(product: unknown): string | null {
   return preferred?.title ?? null
 }
 
+/** The year from which a catalog date is its way of saying it has none (`9998-12-30`). */
+const NO_DATE_YEAR = 9000
+
 /** What the catalog says of a product in the market that was asked for, or `undefined`. */
 function marketProperties(product: unknown): Record<string, unknown> | undefined {
   const properties = asRecord(product)?.MarketProperties
@@ -369,10 +372,18 @@ function microsoftProductGroup(product: unknown): string | null {
  * When the catalog says a product was first released in the market (`OriginalReleaseDate`), as
  * epoch milliseconds, or `null` when it does not say so in a way this job reads. It is the date
  * of the listing, not of the game: the "Resident Evil Village" on sale is dated 2026. A product
- * the catalog has no date for is dated `9998-12-30`, which is read as the date it is.
+ * the catalog has no date for is dated `9998-12-30`; any year from 9000 on is read as that, which
+ * is no date at all.
  */
 function microsoftReleasedAt(product: unknown): number | null {
-  return instantOf(marketProperties(product)?.OriginalReleaseDate)
+  const at = instantOf(marketProperties(product)?.OriginalReleaseDate)
+  return at !== null && new Date(at).getUTCFullYear() < NO_DATE_YEAR ? at : null
+}
+
+/** What kind of product the catalog says it is (`ProductKind`), or `null`. */
+function kindOf(product: unknown): string | null {
+  const kind = asRecord(product)?.ProductKind
+  return typeof kind === 'string' && kind !== '' ? kind : null
 }
 
 /**
@@ -383,6 +394,8 @@ function microsoftReleasedAt(product: unknown): number | null {
 export interface MicrosoftProduct {
   price: MicrosoftPrice
   title: string | null
+  /** `ProductKind`: `Game` for a game, `Durable` for an add-on; `null` when it states none. */
+  kind: string | null
   group: string | null
   releasedAt: number | null
 }
@@ -415,6 +428,7 @@ export function parseMicrosoftProducts(
         ? {
             price,
             title: microsoftProductTitle(product),
+            kind: kindOf(product),
             group: microsoftProductGroup(product),
             releasedAt: microsoftReleasedAt(product),
           }

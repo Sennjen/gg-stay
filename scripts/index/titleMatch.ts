@@ -234,25 +234,71 @@ export function gameReleasedAt(released: string | null | undefined): number | nu
 }
 
 /**
+ * How much later than the game a store's product may say it was released: twelve years.
+ *
+ * A store dates a listing, not a game, and re-lists games: the "Resident Evil Village" the
+ * Microsoft Store sells is dated 2026 for a game of 2021, "Grand Theft Auto V Enhanced (PC)" 2025
+ * for a game of 2013 — eleven and a half years, the longest gap among the finds recorded on
+ * 2026-10-13. A remake that took the old game's name is dated from its own release, and that came
+ * later still: Dead Space fourteen years after the first, Resident Evil 4 eighteen, System Shock
+ * twenty-eight. Twelve years keeps the one and refuses the other. What it costs is the price of a
+ * game re-released more than twelve years on (Age of Empires: Definitive Edition): no price,
+ * never a wrong one.
+ */
+export const RELEASE_LATER_LIMIT_MS = 12 * 365.25 * 86_400_000
+
+/**
  * Whether a store's product can be the game by its date: released no more than a year before the
- * game was (`RELEASE_TOLERANCE_MS`).
+ * game was (`RELEASE_TOLERANCE_MS`), and no more than twelve years after it
+ * (`RELEASE_LATER_LIMIT_MS`).
  *
- * A title is shared by games years apart — a 2006 "Prey" and a 2017 one — and a product cannot be
- * older than the game it is. It can well be younger: a store re-lists a game, and dates the new
- * listing (the "Resident Evil Village" the Microsoft Store sells is dated 2026 for a game of
- * 2021), so nothing is asked of a later date.
- *
- * That is also where this guard ends, and it is written down so that nobody takes it for more.
- * An old game whose name a remake has taken — the first "Dead Space", once its own product is
- * gone from the store — is found under the remake's product, whose date is merely later.
+ * A title is shared by games years apart. A product cannot be older than the game it is — a 2006
+ * "Prey" is not the 2017 one — and a product much younger is a remake that took the name, which
+ * is the other game: the first "Dead Space" is not the 2023 one. Between the two, a store's later
+ * date is a re-listing and is believed.
  *
  * A game whose own release date the index does not hold cannot be held against anything, and is
- * found by a title nowhere: `false`.
+ * found by a title nowhere: `false`. A product without a date is the caller's to refuse.
  */
 export function isReleasedInTime(
   gameReleased: string | null | undefined,
   productReleasedAt: number,
 ): boolean {
   const game = gameReleasedAt(gameReleased)
-  return game !== null && productReleasedAt >= game - RELEASE_TOLERANCE_MS
+  return (
+    game !== null &&
+    productReleasedAt >= game - RELEASE_TOLERANCE_MS &&
+    productReleasedAt <= game + RELEASE_LATER_LIMIT_MS
+  )
+}
+
+/**
+ * The games of a run that a later game of the run shares a name with: their ids.
+ *
+ * When RAWG gives a remake its original's very name — "Dead Space", "Resident Evil 4", "System
+ * Shock" — a store's product under that name is the remake's, and a title cannot say which of
+ * the two games it is for. The newer game may take it; the older may not be found by a title at
+ * all, at either store, whatever its date says. Names are compared as titles are
+ * (`comparableTitle`); a game with no release date is no later one, and is found by no title
+ * anyway.
+ *
+ * It costs no request and misses one case: a remake the index does not hold.
+ */
+export function gamesWithLaterNamesakes(
+  games: readonly { id: number; name: string; released: string | null }[],
+): Set<number> {
+  const latest = new Map<string, number>()
+  for (const game of games) {
+    const at = gameReleasedAt(game.released)
+    const name = comparableTitle(game.name)
+    if (at === null || name === '') continue
+    latest.set(name, Math.max(at, latest.get(name) ?? at))
+  }
+  const shadowed = new Set<number>()
+  for (const game of games) {
+    const at = gameReleasedAt(game.released)
+    const later = latest.get(comparableTitle(game.name))
+    if (at !== null && later !== undefined && later > at) shadowed.add(game.id)
+  }
+  return shadowed
 }
