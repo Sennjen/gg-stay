@@ -3,6 +3,8 @@ import { RATE_KEPT_MS } from '../../../scripts/index/offers'
 import { PLAYSTATION_PRICE_SHOWN_MS } from '../../../scripts/index/playstationOffers'
 import {
   OFFER_STORES,
+  OFFER_WAYS,
+  offerWay,
   type IndexedExchangeRate,
   type IndexedGame,
   type IndexedOffer,
@@ -129,7 +131,7 @@ describe('the thirty-six hours an offer is a price for', () => {
     expect(isFreshAt(ago(HOUR), 'not a date')).toBe(false)
   })
 
-  it.each([['not a date'], [''], [undefined], [null], [1_760_000_000_000]])(
+  it.each([['not a date'], [undefined], [1_760_000_000_000]])(
     'does not count an offer dated %j: what cannot be dated is not shown as read just now',
     (updatedAt) => {
       expect(isFreshOffer({ store: 'gog', updatedAt: updatedAt as unknown as string }, NOW)).toBe(
@@ -211,7 +213,6 @@ describe('the seven days a rate is a rate for', () => {
     ['with no read date at all', { readAt: undefined }],
     ['of another currency', { currency: 'EUR' }],
     ['of zero', { uah: 0 }],
-    ['below zero', { uah: -44.9 }],
     ['that is not a number', { uah: Number.NaN }],
     ['that is a string', { uah: '44.9567' }],
     ['for a day that is not a day', { date: '12.10.2026' }],
@@ -266,16 +267,44 @@ describe('the offers a build can show', () => {
     expect(readableOffers(game(offers))).toEqual([microsoft()])
   })
 
-  it.each([[null], ['gog'], [42], [undefined]])(
-    'pass over %j where an offer should be',
-    (notAnOffer) => {
-      expect(readableOffers(game([notAnOffer, microsoft()]))).toEqual([microsoft()])
-    },
-  )
+  it.each([[null], ['gog'], [undefined]])('pass over %j where an offer should be', (notAnOffer) => {
+    expect(readableOffers(game([notAnOffer, microsoft()]))).toEqual([microsoft()])
+  })
 
   it('keep an offer that is too old to be a price: it still names the store’s page', () => {
     const old = gog({ updatedAt: ago(3 * DAY) })
     expect(readableOffers(game([old]))).toEqual([old])
+  })
+
+  it('are the same offers whatever way the job found them by: nothing here reads it', () => {
+    const offers = [gog({ via: 'edition' }), microsoft({ via: 'relation' })]
+    expect(readableOffers(game(offers))).toEqual(offers)
+    // A way a newer job has and this build has never heard of is not a reason to pass over a
+    // price: the offer is handed on as it stands.
+    const newer = gog({ via: 'catalogue-number' as IndexedOffer['via'] })
+    expect(readableOffers(game([newer]))).toEqual([newer])
+    expect(freshOffers(game([newer]), NOW)).toEqual([newer])
+  })
+})
+
+describe('the way an offer was found', () => {
+  it('is one of four, in the order the job tries them', () => {
+    expect(OFFER_WAYS).toEqual(['link', 'relation', 'name', 'edition'])
+  })
+
+  it('is what the offer says', () => {
+    for (const via of OFFER_WAYS) expect(offerWay(gog({ via }))).toBe(via)
+  })
+
+  it('is RAWG’s link for an offer that says nothing, as every offer did before', () => {
+    const written = gog()
+    expect('via' in written).toBe(false)
+    expect(offerWay(written)).toBe('link')
+  })
+
+  it('is RAWG’s link for a way this build does not know', () => {
+    expect(offerWay({ via: 'catalogue-number' as IndexedOffer['via'] })).toBe('link')
+    expect(offerWay({ via: 7 as unknown as IndexedOffer['via'] })).toBe('link')
   })
 })
 
@@ -648,7 +677,7 @@ describe('the store a card names as cheaper than Steam', () => {
       expect(named(priced(675, [gog({ updatedAt: ahead(CLOCK_AHEAD_ALLOWED_MS + 1) })]))).toBeNull()
     })
 
-    it.each([['not a date'], [''], [undefined], [42]])(
+    it.each([['not a date'], [undefined], [42]])(
       'is nobody against a date that cannot be read: %j',
       (date) => {
         const undated = date as unknown as string

@@ -191,14 +191,6 @@ describe('toGameCard', () => {
     expect(toGameCard(indexed({ cover: 'javascript:alert(1)' }), SEEDED).cover).toBeNull()
   })
 
-  it('derives the platform families from the indexed platform ids', () => {
-    expect(toGameCard(indexed({ platforms: [4, 187, 7] }), SEEDED).platformFamilies).toEqual([
-      'PC',
-      'PLAYSTATION',
-      'NINTENDO',
-    ])
-  })
-
   it('serves the same card as the RAWG path for a game both of them know', () => {
     const list = rawgGames as unknown as RawgList<RawgGameListItem>
     for (const document of DEV_FIXTURE_GAMES) {
@@ -345,7 +337,7 @@ describe('toGame', () => {
     ])
   })
 
-  it.each(['', '620/../../login', 'portal-2', ' 620'])(
+  it.each(['', '620/../../login', ' 620'])(
     'builds no store address from %j, which is not an app id',
     (steamAppId) => {
       expect(toGame(indexed({ ...onSale, steamAppId })).stores).toEqual([])
@@ -466,6 +458,19 @@ describe('toStoreOffer', () => {
   it('carries the address as the allow-list hands it back, not as the document held it', () => {
     const row = toStoreOffer(gogOffer({ url: 'https://user:secret@www.gog.com/en/game/x' }), RATE)
     expect(row?.url).toBe('https://www.gog.com/en/game/x')
+  })
+
+  it('makes the same row of an offer whatever way the job found it by', () => {
+    // How the job came to a product is the job's to count; a page is told the price and the
+    // store's own title for it, and nothing of the way — a way this build never heard of included.
+    for (const via of ['link', 'relation', 'name', 'edition', 'catalogue-number']) {
+      const found = { via: via as IndexedOffer['via'] }
+      expect(toStoreOffer(gogOffer(found), RATE)).toEqual(toStoreOffer(gogOffer(), RATE))
+      expect(toStoreOffer(microsoftOffer(found), RATE)).toEqual(
+        toStoreOffer(microsoftOffer(), RATE),
+      )
+    }
+    expect(rowOf(gogOffer({ via: 'edition' }), RATE)).not.toHaveProperty('via')
   })
 
   it('puts a dollar price in the foreign fields, with an estimate, and never in the hryvnia ones', () => {

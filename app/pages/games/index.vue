@@ -57,7 +57,7 @@ const appliedCount = computed(() => countActiveFilters(state.value.filter, ignor
 
 const filtersButtonEl = ref<HTMLButtonElement>()
 
-const { formatUah } = useFormatters()
+const { formatUah, formatDecimal } = useFormatters()
 const { absoluteUrl } = useSiteUrl()
 const robots = useRobots()
 
@@ -68,7 +68,7 @@ const robots = useRobots()
  * to its own limit.
  */
 const filterProse = computed(() =>
-  filterLabels(state.value.filter, { t, formatUah, genres: genres.value }).map(
+  filterLabels(state.value.filter, { t, formatUah, formatDecimal, genres: genres.value }).map(
     (label) => label.prose,
   ),
 )
@@ -125,7 +125,7 @@ useSeoMeta({
       <button
         ref="filtersButtonEl"
         type="button"
-        class="rounded-chip border border-line bg-surface-1 px-4 py-2 text-sm text-fg focus-visible:outline-2"
+        class="h-10 rounded-chip border border-line bg-surface-1 px-4 text-sm text-fg focus-visible:outline-2"
         @click="store.panelOpen = true"
       >
         <i18n-t v-if="appliedCount" keypath="drawer.openButton" tag="span">

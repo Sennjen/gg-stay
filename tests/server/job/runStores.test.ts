@@ -17,7 +17,7 @@ import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import { exchangeRateAt, isFreshOffer, readableOffers } from '../../../server/index/offerRules'
 import { toStoreOffer } from '../../../server/index/toGraphql'
 import { createUpstashIndex } from '../../../server/index/upstashIndex'
-import { JOB_APP_IDS, JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
+import { JOB_APP_IDS, JOB_PAGE_COUNT, jobKeptLinks } from '../../fixtures/index/jobCatalog'
 import {
   JOB_BANK_RATE,
   JOB_MICROSOFT_ID,
@@ -671,14 +671,21 @@ describe('runJob and the other stores, through the Upstash adapter', () => {
       exchangeRate: rate('2026-09-20', RUN_AT),
       offersReadAt: { gog: RUN_AT, 'xbox-store': RUN_AT },
     })
-    // The mapping is outside the version, beside the app ids: one key for each game RAWG lists
-    // on one of the two stores, and none for the seven it lists on neither.
+    // The mapping is outside the version, beside the app ids: one key for each game RAWG was
+    // asked about — the seven on Steam and 109, on the Xbox store — and none for 103, which is
+    // on no store and was not asked. Two of the records name a product; the others hold the
+    // links RAWG gave and nothing else.
     expect(
       redis
         .keys()
         .filter((key) => key.startsWith('storeref:'))
         .sort(),
-    ).toEqual(['storeref:101', 'storeref:109'])
+    ).toEqual([101, 102, 104, 105, 106, 107, 108, 109].map((id) => `storeref:${id}`))
+    const mapping = await night.writer.getStoreRefs([101, 102, 103, 109])
+    expect(mapping.get(101)).toEqual({ gog: 'hollow_cradle', links: jobKeptLinks(101) })
+    expect(mapping.get(102)).toEqual({ links: jobKeptLinks(102) })
+    expect(mapping.has(103)).toBe(false)
+    expect(mapping.get(109)).toMatchObject({ microsoft: { name: 'lost-canton' } })
     // The sweep is done, and its cursor with it.
     expect(redis.keys()).not.toContain('job:cursor:storerefs')
 

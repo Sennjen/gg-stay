@@ -65,4 +65,14 @@ describe('SortSelect', () => {
     expect(wrapper.find('[data-test="sort-ignored"]').exists()).toBe(false)
     expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('PRICE_ASC')
   })
+
+  it("draws its own arrow inside the pill instead of the browser's, which ignores the padding, and never lets it take the click", async () => {
+    const wrapper = await mountSuspended(SortSelect, { props: { modelValue: 'POPULARITY_DESC' } })
+    expect(wrapper.get('select').classes()).toEqual(
+      expect.arrayContaining(['appearance-none', 'h-10', 'pr-9']),
+    )
+    const arrow = wrapper.get('[data-test="sort-arrow"]')
+    expect(arrow.attributes('aria-hidden')).toBe('true')
+    expect(arrow.classes()).toContain('pointer-events-none')
+  })
 })

@@ -30,16 +30,38 @@ const shown = computed<GameSortValue>(() =>
   <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
     <label class="flex items-center gap-2 text-sm text-fg-2">
       <span class="hidden sm:inline">{{ t('catalog.sort') }}</span>
-      <select
-        :value="shown"
-        :aria-label="t('catalog.sort')"
-        class="rounded-chip border border-line bg-surface-1 px-3 py-1.5 text-sm text-fg focus-visible:outline-2"
-        @change="
-          emit('update:modelValue', ($event.target as HTMLSelectElement).value as GameSortValue)
-        "
-      >
-        <option v-for="sort in options" :key="sort" :value="sort">{{ t(`sorts.${sort}`) }}</option>
-      </select>
+      <!-- The browser's own arrow ignores the pill's padding and sits against its rounded edge,
+           so the select draws its own, a fixed distance in. The height is the toolbar's: the
+           filters button and the view toggle beside it are the same `h-10`. -->
+      <span class="relative inline-flex">
+        <select
+          :value="shown"
+          :aria-label="t('catalog.sort')"
+          class="h-10 appearance-none rounded-chip border border-line bg-surface-1 pl-4 pr-9 text-sm text-fg focus-visible:outline-2"
+          @change="
+            emit('update:modelValue', ($event.target as HTMLSelectElement).value as GameSortValue)
+          "
+        >
+          <option v-for="sort in options" :key="sort" :value="sort">
+            {{ t(`sorts.${sort}`) }}
+          </option>
+        </select>
+        <svg
+          data-test="sort-arrow"
+          aria-hidden="true"
+          viewBox="0 0 16 16"
+          width="14"
+          height="14"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-fg-2"
+        >
+          <path d="m4 6 4 4 4-4" />
+        </svg>
+      </span>
     </label>
     <p v-if="ignored" data-test="sort-ignored" class="text-xs text-fg-2">
       {{ t('catalog.sortIgnored', { name: t(`sorts.${modelValue}`) }) }}

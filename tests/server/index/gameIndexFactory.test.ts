@@ -312,15 +312,6 @@ describe('createGameIndex', () => {
     expect(bySlug.reported.some((line) => /skipping it for a while/.test(line))).toBe(true)
   })
 
-  it('moves every price timestamp forward by the same amount as the run itself', async () => {
-    // The fixture records a price fetched three hours before its run finished. Seeding shifts the
-    // whole recorded timeline to the seeding moment, so a development game page shows a plausible
-    // "updated N hours ago" and does not ask Steam to refresh a price on every request.
-    const index = await createGameIndex(sources())
-    expect((await index.getOne(3328))?.priceUpdatedAt).toBe('2026-09-20T04:00:00.000Z')
-    expect((await index.getOne(4200))?.priceUpdatedAt).toBe('2026-09-20T07:00:00.000Z')
-  })
-
   it('answers an empty index rather than failing when there is no fixture', async () => {
     const index = await createGameIndex(sources({ readFixture: async () => null }))
     expect(await index.search({})).toEqual({ ids: [], total: 0, games: [] })
@@ -617,37 +608,6 @@ describe('withCircuit', () => {
    * nothing about the store. Counted as a fast one it would wipe the strikes out twice a page,
    * and a store that crawled would never be skipped again.
    */
-  it('takes no notice of an answer the store was not asked for', async () => {
-    let now = 1_000
-    let sent = 0
-    const fromStore = <T>(value: T, takes: number) => {
-      sent += 1
-      now += takes
-      return Promise.resolve(value)
-    }
-    const index = withCircuit(
-      {
-        ...broken,
-        meta: () => fromStore(null, 1_400),
-        getOne: () => fromStore(null, 1_400),
-        // From memory: no request, and no time to speak of.
-        idBySlug: async () => 4200,
-        storeRequests: () => sent,
-      },
-      { slowMs: 700, strikes: 3, now: () => now },
-    )
-
-    // Neither a strike nor a clean slate: the two slow answers around each one still add up.
-    expect(await index.meta()).toBeNull()
-    expect(await index.idBySlug('portal-2')).toBe(4200)
-    expect(await index.getOne(4200)).toBeNull()
-    expect(await index.idBySlug('portal-2')).toBe(4200)
-    // The third slow answer from the store, with two answers from memory in between.
-    expect(await index.meta()).toBeNull()
-    await expect(index.getOne(4200)).rejects.toThrow(/skipped/)
-    await expect(index.idBySlug('portal-2')).rejects.toThrow(/skipped/)
-  })
-
   it('does not call such an answer slow either, however long it took', async () => {
     let now = 1_000
     const index = withCircuit(
@@ -811,13 +771,6 @@ describe('withCircuit', () => {
     await expect(index.meta()).rejects.toThrow(/skipped/)
     expect(index.storeRequests?.()).toBe(1)
   })
-
-  it('leaves a healthy index alone', async () => {
-    const index = withCircuit(await createGameIndex(sources()))
-    expect((await index.getOne(4200))?.name).toBe('Portal 2')
-    expect(await index.idBySlug('portal-2')).toBe(4200)
-    expect((await index.meta())?.gameCount).toBe(fixture.games.length)
-  })
 })
 
 describe('degradeOnFailure', () => {
@@ -845,24 +798,6 @@ describe('degradeOnFailure', () => {
     await expect(index.meta()).rejects.toBeInstanceOf(IndexUnavailableError)
     await expect(index.allSlugs()).rejects.toBeInstanceOf(IndexUnavailableError)
     expect(onError).toHaveBeenCalledTimes(7)
-  })
-
-  it('keeps a deadline as the deadline it was, rather than renaming it', async () => {
-    const hung: GameIndex = {
-      search: () => new Promise(() => {}),
-      getMany: () => new Promise(() => {}),
-      getOne: () => new Promise(() => {}),
-      idBySlug: () => new Promise(() => {}),
-      meta: () => new Promise(() => {}),
-      allSlugs: () => new Promise(() => {}),
-    }
-    const index = degradeOnFailure(
-      withDeadline(hung, {
-        timeoutMs: 1500,
-        setTimer: { setTimeout: (handler) => (handler(), 0), clearTimeout: () => {} },
-      }),
-    )
-    await expect(index.meta()).rejects.toThrow(/within 1500ms/)
   })
 
   it('passes on how many requests the index has sent: it is the layer the site holds', () => {

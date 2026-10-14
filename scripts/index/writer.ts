@@ -25,6 +25,8 @@ import { createUpstashCommands, createUpstashIndex } from '../../server/index/up
  * | one price chunk, 100 app ids     | 1.5 s throttle + a 5 s timeout and one retry  |
  * | one language batch, 50 apps      | 50 at 40/min ≈ 75 s                           |
  * | one store-reference batch, 100   | 100 × 250 ms + latency ≈ 30 s                 |
+ * | one resolve batch, 100 lookups   | 100 × 250 ms + latency ≈ 30 s                 |
+ * | twenty pages of a resolve run    | 20 × 250 ms + latency ≈ 15 s                  |
  * | one page of GOG's catalog        | 1 s throttle + a 10 s timeout and one retry   |
  * | one Microsoft Store request      | 1 s throttle + a 15 s timeout and one retry   |
  * | one PlayStation Store request    | a 10 s pause + a 15 s timeout, no retry       |

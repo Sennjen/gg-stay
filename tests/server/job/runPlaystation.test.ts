@@ -8,7 +8,12 @@ import {
   type JobReport,
   type StoresReport,
 } from '../../../scripts/index/run'
-import type { IndexMeta, IndexedGame, IndexedOffer } from '../../../server/index/document'
+import type {
+  IndexMeta,
+  IndexedGame,
+  IndexedOffer,
+  IndexedStoreRefs,
+} from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import {
   cheaperAtOf,
@@ -96,6 +101,16 @@ const meridianOffer = (updatedAt: string): IndexedOffer => ({
   updatedAt,
 })
 
+/**
+ * A record with RAWG's links set aside: every record a lookup writes keeps them
+ * (`storeRecordFromLinks`), and what these cases are about is the references beside them.
+ */
+function refsOf(record: IndexedStoreRefs | undefined): IndexedStoreRefs | undefined {
+  if (!record) return record
+  const { links: _links, ...references } = record
+  return references
+}
+
 const psOffers = (game: IndexedGame | null) =>
   (game?.offers ?? []).filter((offer) => offer.store === 'playstation-store')
 
@@ -125,7 +140,12 @@ const EVERY_PRICE = [101, 106, 108].map(
 
 describe('runJob and the PlayStation Store', () => {
   it('asks one kind of question in each kind of run', () => {
-    expect(PLAYSTATION_ASKS).toEqual({ prices: 'prices', full: 'mappings', languages: 'nothing' })
+    expect(PLAYSTATION_ASKS).toEqual({
+      prices: 'prices',
+      full: 'mappings',
+      languages: 'nothing',
+      resolve: 'nothing',
+    })
   })
 
   it('finds the titles with the nightly run, and asks Sony which concepts they belong to', async () => {
@@ -175,7 +195,8 @@ describe('runJob and the PlayStation Store', () => {
       oldestShownPriceAgeMs: null,
       stopped: null,
     })
-    expect(await harness.writer.getStoreRefs([101, 103, 106, 108])).toEqual(
+    const records = await harness.writer.getStoreRefs([101, 103, 106, 108])
+    expect(new Map([...records].map(([id, record]) => [id, refsOf(record)]))).toEqual(
       new Map([
         [
           101,
@@ -257,7 +278,7 @@ describe('runJob and the PlayStation Store', () => {
     // The version is published when the stage is over, twenty seconds in.
     expect(meta?.updatedAt).toBe(request(at, 2))
     // What is remembered of the asking is on the reference, not only on the offer.
-    expect((await prices.writer.getStoreRefs([108])).get(108)).toEqual({
+    expect(refsOf((await prices.writer.getStoreRefs([108])).get(108))).toEqual({
       playstation: { titleId: 'PPSA10800_00', conceptId: 10_108, askedAt: stamp(at, 2) },
     })
   })
@@ -417,7 +438,7 @@ describe('runJob and the PlayStation Store', () => {
 
     expect(report.stores?.playstation).toMatchObject({ pricesRead: 2, removed: 1, offers: 2 })
     expect(psOffers(await gone.writer.getOne(106))).toEqual([])
-    expect((await gone.writer.getStoreRefs([106])).get(106)).toEqual({
+    expect(refsOf((await gone.writer.getStoreRefs([106])).get(106))).toEqual({
       playstation: { titleId: 'CUSA10600_00', conceptId: 10_106, askedAt: stamp(day, 1) },
     })
 
@@ -850,13 +871,16 @@ describe('runJob and the PlayStation Store, through the Upstash adapter', () => 
 
     await runJob(adapterRun(redis, 'the-full-run', RUN_AT).deps, FULL)
 
-    // One key for each game RAWG lists on one of the stores, as before this store was read.
-    expect(
-      redis
-        .keys()
-        .filter((key) => key.startsWith('storeref:'))
-        .sort(),
-    ).toEqual(['storeref:101', 'storeref:103', 'storeref:106', 'storeref:108', 'storeref:109'])
+    // A key for each game RAWG lists on one of the stores, and for each other game it gave a
+    // link for: a record keeps the links (`storeRecordFromLinks`).
+    const keys = redis.keys().filter((key) => key.startsWith('storeref:'))
+    for (const id of [101, 103, 106, 108, 109]) expect(keys).toContain(`storeref:${id}`)
+    const night = await createUpstashIndex(redis.readOnly(), {}).getStoreRefs(
+      keys.map((key) => Number(key.slice('storeref:'.length))),
+    )
+    for (const [id, record] of night) {
+      if (![101, 103, 106, 108, 109].includes(id)) expect(record.links, String(id)).toBeDefined()
+    }
 
     const prices = adapterRun(redis, 'the-prices-run', FIRST_PRICES_AT)
     await runJob(prices.deps, PRICES)

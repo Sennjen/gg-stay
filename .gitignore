@@ -13,6 +13,10 @@ dist
 playwright-report
 test-results
 
+# mutation testing (StrykerJS): its sandbox and its reports
+.stryker-tmp
+reports
+
 # environment
 .env
 .env.*

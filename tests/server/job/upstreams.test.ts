@@ -2,8 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { JobClock } from '../../../scripts/index/deps'
 import { parseUsdRate } from '../../../scripts/index/bank'
 import { walkGogCatalog } from '../../../scripts/index/gog'
-import { parseMicrosoftProducts } from '../../../scripts/index/microsoft'
+import {
+  parseMicrosoftProducts,
+  parseMicrosoftRelations,
+  parseMicrosoftSearch,
+} from '../../../scripts/index/microsoft'
 import { PlaystationStopped } from '../../../scripts/index/playstation'
+import { createRequestMeter } from '../../../scripts/index/requestMeter'
 import {
   createJobBank,
   createJobGog,
@@ -114,6 +119,181 @@ describe('the refresh job’s transports', () => {
 })
 
 /**
+ * What the job's RAWG transport is counted and limited by (`requestMeter.ts`). RAWG's quota is a
+ * number of requests, so the rules here are about what reaches the network: the stand-in for it
+ * below is `fetch` itself, under the transport `runCli` builds, with its retry and its cache.
+ */
+describe('the refresh job’s RAWG transport and its request meter', () => {
+  const still: JobClock = { now: () => 0, sleep: async () => {} }
+
+  /** A network that answers each request with the next of `answers`, and the last one for good. */
+  function scriptedNetwork(...answers: (number | 'timeout')[]) {
+    const network = vi.fn(async () => {
+      const answer = answers.length > 1 ? answers.shift()! : answers[0]!
+      if (answer === 'timeout') throw new DOMException('The operation timed out.', 'TimeoutError')
+      return new Response(JSON.stringify({ results: [] }), { status: answer })
+    })
+    vi.stubGlobal('fetch', network)
+    return network
+  }
+
+  it('counts a request for every call the network answers', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+
+    await rawg('games', { page: 76 })
+    await rawg('games/portal-2/stores')
+
+    expect(network).toHaveBeenCalledTimes(2)
+    expect(meter.issued()).toBe(2)
+  })
+
+  it.each([
+    ['a 5xx', 502],
+    ['a timeout', 'timeout'],
+  ] as const)(
+    'counts the transport’s retry after %s as a request of its own',
+    async (_what, bad) => {
+      const network = scriptedNetwork(bad, 200)
+      const meter = createRequestMeter()
+      const rawg = createJobRawg({ ...options(still), meter })
+
+      expect(await rawg('games/portal-2/stores')).toEqual({ results: [] })
+
+      // One call of the stage, two requests of RAWG's quota.
+      expect(network).toHaveBeenCalledTimes(2)
+      expect(meter.issued()).toBe(2)
+    },
+  )
+
+  it('counts both attempts of a call that fails for good, and one for an answer that is not retried', async () => {
+    const meter = createRequestMeter()
+    scriptedNetwork(503)
+    await expect(
+      createJobRawg({ ...options(still), meter })('games', { page: 1 }),
+    ).rejects.toThrow()
+    expect(meter.issued()).toBe(2)
+
+    // A 404 is an answer: the transport does not ask again.
+    scriptedNetwork(404)
+    await expect(
+      createJobRawg({ ...options(still), meter })('games/gone/stores'),
+    ).rejects.toMatchObject({ kind: 'NOT_FOUND' })
+    expect(meter.issued()).toBe(3)
+  })
+
+  it('counts nothing for an answer out of the transport’s cache', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+
+    await rawg('games/portal-2/stores')
+    await rawg('games/portal-2/stores')
+
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(meter.issued()).toBe(1)
+  })
+
+  it('sends exactly as many requests as the limit, and refuses the next before the network', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(3)
+
+    for (const page of [1, 2, 3]) await rawg('games', { page })
+    await expect(rawg('games', { page: 4 })).rejects.toMatchObject({ source: 'RAWG' })
+
+    expect(network).toHaveBeenCalledTimes(3)
+    expect(meter.issued()).toBe(3)
+    expect(meter.refused()).toBeGreaterThan(0)
+  })
+
+  it('refuses a retry that would be one request too many', async () => {
+    const network = scriptedNetwork(502)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(1)
+
+    await expect(rawg('games/portal-2/stores')).rejects.toMatchObject({ source: 'RAWG' })
+
+    // The first attempt was the last request there was: the retry it earned was not sent.
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(meter.issued()).toBe(1)
+    expect(meter.refused()).toBe(1)
+  })
+
+  it('lets a retry through when it is the last request of the limit', async () => {
+    const network = scriptedNetwork(502, 200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(2)
+
+    expect(await rawg('games/portal-2/stores')).toEqual({ results: [] })
+
+    expect(network).toHaveBeenCalledTimes(2)
+    expect(meter.remaining()).toBe(0)
+    expect(meter.refused()).toBe(0)
+  })
+
+  it('follows no redirect under a limit: one counted request is one request sent', async () => {
+    const network = scriptedNetwork(301)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ ...options(still), meter })
+    meter.limitTo(5)
+
+    await expect(rawg('games/portal-2/stores')).rejects.toMatchObject({
+      kind: 'ERROR',
+      status: 301,
+    })
+
+    // Asked not to follow, answered with the redirect, and not asked again.
+    expect((network.mock.calls as unknown as [string, RequestInit][])[0]![1]).toEqual({
+      signal: expect.any(AbortSignal),
+      redirect: 'manual',
+    })
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(meter.issued()).toBe(1)
+  })
+
+  it('asks as it always did while no limit is set, meter or no meter', async () => {
+    const network = scriptedNetwork(200)
+
+    await createJobRawg({ ...options(still), meter: createRequestMeter() })('games', { page: 1 })
+
+    expect((network.mock.calls as unknown as [string, RequestInit][])[0]![1]).toEqual({
+      signal: expect.any(AbortSignal),
+    })
+  })
+
+  it('counts a recorded answer as the request it stands for, and refuses one past the limit', async () => {
+    const network = scriptedNetwork(200)
+    const meter = createRequestMeter()
+    const rawg = createJobRawg({ apiKey: '', fixtures: true, clock: still, meter })
+    meter.limitTo(3)
+
+    await rawg('games', { ordering: '-added', page: 76 })
+    await rawg('games/portal-2/stores')
+    // The studios stage's lists are answered apart from the transport, and counted like the rest.
+    await rawg('games', { developers: 'gsc-game-world', page: 1 })
+    await expect(rawg('games/stardew-valley/stores')).rejects.toThrow()
+
+    expect(meter.issued()).toBe(3)
+    expect(network).not.toHaveBeenCalled()
+  })
+
+  it('is RAWG’s alone: nothing Steam is asked is counted on it', async () => {
+    scriptedNetwork(200)
+    const meter = createRequestMeter()
+    createJobRawg({ ...options(still), meter })
+
+    await createJobSteam(options(still)).fetchPrices(['292030'])
+
+    expect(meter.issued()).toBe(0)
+  })
+})
+
+/**
  * The three transports only the job has: GOG's catalog, the Microsoft Store's display catalog and
  * the National Bank's rate. None of the three documents its endpoint for third parties, so how
  * the job behaves towards them is a rule of its own: it says who it is, it never hurries, and it
@@ -126,9 +306,13 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
   it('name the project and its repository on every request', async () => {
     const network = stubNetwork(200, { Products: [] })
 
+    const microsoft = createJobMicrosoft(storeOptions(still))
     await createJobGog(storeOptions(still))(1)
-    await createJobMicrosoft(storeOptions(still))(['BTQMHK78ZPF9'])
+    await microsoft.products(['BTQMHK78ZPF9'])
     await createJobBank(storeOptions(still))('2026-10-12')
+    // The two questions a game without a price is asked about are the job's requests like any.
+    await microsoft.details(['9MTNPF414F65'])
+    await microsoft.search('Resident Evil Village')
 
     expect(STORE_USER_AGENT).toMatch(/^gg-stay-index-refresh\//)
     expect(STORE_USER_AGENT).toContain('https://github.com/Sennjen/gg-stay')
@@ -137,6 +321,8 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
       'catalog.gog.com',
       'displaycatalog.mp.microsoft.com',
       'bank.gov.ua',
+      'displaycatalog.mp.microsoft.com',
+      'displaycatalog.mp.microsoft.com',
     ])
     for (const [, init] of requests) {
       expect(init.headers).toMatchObject({ 'User-Agent': STORE_USER_AGENT })
@@ -151,13 +337,24 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     const waits: number[] = []
     const clock: JobClock = { now: () => now, sleep: async (ms) => void waits.push(ms) }
     const gog = createJobGog(storeOptions(clock))
-    const microsoft = createJobMicrosoft(storeOptions(clock))
+    const microsoft = createJobMicrosoft(storeOptions(clock)).products
     const bank = createJobBank(storeOptions(clock))
 
     await Promise.all([1, 2, 3].map((page) => gog(page)))
     expect(waits.splice(0)).toEqual([1_000, 2_000])
     await Promise.all(['BTQMHK78ZPF9', '9NP1P1WFS0LB', '9PP5G1F0C2B6'].map((id) => microsoft([id])))
     expect(waits.splice(0)).toEqual([1_000, 2_000])
+    // Whatever Microsoft is asked leaves through the one limiter: a price read, a product's
+    // relations and a search are a second apart from each other too.
+    now += 3_600_000
+    const catalog = createJobMicrosoft(storeOptions(clock))
+    await Promise.all([
+      catalog.products(['BTQMHK78ZPF9']),
+      catalog.details(['9MTNPF414F65']),
+      catalog.search('Prey'),
+      catalog.search('Terraria'),
+    ])
+    expect(waits.splice(0)).toEqual([1_000, 2_000, 3_000])
     await Promise.all(['2026-10-10', '2026-10-11', '2026-10-12'].map((day) => bank(day)))
     expect(waits.splice(0)).toEqual([1_000, 2_000])
 
@@ -179,7 +376,9 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
       kind: 'ERROR',
       status: 503,
     })
-    await expect(createJobMicrosoft(storeOptions(clock))(['BTQMHK78ZPF9'])).rejects.toMatchObject({
+    await expect(
+      createJobMicrosoft(storeOptions(clock)).products(['BTQMHK78ZPF9']),
+    ).rejects.toMatchObject({
       source: 'MICROSOFT',
     })
     await expect(createJobBank(storeOptions(clock))('2026-10-12')).rejects.toMatchObject({
@@ -198,7 +397,7 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     const options = storeOptions(still, true)
 
     const walk = await walkGogCatalog(createJobGog(options))
-    const products = await createJobMicrosoft(options)(['BTQMHK78ZPF9'])
+    const products = await createJobMicrosoft(options).products(['BTQMHK78ZPF9'])
 
     expect([...walk.products.keys()]).toEqual([
       'the_witcher_3_redkit',
@@ -210,8 +409,41 @@ describe('the refresh job’s transports to GOG, the Microsoft Store and the Nat
     ).toEqual({
       price: { amount: 25_000, regularAmount: 25_000, discountPercent: 0 },
       title: 'LIMBO',
+      kind: 'Game',
+      // That recording was cut before the job read either.
+      group: null,
+      releasedAt: null,
     })
     expect(network).not.toHaveBeenCalled()
+  })
+
+  it('serve the recorded relations and searches in fixture mode, and nothing for a name with no recording', async () => {
+    const network = stubNetwork(200, null)
+    const microsoft = createJobMicrosoft(storeOptions(still, true))
+
+    const relations = parseMicrosoftRelations(await microsoft.details(['9MTNPF414F65']), [
+      '9MTNPF414F65',
+    ])
+    expect(relations.get('9MTNPF414F65')?.parents).toHaveLength(4)
+    expect(parseMicrosoftSearch(await microsoft.search('Prey'))[0]).toEqual({
+      id: '9PBC1QFBW563',
+      title: 'Prey',
+    })
+    // A dry run searches for whatever its fixtures leave without a price. A name nobody recorded
+    // a search for is a name the store sells nothing under, never a failed request.
+    expect(await microsoft.search('Stardew Valley')).toEqual({ Results: [], TotalResultCount: 0 })
+    expect(parseMicrosoftSearch(await microsoft.search('Stardew Valley'))).toEqual([])
+    expect(network).not.toHaveBeenCalled()
+  })
+
+  it('pass on a search the store refused: only a missing recording is "nothing found"', async () => {
+    stubNetwork(429, null)
+
+    await expect(createJobMicrosoft(storeOptions(still)).search('Prey')).rejects.toMatchObject({
+      source: 'MICROSOFT',
+      kind: 'RATE_LIMITED',
+      status: 429,
+    })
   })
 
   it('serve the recorded rate under whatever day is asked for, so a dry run always has one', async () => {

@@ -36,6 +36,21 @@ export const OFFER_STORES = ['gog', 'xbox-store', 'playstation-store'] as const
 export type OfferStore = (typeof OFFER_STORES)[number]
 
 /**
+ * The ways the refresh job finds the product an offer is for, in the order it tries them
+ * (`scripts/index/offers.ts`, `scripts/index/storeFallbacks.ts`):
+ *
+ * - `link` — the product RAWG's own link to the store names;
+ * - `relation` — a product the store itself relates to the linked one, under the linked one's
+ *   title (the Microsoft Store only);
+ * - `name` — a product the store sells under the game's own name;
+ * - `edition` — a product the store sells under the game's name and an edition's words after it.
+ *
+ * A game has no price at a store only when none of them finds one.
+ */
+export const OFFER_WAYS = ['link', 'relation', 'name', 'edition'] as const
+export type OfferWay = (typeof OFFER_WAYS)[number]
+
+/**
  * What one store other than Steam charges a buyer in Ukraine for the game, as the refresh job read
  * it from the store itself (`scripts/index/offers.ts`).
  *
@@ -67,9 +82,15 @@ export type OfferStore = (typeof OFFER_STORES)[number]
  * over; with it, whoever shows the offer knows the moment from which `regularAmount` is the
  * price. Only on an offer that is below its regular price, and only when the store named the
  * moment; any store may carry it, and today only the PlayStation Store does.
+ *
+ * `via` is how the job came to the product (`OFFER_WAYS`), and is left out for `link`: an offer
+ * without it was found through RAWG's link, which is every offer written before there was
+ * another way. Nothing on the site reads it. It is there so that each way can be counted and
+ * audited, and so that a later change of a way's rule can find again what that way found.
  */
 export interface IndexedOffer {
   store: OfferStore
+  via?: OfferWay
   title?: string
   amount: number
   regularAmount: number
@@ -80,6 +101,14 @@ export interface IndexedOffer {
   updatedAt: string
   /** ISO timestamp; after it the offer's price is its regular price. */
   saleEndsAt?: string
+}
+
+/**
+ * The way an offer was found: what it says, or `link` when it says nothing — or says something
+ * this build does not know, which a newer job may one day write.
+ */
+export function offerWay(offer: Pick<IndexedOffer, 'via'>): OfferWay {
+  return (OFFER_WAYS as readonly unknown[]).includes(offer.via) ? (offer.via as OfferWay) : 'link'
 }
 
 export interface IndexedGame {
@@ -205,8 +234,9 @@ export interface IndexedLanguages {
  * prefix under `storeref:{rawgId}` beside the Steam app ids, and for as long: RAWG is asked for a
  * game's store links once for each store it lists the game on.
  *
- * Each field is what RAWG's own link to that store carried, and nothing else — nothing is guessed
- * from a title — and each has three states, because "asked" is remembered store by store:
+ * Each of the two store fields is what RAWG's own link to that store carried, and nothing else —
+ * nothing is guessed from a title — and each has three states, because "asked" is remembered store
+ * by store:
  *
  * - a value: the link named a product;
  * - `null`: RAWG lists the game on the store and gave no link the job can read. That is an answer,
@@ -218,6 +248,10 @@ export interface IndexedLanguages {
  * enough there: it names a title, and Sony prices a concept. What Sony answered about the title
  * is kept beside it, and is Sony's and the job's own — a record rewritten from RAWG's links keeps
  * it for as long as the links still name the same title (`storeRefsFromLinks`).
+ *
+ * `fallbacks` is the one part of a record that is not RAWG's: what the job found by a store's own
+ * ways where RAWG's link named no product on sale (`IndexedStoreFallbacks`). It stands beside the
+ * link and never in its place — what RAWG said is kept as RAWG said it.
  */
 export interface IndexedStoreRefs {
   /** The slug of the game's GOG page: the path segment after `/game/` in RAWG's link. */
@@ -248,7 +282,81 @@ export interface IndexedStoreRefs {
      */
     askedAt?: string
   } | null
+  /**
+   * Every link RAWG gave for the game when it was last asked, as `[RAWG store id, URL]` pairs in
+   * RAWG's order: the links of the stores above, and of every other store beside them. They are
+   * kept so that a store the job learns to read later can take its reference from what is already
+   * known, instead of spending a RAWG request a game to ask again.
+   *
+   * **Third-party text, kept as data and as nothing else.** A link is partly publisher-submitted.
+   * It is never rendered, never put into a line of the log or of a summary, and never followed:
+   * the only code that may read it is a reference parser, which takes a link by its shape (a known
+   * host, a known path) and hands on what it parsed, never the link. A link a page shows comes
+   * from a store's own answer (`IndexedOffer.url`), not from here.
+   *
+   * Bounded where the record is made (`linksToKeep` in `scripts/index/storeRefs.ts`): absolute
+   * http(s) URLs only, as `URL` writes them, of at most `MAX_STORE_LINK_LENGTH` characters, with a
+   * whole-number store id, and at most `MAX_STORE_LINKS` of them a game. A link that fails a check
+   * is left out; the others are kept.
+   *
+   * No part of the three states: a record's links say what RAWG linked, and nothing about which
+   * store the game has been asked about. Left out, not written empty, when RAWG gave no link
+   * that can be kept. Optional as well because records written before the job kept them have
+   * none.
+   */
+  links?: [storeId: number, url: string][]
+  /** What the job's other ways to a product found, and when they last looked. */
+  fallbacks?: IndexedStoreFallbacks
 }
+
+/**
+ * What the refresh job remembers of the ways to a game's product that are not RAWG's link
+ * (`scripts/index/storeFallbacks.ts`), on the game's store reference record.
+ *
+ * **Why it is remembered at all.** An offer needs a reference, and a product found by its title
+ * has none at RAWG: without a record of it the offer would be dropped by the very next run. And
+ * looking is not free at the Microsoft Store — a request a game — so what a search settled on is
+ * priced directly from then on, and a search that found nothing is not repeated for thirty days.
+ *
+ * - `gog` — the product a walk of GOG's catalog found for the game by its name, when RAWG's slug
+ *   was not in the catalog or RAWG gave none. It stands while its own product is sold and passes
+ *   the title ways' guards; the catalog is looked through again only when it does not.
+ * - `microsoft` — when the store's own ways were last tried for the game (`searchedAt`), and the
+ *   product they settled on (`found`), if any. A later look that finds nothing moves the date and
+ *   leaves `found` as it was: that product is asked about in every read, and may be sold again.
+ *
+ * Each `via` is the way that found the product (`OfferWay`, never `link`), and each `foundAt` an
+ * ISO timestamp of the read that did.
+ */
+export interface IndexedStoreFallbacks {
+  gog?: {
+    /** The slug of the catalog product: what `IndexedStoreRefs.gog` would hold, had RAWG had it. */
+    slug: string
+    via: 'name' | 'edition'
+    foundAt: string
+  }
+  microsoft?: {
+    /** ISO timestamp of the last run that tried every way for the game to the end. */
+    searchedAt: string
+    found?: {
+      /** The twelve-character product id, in upper case. */
+      id: string
+      /** The name the product's page is addressed by, made from the store's title for it. */
+      name: string
+      via: 'relation' | 'name' | 'edition'
+      foundAt: string
+    }
+  }
+}
+
+/**
+ * The most links one store-reference record keeps (`IndexedStoreRefs.links`): a game has one link
+ * a store at RAWG, and the catalog knows six stores.
+ */
+export const MAX_STORE_LINKS = 12
+
+/** The longest link one of them may be, in characters; the recorded ones are under a hundred. */
+export const MAX_STORE_LINK_LENGTH = 300
 
 /**
  * The National Bank of Ukraine's official rate of one currency, as the refresh job read it. It

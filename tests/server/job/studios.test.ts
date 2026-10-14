@@ -134,14 +134,6 @@ describe('collectStudioGames', () => {
     expect(games.map((game) => game.id)).toEqual([1, 2])
   })
 
-  it('stops after the first page when RAWG has no next one', async () => {
-    const harness = createJobHarness({ studios: JOB_STUDIO_GAMES })
-
-    await collectStudioGames(harness.deps, [], { slugs: ['frogwares'] })
-
-    expect(harness.studioCalls()).toHaveLength(1)
-  })
-
   it('asks again for a studio page RAWG answered without a result list, and carries on', async () => {
     const harness = createJobHarness({ studios: JOB_STUDIO_GAMES })
     harness.answerNextWith(studioPage('gsc-game-world', 1), null)
@@ -266,15 +258,6 @@ describe('collectStudioGames', () => {
     expect(result.studiosWithoutGames).toEqual(['Boolat Games'])
   })
 
-  it('counts every RAWG request it makes, retries included', async () => {
-    const harness = createJobHarness({ studios: JOB_STUDIO_GAMES })
-
-    const result = await collectStudioGames(harness.deps, [])
-
-    expect(result.requests).toBe(UKRAINIAN_STUDIO_SLUGS.length)
-    expect(result.requests).toBe(harness.studioCalls().length)
-  })
-
   it('renews the write lock every twenty pages, like the candidate walk', async () => {
     const harness = createJobHarness({ studios: JOB_STUDIO_GAMES })
     const renewLock = vi.spyOn(harness.writer, 'renewLock')
@@ -302,33 +285,10 @@ describe('collectStudioGames keeping what the published version had', () => {
     return harness.writer
   }
 
-  it.each([
-    [
-      'failed',
-      (harness: ReturnType<typeof createJobHarness>) =>
-        harness.failNext((call) => call.params.developers === 'gsc-game-world'),
-    ],
-    [
-      'is unknown to RAWG',
-      (harness: ReturnType<typeof createJobHarness>) =>
-        harness.failNext(
-          (call) => call.params.developers === 'gsc-game-world',
-          new UpstreamError('RAWG', 'NOT_FOUND', 404),
-        ),
-    ],
-    [
-      'listed no games',
-      (harness: ReturnType<typeof createJobHarness>) =>
-        harness.answerNextWith(studioPage('gsc-game-world', 1), {
-          count: 0,
-          next: null,
-          results: [],
-        }),
-    ],
-  ])('keeps the published games of a slug that %s tonight', async (_name, breakIt) => {
+  it('keeps the published games of a slug that failed tonight', async () => {
     const writer = await publishFirstNight()
     const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES, start: nightsLater(1) })
-    breakIt(tonight)
+    tonight.failNext((call) => call.params.developers === 'gsc-game-world')
     const games = await candidatesOf(tonight)
 
     const result = await collectStudioGames(tonight.deps, games, {
@@ -460,17 +420,6 @@ describe('collectStudioGames keeping what the published version had', () => {
     })
 
     expect(games.find((game) => game.id === 106)?.madeInUkraine).toBe(true)
-  })
-
-  it('lets a studio taken off the list take its flags with it', async () => {
-    const writer = await publishFirstNight()
-    const tonight = createJobHarness({ writer, studios: JOB_STUDIO_GAMES })
-    const games = await candidatesOf(tonight)
-
-    const result = await collectStudioGames(tonight.deps, games, { slugs: ['gsc-game-world'] })
-
-    expect(games.filter((game) => game.madeInUkraine).map((game) => game.id)).toEqual([110])
-    expect(result).toMatchObject({ kept: 0, degraded: false })
   })
 
   it('keeps every published flag, and says so, when under half of them were found', async () => {

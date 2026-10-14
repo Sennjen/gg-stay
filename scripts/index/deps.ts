@@ -1,7 +1,8 @@
 import type { BankRateFetch } from './bank'
 import type { GogCatalogFetch } from './gog'
-import type { MicrosoftProductsFetch } from './microsoft'
+import type { MicrosoftCatalogFetch, MicrosoftProductsFetch } from './microsoft'
 import type { PlaystationStore } from './playstation'
+import type { RequestMeter } from './requestMeter'
 import type { GameIndex, GameIndexWriter } from '../../server/index/GameIndex'
 import type { RawgFetch } from '../../server/rawg/rawgFetch'
 import type { SteamPriceFetch } from '../../server/steam/steamPriceFetch'
@@ -67,11 +68,23 @@ export function oneLine(value: unknown): string {
 
 export interface JobDeps {
   rawg: RawgFetch
+  /**
+   * What `rawg` has sent, counted where its requests leave for the network, and the limit a run
+   * may set on them (`requestMeter.ts`). `--mode=resolve` works inside it and refuses to start
+   * without it; no other mode reads it. Optional because a transport that is a stand-in — a
+   * stage's test — sends nothing there is to count.
+   */
+  rawgRequests?: RequestMeter
   steam: SteamPriceFetch
   /** One page of GOG's catalog for Ukraine. */
   gog: GogCatalogFetch
   /** The Microsoft Store's answer about a batch of product ids, for Ukraine. */
   microsoft: MicrosoftProductsFetch
+  /**
+   * What the Microsoft Store relates a batch of products to, and what it sells under a name: the
+   * store's own ways to a product, asked only for a game RAWG's link gave no price for.
+   */
+  microsoftCatalog: MicrosoftCatalogFetch
   /** The National Bank's dollar rate for one day. */
   bank: BankRateFetch
   /**

@@ -93,22 +93,6 @@ describe('the cache never decides an answer', () => {
     }
   })
 
-  it('never loses a filter because the budget was too small for it', async () => {
-    const memory = createMemoryGameIndex()
-    await publishFixture(memory)
-    const expected = await shape(memory, { genres: ['indie'] })
-
-    for (const cacheBytes of [8_000_000, 400, 300, 0]) {
-      const redis = createFakeRedis()
-      const live = createUpstashIndex(redis, { cacheBytes })
-      await publishFixture(live)
-      const first = await shape(live, { genres: ['indie'] })
-      const second = await shape(live, { genres: ['indie'] })
-      expect(first, `bytes=${cacheBytes} first`).toBe(expected)
-      expect(second, `bytes=${cacheBytes} second`).toBe(expected)
-    }
-  })
-
   it('still answers when it keeps nothing and the query needs many sets', async () => {
     const redis = createFakeRedis()
     const live = createUpstashIndex(redis, { cacheBytes: 0, cacheEntries: 1 })

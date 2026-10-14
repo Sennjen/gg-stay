@@ -10,10 +10,13 @@ import {
   storeRefsFromLinks,
   sweepStoreRefs,
   usableStoreRefs,
+  playstationFromLinks,
+  storeRecordFromLinks,
 } from '../../../scripts/index/storeRefs'
 import type { IndexedStoreRefs } from '../../../server/index/document'
+import { withGogFound, withMicrosoftFallback } from '../../../scripts/index/storeFallbacks'
 import { JOB_PAGE_COUNT } from '../../fixtures/index/jobCatalog'
-import { JOB_PLAYSTATION_TITLES } from '../../fixtures/index/jobPlaystation'
+import { JOB_PLAYSTATION_LINKS, JOB_PLAYSTATION_TITLES } from '../../fixtures/index/jobPlaystation'
 import { JOB_MICROSOFT_ID } from '../../fixtures/index/jobStores'
 import { createJobHarness, type JobHarness } from './harness'
 
@@ -319,6 +322,16 @@ async function candidatesOf(harness: JobHarness) {
 }
 
 const asked = (harness: JobHarness) => harness.storeCalls().map((call) => call.path)
+
+/**
+ * A record with RAWG's links set aside: every record a lookup writes keeps them
+ * (`storeRecordFromLinks`), and what these cases are about is the references beside them.
+ */
+function refsOf(record: IndexedStoreRefs | undefined): IndexedStoreRefs | undefined {
+  if (!record) return record
+  const { links: _links, ...references } = record
+  return references
+}
 const HOLLOW = { gog: 'hollow_cradle', playstation: { titleId: JOB_PLAYSTATION_TITLES[101] } }
 const AMBER = { playstation: { titleId: JOB_PLAYSTATION_TITLES[106] } }
 const MERIDIAN = { playstation: { titleId: JOB_PLAYSTATION_TITLES[108] } }
@@ -334,10 +347,14 @@ describe('the PlayStation title in the job’s two lookups', () => {
     // the PlayStation Store cost nothing more.
     expect(asked(harness)).toHaveLength(7)
     const refs = await harness.writer.getStoreRefs(games.map((game) => game.id))
-    expect(refs.get(106)).toEqual(AMBER)
-    expect(refs.get(108)).toEqual(MERIDIAN)
-    // Beside the GOG page the same answer named.
-    expect(refs.get(101)).toEqual(HOLLOW)
+    expect(refsOf(refs.get(106))).toEqual(AMBER)
+    expect(refsOf(refs.get(108))).toEqual(MERIDIAN)
+    // Beside the GOG page the same answer named, and the links that answer gave.
+    expect(refsOf(refs.get(101))).toEqual(HOLLOW)
+    expect(refs.get(101)!.links).toContainEqual([
+      3,
+      expect.stringContaining('store.playstation.com'),
+    ])
   })
 
   it('is swept for a game that is not on Steam, and asked about once', async () => {
@@ -351,7 +368,7 @@ describe('the PlayStation title in the job’s two lookups', () => {
     // What the app ids left: 103, listed there and on nothing else, and 109 on the Xbox store.
     expect(asked(harness)).toEqual(['games/paper-harbour/stores', 'games/lost-canton/stores'])
     // Listed, asked, and its link is a PlayStation 3 product: no reference, and that is an answer.
-    expect(result.refs.get(103)).toEqual({ playstation: null })
+    expect(refsOf(result.refs.get(103))).toEqual({ playstation: null })
     expect(countStoreRefs(games, result.refs)).toEqual({
       listed: 5,
       asked: 5,
@@ -373,7 +390,13 @@ describe('the PlayStation title in the job’s two lookups', () => {
     const old = await candidatesOf(before)
     await resolveAppIds(before.deps, old)
     await sweepStoreRefs(before.deps, old)
-    expect((await before.writer.getStoreRefs([101, 103, 106, 108, 109])).size).toBe(2)
+    // A record for every game RAWG gave a link for, its links kept — and none of them a
+    // PlayStation-store link, which RAWG did not give then.
+    const records = await before.writer.getStoreRefs([101, 103, 106, 108, 109])
+    expect(records.size).toBe(4)
+    for (const record of records.values()) {
+      expect(record.links?.some(([store]) => store === 3) ?? false).toBe(false)
+    }
 
     const harness = createJobHarness({ writer: before.writer, playstation: true })
     const games = await candidatesOf(harness)
@@ -392,9 +415,9 @@ describe('the PlayStation title in the job’s two lookups', () => {
       'games/silent-meridian/stores',
     ])
     expect(result).toMatchObject({ attempted: 4, failures: 0, remaining: 0, stopped: null })
-    expect(result.refs.get(106)).toEqual(AMBER)
-    expect(result.refs.get(101)).toEqual(HOLLOW)
-    expect(result.refs.get(109)).toEqual({
+    expect(refsOf(result.refs.get(106))).toEqual(AMBER)
+    expect(refsOf(result.refs.get(101))).toEqual(HOLLOW)
+    expect(refsOf(result.refs.get(109))).toEqual({
       microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' },
     })
   })
@@ -413,8 +436,11 @@ describe('the PlayStation title in the job’s two lookups', () => {
     const result = await sweepStoreRefs(harness.deps, onGog)
 
     expect(asked(harness)).toContain('games/amber-trail/stores')
-    expect(result.refs.get(106)).toEqual({ gog: null, ...known })
-    expect((await harness.writer.getStoreRefs([106])).get(106)).toEqual({ gog: null, ...known })
+    expect(refsOf(result.refs.get(106))).toEqual({ gog: null, ...known })
+    expect(refsOf((await harness.writer.getStoreRefs([106])).get(106))).toEqual({
+      gog: null,
+      ...known,
+    })
   })
 
   it('keeps what Sony said when the app-id stage rewrites a game’s record', async () => {
@@ -428,6 +454,147 @@ describe('the PlayStation title in the job’s two lookups', () => {
     await resolveAppIds(harness.deps, games)
 
     expect(asked(harness)).toContain('games/silent-meridian/stores')
-    expect((await harness.writer.getStoreRefs([108])).get(108)).toEqual(known)
+    expect(refsOf((await harness.writer.getStoreRefs([108])).get(108))).toEqual(known)
+  })
+})
+
+describe('the PlayStation title from the links a record keeps', () => {
+  const PS4 = 'https://store.playstation.com/en-us/product/UP0001-CUSA10600_00-AMBERTRAIL000001'
+  const PS3 = 'https://store.playstation.com/en-us/product/UP0001-NPUB10300_00-PAPERHARBOUR0001'
+  const STEAM_LINK: [number, string] = [1, 'https://store.steampowered.com/app/1/']
+  const FALLBACKS = {
+    microsoft: { searchedAt: '2026-10-13T03:00:00.000Z' },
+  }
+  const listed = ['steam', 'playstation-store']
+
+  it('reads the title from a PlayStation-store row, and keeps everything else of the record', () => {
+    const record: IndexedStoreRefs = {
+      gog: null,
+      microsoft: null,
+      links: [STEAM_LINK, [3, PS4]],
+      fallbacks: FALLBACKS,
+    }
+    expect(playstationFromLinks(record, listed)).toEqual({
+      ...record,
+      playstation: { titleId: 'CUSA10600_00' },
+    })
+  })
+
+  it('answers "no title to read" for a row whose link is a PlayStation 3 product', () => {
+    expect(playstationFromLinks({ links: [[3, PS3]] }, listed)).toEqual({
+      links: [[3, PS3]],
+      playstation: null,
+    })
+  })
+
+  it('leaves to RAWG a record whose links have no PlayStation-store row, or no links at all', () => {
+    // RAWG may have listed the game on the store after the record's links were read.
+    expect(playstationFromLinks({ gog: null, links: [STEAM_LINK] }, listed)).toBeUndefined()
+    expect(playstationFromLinks({ gog: null }, listed)).toBeUndefined()
+    expect(playstationFromLinks(undefined, listed)).toBeUndefined()
+  })
+
+  it('never touches a record that has a PlayStation field already, whatever it holds', () => {
+    for (const playstation of [null, { titleId: 'CUSA00419_00', conceptId: 7 }]) {
+      expect(playstationFromLinks({ playstation, links: [[3, PS4]] }, listed)).toBeUndefined()
+    }
+  })
+
+  it('costs the sweep no request for a record written with links, and asks RAWG for the rest', async () => {
+    const harness = createJobHarness({ playstation: true })
+    const games = await candidatesOf(harness)
+    await resolveAppIds(harness.deps, games)
+    // The records as a build that kept links and read no PlayStation title left them: 101 and
+    // 106 with their RAWG links, and 108 with links but no PlayStation-store row among them.
+    const asLeft = (id: number, links: [number, string][]): [number, IndexedStoreRefs] => [
+      id,
+      { links, fallbacks: FALLBACKS },
+    ]
+    const linksOf = (id: number): [number, string][] =>
+      JOB_PLAYSTATION_LINKS[id]!.map((link) => [link.store_id!, link.url!])
+    await harness.writer.setStoreRefs([
+      [
+        101,
+        {
+          gog: 'hollow_cradle',
+          links: [[5, 'https://www.gog.com/game/hollow_cradle'], ...linksOf(101)],
+        },
+      ],
+      asLeft(106, linksOf(106)),
+      asLeft(108, [STEAM_LINK]),
+    ])
+    harness.calls.length = 0
+
+    const result = await sweepStoreRefs(harness.deps, games)
+
+    // 101 and 106 are read from their links; 108's links say nothing of the store, and 103 and
+    // 109 were never asked about: those three are RAWG's.
+    expect(asked(harness)).toEqual([
+      'games/paper-harbour/stores',
+      'games/silent-meridian/stores',
+      'games/lost-canton/stores',
+    ])
+    expect(result.fromLinks).toBe(2)
+    const stored = await harness.writer.getStoreRefs([101, 106, 108])
+    expect(stored.get(101)).toEqual({
+      gog: 'hollow_cradle',
+      playstation: { titleId: JOB_PLAYSTATION_TITLES[101] },
+      links: [[5, 'https://www.gog.com/game/hollow_cradle'], ...linksOf(101)],
+    })
+    expect(stored.get(106)).toEqual({
+      playstation: { titleId: JOB_PLAYSTATION_TITLES[106] },
+      ...asLeft(106, linksOf(106))[1],
+    })
+    // 108 rewritten from RAWG's answer: its title and the new links. (Its Microsoft search goes
+    // with a record that no longer answers about that store, by the rule of `carryFallbacks`.)
+    expect(stored.get(108)).toMatchObject({ playstation: { titleId: JOB_PLAYSTATION_TITLES[108] } })
+    expect(stored.get(108)!.links).toContainEqual([
+      3,
+      expect.stringContaining('store.playstation.com'),
+    ])
+  })
+
+  it('is kept, with Sony’s answer, the stores’ finds and new links, by every writer of the record', () => {
+    const found = {
+      gog: { slug: 'amber_trail', via: 'name' as const, foundAt: '2026-10-13T03:00:00.000Z' },
+    }
+    const previous: IndexedStoreRefs = {
+      gog: null,
+      playstation: {
+        titleId: 'CUSA10600_00',
+        conceptId: 10_106,
+        askedAt: '2026-10-13T06:15:00.000Z',
+      },
+      links: [[3, PS4]],
+      fallbacks: found,
+    }
+    const record = storeRecordFromLinks(
+      [
+        { store_id: 3, url: PS4 },
+        { store_id: 1, url: 'https://store.steampowered.com/app/2/' },
+      ],
+      ['steam', 'gog', 'playstation-store'],
+      previous,
+    )
+    expect(record).toEqual({
+      gog: null,
+      playstation: previous.playstation,
+      links: [
+        [3, PS4],
+        [1, 'https://store.steampowered.com/app/2/'],
+      ],
+      fallbacks: found,
+    })
+    // And the stores' own ways, writing what they found or searched, pass the rest on as it is.
+    const searched = { searchedAt: '2026-10-14T03:00:00.000Z' }
+    expect(withMicrosoftFallback(previous, searched)).toEqual({
+      ...previous,
+      fallbacks: { ...found, microsoft: searched },
+    })
+    expect(withGogFound(previous, null)).toEqual({
+      gog: null,
+      playstation: previous.playstation,
+      links: previous.links,
+    })
   })
 })

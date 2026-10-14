@@ -239,7 +239,12 @@ export async function fetchGamesPage(
   throw new Error(`RAWG answered ${what} without a result list twice`)
 }
 
-function fetchCandidatePage(deps: JobDeps, page: number): Promise<RawgGamesPage> {
+/**
+ * One page of the popularity order: RAWG's most-added first, `CANDIDATE_PAGE_SIZE` games a page.
+ * The query is written here and nowhere else, so that whoever reads further down the order than
+ * the index goes (`resolve.ts`) reads the very list the index is the top of, page for page.
+ */
+export function fetchCandidatePage(deps: JobDeps, page: number): Promise<RawgGamesPage> {
   return fetchGamesPage(
     deps,
     { ordering: '-added', page_size: CANDIDATE_PAGE_SIZE, page },

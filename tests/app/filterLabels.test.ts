@@ -9,6 +9,7 @@ import { filterLabels, type FilterLabelContext } from '~/utils/filterLabels'
 const context: FilterLabelContext = {
   t: (key, named) => (named ? `${key}(${Object.values(named).join(',')})` : key),
   formatUah: (value) => `${value} ₴`,
+  formatDecimal: (value) => value.toFixed(1).replace('.', ','),
   genres: [{ slug: 'rpg', name: 'RPG' }],
 }
 
@@ -38,6 +39,17 @@ describe('filterLabels', () => {
       ['priceMaxUah', 'filters.priceUpTo(300 ₴)'],
       ['madeInUkraine', 'filters.madeInUkraine'],
     ])
+  })
+
+  it('names the player rating floor with one decimal, whichever step it is', () => {
+    const [label] = filterLabels({ ratingMin: 4 }, context)
+    expect(label).toMatchObject({
+      field: 'ratingMin',
+      label: 'filters.userRatingMin(4,0)',
+      numberPart: { keypath: 'filters.userRatingMin', slot: 'value', value: '4,0' },
+      patch: { ratingMin: undefined },
+    })
+    expect(filterLabels({ ratingMin: 3.5 }, context)[0]!.label).toBe('filters.userRatingMin(3,5)')
   })
 
   it('reads a bare number in prose with the name of what it measures', () => {

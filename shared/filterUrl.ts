@@ -8,7 +8,7 @@ import {
   PLAYTIMES,
   STORE_OPTIONS,
   UI_SORTS,
-  USER_RATING_MIN,
+  USER_RATING_STEPS,
   type AgeRatingValue,
   type GameModeValue,
   type GameSortValue,
@@ -88,6 +88,13 @@ function int(value: unknown, min: number, max: number): number | undefined {
   return parsed >= min && parsed <= max ? parsed : undefined
 }
 
+/** One of the rating steps, written with at most one decimal: `4`, `4.0`, `4.5`. */
+function ratingStep(value: unknown): number | undefined {
+  const raw = first(value)
+  if (!raw || !/^\d(\.\d)?$/.test(raw)) return undefined
+  return USER_RATING_STEPS.find((step) => step === Number(raw))
+}
+
 function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
   return allowed.includes(value as T) ? (value as T) : undefined
 }
@@ -110,7 +117,7 @@ export function parseFilterQuery(query: Record<string, unknown>): CatalogState {
     yearTo: int(query.yearTo, 1970, 2100),
     upcoming: first(query.upcoming) === '1' ? true : undefined,
     metacriticMin: METACRITIC_STEPS.find((step) => step === int(query.metacriticMin, 0, 100)),
-    ratingMin: int(query.ratingMin, 0, 5) === USER_RATING_MIN ? USER_RATING_MIN : undefined,
+    ratingMin: ratingStep(query.ratingMin),
     playtime: oneOf(first(query.playtime), PLAYTIMES),
     gameModes: nonEmpty(list(query.gameModes).flatMap((mode) => oneOf(mode, GAME_MODES) ?? [])),
     ageRating: nonEmpty(

@@ -1,0 +1,8 @@
+{
+  "Results": [
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9N2S04LGXXH4", "Type": "Game", "Title": "Resident Evil Village"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9N7T25ZJJQ9T", "Type": "Game", "Title": "Resident Evil Village Gold Edition"}]},
+    {"ProductFamilyName": "Games", "Products": [{"ProductId": "9MW7MFV29CMF", "Type": "Game", "Title": "Resident Evil Village"}]}
+  ],
+  "TotalResultCount": 3
+}

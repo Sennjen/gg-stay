@@ -325,6 +325,15 @@ export const JOB_STORE_LINKS: Record<number, RawgList<RawgStoreLink>> = {
   },
 }
 
+/**
+ * A game's links as its store-reference record keeps them (`IndexedStoreRefs.links`): RAWG's
+ * store id and the URL, in RAWG's order. Every link above is an http(s) URL in the spelling `URL`
+ * gives it and none is long, so each is kept exactly as it is written here.
+ */
+export function jobKeptLinks(id: number): [number, string][] {
+  return (JOB_STORE_LINKS[id]?.results ?? []).map((link) => [link.store_id!, link.url!])
+}
+
 /** RAWG game id to the Steam app id the store links resolve to (`''` = the game has none). */
 export const JOB_APP_IDS: Record<number, string> = {
   101: '411000',

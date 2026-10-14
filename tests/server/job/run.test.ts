@@ -26,7 +26,7 @@ import { UKRAINIAN_STUDIO_SLUGS } from '../../../shared/ukrainianStudios'
 import type { IndexedGame } from '../../../server/index/document'
 import { createUpstashIndex, RedisBatchError } from '../../../server/index/upstashIndex'
 import { createFakeRedis } from '../index/fakeRedis'
-import { createJobHarness, type RawgCall } from './harness'
+import { createJobHarness } from './harness'
 
 const RUN_AT = '2026-09-20T03:00:00.000Z'
 const FULL = { mode: 'full', pages: JOB_PAGE_COUNT, forceUnlock: false } as const
@@ -246,13 +246,10 @@ describe('runJob', () => {
     expect(beginVersion.mock.calls[1]![0]).toEqual({ force: true })
   })
 
-  it.each([
-    ['the candidate walk', (call: RawgCall) => call.path === 'games'],
-    ['the app id lookups', (call: RawgCall) => call.path.endsWith('/stores')],
-  ])('gives the draft back when %s brings the run down', async (_name, match) => {
+  it('gives the draft back when the app id lookups bring the run down', async () => {
     const harness = createJobHarness({ start: RUN_AT })
     const discardVersion = vi.spyOn(harness.writer, 'discardVersion')
-    for (let i = 0; i < 10; i += 1) harness.failNext(match)
+    for (let i = 0; i < 10; i += 1) harness.failNext((call) => call.path.endsWith('/stores'))
 
     await expect(runJob(harness.deps, FULL)).rejects.toThrow()
 
@@ -1103,16 +1100,18 @@ describe('runCli', () => {
     // about with their app id and the sweep asked about the third, the studio fixture's game,
     // whose links name a GOG edition and a Microsoft product the recordings hold
     // (`tests/fixtures/gog`, `tests/fixtures/microsoft`). The other two links are RAWG's real
-    // ones and find nothing there: The Witcher 3's GOG page is no longer in GOG's catalog, and
-    // Stardew Valley's Microsoft product is not in the recorded answer.
+    // ones and find nothing there. The Witcher 3's GOG page is no longer in GOG's catalog, and
+    // the game is found in it by its name, as the edition GOG sells it as. Stardew Valley's
+    // Microsoft product is not in the recorded answer; the store's own ways are tried for it and
+    // find nothing, there being no recorded search for its name.
     expect(summary).toContain(
       '| Store references | 3 of 5 games on GOG, the Xbox store or the PlayStation Store at RAWG, 3 asked; 2 with a GOG page, 2 with a Microsoft Store product, 1 with a PlayStation title; RAWG: 1 lookup this run, 0 failed, 0 left for the next full run |',
     )
     expect(summary).toContain(
-      '| GOG prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
+      '| GOG prices | 2 references, 2 prices read, 0 failed; 2 offers published, 1 request; found by: link 1, edition 1; 1 searched for this run, 1 found (edition 1), 0 waiting |',
     )
     expect(summary).toContain(
-      '| Microsoft Store prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request |',
+      '| Microsoft Store prices | 2 references, 1 price read, 0 failed; 1 offer published, 1 request; 1 searched for this run in 2 requests, 0 found, 0 waiting |',
     )
     // The PlayStation Store, from its own recorded answers (`tests/fixtures/playstation`): RAWG's
     // fixtures list Stardew Valley there, and the title in its link is one Sony names a concept
