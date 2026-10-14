@@ -109,8 +109,8 @@ jobs:
       # sooner than that.
       # The numbers of a resolve run are free text from a form: the script reads them from the
       # environment and takes nothing but whole numbers, and refuses to start without a budget or
-      # with one above its ceiling. On a schedule all three are empty, and no other mode reads
-      # the last two.
+      # with one above its ceiling. On a schedule all three are empty. Any other mode refuses to
+      # start when it is given a budget or a first page: a mode chosen by mistake spends nothing.
       - name: Refresh the index
         env:
           MODE: ${{ steps.mode.outputs.mode }}

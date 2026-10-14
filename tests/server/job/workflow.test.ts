@@ -32,7 +32,9 @@ describe('the index refresh workflow', () => {
     expect(manual[0]!.pattern.split('|').sort()).toEqual([...JOB_MODES].sort())
     expect(manual[0]!.pattern.split('|')).toContain('resolve')
     for (const mode of manual[0]!.pattern.split('|')) {
-      expect(() => parseArgs([`--mode=${mode}`], { INDEX_BUDGET: '1' })).not.toThrow()
+      // A budget belongs to resolve alone: any other mode given one refuses to start.
+      const env = mode === 'resolve' ? { INDEX_BUDGET: '1' } : {}
+      expect(() => parseArgs([`--mode=${mode}`], env)).not.toThrow()
     }
     // Anything else ends the step.
     expect(workflow).toContain(`*) echo "Unknown mode input" >&2; exit 1 ;;`)

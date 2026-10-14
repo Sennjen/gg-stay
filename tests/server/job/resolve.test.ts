@@ -1645,20 +1645,76 @@ describe('parseArgs for a resolve run', () => {
     )
   })
 
-  it('leaves the other modes as they were, whatever the resolve inputs hold', () => {
-    const stray = { INDEX_BUDGET: 'nonsense', INDEX_FROM_PAGE: '-4' }
-    expect(parseArgs([], stray)).toEqual({ mode: 'full', pages: 75, forceUnlock: false })
-    expect(parseArgs(['--mode=prices'], stray)).toEqual({
-      mode: 'prices',
-      pages: 75,
-      forceUnlock: false,
+  describe('fails closed when another mode is given resolve’s numbers', () => {
+    const modes = ['full', 'prices', 'languages'] as const
+
+    it.each(modes)(
+      'refuses --mode=%s given a budget, from the form or the command line',
+      (mode) => {
+        const refused =
+          /--budget belong to --mode=resolve; a --mode=\w+ run given it does not start/
+        expect(() => parseArgs([`--mode=${mode}`], { INDEX_BUDGET: '6000' })).toThrow(refused)
+        expect(() => parseArgs([`--mode=${mode}`, '--budget=6000'])).toThrow(refused)
+        // Whatever the budget holds: it is its presence that is refused.
+        expect(() => parseArgs([`--mode=${mode}`], { INDEX_BUDGET: 'nonsense' })).toThrow(refused)
+      },
+    )
+
+    it.each(modes)(
+      'refuses --mode=%s given a first page, from the form or the command line',
+      (mode) => {
+        const refused = /--from-page belong to --mode=resolve; a --mode=\w+ run given it/
+        expect(() => parseArgs([`--mode=${mode}`], { INDEX_FROM_PAGE: '76' })).toThrow(refused)
+        expect(() => parseArgs([`--mode=${mode}`, '--from-page=76'])).toThrow(refused)
+        expect(() => parseArgs([`--mode=${mode}`], { INDEX_FROM_PAGE: '-4' })).toThrow(refused)
+      },
+    )
+
+    it.each(modes)(
+      'refuses --mode=%s given both, and names a page count above 75 with them',
+      (mode) => {
+        expect(() =>
+          parseArgs([`--mode=${mode}`], {
+            INDEX_BUDGET: '6000',
+            INDEX_FROM_PAGE: '76',
+            INDEX_PAGES: '250',
+          }),
+        ).toThrow(
+          `--budget and --from-page belong to --mode=resolve; a --mode=${mode} run given them does ` +
+            'not start, and --pages=250 is more than the 75 the index is made of.',
+        )
+        expect(() =>
+          parseArgs([`--mode=${mode}`, '--pages=250'], { INDEX_BUDGET: '6000' }),
+        ).toThrow(/--pages=250 is more than the 75/)
+      },
+    )
+
+    it('says which mode it refused, for the summary', () => {
+      let refused: unknown
+      try {
+        parseArgs(['--mode=full'], { INDEX_BUDGET: '6000' })
+      } catch (error) {
+        refused = error
+      }
+      expect(refused).toMatchObject({ mode: 'full' })
     })
-    expect(parseArgs(['--mode=languages', '--budget=12', '--from-page=3'])).toEqual({
-      mode: 'languages',
-      pages: 75,
-      forceUnlock: false,
+
+    it('runs the other modes as before when the two are blank, as on every schedule', () => {
+      const blank = { INDEX_BUDGET: '', INDEX_FROM_PAGE: ' ', INDEX_PAGES: '' }
+      expect(parseArgs([], blank)).toEqual({ mode: 'full', pages: 75, forceUnlock: false })
+      expect(parseArgs(['--mode=prices'], blank)).toEqual({
+        mode: 'prices',
+        pages: 75,
+        forceUnlock: false,
+      })
+      expect(parseArgs(['--mode=languages'], blank)).toEqual({
+        mode: 'languages',
+        pages: 75,
+        forceUnlock: false,
+      })
+      // A page count alone is a full run's own business, as it always was.
+      expect(parseArgs(['--mode=full'], { INDEX_PAGES: '2' }).pages).toBe(2)
     })
-    expect(parseArgs(['--mode=full'], { INDEX_PAGES: '2' }).pages).toBe(2)
   })
 })
 
@@ -1741,6 +1797,28 @@ describe('runCli in resolve mode', () => {
       expect(summary).not.toContain('| RAWG requests |')
     },
   )
+
+  it('refuses a full run handed a budget before anything is asked of anybody', async () => {
+    quiet()
+    const network = vi.fn(async () => new Response('null'))
+    vi.stubGlobal('fetch', network)
+
+    const code = await runCli(['--mode=full'], {
+      INDEX_DRY_RUN: '1',
+      INDEX_BUDGET: '6000',
+      INDEX_FROM_PAGE: '76',
+      INDEX_PAGES: '250',
+      // No fixtures: a run that started would go to the network, which is stubbed to count it.
+      RAWG_API_KEY: 'test-key',
+    })
+
+    expect(code).toBe(1)
+    expect(network).not.toHaveBeenCalled()
+    const summary = lastLogged()
+    expect(summary).toContain('| Mode | full |')
+    expect(summary).toContain('| Result | failed in start-up |')
+    expect(summary).toContain('belong to --mode=resolve')
+  })
 
   it('keeps what was typed into the form inside one cell of the refusal', async () => {
     quiet()

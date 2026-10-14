@@ -263,7 +263,28 @@ export function parseArgs(
   if (!Number.isInteger(pages) || pages < 1) {
     throw refusal(mode, `--pages must be a positive whole number, got ${pages}.`)
   }
-  if (mode !== 'resolve') return { mode, pages, forceUnlock }
+  if (mode !== 'resolve') {
+    // Fail closed. The two numbers are a resolve run's alone, so another mode that is handed one
+    // was chosen by mistake in the form, and run as chosen it would ask RAWG for whatever its own
+    // stages want, under no budget — a full run with resolve's page count would ask about
+    // thousands of games and publish them. Scheduled runs pass both empty and are not touched.
+    const given = [
+      ...(budget === '' ? [] : ['--budget']),
+      ...(fromPage === '' ? [] : ['--from-page']),
+    ]
+    if (given.length > 0) {
+      const tooManyPages =
+        pages > DEFAULT_CANDIDATE_PAGES
+          ? `, and --pages=${pages} is more than the ${DEFAULT_CANDIDATE_PAGES} the index is made of`
+          : ''
+      throw refusal(
+        mode,
+        `${given.join(' and ')} belong to --mode=resolve; a --mode=${mode} run given ` +
+          `${given.length === 1 ? 'it' : 'them'} does not start${tooManyPages}.`,
+      )
+    }
+    return { mode, pages, forceUnlock }
+  }
 
   // A resolve run spends what it is told and nothing is assumed for it: no budget, no run.
   if (budget === '') {
