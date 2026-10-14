@@ -1,5 +1,5 @@
 import { assertWithinFailureBudget, oneLine, type JobDeps } from './deps'
-import { storeLinksOf, storeRefsFromLinks } from './storeRefs'
+import { carryFallbacks, storeLinksOf, storeRefsFromLinks } from './storeRefs'
 import type { IndexedGame, IndexedStoreRefs } from '../../server/index/document'
 import type { RawgList, RawgStoreLink } from '../../server/rawg/types'
 import { steamAppIdFromUrl } from '../../server/steam/steam'
@@ -116,6 +116,10 @@ export async function resolveAppIds(
   const known = await deps.writer.getAppIds(candidates.map((game) => game.id))
 
   const pending = candidates.filter((game) => !known.has(game.id))
+  // A game resolved now may have a store record already — swept while RAWG did not list it on
+  // Steam — and what the stores' own ways found for it is carried into the one written here.
+  const recorded =
+    pending.length > 0 ? await deps.writer.getStoreRefs(pending.map((game) => game.id)) : new Map()
   let batch: [number, string][] = []
   let storeRefs: [number, IndexedStoreRefs][] = []
 
@@ -151,7 +155,9 @@ export async function resolveAppIds(
         // game's other stores, and the sweep asks about it again rather than remember "no link".
         // And only a record that says something: a game on neither store needs none.
         const links = storeLinksOf(response)
-        const refs = links ? storeRefsFromLinks(links, game.stores) : {}
+        const refs = links
+          ? carryFallbacks(recorded.get(game.id), storeRefsFromLinks(links, game.stores))
+          : {}
         if (Object.keys(refs).length > 0) storeRefs.push([game.id, refs])
         if (batch.length >= batchSize) await flush()
       } catch {

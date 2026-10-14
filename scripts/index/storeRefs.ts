@@ -224,6 +224,31 @@ export function storeRefsFromLinks(
 }
 
 /**
+ * A record RAWG's answer has just made (`storeRefsFromLinks`), with what the stores' own ways
+ * had found for the game carried over from the record it replaces (`IndexedStoreRefs.fallbacks`),
+ * for each store the new record still answers about. A rewrite is RAWG speaking again about its
+ * links, not about what the job found by other means; dropped with the old record, a find would
+ * take its offer with it, and the Microsoft Store's would wait thirty days to be found again.
+ *
+ * A store the new record says nothing about takes nothing with it. Everything else is the new
+ * record's own, fields this module does not know included: whatever a newer builder puts in it
+ * stays.
+ */
+export function carryFallbacks(
+  previous: IndexedStoreRefs | undefined,
+  next: IndexedStoreRefs,
+): IndexedStoreRefs {
+  const before = previous?.fallbacks
+  if (!before || typeof before !== 'object') return next
+  const carried: NonNullable<IndexedStoreRefs['fallbacks']> = {}
+  if ('gog' in next && before.gog) carried.gog = before.gog
+  if ('microsoft' in next && before.microsoft) carried.microsoft = before.microsoft
+  return Object.keys(carried).length > 0
+    ? { ...next, fallbacks: { ...next.fallbacks, ...carried } }
+    : next
+}
+
+/**
  * A record as the price stages may use it: only the references, and only those that are what
  * this module would have written. The mapping outlives every build that writes it, and what is
  * read back from a store is about to become part of a request to somebody else's server and of a
@@ -358,7 +383,7 @@ export async function sweepStoreRefs(
       try {
         const links = storeLinksOf(await deps.rawg(`games/${game.slug}/stores`))
         if (!links) throw new Error('RAWG answered without a list of store links')
-        const refs = storeRefsFromLinks(links, game.stores)
+        const refs = carryFallbacks(known.get(game.id), storeRefsFromLinks(links, game.stores))
         known.set(game.id, refs)
         batch.push([game.id, refs])
       } catch {

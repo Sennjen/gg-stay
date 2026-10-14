@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { resolveAppIds } from '../../../scripts/index/appIds'
 import { collectCandidates } from '../../../scripts/index/candidates'
 import {
+  carryFallbacks,
   countStoreRefs,
   gogSlugFromUrl,
   listedOfferStores,
@@ -782,5 +783,90 @@ describe('resolveAppIds and the store references', () => {
     expect(asked(harness)).toEqual(
       storesOf('paper-harbour', 'amber-trail', 'deep-signal', 'lost-canton'),
     )
+  })
+})
+
+describe('a record RAWG rewrites, and what the stores’ own ways had found', () => {
+  const FOUND_AT = '2026-10-13T03:00:00.000Z'
+  const gogFound = { slug: 'lost_canton_complete', via: 'edition' as const, foundAt: FOUND_AT }
+  const microsoftFound = {
+    searchedAt: FOUND_AT,
+    found: { id: '9N2S04LGXXH4', name: 'lost-canton', via: 'relation' as const, foundAt: FOUND_AT },
+  }
+
+  it('carries the finds over for each store the new record still answers about', () => {
+    const before: IndexedStoreRefs = {
+      gog: null,
+      microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' },
+      fallbacks: { gog: gogFound, microsoft: microsoftFound },
+    }
+
+    expect(carryFallbacks(before, { gog: 'lost_canton', microsoft: null })).toEqual({
+      gog: 'lost_canton',
+      microsoft: null,
+      fallbacks: { gog: gogFound, microsoft: microsoftFound },
+    })
+    // A store the new record says nothing about takes nothing with it.
+    expect(carryFallbacks(before, { microsoft: null })).toEqual({
+      microsoft: null,
+      fallbacks: { microsoft: microsoftFound },
+    })
+    expect(carryFallbacks(before, {})).toEqual({})
+    // Nothing to carry: the new record as it was made.
+    const fresh = { gog: 'lost_canton' }
+    expect(carryFallbacks(undefined, fresh)).toBe(fresh)
+    expect(carryFallbacks({ gog: null }, fresh)).toBe(fresh)
+  })
+
+  it('keeps whatever else the new record holds: a builder that adds `links` keeps them', () => {
+    const before = { microsoft: null, fallbacks: { microsoft: microsoftFound } } as IndexedStoreRefs
+    const next = {
+      microsoft: null,
+      links: ['https://www.microsoft.com/en-us/p/lost-canton/9nlostcant0n'],
+    } as IndexedStoreRefs
+
+    expect(carryFallbacks(before, next)).toEqual({
+      ...next,
+      fallbacks: { microsoft: microsoftFound },
+    })
+  })
+
+  it('carries them through the sweep, when a game gains a store and RAWG is asked again', async () => {
+    const harness = createJobHarness()
+    const { games } = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
+    // Lost Canton was asked about the Xbox store, and found there by the store's own ways; now
+    // RAWG lists it on GOG as well, so the sweep asks RAWG again and rewrites the record.
+    const canton = games.find((game) => game.id === 109)!
+    canton.stores = [...canton.stores, 'gog']
+    await harness.writer.setStoreRefs([
+      [109, { microsoft: null, fallbacks: { microsoft: microsoftFound } }],
+    ])
+
+    const { refs } = await sweepStoreRefs(harness.deps, games)
+
+    expect(harness.storeCalls().map((call) => call.path)).toContain('games/lost-canton/stores')
+    const record = {
+      gog: null,
+      microsoft: { id: JOB_MICROSOFT_ID, name: 'lost-canton' },
+      fallbacks: { microsoft: microsoftFound },
+    }
+    expect(refs.get(109)).toEqual(record)
+    expect((await harness.writer.getStoreRefs([109])).get(109)).toEqual(record)
+  })
+
+  it('carries them through the app-id stage, when a game newly listed on Steam is resolved', async () => {
+    const harness = createJobHarness()
+    const { games } = await collectCandidates(harness.deps, { pages: JOB_PAGE_COUNT })
+    // Hollow Cradle's GOG find was made while it had no app id; the stage now resolves it.
+    await harness.writer.setStoreRefs([
+      [101, { gog: 'hollow_cradle', fallbacks: { gog: gogFound } }],
+    ])
+
+    await resolveAppIds(harness.deps, games)
+
+    expect((await harness.writer.getStoreRefs([101])).get(101)).toEqual({
+      gog: 'hollow_cradle',
+      fallbacks: { gog: gogFound },
+    })
   })
 })
