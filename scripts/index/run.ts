@@ -1111,6 +1111,49 @@ function succeeded(report: JobReport): boolean {
   return report.outcome?.published === true
 }
 
+/** What Upstash's client puts between its error and the whole request body it failed on. */
+const UPSTASH_REQUEST_QUOTE = ', command was: '
+
+/**
+ * The names of the commands a quoted request body held — `MSET`, `MGET` — and nothing of their
+ * arguments, or `null` when the quote is not a body of commands this adapter sends.
+ */
+function commandNames(quoted: string): string[] | null {
+  let body: unknown
+  try {
+    body = JSON.parse(quoted)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(body)) return null
+  const commands: unknown[] = body.every(Array.isArray) ? body : [body]
+  const names = commands.map((command) =>
+    Array.isArray(command) ? String(command[0] ?? '').toUpperCase() : '',
+  )
+  if (names.length === 0 || names.some((name) => !/^[A-Z]{1,20}$/.test(name))) return null
+  return [...new Set(names)]
+}
+
+/**
+ * An error as the run may print it, in its log and in its summary.
+ *
+ * `@upstash/redis` answers a request the store refused with an error that ends in the whole
+ * request: `ERR max request size exceeded, command was: [["MSET", …]]`. For a batch of store
+ * references that is a hundred records with RAWG's links in them — third-party text the job
+ * never prints — and the start of a runner command can survive in a link. So such a message is
+ * cut to what the store said and the names of the commands the request held. Any other message
+ * is printed as it always was.
+ */
+export function errorLine(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const quote = message.indexOf(UPSTASH_REQUEST_QUOTE)
+  if (quote < 0) return message
+  const names = commandNames(message.slice(quote + UPSTASH_REQUEST_QUOTE.length))
+  return oneLine(
+    `${message.slice(0, quote)} (${names ? `request of ${names.join(', ')}` : 'request not quoted'})`,
+  )
+}
+
 /**
  * 0 when a version was published — or, for a resolve run, when it ran to its end — and 1 for
  * anything else. The workflow's red/green comes from here.
@@ -1154,8 +1197,9 @@ export async function runCli(
     await writeProbe(deps)
     report = { ...(await runJob(deps, options)), dryRun }
   } catch (error) {
-    // The message only: an upstream error object can carry the request it failed on.
-    const message = error instanceof Error ? error.message : String(error)
+    // The message only: an upstream error object can carry the request it failed on — and the
+    // message itself is cut where Upstash's client quotes the request (`errorLine`).
+    const message = errorLine(error)
     const named = error as { stage?: unknown; report?: JobReport; mode?: JobMode }
     console.error(message)
     const reached = named.report

@@ -17,9 +17,9 @@ import {
   resolveWarnings,
   type ResolveOptions,
 } from '../../../scripts/index/resolve'
-import { formatSummary, parseArgs, runCli, runJob } from '../../../scripts/index/run'
+import { errorLine, formatSummary, parseArgs, runCli, runJob } from '../../../scripts/index/run'
 import type { IndexedStoreRefs } from '../../../server/index/document'
-import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
+import { createMemoryGameIndex, MemoryGameIndex } from '../../../server/index/memoryIndex'
 import { createUpstashIndex } from '../../../server/index/upstashIndex'
 import type { RawgGameListItem, RawgStoreLink } from '../../../server/rawg/types'
 import { STORE_OPTIONS } from '../../../shared/catalog'
@@ -1820,6 +1820,32 @@ describe('runCli in resolve mode', () => {
     expect(summary).toContain('belong to --mode=resolve')
   })
 
+  it('prints no request the index refused: the error is cut to what the store said and the commands', async () => {
+    quiet()
+    const body = [
+      [
+        'MSET',
+        'storeref:101',
+        JSON.stringify({ links: [[3, 'https://store.example/p#\n##[stop-commands]x']] }),
+      ],
+      ['MSET', 'appid:101', '1010'],
+    ]
+    vi.spyOn(MemoryGameIndex.prototype, 'setStoreRefs').mockRejectedValue(
+      new Error(`ERR max request size exceeded, command was: ${JSON.stringify(body)}`),
+    )
+
+    const code = await runCli(['--mode=resolve', '--budget=10'], {
+      INDEX_DRY_RUN: '1',
+      RAWG_FIXTURES: '1',
+    })
+
+    expect(code).toBe(1)
+    const printed = [vi.mocked(console.error).mock.calls.flat().join('\n'), lastLogged()].join('\n')
+    expect(printed).toContain('ERR max request size exceeded (request of MSET)')
+    expect(printed).not.toMatch(/storeref|store\.example|https?:|##\[|command was/)
+    expect(lastLogged()).toContain('| Error | ERR max request size exceeded (request of MSET) |')
+  })
+
   it('keeps what was typed into the form inside one cell of the refusal', async () => {
     quiet()
 
@@ -1833,5 +1859,48 @@ describe('runCli in resolve mode', () => {
     expect(lastLogged()).toContain(
       '| Error | --budget must be a positive whole number, got 6000 / all of it. |',
     )
+  })
+})
+
+describe('errorLine', () => {
+  it('cuts an Upstash error at the request it quotes, keeping the names of its commands', () => {
+    const body = JSON.stringify([
+      ['MGET', 'storeref:1', 'storeref:2'],
+      ['MSET', 'storeref:1', '{"links":[[3,"https://x.example/"]]}'],
+      ['EXPIRE', 'idx:lock', 1800],
+    ])
+
+    expect(errorLine(new Error(`ERR something, command was: ${body}`))).toBe(
+      'ERR something (request of MGET, MSET, EXPIRE)',
+    )
+    // One command rather than a pipeline of them.
+    expect(errorLine(new Error('NOPERM, command was: ["SET","job:cursor:probe","1"]'))).toBe(
+      'NOPERM (request of SET)',
+    )
+  })
+
+  it('names no command when the quote is not one it can read, and quotes nothing of it', () => {
+    for (const quote of [
+      '{"links":["https://x.example/"]}',
+      'not json at all',
+      '[]',
+      '[["https://x"]]',
+    ]) {
+      const line = errorLine(new Error(`ERR broken, command was: ${quote}`))
+      expect(line).toBe('ERR broken (request not quoted)')
+    }
+  })
+
+  it('makes what the store said one line', () => {
+    expect(errorLine(new Error('ERR a\nb, command was: [["DEL","k"]]'))).toBe(
+      'ERR a b (request of DEL)',
+    )
+  })
+
+  it('leaves every other message as it was', () => {
+    const held =
+      'Another index run (run-1) is refreshing the index. It has held the write lock for 3 minute(s) and was last heard from 1 minute(s) ago. If that run is dead, re-run the workflow with the force_unlock input to take the lock over.'
+    expect(errorLine(new Error(held))).toBe(held)
+    expect(errorLine('plain text')).toBe('plain text')
   })
 })
