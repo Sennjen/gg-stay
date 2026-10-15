@@ -228,7 +228,7 @@ export type RawgGamesPage = RawgList<RawgGameListItem> & { results: RawgGameList
  * their pages through here.
  */
 export async function fetchGamesPage(
-  deps: JobDeps,
+  deps: Pick<JobDeps, 'rawg'>,
   params: RawgParams,
   what: string,
 ): Promise<RawgGamesPage> {
@@ -244,7 +244,10 @@ export async function fetchGamesPage(
  * The query is written here and nowhere else, so that whoever reads further down the order than
  * the index goes (`resolve.ts`) reads the very list the index is the top of, page for page.
  */
-export function fetchCandidatePage(deps: JobDeps, page: number): Promise<RawgGamesPage> {
+export function fetchCandidatePage(
+  deps: Pick<JobDeps, 'rawg'>,
+  page: number,
+): Promise<RawgGamesPage> {
   return fetchGamesPage(
     deps,
     { ordering: '-added', page_size: CANDIDATE_PAGE_SIZE, page },
