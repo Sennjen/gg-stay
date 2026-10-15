@@ -523,7 +523,8 @@ async function saveExport(dir: string, rows: readonly ExportRow[]): Promise<void
 
 /**
  * An export run, whole. Unlike every other run it takes no lock and begins no version: it only
- * reads the index, so it can run on the read-only token and never makes a scheduled run wait. It
+ * reads the index, so it writes nothing with whatever token it is given and never makes a
+ * scheduled run wait. It
  * is refused before anything is read when it has no usable budget or no meter to hold it to one.
  */
 async function runExport(
@@ -1754,7 +1755,8 @@ export async function runCli(
     // A failed run is the one whose traffic is most worth knowing; the catch below has no `deps`.
     writerStats = () => fromEnv.writer.stats?.() ?? null
 
-    // An export only reads, and is given the read-only token, which the probe would fail on.
+    // An export only reads: it has no business proving it may write, and a read-only token
+    // would fail the probe.
     if (options.mode !== 'export') await writeProbe(deps)
     report = { ...(await runJob(deps, options)), dryRun }
   } catch (error) {

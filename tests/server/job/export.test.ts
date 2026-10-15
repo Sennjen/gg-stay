@@ -22,7 +22,9 @@ import type {
   IndexMeta,
 } from '../../../server/index/document'
 import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
+import { createUpstashIndex } from '../../../server/index/upstashIndex'
 import type { RawgGameListItem } from '../../../server/rawg/types'
+import { createFakeRedis } from '../index/fakeRedis'
 import { createRawgWire, createWireHarness, type WireAnswer, type WireRequest } from './harness'
 
 /**
@@ -511,6 +513,63 @@ describe('an export publishes nothing', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('an export on the index token the workflow gives it', () => {
+  /** What Redis may be sent by an export: reads, by the names the fake records them under. */
+  const READS = [
+    'get',
+    'mget',
+    'smembers',
+    'sunion',
+    'zrangeAll',
+    'zrangebyscore',
+    'hget',
+    'hgetall',
+  ]
+
+  it('sends Redis read commands only, though its token could write, and runs on a token that cannot', async () => {
+    const redis = createFakeRedis()
+    // Published by a run that holds the lock, as the nightly run does.
+    const seeding = createUpstashIndex(redis, { runId: 'the-full-run' })
+    const version = await seeding.beginVersion()
+    await seeding.writeVersion(version, [document(1)])
+    await seeding.publish(version, {
+      version,
+      updatedAt: RUN_AT,
+      pricesUpdatedAt: RUN_AT,
+      gameCount: 1,
+    })
+    await seeding.setAppIds([[11, '110']])
+    const before = redis.requests.length
+    const keys = redis.keys().sort()
+
+    for (const commands of [redis, redis.readOnly()]) {
+      const writer = createUpstashIndex(commands, { runId: 'the-export' })
+      const wire = createRawgWire({ 1: [listed(11)] })
+      const harness = createWireHarness({ start: RUN_AT, wire, writer })
+      vi.stubGlobal('fetch', wire.fetch)
+      const dir = await mkdtemp(join(tmpdir(), 'export-'))
+      try {
+        const report = await runJob(harness.deps, {
+          mode: 'export',
+          pages: 1,
+          forceUnlock: false,
+          budget: 5,
+          exportDir: dir,
+        })
+        expect(report.export).toMatchObject({ games: { onSite: 1, notOnSite: 1 } })
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    }
+
+    const sent = redis.requests.slice(before).flatMap((request) => request.commands)
+    expect(sent.length).toBeGreaterThan(0)
+    for (const command of sent) expect(READS, command).toContain(command)
+    // No key was added, removed or locked.
+    expect(redis.keys().sort()).toEqual(keys)
   })
 })
 

@@ -26,9 +26,9 @@ on:
   # A manual run chooses its mode. `resolve` is manual only — no schedule above selects it, and
   # none should: it spends RAWG requests on games the index does not hold yet, as many as its
   # `budget` says and no more, and publishes nothing (scripts/index/resolve.ts). Nor is `export`:
-  # it reads the index with the read-only token, reads RAWG's list pages inside its `budget`, and
-  # hands every game the job knows, with its store links and prices, out as a CSV file in an
-  # artifact (scripts/index/export.ts).
+  # it only reads the index, reads RAWG's list pages inside its `budget`, and hands every game the
+  # job knows, with its store links and prices, out as a CSV file in an artifact
+  # (scripts/index/export.ts).
   workflow_dispatch:
     inputs:
       mode:
@@ -139,9 +139,10 @@ jobs:
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
         run: pnpm index:refresh --mode="$MODE"
 
-      # An export reads and never writes, so it is given the token the site holds, which cannot
-      # write, and not the job's: it takes no lock and runs no write probe. A first page is
-      # handed on only so that the script refuses it.
+      # An export reads and never writes: it takes no lock, runs no write probe and sends Redis
+      # read commands only. It is given the job's token all the same, because the repository
+      # holds no other; the code is what keeps it to reading (tests/server/job/export.test.ts).
+      # A first page is handed on only so that the script refuses it.
       - name: Export the games
         if: steps.mode.outputs.mode == 'export'
         env:
@@ -151,7 +152,7 @@ jobs:
           INDEX_EXPORT_DIR: games-export
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
-          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_READONLY_TOKEN }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
         run: pnpm index:refresh --mode=export
 
       # The file, for the owner to download from the run's page: kept a week.

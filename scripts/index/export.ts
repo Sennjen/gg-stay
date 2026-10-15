@@ -30,7 +30,7 @@ import type { RawgFetch } from '../../server/rawg/rawgFetch'
  * no store is asked anything: what the table says is what the index holds.
  *
  * **Read only.** The stage is handed the four reads it needs (`ExportIndex`) and nothing else, so
- * it can run on the index's read-only token and takes no writer lock.
+ * it sends Redis read commands only, whatever its token may do, and takes no writer lock.
  *
  * Nothing RAWG wrote reaches the log or the summary: they carry counts, and the names, slugs and
  * links go into the file alone.

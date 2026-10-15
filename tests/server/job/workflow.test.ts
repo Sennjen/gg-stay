@@ -65,17 +65,16 @@ describe('the index refresh workflow', () => {
     expect(arms().filter((arm) => arm.mode === 'export')).toEqual([])
   })
 
-  it('runs an export on the read-only token alone, and hands its file out for a week', () => {
+  it('runs an export in a step of its own, and hands its file out for a week', () => {
     const steps = workflow.split(/\n(?= {6}- )/)
     const exporting = steps.find((step) => step.includes('name: Export the games'))!
     const refreshing = steps.find((step) => step.includes('name: Refresh the index'))!
     const uploading = steps.find((step) => step.includes('name: Upload the export'))!
 
     expect(exporting).toContain("if: steps.mode.outputs.mode == 'export'")
-    expect(exporting).toContain(
-      'UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_READONLY_TOKEN }}',
-    )
-    expect(exporting).not.toContain('secrets.UPSTASH_REDIS_REST_TOKEN }}')
+    // The repository's secrets are three; the export's code, not its token, keeps it to reading.
+    expect(exporting).toContain('UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}')
+    expect(exporting).not.toContain('INDEX_FORCE_UNLOCK')
     expect(exporting).toContain('run: pnpm index:refresh --mode=export')
     // The writing run never runs as an export, and an export is the only run with the upload.
     expect(refreshing).toContain("if: steps.mode.outputs.mode != 'export'")
