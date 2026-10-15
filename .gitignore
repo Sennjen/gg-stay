@@ -29,3 +29,6 @@ reports
 # editor
 .idea
 .vscode
+
+# what `pnpm index:refresh --mode=export` writes by default
+games-export
