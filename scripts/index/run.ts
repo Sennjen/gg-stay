@@ -67,6 +67,7 @@ import {
 import { createWriterFromEnv } from './writer'
 import { OFFER_WAYS, type IndexedGame, type OfferWay } from '../../server/index/document'
 import type { IndexWriteStats } from '../../server/index/GameIndex'
+import { keySwitchLine } from '../../server/rawg/rawgKeys'
 import { RedisBatchError } from '../../server/index/upstashIndex'
 
 /**
@@ -259,6 +260,12 @@ export interface JobReport {
   resolve?: ResolveReport | null
   /** What an export run did. Like a resolve run, it publishes nothing. */
   export?: ExportReport | null
+  /**
+   * Which RAWG key the run ended on: `null` for the main one all along, and RAWG's status when it
+   * refused the main key and the run went on with the spare one (`server/rawg/rawgKeys.ts`).
+   * Optional so that a report built by hand need not name it; `runCli` always does.
+   */
+  rawgKey?: number | null
   /** The stage that was running when the run failed, and why. */
   failedStage?: string
   error?: string
@@ -1346,6 +1353,13 @@ function playstationRow(read: PlaystationReport): [string, string] {
 }
 
 /** What the run cost the index's store: the row before the last of every summary. */
+/** Which RAWG key the run went with, when the report says: never the key, only which of the two. */
+function rawgKeyRows(report: JobReport): [string, string][] {
+  if (report.rawgKey === undefined) return []
+  const key = report.rawgKey === null ? 'main' : `main, then spare after a ${report.rawgKey}`
+  return [['RAWG key', key]]
+}
+
 function trafficRow(report: JobReport): [string, string] {
   return [
     'Index traffic',
@@ -1478,7 +1492,7 @@ function formatResolveSummary(report: JobReport): string {
     ])
   }
   if (resolved) rows.push(...resolveRows(resolved))
-  rows.push(trafficRow(report), ['Duration', duration(report.durationMs)])
+  rows.push(...rawgKeyRows(report), trafficRow(report), ['Duration', duration(report.durationMs)])
   return [...summaryTable(rows), ...(failed ? HELD_LOCK_HINT : [])].join('\n')
 }
 
@@ -1549,7 +1563,7 @@ function formatExportSummary(report: JobReport): string {
       '',
     )
   }
-  rows.push(trafficRow(report), ['Duration', duration(report.durationMs)])
+  rows.push(...rawgKeyRows(report), trafficRow(report), ['Duration', duration(report.durationMs)])
   return [...summaryTable(rows), ...stores].join('\n')
 }
 
@@ -1611,7 +1625,7 @@ export function formatSummary(report: JobReport): string {
     rows.push([title!, detail ?? ''])
   }
 
-  rows.push(trafficRow(report))
+  rows.push(...rawgKeyRows(report), trafficRow(report))
   rows.push(['Duration', duration(report.durationMs)])
 
   return [...summaryTable(rows), ...(outcome ? [] : HELD_LOCK_HINT)].join('\n')
@@ -1627,6 +1641,8 @@ export async function writeJobSummary(
 
 export interface JobDepsOptions {
   apiKey: string
+  /** The key to move to when RAWG refuses `apiKey` (`RAWG_API_KEY_SPARE`); optional. */
+  spareApiKey?: string
   /** Serve every upstream from its recorded answers (`RAWG_FIXTURES=1`). */
   fixtures: boolean
   /** The run writes to an index that dies with the process (`INDEX_DRY_RUN=1`). */
@@ -1652,9 +1668,23 @@ export function createJobDeps(options: JobDepsOptions): JobDeps {
   const microsoft = createJobMicrosoft({ fixtures, clock })
   // Every request the run sends RAWG is counted where it leaves, retries included.
   const rawgRequests = createRequestMeter()
+  // Which key the run is on: the main one until RAWG refuses it, and the spare one after.
+  let rawgKeySwitch: number | null = null
+  const rawg = createJobRawg({
+    apiKey,
+    spareApiKey: options.spareApiKey,
+    fixtures,
+    clock,
+    meter: rawgRequests,
+    onKeySwitch: (status) => {
+      rawgKeySwitch = status
+      options.log(keySwitchLine(status))
+    },
+  })
   return {
-    rawg: createJobRawg({ apiKey, fixtures, clock, meter: rawgRequests }),
+    rawg,
     rawgRequests,
+    rawgKeySwitch: () => rawgKeySwitch,
     steam: createJobSteam({ apiKey, fixtures, clock }),
     gog: createJobGog({ fixtures, clock }),
     microsoft: microsoft.products,
@@ -1733,6 +1763,8 @@ export async function runCli(
   let mode: JobMode = 'full'
   let dryRun = false
   let writerStats: (() => IndexWriteStats | null) | null = null
+  // Which RAWG key the run is on, for the summary — of a failed run as of any other.
+  let rawgKey: (() => number | null) | null = null
   let report: JobReport
 
   try {
@@ -1742,10 +1774,13 @@ export async function runCli(
     dryRun = fromEnv.dryRun
     const fixtures = env.RAWG_FIXTURES === '1' || env.NUXT_RAWG_FIXTURES === '1'
     const apiKey = env.RAWG_API_KEY ?? ''
+    // Optional: the key to move to when RAWG refuses the main one (`server/rawg/rawgKeys.ts`).
+    const spareApiKey = env.RAWG_API_KEY_SPARE ?? ''
     if (!apiKey && !fixtures) throw new Error('RAWG_API_KEY is required (or RAWG_FIXTURES=1).')
 
     const deps = createJobDeps({
       apiKey,
+      spareApiKey,
       fixtures,
       dryRun,
       clock: systemClock,
@@ -1754,6 +1789,7 @@ export async function runCli(
     })
     // A failed run is the one whose traffic is most worth knowing; the catch below has no `deps`.
     writerStats = () => fromEnv.writer.stats?.() ?? null
+    rawgKey = deps.rawgKeySwitch ?? null
 
     // An export only reads: it has no business proving it may write, and a read-only token
     // would fail the probe.
@@ -1787,6 +1823,7 @@ export async function runCli(
     }
   }
 
+  if (rawgKey) report = { ...report, rawgKey: rawgKey() }
   // A failed run is the alert; it is worth as much as a successful one, and more.
   const summary = formatSummary(report)
   await writeJobSummary(summary).catch(() => {})

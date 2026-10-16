@@ -72,7 +72,7 @@ describe('the index refresh workflow', () => {
     const uploading = steps.find((step) => step.includes('name: Upload the export'))!
 
     expect(exporting).toContain("if: steps.mode.outputs.mode == 'export'")
-    // The repository's secrets are three; the export's code, not its token, keeps it to reading.
+    // The repository's secrets are four, two of them RAWG's keys; the export's code, not its token, keeps it to reading.
     expect(exporting).toContain('UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}')
     expect(exporting).not.toContain('INDEX_FORCE_UNLOCK')
     expect(exporting).toContain('run: pnpm index:refresh --mode=export')

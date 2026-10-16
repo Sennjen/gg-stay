@@ -448,6 +448,40 @@ describe('the export mode on the command line', () => {
     expect(summary).toContain('| Result | failed in start-up |')
   })
 
+  it('moves to the spare key when RAWG refuses the main one, and says which key in the summary', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const network = vi.fn(async (url: string) => {
+      const main = new URL(url).searchParams.get('key') === 'main-secret-key'
+      const body = { count: 0, next: null, results: [] }
+      return new Response(JSON.stringify(body), { status: main ? 401 : 200 })
+    })
+    vi.stubGlobal('fetch', network)
+    const dir = await mkdtemp(join(tmpdir(), 'export-'))
+    try {
+      const code = await runCli(['--mode=export', '--budget=5', '--pages=1'], {
+        INDEX_DRY_RUN: '1',
+        RAWG_API_KEY: 'main-secret-key',
+        RAWG_API_KEY_SPARE: 'spare-secret-key',
+        INDEX_EXPORT_DIR: dir,
+      })
+
+      expect(code).toBe(0)
+      expect(network).toHaveBeenCalledTimes(2)
+      const said = vi.mocked(console.log).mock.calls.map(([line]) => String(line))
+      expect(said).toContain('[upstream] RAWG main key refused (401), switched to the spare key')
+      const summary = said.at(-1)!
+      expect(summary).toContain('| RAWG key | main, then spare after a 401 |')
+      // The request sent again with the spare key is a request of the budget.
+      expect(summary).toContain('| RAWG requests | 2 of a budget of 5, retries included;')
+      for (const line of said) {
+        expect(line).not.toContain('main-secret-key')
+        expect(line).not.toContain('spare-secret-key')
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('writes the file on the recorded fixtures with no network, and exits zero', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const network = vi.fn(async () => new Response('null'))
@@ -467,6 +501,7 @@ describe('the export mode on the command line', () => {
       const summary = vi.mocked(console.log).mock.calls.at(-1)?.[0] as string
       expect(summary).toContain('| Mode | export (dry run) |')
       expect(summary).toContain('| RAWG requests | 1 of a budget of 2, retries included;')
+      expect(summary).toContain('| RAWG key | main |')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

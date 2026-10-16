@@ -74,6 +74,9 @@ export default defineNuxtConfig({
   typescript: { strict: true },
   runtimeConfig: {
     rawgApiKey: process.env.RAWG_API_KEY ?? '',
+    // The key RAWG is asked with once it refuses the main one (401/403); optional, see
+    // `server/rawg/rawgKeys.ts`.
+    rawgApiKeySpare: process.env.RAWG_API_KEY_SPARE ?? '',
     rawgFixtures: process.env.RAWG_FIXTURES ?? '',
     // The price and localisation index. Server-side only, and deliberately not under `public`:
     // even the read-only token must never reach the browser. Without both values the site serves

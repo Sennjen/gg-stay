@@ -87,6 +87,10 @@ async function instance(options: {
   vercel: Platform | null
   fixtures?: boolean
   upstream?: (asked: string) => unknown
+  /** RAWG's spare key, when the instance is given one (`RAWG_API_KEY_SPARE`). */
+  spareKey?: string
+  /** The status RAWG answers `asked` with; 200 when omitted. */
+  status?: (asked: string) => number
 }) {
   vi.resetModules()
   vi.unstubAllGlobals()
@@ -100,6 +104,7 @@ async function instance(options: {
   }
   vi.stubGlobal('useRuntimeConfig', () => ({
     rawgApiKey: 'a-very-secret-rawg-key',
+    rawgApiKeySpare: options.spareKey ?? '',
     rawgFixtures: options.fixtures ? 1 : '',
   }))
   const storage = storages()
@@ -116,7 +121,7 @@ async function instance(options: {
       fetched.push(url)
       const answer = options.upstream?.(url) ?? { ok: true }
       const body = url.includes('steampowered') ? steamPage(JSON.stringify(answer)) : answer
-      return new Response(JSON.stringify(body))
+      return new Response(JSON.stringify(body), { status: options.status?.(url) ?? 200 })
     }),
   )
 
@@ -554,5 +559,76 @@ describe('the caches anywhere else', () => {
     vi.setSystemTime(START + 600_000)
     expect(await rawg('games', { page: 1 })).toEqual({ version: 2 })
     expect(fetched).toHaveLength(2)
+  })
+})
+
+describe('the caches of a function that moved to RAWG’s spare key', () => {
+  const MAIN = 'a-very-secret-rawg-key'
+  const SPARE = 'another-very-secret-rawg-key'
+  /** RAWG as it is today: the main key's quota is spent, and the spare key's is not. */
+  const mainRefused = (asked: string) =>
+    new URL(asked).searchParams.get('key') === MAIN ? 401 : 200
+
+  it('asks RAWG with the spare key once the main one is refused, and says so once', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { rawg, fetched } = await instance({
+      vercel: null,
+      spareKey: SPARE,
+      status: mainRefused,
+      upstream: () => ({ id: 4200 }),
+    })
+
+    expect(await behindTheLimiter(rawg('games/portal-2'))).toEqual({ id: 4200 })
+    expect(await behindTheLimiter(rawg('games/portal-2/stores'))).toEqual({ id: 4200 })
+
+    expect(fetched.map((url) => new URL(url).searchParams.get('key'))).toEqual([MAIN, SPARE, SPARE])
+    expect(info.mock.calls).toEqual([
+      ['[upstream] RAWG main key refused (401), switched to the spare key'],
+    ])
+  })
+
+  it('answers as it always did when no spare key is configured', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { rawg, fetched } = await instance({ vercel: null, status: mainRefused })
+
+    const failed = rawg('games/portal-2').catch((error: unknown) => error)
+    expect(await behindTheLimiter(failed)).toMatchObject({
+      source: 'RAWG',
+      kind: 'ERROR',
+      status: 401,
+    })
+    expect(fetched).toHaveLength(1)
+  })
+
+  it('shares what the spare key fetched under the key the main one would have, and holds neither key', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const vercel = platform()
+    const { rawg, held } = await instance({
+      vercel,
+      spareKey: SPARE,
+      status: mainRefused,
+      upstream: listWithLinks,
+    })
+
+    await behindTheLimiter(rawg('games', { ordering: '-added', page: 2 }, { ttl: 86_400 }))
+    await settle(vercel.kept)
+
+    const [key, value] = vercel.cache.set.mock.calls[0]! as [string, { value: unknown }]
+    expect(key).toBe(`gg-stay$v2.RAWG.${sha256('games?ordering=-added&page=2')}`)
+    // The links RAWG built from the spare key's address are cut like the main key's always were.
+    expect(value).toMatchObject({
+      value: { next: 'https://api.rawg.io/api/games', previous: 'https://api.rawg.io/api/games' },
+    })
+    for (const text of [JSON.stringify(vercel.cache.set.mock.calls), held()]) {
+      expect(text).not.toContain(MAIN)
+      expect(text).not.toContain(SPARE)
+    }
+
+    // Another instance, still on the main key, finds it there and asks RAWG nothing.
+    const other = await instance({ vercel })
+    expect(await other.rawg('games', { ordering: '-added', page: 2 }, { ttl: 86_400 })).toEqual(
+      value.value,
+    )
+    expect(other.fetched).toEqual([])
   })
 })

@@ -236,6 +236,83 @@ describe('the refresh job’s RAWG transport and its request meter', () => {
     expect(meter.refused()).toBe(0)
   })
 
+  describe('and RAWG’s spare key', () => {
+    /** A network that refuses the main key with `status` and answers the spare one. */
+    function mainRefused(status: number) {
+      const network = vi.fn(async (url: string) => {
+        const main = new URL(url).searchParams.get('key') === 'test-key'
+        return new Response(JSON.stringify({ results: [] }), { status: main ? status : 200 })
+      })
+      vi.stubGlobal('fetch', network)
+      return network
+    }
+    const keyOf = (network: ReturnType<typeof mainRefused>) =>
+      network.mock.calls.map(([url]) => new URL(url).searchParams.get('key'))
+
+    it.each([401, 403])(
+      'counts the request sent again with the spare key after a %i, and goes on with it',
+      async (status) => {
+        const network = mainRefused(status)
+        const meter = createRequestMeter()
+        const switches: number[] = []
+        const rawg = createJobRawg({
+          ...options(still),
+          meter,
+          spareApiKey: 'spare-key',
+          onKeySwitch: (switched) => void switches.push(switched),
+        })
+
+        expect(await rawg('games', { page: 1 })).toEqual({ results: [] })
+        expect(await rawg('games', { page: 2 })).toEqual({ results: [] })
+
+        expect(keyOf(network)).toEqual(['test-key', 'spare-key', 'spare-key'])
+        expect(meter.issued()).toBe(3)
+        expect(switches).toEqual([status])
+      },
+    )
+
+    it('refuses the request again with the spare key when the limit is spent', async () => {
+      const network = mainRefused(401)
+      const meter = createRequestMeter()
+      const rawg = createJobRawg({ ...options(still), meter, spareApiKey: 'spare-key' })
+      meter.limitTo(1)
+
+      await expect(rawg('games', { page: 1 })).rejects.toMatchObject({ source: 'RAWG' })
+
+      expect(network).toHaveBeenCalledTimes(1)
+      expect(meter.issued()).toBe(1)
+      expect(meter.refused()).toBeGreaterThan(0)
+    })
+
+    it.each([429, 500, 503])('does not switch on a %i', async (status) => {
+      const network = mainRefused(status)
+      const meter = createRequestMeter()
+      const switches: number[] = []
+      const rawg = createJobRawg({
+        ...options(still),
+        meter,
+        spareApiKey: 'spare-key',
+        onKeySwitch: (switched) => void switches.push(switched),
+      })
+
+      await expect(rawg('games', { page: 1 })).rejects.toMatchObject({ status })
+
+      expect(keyOf(network).every((key) => key === 'test-key')).toBe(true)
+      expect(switches).toEqual([])
+    })
+
+    it('fails as it always did on a 401 with no spare key', async () => {
+      const network = mainRefused(401)
+      const meter = createRequestMeter()
+      const rawg = createJobRawg({ ...options(still), meter })
+
+      await expect(rawg('games', { page: 1 })).rejects.toMatchObject({ kind: 'ERROR', status: 401 })
+
+      expect(network).toHaveBeenCalledTimes(1)
+      expect(meter.issued()).toBe(1)
+    })
+  })
+
   it('follows no redirect under a limit: one counted request is one request sent', async () => {
     const network = scriptedNetwork(301)
     const meter = createRequestMeter()

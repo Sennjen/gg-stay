@@ -64,6 +64,10 @@ export function useRawg(): RawgFetch {
 
   instance = createRawgFetch({
     apiKey: String(config.rawgApiKey ?? ''),
+    // Moved to, for the rest of this instance's life, when RAWG refuses the main key. The cache
+    // keys are made of the path and the parameters alone, so an answer is kept and found under
+    // the same key whichever of the two fetched it.
+    spareApiKey: String(config.rawgApiKeySpare ?? ''),
     // Env overrides are parsed by destr, so "1" may arrive as the number 1.
     fixtures: String(config.rawgFixtures) === '1',
     fetchJson: async (url, signal) => {
