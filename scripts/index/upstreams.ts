@@ -94,9 +94,18 @@ export interface RawgUpstreamOptions extends UpstreamOptions {
    * (`requestMeter.ts`). The one place they all pass is the call to the network below, so that is
    * where each is counted: the transport's retry of a timeout or a 5xx goes through it like a
    * first attempt, and an answer out of the transport's cache does not. Nothing is counted
-   * without one.
+   * without one. The request RAWG's transport sends again with the spare key, when RAWG refuses
+   * the main one (`server/rawg/rawgKeys.ts`), passes here like any other, and is counted.
    */
   meter?: RequestMeter
+  /** The key to move to, for the rest of the run, when RAWG refuses `apiKey` with a 401 or 403. */
+  spareApiKey?: string
+  /**
+   * Told once, with RAWG's status, when the run leaves the main key for the spare one. The
+   * transport's own line about it is not written here (`noAttemptLines`): this is where the job
+   * hears of the switch, to say it in its own log and in the run's summary.
+   */
+  onKeySwitch?: (status: number) => void
 }
 
 export function createJobRawg(options: RawgUpstreamOptions): RawgFetch {
@@ -104,6 +113,8 @@ export function createJobRawg(options: RawgUpstreamOptions): RawgFetch {
   const readFixture = createFixtureReader(FIXTURE_DIRS.RAWG)
   const rawg = createRawgFetch({
     apiKey: options.apiKey,
+    spareApiKey: options.spareApiKey,
+    onKeySwitch: options.onKeySwitch,
     fixtures: options.fixtures,
     // Counted, or refused, before it leaves — and one counted request is one request sent. That
     // holds for a redirect too once a limit is set: `fetch` follows one by itself, which is a

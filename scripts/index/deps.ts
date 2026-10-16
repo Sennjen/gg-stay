@@ -75,6 +75,12 @@ export interface JobDeps {
    * stage's test — sends nothing there is to count.
    */
   rawgRequests?: RequestMeter
+  /**
+   * RAWG's status when it refused the main key and `rawg` moved to the spare one, or `null` while
+   * it is on the main one (`server/rawg/rawgKeys.ts`). For the run's summary; optional because a
+   * stand-in transport has no keys.
+   */
+  rawgKeySwitch?: () => number | null
   steam: SteamPriceFetch
   /** One page of GOG's catalog for Ukraine. */
   gog: GogCatalogFetch

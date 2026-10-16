@@ -135,6 +135,7 @@ jobs:
           INDEX_FROM_PAGE: ${{ inputs.from_page }}
           INDEX_FORCE_UNLOCK: ${{ inputs.force_unlock }}
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+          RAWG_API_KEY_SPARE: ${{ secrets.RAWG_API_KEY_SPARE }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
         run: pnpm index:refresh --mode="$MODE"
@@ -151,6 +152,7 @@ jobs:
           INDEX_FROM_PAGE: ${{ inputs.from_page }}
           INDEX_EXPORT_DIR: games-export
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+          RAWG_API_KEY_SPARE: ${{ secrets.RAWG_API_KEY_SPARE }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
         run: pnpm index:refresh --mode=export
