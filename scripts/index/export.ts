@@ -1,5 +1,5 @@
-import { fetchCandidatePage, type RawgGamesPage } from './candidates'
-import type { JobIndex, JobLog } from './deps'
+import { CANDIDATE_PAGE_SIZE, fetchCandidatePage, type RawgGamesPage } from './candidates'
+import type { JobClock, JobIndex, JobLog } from './deps'
 import { microsoftProductUrl } from './microsoft'
 import type { RequestMeter } from './requestMeter'
 import { usableFallbacks } from './storeFallbacks'
@@ -27,7 +27,15 @@ import type { RawgFetch } from '../../server/rawg/rawgFetch'
  * **What it costs RAWG.** Only those pages, inside a budget counted where the requests leave
  * (`requestMeter.ts`), retries included: the limit is set on the transport before the first page,
  * and the reading stops, and says so, when it is spent. No game's store links are asked for, and
- * no store is asked anything: what the table says is what the index holds.
+ * no store is asked anything: what the table says is what the index holds. Three hundred requests
+ * read the default 221 pages with room for the tries of the pages RAWG fails.
+ *
+ * **A page RAWG fails.** RAWG fails deep pages now and then, and a page it failed once it often
+ * answers a little later. So a page that fails, after the transport's own retry, is asked for
+ * again up to three more times, 5, 15 and 30 seconds later (`EXPORT_PAGE_RETRY_PAUSES_MS`), every
+ * try a request of the budget. A page that fails them all is skipped, and the reading goes on
+ * with the next one: the summary names the skipped pages and how many games they may have hidden.
+ * Five pages failed in a row mean RAWG is down, and end the reading.
  *
  * **Read only.** The stage is handed the four reads it needs (`ExportIndex`) and nothing else, so
  * it sends Redis read commands only, whatever its token may do, and takes no writer lock.
@@ -45,6 +53,18 @@ export const EXPORT_DEFAULT_PAGES = 221
 /** What the file is called, in the directory the run is given. */
 export const EXPORT_FILE_NAME = 'games.csv'
 
+/**
+ * The pauses before the further tries of a page RAWG failed, one a try: three tries after the
+ * first, the transport's own retry aside.
+ */
+export const EXPORT_PAGE_RETRY_PAUSES_MS = [5_000, 15_000, 30_000] as const
+
+/** Pages failed one after another that mean RAWG is down, and end the reading. */
+export const EXPORT_FAILED_PAGES_IN_A_ROW = 5
+
+/** How many games a skipped page may have hidden: a page of the list. */
+export const EXPORT_GAMES_PER_PAGE = CANDIDATE_PAGE_SIZE
+
 /** How many games one read of a mapping asks about. */
 const MAPPING_CHUNK = 500
 
@@ -56,6 +76,8 @@ export interface ExportDeps {
   rawgRequests: RequestMeter
   index: ExportIndex
   log: JobLog
+  /** Waits out the pause before a page is asked for again. */
+  clock: Pick<JobClock, 'sleep'>
 }
 
 export interface ExportOptions {
@@ -102,8 +124,8 @@ export type ExportReadingEnd =
   | 'pages'
   /** RAWG's list has no page after the last one read. */
   | 'list-end'
-  /** RAWG failed a page, after the transport's retry. */
-  | 'page-failed'
+  /** RAWG failed `EXPORT_FAILED_PAGES_IN_A_ROW` pages in a row, every try of each: it is down. */
+  | 'rawg-down'
   /** The budget was spent. */
   | 'budget'
 
@@ -111,8 +133,8 @@ export interface ExportReport {
   budget: number
   pages: number
   pagesRead: number
-  /** The page RAWG failed, when that ended the reading. */
-  failedPage: number | null
+  /** The pages RAWG failed on every try, which the reading went past, in order. */
+  skippedPages: number[]
   readingEnded: ExportReadingEnd
   /** RAWG requests sent, retries included, as the transport's meter counted them. */
   requests: number
@@ -151,6 +173,31 @@ export function assertExportOptions(options: {
   }
   if (pages === undefined || !Number.isSafeInteger(pages) || pages < 1) {
     throw new Error(`--pages must be a positive whole number, got ${pages}.`)
+  }
+}
+
+/**
+ * One page of the order, asked for again after the pauses while RAWG fails it: the page, `failed`
+ * when every try failed, or `budget` when the budget ran out first.
+ */
+async function readPage(
+  deps: ExportDeps,
+  page: number,
+): Promise<RawgGamesPage | 'failed' | 'budget'> {
+  const meter = deps.rawgRequests
+  for (let attempt = 0; ; attempt += 1) {
+    if (attempt > 0) {
+      // No pause for a try the budget cannot pay for.
+      if (meter.remaining() === 0) return 'budget'
+      await deps.clock.sleep(EXPORT_PAGE_RETRY_PAUSES_MS[attempt - 1]!)
+    }
+    const refusedBefore = meter.refused()
+    try {
+      return await fetchCandidatePage(deps, page)
+    } catch {
+      if (meter.refused() > refusedBefore) return 'budget'
+      if (attempt === EXPORT_PAGE_RETRY_PAUSES_MS.length) return 'failed'
+    }
   }
 }
 
@@ -293,7 +340,8 @@ export async function exportGames(deps: ExportDeps, options: ExportOptions): Pro
   const listed: Listed[] = []
   const seen = new Set<number>()
   let pagesRead = 0
-  let failedPage: number | null = null
+  const skippedPages: number[] = []
+  let failedInARow = 0
   let readingEnded: ExportReadingEnd = 'pages'
 
   for (let page = 1; page <= pages; page += 1) {
@@ -301,18 +349,25 @@ export async function exportGames(deps: ExportDeps, options: ExportOptions): Pro
       readingEnded = 'budget'
       break
     }
-    const refusedBefore = meter.refused()
-    let response: RawgGamesPage
-    try {
-      response = await fetchCandidatePage(deps, page)
-    } catch {
-      if (meter.refused() > refusedBefore) readingEnded = 'budget'
-      else {
-        readingEnded = 'page-failed'
-        failedPage = page
-      }
+    const response = await readPage(deps, page)
+    if (response === 'budget') {
+      readingEnded = 'budget'
       break
     }
+    if (response === 'failed') {
+      skippedPages.push(page)
+      failedInARow += 1
+      deps.log(
+        `export: RAWG failed page ${page} on all ${EXPORT_PAGE_RETRY_PAUSES_MS.length + 1} tries; ` +
+          'skipped it',
+      )
+      if (failedInARow >= EXPORT_FAILED_PAGES_IN_A_ROW) {
+        readingEnded = 'rawg-down'
+        break
+      }
+      continue
+    }
+    failedInARow = 0
     pagesRead += 1
     for (const raw of response.results) {
       const id = raw?.id
@@ -363,7 +418,7 @@ export async function exportGames(deps: ExportDeps, options: ExportOptions): Pro
     budget,
     pages,
     pagesRead,
-    failedPage,
+    skippedPages,
     readingEnded,
     requests: meter.issued() - issuedBefore,
     games: { onSite: documents.length, notOnSite: rows.length - documents.length },
@@ -379,13 +434,27 @@ export async function exportGames(deps: ExportDeps, options: ExportOptions): Pro
         `${pages} pages; games learned by resolve further down are not in the file`,
     )
   }
-  if (readingEnded === 'page-failed') {
+  if (readingEnded === 'rawg-down') {
     deps.log(
-      `::warning::Export: RAWG failed page ${failedPage}, so the reading ended there; games ` +
-        'learned by resolve further down are not in the file',
+      `::warning::Export: RAWG failed ${EXPORT_FAILED_PAGES_IN_A_ROW} pages in a row, up to page ` +
+        `${skippedPages.at(-1)}, so RAWG is down and the reading ended there; games learned by ` +
+        'resolve further down are not in the file',
+    )
+  }
+  if (skippedPages.length > 0) {
+    const one = skippedPages.length === 1
+    deps.log(
+      `::warning::Export: RAWG failed ${one ? 'page' : 'pages'} ${skippedPages.join(', ')} on ` +
+        `every try, so ${one ? 'it was' : 'they were'} skipped; up to ${exportHiddenGames(report)} ` +
+        `games learned by resolve on ${one ? 'it' : 'them'} may be missing from the file`,
     )
   }
   return { rows, report }
+}
+
+/** The most games the skipped pages may have hidden: a page of the list each. */
+export function exportHiddenGames(report: Pick<ExportReport, 'skippedPages'>): number {
+  return report.skippedPages.length * EXPORT_GAMES_PER_PAGE
 }
 
 /**

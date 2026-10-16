@@ -7,10 +7,12 @@ import { isoNow, oneLine, type JobClock, type JobDeps, type JobIndex, type JobLo
 import {
   assertExportOptions,
   EXPORT_DEFAULT_PAGES,
+  EXPORT_FAILED_PAGES_IN_A_ROW,
   EXPORT_FILE_NAME,
   EXPORT_MAX_BUDGET,
   EXPORT_STORES,
   exportGames,
+  exportHiddenGames,
   toCsv,
   type ExportIndex,
   type ExportReadingEnd,
@@ -561,7 +563,13 @@ async function runExport(
   try {
     const result = await named('export', () =>
       exportGames(
-        { rawg: deps.rawg, rawgRequests: meter, index: readOnlyIndex(deps.writer), log: deps.log },
+        {
+          rawg: deps.rawg,
+          rawgRequests: meter,
+          index: readOnlyIndex(deps.writer),
+          log: deps.log,
+          clock: deps.clock,
+        },
         exportOptions,
       ),
     )
@@ -1499,8 +1507,10 @@ function formatResolveSummary(report: JobReport): string {
 const EXPORT_READING_ENDED: Record<ExportReadingEnd, (report: ExportReport) => string> = {
   pages: () => 'every page it was given was read',
   'list-end': () => `RAWG's list ended there`,
-  'page-failed': (report) =>
-    `RAWG failed page ${report.failedPage}; games learned by resolve further down are not in the file`,
+  'rawg-down': (report) =>
+    `RAWG failed ${EXPORT_FAILED_PAGES_IN_A_ROW} pages in a row up to page ` +
+    `${report.skippedPages.at(-1)}, so it is down; games learned by resolve further down are not ` +
+    'in the file',
   budget: () => 'the budget was spent; games learned by resolve further down are not in the file',
 }
 
@@ -1530,10 +1540,15 @@ function formatExportSummary(report: JobReport): string {
   if (exported) {
     const { games } = exported
     if (!failed) {
+      const skipped = exported.skippedPages.length
       rows.push([
         'Result',
         `nothing published; ${plural(games.onSite + games.notOnSite, 'game', 'games')} ` +
-          `written to ${EXPORT_FILE_NAME}`,
+          `written to ${EXPORT_FILE_NAME}` +
+          (skipped > 0
+            ? `; the ${plural(skipped, 'skipped page', 'skipped pages')} may have hidden up to ` +
+              `${exportHiddenGames(exported)} games`
+            : ''),
       ])
     }
     rows.push(
@@ -1542,6 +1557,10 @@ function formatExportSummary(report: JobReport): string {
         'Pages read',
         `${exported.pagesRead} of at most ${exported.pages} from page 1; the reading ended ` +
           `because ${EXPORT_READING_ENDED[exported.readingEnded](exported)}`,
+      ],
+      [
+        'Pages skipped',
+        exported.skippedPages.length > 0 ? exported.skippedPages.join(', ') : 'none',
       ],
       [
         'RAWG requests',

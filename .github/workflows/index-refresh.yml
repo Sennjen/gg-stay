@@ -28,7 +28,9 @@ on:
   # `budget` says and no more, and publishes nothing (scripts/index/resolve.ts). Nor is `export`:
   # it only reads the index, reads RAWG's list pages inside its `budget`, and hands every game the
   # job knows, with its store links and prices, out as a CSV file in an artifact
-  # (scripts/index/export.ts).
+  # (scripts/index/export.ts). A budget of 300 reads the default 221 pages and leaves room to ask
+  # again for the pages RAWG fails now and then; a page it fails on every try is skipped and named
+  # in the summary.
   workflow_dispatch:
     inputs:
       mode:
@@ -51,7 +53,8 @@ on:
       budget:
         description: >-
           resolve and export only, and required for both: the most RAWG requests the run may
-          send, retries included (resolve: at most 8000; export: at most 400)
+          send, retries included (resolve: at most 8000; export: at most 400, and 300 reads the
+          221 pages with room for the tries of the pages RAWG fails)
         type: string
         required: false
       from_page:

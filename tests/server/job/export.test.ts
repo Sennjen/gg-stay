@@ -9,6 +9,7 @@ import {
   EXPORT_DEFAULT_PAGES,
   EXPORT_MAX_BUDGET,
   exportGames,
+  type ExportReport,
   exportTotals,
   toCsv,
   type ExportRow,
@@ -25,7 +26,13 @@ import { createMemoryGameIndex } from '../../../server/index/memoryIndex'
 import { createUpstashIndex } from '../../../server/index/upstashIndex'
 import type { RawgGameListItem } from '../../../server/rawg/types'
 import { createFakeRedis } from '../index/fakeRedis'
-import { createRawgWire, createWireHarness, type WireAnswer, type WireRequest } from './harness'
+import {
+  createRawgWire,
+  createWireHarness,
+  type RawgWire,
+  type WireAnswer,
+  type WireRequest,
+} from './harness'
 
 /**
  * `--mode=export`: every game the job knows, with its store links and prices, in a CSV file, for
@@ -94,6 +101,9 @@ async function indexWith(
   return index
 }
 
+/** A clock for a stage that is never meant to pause. */
+const NO_PAUSE = { sleep: async () => {} }
+
 /** RAWG's list as a stand-in that spends one request of the meter a page, and has one page. */
 function onePage(games: RawgGameListItem[]) {
   const meter = createRequestMeter()
@@ -110,7 +120,7 @@ async function exportOf(
 ): Promise<Map<number, ExportRow>> {
   const { meter, rawg } = onePage(page)
   const { rows } = await exportGames(
-    { rawg, rawgRequests: meter, index, log: () => {} },
+    { rawg, rawgRequests: meter, index, log: () => {}, clock: NO_PAUSE },
     { budget: 5, pages: 1 },
   )
   return new Map(rows.map((row) => [Number(row.rawg_id), row]))
@@ -296,7 +306,7 @@ describe('the totals of the summary', () => {
     const { meter, rawg } = onePage([listed(11), listed(12)])
 
     const { rows, report } = await exportGames(
-      { rawg, rawgRequests: meter, index, log: () => {} },
+      { rawg, rawgRequests: meter, index, log: () => {}, clock: NO_PAUSE },
       { budget: 5, pages: 1 },
     )
 
@@ -328,6 +338,7 @@ describe('the totals of the summary', () => {
       export: report,
     })
     expect(summary).toContain('| Result | nothing published; 4 games written to games.csv |')
+    expect(summary).toContain('| Pages skipped | none |')
     expect(summary).toContain('| Games | 2 on the site, 2 learned by resolve and not on it |')
     expect(summary).toContain('| Steam | 2 | 1 | 1 | 0 |')
     expect(summary).toContain('| PlayStation Store | 1 | 1 | 2 | 0 |')
@@ -343,20 +354,42 @@ describe('the RAWG budget of an export', () => {
   const BAD_GATEWAY: WireAnswer = { status: 502 }
 
   async function run(budget: number, pageCount: number, wire = createRawgWire(pages)) {
-    const writer = await indexWith([], { appIds: [11, 12, 13, 14].map((id) => [id, `${id}0`]) })
+    const ids = [...wire.pages.values()].flat().flatMap((game) => game.id ?? [])
+    const writer = await indexWith([], {
+      appIds: ids.map((id): [number, string] => [id, `${id}0`]),
+    })
     const harness = createWireHarness({ start: RUN_AT, wire, writer })
     vi.stubGlobal('fetch', wire.fetch)
+    /** The export's own pauses, apart from the transport's. */
+    const pauses: number[] = []
     const result = await exportGames(
       {
         rawg: harness.deps.rawg,
         rawgRequests: harness.meter,
         index: writer,
         log: (line) => void harness.logs.push(line),
+        clock: {
+          sleep: async (ms) => {
+            pauses.push(ms)
+            await harness.clock.sleep(ms)
+          },
+        },
       },
       { budget, pages: pageCount },
     )
-    return { ...result, wire, logs: harness.logs }
+    const asked = wire.pageRequests().map((request) => Number(request.params.page))
+    return { ...result, wire, logs: harness.logs, pauses, asked }
   }
+
+  /** A list of `count` pages, one game a page: page N holds game 10 + N. */
+  function listOf(count: number): RawgWire {
+    return createRawgWire(
+      Object.fromEntries(Array.from({ length: count }, (_, i) => [i + 1, [listed(11 + i)]])),
+    )
+  }
+
+  /** Every try of a page fails: the transport's request and its retry, four times over. */
+  const EVERY_TRY: WireAnswer[] = Array.from({ length: 8 }, () => BAD_GATEWAY)
 
   it('reads every page it was given when the budget is exactly enough', async () => {
     const { report, wire, rows } = await run(3, 3)
@@ -402,6 +435,142 @@ describe('the RAWG budget of an export', () => {
   it('ends the reading at the end of RAWG’s list', async () => {
     const { report } = await run(10, 8)
     expect(report).toMatchObject({ pagesRead: 4, readingEnded: 'list-end', requests: 4 })
+  })
+
+  it('asks again for a page RAWG failed, after 5 and then 15 seconds, and reads it', async () => {
+    const wire = createRawgWire(pages)
+    // Two tries of page 2 fail, the transport's retry with each; the third is answered.
+    wire.answerNext(pageOf(2), BAD_GATEWAY, BAD_GATEWAY, BAD_GATEWAY, BAD_GATEWAY)
+
+    const { report, rows, pauses, asked } = await run(20, 3, wire)
+
+    expect(asked).toEqual([1, 2, 2, 2, 2, 2, 3])
+    expect(pauses).toEqual([5_000, 15_000])
+    expect(report).toMatchObject({
+      pagesRead: 3,
+      skippedPages: [],
+      readingEnded: 'pages',
+      requests: 7,
+    })
+    expect(rows.map((row) => row.rawg_id)).toEqual(['11', '12', '13'])
+  })
+
+  it('skips a page RAWG fails on every try and reads on', async () => {
+    const wire = createRawgWire(pages)
+    wire.answerNext(pageOf(2), ...EVERY_TRY)
+
+    const { report, rows, pauses, asked, logs } = await run(20, 4, wire)
+
+    expect(asked).toEqual([1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 4])
+    expect(pauses).toEqual([5_000, 15_000, 30_000])
+    expect(report).toMatchObject({
+      pagesRead: 3,
+      skippedPages: [2],
+      readingEnded: 'pages',
+      requests: 11,
+    })
+    expect(rows.map((row) => row.rawg_id)).toEqual(['11', '13', '14'])
+    expect(logs).toContain(
+      '::warning::Export: RAWG failed page 2 on every try, so it was skipped; up to 40 games ' +
+        'learned by resolve on it may be missing from the file',
+    )
+  })
+
+  it('ends the reading after five pages failed in a row, and only then', async () => {
+    const wire = listOf(14)
+    // Four in a row, a page read, then five in a row.
+    for (const page of [2, 3, 4, 5, 7, 8, 9, 10, 11]) wire.answerNext(pageOf(page), ...EVERY_TRY)
+
+    const { report, rows, asked, logs } = await run(400, 14, wire)
+
+    expect(report).toMatchObject({
+      pagesRead: 2,
+      skippedPages: [2, 3, 4, 5, 7, 8, 9, 10, 11],
+      readingEnded: 'rawg-down',
+      requests: 2 + 9 * 8,
+    })
+    expect(asked).not.toContain(12)
+    expect(rows.map((row) => row.rawg_id)).toEqual(['11', '16'])
+    expect(logs).toContain(
+      '::warning::Export: RAWG failed 5 pages in a row, up to page 11, so RAWG is down and the ' +
+        'reading ended there; games learned by resolve further down are not in the file',
+    )
+  })
+
+  it.each([
+    // Two tries of two requests, a pause, and the third try's request: the retry is refused.
+    [5, [5_000, 15_000]],
+    // Two tries spend it all: no pause for a try that cannot be sent.
+    [4, [5_000]],
+  ] as [number, number[]][])(
+    'counts every try against a budget of %i and stops at its edge',
+    async (budget, expectedPauses) => {
+      const wire = createRawgWire(pages)
+      wire.answerNext(pageOf(1), ...EVERY_TRY)
+
+      const { report, rows, pauses } = await run(budget, 4, wire)
+
+      expect(wire.requests).toHaveLength(budget)
+      expect(pauses).toEqual(expectedPauses)
+      expect(report).toMatchObject({
+        pagesRead: 0,
+        skippedPages: [],
+        readingEnded: 'budget',
+        requests: budget,
+      })
+      expect(rows).toEqual([])
+    },
+  )
+})
+
+describe('the summary of an export that skipped pages', () => {
+  const base: ExportReport = {
+    budget: 300,
+    pages: 221,
+    pagesRead: 219,
+    skippedPages: [112, 140],
+    readingEnded: 'pages',
+    requests: 237,
+    games: { onSite: 3, notOnSite: 1 },
+    stores: exportTotals([]),
+  }
+  const summaryOf = (exported: ExportReport) =>
+    formatSummary({
+      mode: 'export',
+      dryRun: false,
+      outcome: null,
+      studios: null,
+      pricesFetched: 0,
+      languagesFetched: 0,
+      failures: 0,
+      durationMs: 0,
+      writes: null,
+      export: exported,
+    })
+
+  it('names the skipped pages and the games they may have hidden', () => {
+    const summary = summaryOf(base)
+    expect(summary).toContain(
+      '| Result | nothing published; 4 games written to games.csv; the 2 skipped pages may ' +
+        'have hidden up to 80 games |',
+    )
+    expect(summary).toContain('| Pages skipped | 112, 140 |')
+    expect(summary).toContain('| Pages read | 219 of at most 221 from page 1;')
+    expect(summary).toContain('| RAWG requests | 237 of a budget of 300,')
+  })
+
+  it('says when RAWG went down', () => {
+    const summary = summaryOf({
+      ...base,
+      pagesRead: 111,
+      skippedPages: [112, 113, 114, 115, 116],
+      readingEnded: 'rawg-down',
+    })
+    expect(summary).toContain('| Pages skipped | 112, 113, 114, 115, 116 |')
+    expect(summary).toContain(
+      'the reading ended because RAWG failed 5 pages in a row up to page 116, so it is down;',
+    )
+    expect(summary).toContain('the 5 skipped pages may have hidden up to 200 games |')
   })
 })
 
