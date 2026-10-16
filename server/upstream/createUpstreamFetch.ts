@@ -243,6 +243,22 @@ export interface UpstreamConfig<TRequest> {
   project?: (value: unknown) => unknown
   /** A tighter timeout or fewer attempts for one request than the upstream's defaults. */
   limitsFor?: (request: TRequest) => UpstreamLimits | undefined
+  /**
+   * The address to send a request to once more after the upstream refused the credential it went
+   * with — answered `url` with a 401 or a 403 — or nothing, and the refusal is the answer. RAWG's
+   * is its spare key (`server/rawg/rawgKeys.ts`); no other upstream has one.
+   *
+   * The second request is no retry. It takes none of the call's attempts (`maxAttempts`): it is
+   * sent inside the attempt that was refused, and what it is answered is that attempt's answer —
+   * a timeout or a 5xx then retried as any is, a refusal of it the attempt's error. It is a
+   * request like any other everywhere else: it waits for its own slot at the limiter, has its own
+   * timeout, goes through `fetchJson` (where the job's request meter counts it) and is part of
+   * the time of the call that is waiting for it.
+   *
+   * It is asked again for every attempt too, because what it hands back may change what the next
+   * request goes with: `buildUrl` is called afresh for each attempt.
+   */
+  resendAfterRefusal?: (url: string, status: number) => string | undefined
 }
 
 export interface UpstreamLimits {
@@ -543,6 +559,16 @@ export function createUpstreamFetch<TRequest>(
     log(`[upstream] ${config.source} ${path} attempt ${number}: ${ms} ms, ${outcomeOf(error)}`)
   }
 
+  /**
+   * Where to send a request once more after `error`: an address when the upstream refused the
+   * credential (`UpstreamConfig.resendAfterRefusal`), and nothing for any other failure.
+   */
+  function resendAfter(error: unknown, url: string): string | undefined {
+    if (!config.resendAfterRefusal || !(error instanceof UpstreamError)) return undefined
+    if (error.kind !== 'ERROR' || (error.status !== 401 && error.status !== 403)) return undefined
+    return config.resendAfterRefusal(url, error.status)
+  }
+
   async function attempt(
     url: string,
     now: number,
@@ -551,9 +577,22 @@ export function createUpstreamFetch<TRequest>(
     number: number,
   ): Promise<unknown> {
     await throttle(now)
-    const startedAt = runtime.now()
+    let startedAt = runtime.now()
     try {
-      const body = await send(url, timeoutMs)
+      let body: unknown
+      try {
+        body = await send(url, timeoutMs)
+      } catch (error) {
+        const again = resendAfter(error, url)
+        if (again === undefined) throw error
+        // The refused request once more, with the credential the refusal moved to: a request of
+        // its own at the limiter and on the wire, and not a retry — it is this attempt's second
+        // half, and its answer is this attempt's answer. The refusal writes no attempt line: the
+        // one line it is worth is the switch's own (`server/rawg/rawgKeys.ts`).
+        await throttle(runtime.now())
+        startedAt = runtime.now()
+        body = await send(again, timeoutMs)
+      }
       report(path, number, startedAt, null)
       return body
     } catch (error) {
@@ -571,7 +610,7 @@ export function createUpstreamFetch<TRequest>(
   }
 
   async function fetchWithRetry(
-    url: string,
+    urlOf: () => string,
     now: number,
     limits: Required<UpstreamLimits>,
     path: string,
@@ -586,7 +625,8 @@ export function createUpstreamFetch<TRequest>(
       // down retries and dragging real throughput under the target rate.
       const attemptNow = i === 0 ? now : runtime.now()
       try {
-        return await attempt(url, attemptNow, limits.timeoutMs, path, i + 1)
+        // Built for each attempt: a refused credential may have been replaced since the last one.
+        return await attempt(urlOf(), attemptNow, limits.timeoutMs, path, i + 1)
       } catch (error) {
         lastError = error
         if (!isRetryable(error)) break
@@ -620,7 +660,8 @@ export function createUpstreamFetch<TRequest>(
     now: number,
     limits: Required<UpstreamLimits>,
   ): Promise<unknown> {
-    const body = await fetchWithRetry(config.buildUrl(request), now, limits, loggedPath(key))
+    const urlOf = () => config.buildUrl(request)
+    const body = await fetchWithRetry(urlOf, now, limits, loggedPath(key))
     const value = project(body)
     if (isJsonObject(body)) {
       const entry = { value, expiresAt: now + config.ttlFor(request) * 1000, storedAt: now }

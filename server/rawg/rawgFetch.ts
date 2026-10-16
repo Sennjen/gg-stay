@@ -6,6 +6,7 @@ import {
   type UpstreamCacheEntry,
 } from '../upstream/createUpstreamFetch'
 import { UpstreamError } from '../upstream/errors'
+import { createRawgKeys, keySwitchLine } from './rawgKeys'
 import type { RawgList } from './types'
 
 const BASE_URL = 'https://api.rawg.io/api'
@@ -22,7 +23,19 @@ export type { UpstreamKind, UpstreamSource } from '../upstream/errors'
 export type CacheEntry = UpstreamCacheEntry
 
 export interface RawgDeps {
+  /** The main key (`RAWG_API_KEY`). */
   apiKey: string
+  /**
+   * The key to move to when RAWG refuses the main one with a 401 or a 403 (`RAWG_API_KEY_SPARE`,
+   * `server/rawg/rawgKeys.ts`); none when empty or omitted.
+   */
+  spareApiKey?: string
+  /**
+   * Told once, with RAWG's status, when the transport leaves the main key for the spare one —
+   * after the line about it is written to `log`. The job's summary reads it; the site has no use
+   * for it.
+   */
+  onKeySwitch?: (status: number) => void
   fixtures: boolean
   fetchJson: (url: string, signal: AbortSignal) => Promise<{ status: number; body: unknown }>
   readFixture: (name: string) => Promise<unknown | null>
@@ -165,7 +178,8 @@ export function fixtureName(path: string, params?: RawgParams): string {
 
 /**
  * RAWG's share of the shared upstream transport (see server/upstream/createUpstreamFetch.ts):
- * the base URL and API key, the per-path ttl and stale-window rules and the 4 rps limiter, with
+ * the base URL and API keys — the main one, and the spare one it moves to when RAWG refuses the
+ * main one (`server/rawg/rawgKeys.ts`) — the per-path ttl and stale-window rules and the 4 rps limiter, with
  * the burst its wiring asks for (`RawgDeps.burst`).
  * Everything else — throttling, timeout, retry, cache, stale-if-error, the refresh behind a stale
  * answer — lives there, once.
@@ -175,6 +189,15 @@ export function fixtureName(path: string, params?: RawgParams): string {
  * `SHARED_CACHE_SCHEMA` (`server/upstream/layeredCache.ts`) with it.
  */
 export function createRawgFetch(deps: RawgDeps): RawgFetch {
+  const log = deps.log ?? ((line: string) => console.info(line))
+  const keys = createRawgKeys({
+    main: deps.apiKey,
+    spare: deps.spareApiKey,
+    onSwitch: (status) => {
+      log(keySwitchLine(status))
+      deps.onKeySwitch?.(status)
+    },
+  })
   const fetchUpstream = createUpstreamFetch<RawgRequest>(
     {
       source: 'RAWG',
@@ -185,7 +208,17 @@ export function createRawgFetch(deps: RawgDeps): RawgFetch {
       buildUrl: ({ path, params }) => {
         const url = new URL(`${BASE_URL}/${path}`)
         for (const [name, value] of cleanParams(params)) url.searchParams.set(name, value)
-        url.searchParams.set('key', deps.apiKey)
+        url.searchParams.set('key', keys.current())
+        return url.toString()
+      },
+      // The request again with the spare key, when RAWG refused the main one it went with. The
+      // key is read back out of the address because that is the one place it is: a cache key, a
+      // fixture name and a log line are made from the path and the parameters, never from this.
+      resendAfterRefusal: (address, status) => {
+        const url = new URL(address)
+        const spare = keys.afterRefusal(url.searchParams.get('key') ?? '', status)
+        if (spare === undefined) return undefined
+        url.searchParams.set('key', spare)
         return url.toString()
       },
       cacheKey: ({ path, params }) => normalizeKey(path, params),
