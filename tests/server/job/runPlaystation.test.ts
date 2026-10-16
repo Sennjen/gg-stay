@@ -145,6 +145,7 @@ describe('runJob and the PlayStation Store', () => {
       full: 'both',
       languages: 'nothing',
       resolve: 'nothing',
+      export: 'nothing',
     })
   })
 

@@ -1,8 +1,23 @@
-import { appendFile } from 'node:fs/promises'
+import { appendFile, mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { appIdsForDocuments, attachAppIds, resolveAppIds, type AppIdMap } from './appIds'
 import { carryPublishedForward, collectCandidates, DEFAULT_CANDIDATE_PAGES } from './candidates'
 import { isoNow, oneLine, type JobClock, type JobDeps, type JobIndex, type JobLog } from './deps'
+import {
+  assertExportOptions,
+  EXPORT_DEFAULT_PAGES,
+  EXPORT_FILE_NAME,
+  EXPORT_MAX_BUDGET,
+  EXPORT_STORES,
+  exportGames,
+  toCsv,
+  type ExportIndex,
+  type ExportReadingEnd,
+  type ExportReport,
+  type ExportRow,
+  type ExportStore,
+} from './export'
 import { LANGUAGE_BUDGET, refreshLanguages } from './languages'
 import {
   OFFER_FLOOR_MIN_CARRIED,
@@ -76,6 +91,10 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  * the index goes (`resolve.ts`). It holds the writer's lock like the others and publishes
  * nothing: no documents, no version, no pointer, no metadata.
  *
+ * A fifth is run by hand as well: `--mode=export` writes every game the job knows, with its store
+ * links and prices, to a CSV file for the workflow to hand out (`export.ts`). It reads the index
+ * and nothing else — no write probe, no lock — and reads RAWG's list pages inside a budget.
+ *
  * Everything that touches the outside world is built here and handed to the stages, so the stages
  * themselves stay testable on fixtures and a fake clock. The run starts with a write probe rather
  * than discovering half way through 3 000 games that it was handed the site's read-only token; it
@@ -85,9 +104,12 @@ import { RedisBatchError } from '../../server/index/upstashIndex'
  * logged.
  */
 
-export type JobMode = 'full' | 'prices' | 'languages' | 'resolve'
+export type JobMode = 'full' | 'prices' | 'languages' | 'resolve' | 'export'
 
-export const JOB_MODES: readonly JobMode[] = ['full', 'prices', 'languages', 'resolve']
+export const JOB_MODES: readonly JobMode[] = ['full', 'prices', 'languages', 'resolve', 'export']
+
+/** Where an export's file is written when `INDEX_EXPORT_DIR` names no directory. */
+export const DEFAULT_EXPORT_DIR = 'games-export'
 
 /** The cursor key the write probe sets and deletes. It never holds anything a reader wants. */
 export const PROBE_STAGE = 'probe'
@@ -125,10 +147,15 @@ export interface JobOptions {
   pages: number
   /** Take the writer lock even when a dead run still holds it. */
   forceUnlock: boolean
-  /** `--mode=resolve` only: the most RAWG requests the run may send. It does not start without. */
+  /**
+   * `--mode=resolve` and `--mode=export` only: the most RAWG requests the run may send. Neither
+   * starts without.
+   */
   budget?: number
   /** `--mode=resolve` only: the first page it reads; `RESOLVE_DEFAULT_FROM_PAGE` when omitted. */
   fromPage?: number
+  /** `--mode=export` only: the directory the file is written to (`INDEX_EXPORT_DIR`). */
+  exportDir?: string
 }
 
 /**
@@ -230,6 +257,8 @@ export interface JobReport {
    * so `outcome` stays `null` for it, in success as in failure.
    */
   resolve?: ResolveReport | null
+  /** What an export run did. Like a resolve run, it publishes nothing. */
+  export?: ExportReport | null
   /** The stage that was running when the run failed, and why. */
   failedStage?: string
   error?: string
@@ -246,6 +275,7 @@ export const PLAYSTATION_ASKS: Record<JobMode, PlaystationAsks> = {
   full: 'both',
   languages: 'nothing',
   resolve: 'nothing',
+  export: 'nothing',
 }
 
 /**
@@ -299,9 +329,39 @@ export function parseArgs(
     }
   }
 
-  pages ??= mode === 'resolve' ? RESOLVE_DEFAULT_PAGES : DEFAULT_CANDIDATE_PAGES
+  pages ??=
+    mode === 'resolve'
+      ? RESOLVE_DEFAULT_PAGES
+      : mode === 'export'
+        ? EXPORT_DEFAULT_PAGES
+        : DEFAULT_CANDIDATE_PAGES
   if (!Number.isInteger(pages) || pages < 1) {
     throw refusal(mode, `--pages must be a positive whole number, got ${pages}.`)
+  }
+  if (mode === 'export') {
+    // An export reads from page 1, always: a first page is a resolve run's, given by mistake.
+    if (fromPage !== '') {
+      throw refusal(mode, '--from-page belongs to --mode=resolve; an export reads from page 1.')
+    }
+    if (budget === '') {
+      throw refusal(
+        mode,
+        '--mode=export needs a budget: the most RAWG requests the run may send ' +
+          `(--budget=N or INDEX_BUDGET, at most ${EXPORT_MAX_BUDGET}).`,
+      )
+    }
+    const requests = wholeNumber(budget)
+    if (requests === null || requests < 1) {
+      throw refusal(mode, `--budget must be a positive whole number, got ${oneLine(budget)}.`)
+    }
+    if (requests > EXPORT_MAX_BUDGET) {
+      throw refusal(
+        mode,
+        `--budget=${requests} is above the most an export may be given (${EXPORT_MAX_BUDGET}).`,
+      )
+    }
+    const exportDir = env.INDEX_EXPORT_DIR?.trim() || DEFAULT_EXPORT_DIR
+    return { mode, pages, forceUnlock, budget: requests, exportDir }
   }
   if (mode !== 'resolve') {
     // Fail closed. The two numbers are a resolve run's alone, so another mode that is handed one
@@ -445,6 +505,71 @@ async function runResolve(
   }
 }
 
+/** The index as an export may see it: the four reads, and no way to write. */
+function readOnlyIndex(index: JobIndex): ExportIndex {
+  return {
+    allGames: () => index.allGames(),
+    meta: () => index.meta(),
+    getAppIds: (ids) => index.getAppIds(ids),
+    getStoreRefs: (ids) => index.getStoreRefs(ids),
+  }
+}
+
+/** Writes the export's file, and makes its directory first. */
+async function saveExport(dir: string, rows: readonly ExportRow[]): Promise<void> {
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, EXPORT_FILE_NAME), toCsv(rows), 'utf8')
+}
+
+/**
+ * An export run, whole. Unlike every other run it takes no lock and begins no version: it only
+ * reads the index, so it writes nothing with whatever token it is given and never makes a
+ * scheduled run wait. It
+ * is refused before anything is read when it has no usable budget or no meter to hold it to one.
+ */
+async function runExport(
+  deps: JobDeps,
+  options: JobOptions,
+  report: (extra?: Partial<JobReport>) => JobReport,
+): Promise<JobReport> {
+  const exportOptions = { budget: options.budget, pages: options.pages }
+  assertExportOptions(exportOptions)
+  const meter = deps.rawgRequests
+  if (!meter) {
+    throw new Error(
+      '--mode=export cannot run without the RAWG request meter: nothing else can hold it to its budget.',
+    )
+  }
+  const named = async <T>(name: string, run: () => Promise<T>): Promise<T> => {
+    try {
+      return await run()
+    } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        stage: name,
+      })
+    }
+  }
+
+  let exported: ExportReport | null = null
+  try {
+    const result = await named('export', () =>
+      exportGames(
+        { rawg: deps.rawg, rawgRequests: meter, index: readOnlyIndex(deps.writer), log: deps.log },
+        exportOptions,
+      ),
+    )
+    exported = result.report
+    await named('writing the file', () =>
+      saveExport(options.exportDir ?? DEFAULT_EXPORT_DIR, result.rows),
+    )
+    return report({ export: exported })
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      report: report({ export: exported }),
+    })
+  }
+}
+
 export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobReport> {
   const startedAt = deps.clock.now()
   deps.log(`index refresh: mode=${options.mode}`)
@@ -467,6 +592,8 @@ export async function runJob(deps: JobDeps, options: JobOptions): Promise<JobRep
 
   // Nothing below is a resolve run's: it has no documents, and publishes none.
   if (options.mode === 'resolve') return runResolve(deps, options, report, stage)
+  // Nor an export's, which reads and writes a file.
+  if (options.mode === 'export') return runExport(deps, options, report)
 
   // The version — and, under the Upstash adapter, the writer lock — is taken first and given back
   // on every path out of this function. An orphaned draft is never swept, and a lock nobody
@@ -1355,9 +1482,81 @@ function formatResolveSummary(report: JobReport): string {
   return [...summaryTable(rows), ...(failed ? HELD_LOCK_HINT : [])].join('\n')
 }
 
+const EXPORT_READING_ENDED: Record<ExportReadingEnd, (report: ExportReport) => string> = {
+  pages: () => 'every page it was given was read',
+  'list-end': () => `RAWG's list ended there`,
+  'page-failed': (report) =>
+    `RAWG failed page ${report.failedPage}; games learned by resolve further down are not in the file`,
+  budget: () => 'the budget was spent; games learned by resolve further down are not in the file',
+}
+
+const EXPORT_STORE_NAMES: Record<ExportStore, string> = {
+  steam: 'Steam',
+  gog: 'GOG',
+  xbox: 'Xbox Store',
+  playstation: 'PlayStation Store',
+}
+
+/**
+ * The summary of an export run: what went into the file, what reading RAWG's pages cost, and for
+ * each store how many games have a link and how many a price, on the site and not on it. Counts
+ * only: the names are in the file.
+ */
+function formatExportSummary(report: JobReport): string {
+  const exported = report.export ?? null
+  const failed = report.error !== undefined || exported === null
+  const rows: [string, string][] = [['Mode', report.mode + (report.dryRun ? ' (dry run)' : '')]]
+  if (failed) {
+    rows.push(
+      ['Result', `failed in ${report.failedStage ?? 'an unknown stage'}`],
+      ['Error', cell(report.error ?? 'unknown')],
+    )
+  }
+  const stores: string[] = []
+  if (exported) {
+    const { games } = exported
+    if (!failed) {
+      rows.push([
+        'Result',
+        `nothing published; ${plural(games.onSite + games.notOnSite, 'game', 'games')} ` +
+          `written to ${EXPORT_FILE_NAME}`,
+      ])
+    }
+    rows.push(
+      ['Games', `${games.onSite} on the site, ${games.notOnSite} learned by resolve and not on it`],
+      [
+        'Pages read',
+        `${exported.pagesRead} of at most ${exported.pages} from page 1; the reading ended ` +
+          `because ${EXPORT_READING_ENDED[exported.readingEnded](exported)}`,
+      ],
+      [
+        'RAWG requests',
+        `${exported.requests} of a budget of ${exported.budget}, retries included; ` +
+          'list pages only, and no store was asked anything',
+      ],
+    )
+    const { onSite, notOnSite } = exported.stores
+    stores.push(
+      '### Store links and prices',
+      '',
+      '| Store | On the site: links | On the site: prices | Not on the site: links | Not on the site: prices |',
+      '| --- | --- | --- | --- | --- |',
+      ...EXPORT_STORES.map(
+        (store) =>
+          `| ${EXPORT_STORE_NAMES[store]} | ${onSite[store].links} | ${onSite[store].prices} | ` +
+          `${notOnSite[store].links} | ${notOnSite[store].prices} |`,
+      ),
+      '',
+    )
+  }
+  rows.push(trafficRow(report), ['Duration', duration(report.durationMs)])
+  return [...summaryTable(rows), ...stores].join('\n')
+}
+
 /** The Markdown GitHub shows on the run's summary page, for a run that reached a verdict. */
 export function formatSummary(report: JobReport): string {
   if (report.mode === 'resolve') return formatResolveSummary(report)
+  if (report.mode === 'export') return formatExportSummary(report)
   const outcome = report.outcome
   const rows: [string, string][] = [['Mode', report.mode + (report.dryRun ? ' (dry run)' : '')]]
 
@@ -1475,6 +1674,7 @@ export function createJobDeps(options: JobDepsOptions): JobDeps {
  */
 function succeeded(report: JobReport): boolean {
   if (report.mode === 'resolve') return report.error === undefined && report.resolve != null
+  if (report.mode === 'export') return report.error === undefined && report.export != null
   return report.outcome?.published === true
 }
 
@@ -1555,7 +1755,9 @@ export async function runCli(
     // A failed run is the one whose traffic is most worth knowing; the catch below has no `deps`.
     writerStats = () => fromEnv.writer.stats?.() ?? null
 
-    await writeProbe(deps)
+    // An export only reads: it has no business proving it may write, and a read-only token
+    // would fail the probe.
+    if (options.mode !== 'export') await writeProbe(deps)
     report = { ...(await runJob(deps, options)), dryRun }
   } catch (error) {
     // The message only: an upstream error object can carry the request it failed on — and the
@@ -1579,6 +1781,7 @@ export async function runCli(
       similarWarning: reached?.similarWarning ?? null,
       tags: reached?.tags ?? null,
       resolve: reached?.resolve ?? null,
+      export: reached?.export ?? null,
       failedStage: typeof named.stage === 'string' ? named.stage : 'start-up',
       error: message,
     }
